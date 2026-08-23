@@ -32,6 +32,8 @@ export const StageConfigSchema = z.object({
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),
+    /** Name of the registered verifier to run at the exit condition. Defaults to the stage's own name. */
+    verifier: z.string().optional(),
     maxSteps: z.number().int().min(1).default(60),
     maxOutputTokens: z.number().int().min(1024).default(16000),
     onPass: z.string(),
@@ -105,5 +107,5 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
     if (!stage) {
         throw new StageConfigError(`no stage named "${name}" in stages.yaml (have: ${stages.stages.map(s => s.name).join(', ')})`);
     }
-    return stage;
+    return { ...stage, verifier: stage.verifier ?? stage.name };
 };

@@ -1,14 +1,7 @@
 import { Injectable } from 'injectkit';
-import { ScopeGuard } from '#modules/agent/scope.guard.js';
-import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
-import type { StageConfig } from './stage.config.js';
-
-export interface VerificationInput {
-    worktree: Worktree;
-    scope: ScopeGuard;
-    stage: StageConfig;
-}
+import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
 
 /**
  * The implementing stage's exit condition, in order, all three required.
@@ -23,10 +16,10 @@ export interface VerificationInput {
  * build step that wrote outside its lane.
  */
 @Injectable()
-export class ImplementingVerifier {
+export class ImplementingVerifier implements StageVerifier {
     constructor(private readonly worktrees: WorktreeManager) {}
 
-    async verify({ worktree, scope, stage }: VerificationInput): Promise<{ passed: boolean; failures: string[]; changedPaths: string[] }> {
+    async verify({ worktree, scope, stage }: VerificationInput): Promise<VerificationOutcome> {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 

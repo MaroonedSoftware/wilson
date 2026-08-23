@@ -14,10 +14,10 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { buildTools, REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import { ImplementingVerifier } from './implementing.verifier.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
+import { StageVerifierMap } from './stage.verifier.js';
 
 /**
  * The agent's report, read back off the step where it called the report tool.
@@ -50,7 +50,7 @@ export class StageDispatcher {
         private readonly board: BoardRepository,
         private readonly worktrees: WorktreeManager,
         private readonly models: ModelRegistry,
-        private readonly verifier: ImplementingVerifier,
+        private readonly verifiers: StageVerifierMap,
         private readonly events: EventLog,
         private readonly logger: Logger,
     ) {}
@@ -223,7 +223,13 @@ export class StageDispatcher {
             ].join('\n'),
         });
 
-        const verification = await this.verifier.verify({ worktree, scope, stage });
+        const verifier = this.verifiers.get(stage.verifier ?? stage.name);
+        if (!verifier) {
+            throw new Error(
+                `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
+            );
+        }
+        const verification = await verifier.verify({ worktree, scope, stage });
         const failures = [...verification.failures];
         const reported = reportedResult(run.steps);
 
