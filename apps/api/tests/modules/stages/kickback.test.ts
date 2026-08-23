@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kickback } from '#modules/stages/kickback.js';
+import { kickback, shouldAdvance } from '#modules/stages/kickback.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
@@ -94,5 +94,33 @@ describe('kickback', () => {
 
         expect(decision.retries.testing).toBe(1);
         expect(decision.target).toBe('needs-human');
+    });
+});
+
+describe('shouldAdvance', () => {
+    it('never advances a failed stage, no matter what the result carries', () => {
+        expect(shouldAdvance(false, undefined)).toBe(false);
+        expect(shouldAdvance(false, { verdict: 'pass' })).toBe(false);
+    });
+
+    it('advances a passing stage whose result carries no verdict at all', () => {
+        expect(shouldAdvance(true, undefined)).toBe(true);
+        expect(shouldAdvance(true, {})).toBe(true);
+        expect(shouldAdvance(true, { summary: 'implemented the thing' })).toBe(true);
+    });
+
+    it('advances a passing review that passes', () => {
+        expect(shouldAdvance(true, { verdict: 'pass' })).toBe(true);
+    });
+
+    it('does not advance a passing review that asks for revision', () => {
+        // A `revise` verdict is a well-formed, passing review result — the review itself did what it
+        // was asked. The card still must go backward, which is exactly the case a plain `passed` flag
+        // cannot distinguish.
+        expect(shouldAdvance(true, { verdict: 'revise' })).toBe(false);
+    });
+
+    it('treats a null result the same as an absent one', () => {
+        expect(shouldAdvance(true, null)).toBe(true);
     });
 });
