@@ -129,6 +129,9 @@ importers:
       injectkit:
         specifier: ^1.7.0
         version: 1.7.0
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
       pg:
         specifier: ^8.23.0
         version: 8.23.0
@@ -142,6 +145,9 @@ importers:
       '@repo/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
+      '@types/luxon':
+        specifier: ^3.7.2
+        version: 3.7.5
       '@types/pg':
         specifier: ^8.20.0
         version: 8.23.1
