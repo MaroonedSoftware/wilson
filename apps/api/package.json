@@ -1,5 +1,5 @@
 {
-    "name": "@kanban/api",
+    "name": "@wilson/api",
     "private": true,
     "type": "module",
     "main": "src/index.ts",

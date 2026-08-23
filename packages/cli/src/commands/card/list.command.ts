@@ -1,13 +1,13 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository } from '@kanban/api/cli-bootstrap';
+import { BoardRepository } from '@wilson/api/cli-bootstrap';
 
 const command: CommandModule = {
     description: 'List every card on the board with its stage',
     run: requireContainer(async (_opts, ctx) => {
         const cards = await ctx.container.get(BoardRepository).list();
         if (cards.length === 0) {
-            ctx.logger.info('no cards yet — `wizard board init` scaffolds the board, then write one by hand');
+            ctx.logger.info('no cards yet — `wilson board init` scaffolds the board, then write one by hand');
             return 0;
         }
 

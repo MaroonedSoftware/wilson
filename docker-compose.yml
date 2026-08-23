@@ -2,15 +2,15 @@ services:
     db:
         image: postgres:17
         restart: always
-        container_name: kanban-db
+        container_name: wilson-db
         ports:
             - '15532:5432'
         environment:
             POSTGRES_USER: postgres
             POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: kanban
+            POSTGRES_DB: wilson
         healthcheck:
-            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'kanban']
+            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'wilson']
             interval: 5s
             timeout: 5s
             start_period: 10s
@@ -21,18 +21,18 @@ services:
     db-test:
         image: postgres:17
         restart: always
-        container_name: kanban-test-db
+        container_name: wilson-test-db
         ports:
             - '15533:5432'
         environment:
             POSTGRES_USER: postgres
             POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: kanban_test
+            POSTGRES_DB: wilson_test
         command: ['postgres', '-c', 'fsync=off', '-c', 'synchronous_commit=off', '-c', 'full_page_writes=off']
         tmpfs:
             - /var/lib/postgresql/data
         healthcheck:
-            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'kanban_test']
+            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'wilson_test']
             interval: 5s
             timeout: 5s
             start_period: 10s

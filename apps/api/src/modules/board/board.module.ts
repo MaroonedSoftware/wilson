@@ -14,7 +14,7 @@ export const BoardModule: ServerKitModule = {
 
         registry.register(BoardConfig).useInstance(
             new StaticBoardConfig(
-                optionalConfigString(config, 'PROJECT_NAME') ?? 'kanban',
+                optionalConfigString(config, 'PROJECT_NAME') ?? 'wilson',
                 boardRoot,
                 codeRoot,
                 // Worktrees live beside the code repo rather than inside it, so a stray `git add

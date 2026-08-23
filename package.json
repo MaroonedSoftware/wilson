@@ -1,5 +1,5 @@
 {
-    "name": "kanban",
+    "name": "wilson",
     "private": true,
     "scripts": {
         "build": "turbo run build",
@@ -13,7 +13,7 @@
         "migrate:down": "turbo run migrate:down",
         "migrate:down:all": "turbo run migrate:down:all",
         "db:reset": "docker compose rm -sfv db && docker compose up -d --wait db && turbo run migrate:up",
-        "wizard": "pnpm --filter @kanban/cli exec node --no-warnings --import @swc-node/register/esm-register ./src/index.ts"
+        "wilson": "pnpm --filter @wilson/cli exec node --no-warnings --import @swc-node/register/esm-register ./src/index.ts"
     },
     "devDependencies": {
         "@types/node": "^26.1.0",

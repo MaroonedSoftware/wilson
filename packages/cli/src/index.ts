@@ -4,7 +4,7 @@ import { createCliApp, type CommandModule, type CommandRegistration } from '@mar
 import { nodeVersion } from '@maroonedsoftware/johnny5/versions';
 import { envFile } from '@maroonedsoftware/johnny5/filesystem';
 import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
-import { buildConfig, modules } from '@kanban/api/cli-bootstrap';
+import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
 
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
@@ -26,8 +26,8 @@ const reg = <O>(path: string[], module: CommandModule<O>): CommandRegistration =
 });
 
 const app = await createCliApp({
-    name: 'wizard',
-    description: 'kanban runner — doctor, board and card commands',
+    name: 'wilson',
+    description: 'wilson runner — doctor, board and card commands',
     version: '0.0.1',
     config: buildConfig,
     // ServerKitModule's setup/start take a concrete Registry/Container; johnny5 types them as

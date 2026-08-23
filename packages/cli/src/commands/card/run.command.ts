@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { StageDispatcher } from '@kanban/api/cli-bootstrap';
+import { StageDispatcher } from '@wilson/api/cli-bootstrap';
 
 interface RunOpts {
     stage?: string;

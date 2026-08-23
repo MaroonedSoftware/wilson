@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig } from '@kanban/api/cli-bootstrap';
+import { BoardConfig } from '@wilson/api/cli-bootstrap';
 
 const exec = promisify(execFile);
 
@@ -42,7 +42,7 @@ const command: CommandModule = {
         await exec('git', ['commit', '-q', '-m', 'Initialise board'], { cwd: root }).catch(() => undefined);
 
         ctx.logger.info(`board initialised at ${root}`);
-        ctx.logger.info('Write a card by hand in cards/, then: wizard card run <id>');
+        ctx.logger.info('Write a card by hand in cards/, then: wilson card run <id>');
         return 0;
     }),
 };

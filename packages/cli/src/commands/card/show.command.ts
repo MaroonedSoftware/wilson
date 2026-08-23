@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository, EventLog, BoardConfig, filesInScope } from '@kanban/api/cli-bootstrap';
+import { BoardRepository, EventLog, BoardConfig, filesInScope } from '@wilson/api/cli-bootstrap';
 
 interface ShowOpts {
     json?: boolean;
