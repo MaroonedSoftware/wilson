@@ -154,6 +154,33 @@ describe('WorktreeManager', () => {
         });
     });
 
+    describe('uncommittedPaths', () => {
+        // `changedPaths` measures from the fork point, so on a resumed branch it describes the whole
+        // card and is never empty. A read-only stage has to be judged on what *it* wrote.
+        it('is empty on a clean resumed branch, where changedPaths is not', async () => {
+            const first = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(first.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await manager.commit(first, '0001: implementing');
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+
+            await expect(manager.uncommittedPaths(resumed)).resolves.toEqual([]);
+            await expect(manager.changedPaths(resumed)).resolves.toEqual(['src/feature.ts']);
+        });
+
+        it('reports a file the stage modified', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/index.ts']);
+        });
+
+        it('reports a file the stage created', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'new.ts'), 'export const n = 1;\n', 'utf8');
+            await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/new.ts']);
+        });
+    });
+
     describe('resume', () => {
         // Every stage after the first works on the tree the previous stage produced. `create` uses
         // -B, which resets the branch — running the testing stage through it would delete the very

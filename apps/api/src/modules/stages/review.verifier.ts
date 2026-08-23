@@ -20,10 +20,14 @@ export class ReviewVerifier implements StageVerifier {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
-        // A reviewer does not edit. Checked before the parse below, so a reviewer that both wrote
-        // files and returned garbage gets both failures rather than only the first one found.
-        if (changedPaths.length > 0) {
-            failures.push(`the review stage changed files, which a reviewer must not do: ${changedPaths.join(', ')}`);
+        // A reviewer does not edit. This asks what *this stage* wrote, not what the card changed:
+        // the review stage resumes the card's branch, so `changedPaths` measures from the fork point
+        // and is never empty — it is the diff under review, and the findings must cite it.
+        // Checked before the parse below, so a reviewer that both wrote files and returned garbage
+        // gets both failures rather than only the first one found.
+        const written = await this.worktrees.uncommittedPaths(worktree);
+        if (written.length > 0) {
+            failures.push(`the review stage changed files, which a reviewer must not do: ${written.join(', ')}`);
         }
 
         const parsed = ReviewResultSchema.safeParse(result);

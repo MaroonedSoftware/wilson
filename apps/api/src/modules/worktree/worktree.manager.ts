@@ -123,6 +123,23 @@ export class WorktreeManager {
         return (await git(worktree.path, ['rev-parse', 'HEAD'])).stdout.trim();
     }
 
+    /**
+     * Paths this stage has touched but not committed, relative to the worktree root.
+     *
+     * Distinct from `changedPaths`, which measures from the fork point and therefore describes the
+     * whole card across every stage. On a resumed branch that list is never empty, so it cannot
+     * answer "did *this* stage write anything" — which is exactly what a read-only stage must be
+     * held to.
+     */
+    async uncommittedPaths(worktree: Worktree): Promise<string[]> {
+        const { stdout } = await git(worktree.path, ['status', '--porcelain']);
+        return stdout
+            .split('\n')
+            .map(line => line.slice(3).trim())
+            .filter(Boolean)
+            .sort();
+    }
+
     /** Paths changed on the branch since it was cut, relative to the worktree root. */
     async changedPaths(worktree: Worktree): Promise<string[]> {
         // --diff-filter excludes nothing: a stage that deletes a file is as much a change as one
