@@ -154,6 +154,28 @@ describe('WorktreeManager', () => {
         });
     });
 
+    describe('hasWork', () => {
+        // Decides whether a stage resumes or starts fresh. A card kicked back from review carries
+        // findings citing file:line on its own branch; rebuilding from base would discard the work
+        // those findings are about.
+        it('is false for a branch that does not exist', async () => {
+            await expect(manager.hasWork('card/9999-nothing')).resolves.toBe(false);
+        });
+
+        it('is false for a branch cut but never committed to', async () => {
+            await manager.create('0001', 'card/0001-thing');
+            await expect(manager.hasWork('card/0001-thing')).resolves.toBe(false);
+        });
+
+        it('is true once a stage has committed to it', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            await expect(manager.hasWork('card/0001-thing')).resolves.toBe(true);
+        });
+    });
+
     describe('uncommittedPaths', () => {
         // `changedPaths` measures from the fork point, so on a resumed branch it describes the whole
         // card and is never empty. A read-only stage has to be judged on what *it* wrote.
@@ -209,7 +231,7 @@ describe('WorktreeManager', () => {
             await expect(manager.changedPaths(resumed)).resolves.toEqual(['src/feature.ts']);
         });
 
-        it('refuses when the branch does not exist, naming the likely cause', async () => {
+        it('refuses when the branch has no work, naming the likely cause', async () => {
             await expect(manager.resume('0009', 'card/0009-never-ran')).rejects.toThrow(/has an earlier stage run/);
         });
     });

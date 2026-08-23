@@ -75,12 +75,8 @@ export class WorktreeManager {
      * everything the card has changed since it started, across all of its stages.
      */
     async resume(cardId: string, branch: string): Promise<Worktree> {
-        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', branch]).then(
-            () => true,
-            () => false,
-        );
-        if (!exists) {
-            throw new Error(`this stage resumes the card's branch, but ${branch} does not exist — has an earlier stage run for this card?`);
+        if (!(await this.hasWork(branch))) {
+            throw new Error(`this stage resumes the card's branch, but ${branch} has no work on it — has an earlier stage run for this card?`);
         }
 
         await this.reclaim(cardId);
@@ -93,6 +89,24 @@ export class WorktreeManager {
         await git(this.config.codeRoot, ['worktree', 'add', path, branch]);
         this.logger.info(`worktree ${path} resumed on ${branch}, forked at ${baseSha.slice(0, 8)}`);
         return { path, branch, baseSha };
+    }
+
+    /**
+     * Whether the card's branch exists and carries commits of its own.
+     *
+     * Only a *passing* stage commits, so a branch with work on it is a branch holding the last state
+     * that satisfied an exit condition. That makes resuming safe in every case where the branch
+     * exists, and is why a first stage cuts from base only when there is nothing to resume.
+     */
+    async hasWork(branch: string): Promise<boolean> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', branch]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) return false;
+
+        const { stdout } = await git(this.config.codeRoot, ['rev-list', '--count', `HEAD..${branch}`]);
+        return Number(stdout.trim()) > 0;
     }
 
     /** Remove a card's worktree and its git bookkeeping. Safe to call when there is nothing there. */
