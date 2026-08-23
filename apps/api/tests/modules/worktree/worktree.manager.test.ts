@@ -124,6 +124,36 @@ describe('WorktreeManager', () => {
         expect(stdout).not.toContain('0001');
     });
 
+    describe('commit', () => {
+        // A stage's work only ever exists as uncommitted changes in a worktree. The next stage's
+        // resume reclaims the directory first, so without committing, the hand-off deletes it.
+        it('commits everything the stage produced, tracked and untracked alike', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'export const y = 1;\n', 'utf8');
+
+            const sha = await manager.commit(worktree, '0001: implementing');
+
+            expect(sha).toBeDefined();
+            const { stdout } = await exec('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: worktree.path });
+            expect(stdout.split('\n').filter(Boolean).sort()).toEqual(['src/added.ts', 'src/index.ts']);
+        });
+
+        it('survives the round trip through resume', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+            expect(existsSync(join(resumed.path, 'src', 'feature.ts'))).toBe(true);
+        });
+
+        it('returns undefined when the stage changed nothing, rather than making an empty commit', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await expect(manager.commit(worktree, '0001: implementing')).resolves.toBeUndefined();
+        });
+    });
+
     describe('resume', () => {
         // Every stage after the first works on the tree the previous stage produced. `create` uses
         // -B, which resets the branch — running the testing stage through it would delete the very
@@ -131,8 +161,7 @@ describe('WorktreeManager', () => {
         it('keeps commits an earlier stage made on the branch', async () => {
             const first = await manager.create('0001', 'card/0001-thing');
             await writeFile(join(first.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
-            await exec('git', ['add', '-A'], { cwd: first.path });
-            await exec('git', ['commit', '-q', '-m', 'implementing'], { cwd: first.path });
+            await manager.commit(first, 'implementing');
 
             const resumed = await manager.resume('0001', 'card/0001-thing');
 

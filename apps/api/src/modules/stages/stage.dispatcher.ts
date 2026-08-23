@@ -19,6 +19,12 @@ import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
+/** The stage's own summary, for the commit message body. */
+const describe = (result: unknown): string => {
+    const summary = (result as { summary?: string } | undefined)?.summary;
+    return summary && summary.trim().length > 0 ? summary.trim() : 'No summary reported.';
+};
+
 /**
  * The agent's report, read back off the step where it called the report tool.
  *
@@ -122,6 +128,24 @@ export class StageDispatcher {
 
         try {
             const outcome = await this.runAgent({ card, stage, worktree, scope, planPath, stages });
+
+            // Only a passing stage commits. A failed stage leaves its work in the worktree for
+            // inspection, and the next attempt starts from the base rather than building on a tree
+            // that did not satisfy its exit condition.
+            if (outcome.passed) {
+                const sha = await this.worktrees.commit(worktree, `${cardId}: ${stageName}\n\n${describe(outcome.result)}`);
+                if (sha) {
+                    await this.events.append({
+                        project: this.config.project,
+                        cardId,
+                        stage: stageName,
+                        type: 'work.committed',
+                        payload: { sha, branch },
+                    });
+                    this.logger.info(`committed ${sha.slice(0, 8)} to ${branch}`);
+                }
+            }
+
             await this.events.append({
                 project: this.config.project,
                 cardId,

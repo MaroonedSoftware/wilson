@@ -104,6 +104,25 @@ export class WorktreeManager {
         await git(this.config.codeRoot, ['worktree', 'prune']).catch(() => undefined);
     }
 
+    /**
+     * Commit whatever the stage produced to the card's branch.
+     *
+     * Without this a stage's work only ever exists as uncommitted changes in a worktree, and the
+     * next stage's `resume` — which reclaims the directory first — deletes it. Committing is what
+     * makes the branch the hand-off between stages rather than a label on an empty ref.
+     *
+     * The runner commits, never the agent: the agent has no git command in its allowlist, and
+     * decision 5 makes the runner the sole writer of what a card has produced.
+     */
+    async commit(worktree: Worktree, message: string): Promise<string | undefined> {
+        await git(worktree.path, ['add', '-A']);
+        const staged = await git(worktree.path, ['diff', '--cached', '--name-only']);
+        if (staged.stdout.trim().length === 0) return undefined;
+
+        await git(worktree.path, ['commit', '-m', message]);
+        return (await git(worktree.path, ['rev-parse', 'HEAD'])).stdout.trim();
+    }
+
     /** Paths changed on the branch since it was cut, relative to the worktree root. */
     async changedPaths(worktree: Worktree): Promise<string[]> {
         // --diff-filter excludes nothing: a stage that deletes a file is as much a change as one
