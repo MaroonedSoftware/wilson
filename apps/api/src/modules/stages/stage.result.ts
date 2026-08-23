@@ -35,6 +35,8 @@ export const ReviewResultSchema = z.object({
 
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
+export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+
 /**
  * Stage name (or its `verifier` override) -> the schema its report tool enforces.
  *
@@ -51,4 +53,6 @@ export interface StageOutcome {
     scopeGrants: string[];
     result?: unknown;
     usage?: { inputTokens?: number; outputTokens?: number };
+    /** Where the runner moved the card after this stage, when it moved it at all. */
+    transitionedTo?: string;
 }

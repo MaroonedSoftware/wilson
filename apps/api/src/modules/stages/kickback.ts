@@ -20,3 +20,17 @@ export const kickback = (stage: StageConfig, retries: Record<string, number>): K
     const target = attempts >= stage.maxKickbacks ? 'needs-human' : stage.onFail;
     return { target, retries: nextRetries };
 };
+
+/**
+ * Whether a finished stage should move the card forward.
+ *
+ * A passing stage is not the same as an advancing card: a review that returns `verdict: 'revise'`
+ * satisfied its own exit condition — it is a well-formed review — but the card must still go
+ * backward. A result with no `verdict` field at all, as implementing and testing return, carries
+ * nothing that could block advancing.
+ */
+export const shouldAdvance = (passed: boolean, result: unknown): boolean => {
+    if (!passed) return false;
+    const verdict = (result as { verdict?: unknown } | null | undefined)?.verdict;
+    return verdict !== 'revise';
+};

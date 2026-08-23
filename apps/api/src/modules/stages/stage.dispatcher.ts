@@ -5,6 +5,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
@@ -14,15 +15,22 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { buildTools, REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { kickback, shouldAdvance } from './kickback.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
-import { StageResultSchemaMap, type StageOutcome } from './stage.result.js';
+import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
     const summary = (result as { summary?: string } | undefined)?.summary;
     return summary && summary.trim().length > 0 ? summary.trim() : 'No summary reported.';
+};
+
+/** The findings a review carries, when its result carries any. Other stages report none. */
+const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
+    const findings = (result as { findings?: unknown } | undefined)?.findings;
+    return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
 };
 
 /**
@@ -45,9 +53,9 @@ const reportedResult = (steps: readonly { toolCalls?: readonly { toolName: strin
  * Takes a stage config object even though exactly one stage is configured, because that is the seam
  * that keeps "stages are config, not code" true when the testing stage lands as card one.
  *
- * The runner is the sole writer of transitions (PROJECT.md decision 5). This method verifies and
- * reports; it does not move the card. Step 0 leaves the transition to the human reviewing the
- * branch, which is exactly the fallback the walking skeleton is built around.
+ * The runner is the sole writer of transitions (PROJECT.md decision 5): an agent stage that
+ * finishes moves the card itself, forward on a pass or back on a kickback. A `manual` stage is a
+ * human gate the runner leaves alone.
  */
 @Injectable()
 export class StageDispatcher {
@@ -169,7 +177,13 @@ export class StageDispatcher {
                     result: outcome.result ?? null,
                 },
             });
-            return outcome;
+
+            if (stage.mode !== 'agent') {
+                return outcome;
+            }
+
+            const transitionedTo = await this.writeTransition(cardId, stageName, stage, card, outcome);
+            return { ...outcome, transitionedTo };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             await this.events.append({
@@ -181,6 +195,43 @@ export class StageDispatcher {
             });
             throw err;
         }
+    }
+
+    /**
+     * Move the card: forward on a pass, back on a kickback, and record why either way.
+     *
+     * The runner is the sole writer of card state (PROJECT.md decision 5) — this always goes through
+     * `BoardRepository.write`, never a direct edit of the file. A failure here is not swallowed: the
+     * stage's own `stage.passed`/`stage.failed` event is already recorded, but a transition that did
+     * not happen must surface, so this throws rather than catching.
+     */
+    private async writeTransition(
+        cardId: string,
+        stageName: string,
+        stage: StageConfig,
+        card: Card,
+        outcome: StageOutcome,
+    ): Promise<string> {
+        const decision = shouldAdvance(outcome.passed, outcome.result)
+            ? { target: stage.onPass, retries: card.frontmatter.retries }
+            : kickback(stage, card.frontmatter.retries);
+        const findings = findingsFrom(outcome.result);
+
+        await this.board.write(cardId, `${cardId}: ${stageName} -> ${decision.target}`, current => ({
+            ...current,
+            frontmatter: { ...current.frontmatter, stage: decision.target, retries: decision.retries },
+            body: findings ? withFindings(current.body, findings) : current.body,
+        }));
+
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'transition.written',
+            payload: { from: stageName, to: decision.target, retries: decision.retries, by: 'runner' },
+        });
+
+        return decision.target;
     }
 
     private assertDispatchable(card: Card, stage: StageConfig): void {
