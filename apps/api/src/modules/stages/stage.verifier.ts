@@ -8,6 +8,8 @@ export interface VerificationInput {
     stage: StageConfig;
     /** The card being verified. Only the testing verifier's baseline check uses it. */
     cardId: string;
+    /** The stage's reported result, exactly as read off the report tool call. Unparsed until a verifier validates it against its own schema. */
+    result: unknown;
 }
 
 export interface VerificationOutcome {
