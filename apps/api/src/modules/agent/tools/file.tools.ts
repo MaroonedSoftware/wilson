@@ -4,7 +4,9 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import type { ToolContext } from './tool.context.js';
 
-const MAX_READ_BYTES = 512 * 1024;
+// A read that returns half a megabyte is a read whose content will be resent on every later step.
+const MAX_READ_BYTES = 64 * 1024;
+const MAX_READ_LINES = 800;
 
 /**
  * Read, write and edit, all confined to the worktree.
@@ -35,8 +37,11 @@ export const fileTools = (ctx: ToolContext) => ({
 
             const lines = raw.split('\n');
             const start = (offset ?? 1) - 1;
-            const slice = lines.slice(start, limit ? start + limit : undefined);
-            return slice.map((line, i) => `${start + i + 1}\t${line}`).join('\n');
+            const end = limit ? start + limit : start + MAX_READ_LINES;
+            const slice = lines.slice(start, end);
+            const body = slice.map((line, i) => `${start + i + 1}\t${line}`).join('\n');
+            const remaining = lines.length - (start + slice.length);
+            return remaining > 0 ? `${body}\n… ${remaining} more lines; re-read with offset ${start + slice.length + 1}` : body;
         },
     }),
 

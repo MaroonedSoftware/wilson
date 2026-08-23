@@ -8,6 +8,7 @@ import { BoardRepository } from '#modules/board/board.repository.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { compactMessages } from '#modules/agent/compact.messages.js';
 import { ModelRegistry } from '#modules/agent/model.registry.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { buildTools, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
@@ -189,6 +190,8 @@ export class StageDispatcher {
             // Two bounds on spend, because retry limits bound the loop count and not the cost.
             stopWhen: stepCountIs(stage.maxSteps),
             maxOutputTokens: stage.maxOutputTokens,
+            // Without this the conversation grows until the provider refuses it outright.
+            prepareStep: ({ messages }) => ({ messages: compactMessages(messages) }),
             output: Output.object({ schema: ImplementingResultSchema }),
         });
 

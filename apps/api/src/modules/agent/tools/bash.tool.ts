@@ -6,7 +6,10 @@ import type { ToolContext } from './tool.context.js';
 
 const exec = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-const MAX_OUTPUT = 64 * 1024;
+const MAX_OUTPUT = 512 * 1024;
+// What is handed back to the model, as opposed to what the process may produce. A build log's
+// signal is at its head and tail; the middle is resent on every later step for nothing.
+const MAX_RETURNED = 12 * 1024;
 
 /**
  * Run one of the commands this stage is allowed to run.
@@ -51,13 +54,20 @@ export const bashTool = (ctx: ToolContext) =>
                 if (e.killed) return `error: command timed out`;
                 // A non-zero exit is information the agent needs, not a tool failure — return the
                 // output so it can read the compiler error it just caused.
-                return [`exit code ${e.code ?? 'unknown'}`, e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n\n');
+                return clamp([`exit code ${e.code ?? 'unknown'}`, e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n\n'));
             }
 
             const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n');
-            return output.length > 0 ? output : 'exit code 0 (no output)';
+            return output.length > 0 ? clamp(output) : 'exit code 0 (no output)';
         },
     });
+
+/** Keep the head and tail of a long output; a build log's signal lives at both ends. */
+const clamp = (output: string): string => {
+    if (output.length <= MAX_RETURNED) return output;
+    const half = Math.floor(MAX_RETURNED / 2);
+    return `${output.slice(0, half)}\n\n… ${output.length - MAX_RETURNED} characters elided …\n\n${output.slice(-half)}`;
+};
 
 /**
  * The environment a stage command runs with.

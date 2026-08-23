@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { ToolContext } from './tool.context.js';
 
 const exec = promisify(execFile);
-const MAX_RESULTS = 200;
+const MAX_RESULTS = 100;
 
 /**
  * Discovery, so the agent can find code without reading whole files into context.
