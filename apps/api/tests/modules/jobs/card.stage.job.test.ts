@@ -7,6 +7,7 @@ import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
+import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 
@@ -45,6 +46,7 @@ describe('CardStageJob', () => {
     let dispatcher: { run: ReturnType<typeof vi.fn> };
     let broker: { send: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn> };
     let job: CardStageJob;
 
     beforeEach(async () => {
@@ -57,8 +59,15 @@ describe('CardStageJob', () => {
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => {}) };
         events = { append: vi.fn(async () => {}) };
+        boardRepo = { write: vi.fn(async () => 'sha') };
 
-        job = new CardStageJob(dispatcher as unknown as StageDispatcher, broker as unknown as JobBroker, board, events as unknown as EventLog);
+        job = new CardStageJob(
+            dispatcher as unknown as StageDispatcher,
+            broker as unknown as JobBroker,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+        );
     });
 
     it('does nothing when the dispatcher leaves the stage un-transitioned (a manual gate)', async () => {
@@ -126,5 +135,39 @@ describe('CardStageJob', () => {
         await job.run({ cardId: '0042', stageName: 'implementing' });
 
         expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing');
+    });
+
+    describe('permanent failures', () => {
+        // pg-boss retries a thrown job. That is right for a timeout and pure waste for an exhausted
+        // balance, which this project watched burn three retry cycles — each one cutting a worktree
+        // and installing dependencies before failing at the first model call.
+        it('poisons the card and does not throw, so the queue does not retry', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new Error('Your credit balance is too low to access the Anthropic API.');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
+        });
+
+        it('rethrows a transient failure so the queue retries it', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new Error('socket hang up');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).rejects.toThrow('socket hang up');
+            expect(boardRepo.write).not.toHaveBeenCalled();
+        });
+
+        it('does not enqueue anything after poisoning', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new Error('Not logged in · Please run /login');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+            expect(broker.send).not.toHaveBeenCalled();
+        });
     });
 });
