@@ -70,6 +70,19 @@ describe('checkCounts', () => {
 });
 
 describe('baselineProvesChange', () => {
+    // The case that matters, measured rather than assumed: a new test that cannot import the
+    // code it tests makes vitest exit 1 *and* write a parseable report saying numFailedTests: 0,
+    // because a collection error is not a failed test. Reading the report as authoritative
+    // whenever it parsed made the first real run report that the tests passed against the
+    // pre-change tree when they had never run there at all.
+    it('trusts a non-zero exit even when the report parsed and counted no failures', () => {
+        expect(baselineProvesChange({ total: 0, passed: 0, failed: 0, skipped: 0 }, true)).toBe(true);
+    });
+
+    it('rejects a clean exit with no failures, which is a test that proves nothing', () => {
+        expect(baselineProvesChange({ total: 4, passed: 4, failed: 0, skipped: 0 }, false)).toBe(false);
+    });
+
     it('passes when the baseline run had at least one failure', () => {
         expect(baselineProvesChange({ total: 1, passed: 0, failed: 1, skipped: 0 }, false)).toBe(true);
     });

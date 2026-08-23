@@ -33,12 +33,17 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
 /**
  * Whether a baseline run proves the copied tests exercise this card's change.
  *
- * A parseable report with zero failures proves nothing: the tests ran against the pre-change tree
- * and passed, which is exactly what this check exists to catch. A new test that fails to even
- * import — because it references code the card hasn't written yet — never produces a parseable
- * report at all; a non-zero exit in that case is itself the proof, and is the common case.
+ * Either signal suffices, and the exit code is not merely a fallback for a missing report. A new
+ * test that cannot import the code it tests — the common case, since the card has not written that
+ * code in the pre-change tree — makes vitest exit non-zero while writing a perfectly parseable
+ * report saying `numFailedTests: 0`. A collection error is not a failed test. Treating the report as
+ * authoritative whenever it parsed is what made the first real run of this check report that the
+ * tests passed against the pre-change tree when they had not run there at all.
+ *
+ * A parseable report with zero failures and a clean exit proves nothing: the tests ran against the
+ * pre-change tree and passed, which is exactly what this check exists to catch.
  */
-export const baselineProvesChange = (counts: TestCounts | undefined, exitedNonZero: boolean): boolean => (counts ? counts.failed > 0 : exitedNonZero);
+export const baselineProvesChange = (counts: TestCounts | undefined, exitedNonZero: boolean): boolean => (counts?.failed ?? 0) > 0 || exitedNonZero;
 
 /**
  * The testing stage's exit condition: the suite is green, the test count has not dropped, no new
