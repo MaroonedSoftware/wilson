@@ -78,7 +78,14 @@ export class StageDispatcher {
         this.assertDispatchable(card, stage);
 
         const branch = this.worktrees.branchName(cardId, card.frontmatter.title);
-        const worktree = stage.worktreeFrom === 'branch' ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
+
+        // `base` means "start fresh if there is nothing to resume", not "always discard". A card
+        // kicked back from review carries findings citing file:line on its own branch; rebuilding
+        // from scratch throws away the work those findings are about, and any tests a later stage
+        // already wrote. Since only a passing stage commits, a branch carrying work is by
+        // construction the last state that satisfied an exit condition, so resuming is always safe.
+        const resumable = stage.worktreeFrom === 'branch' || (await this.worktrees.hasWork(branch));
+        const worktree = resumable ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
         await this.events.append({
             project: this.config.project,
             cardId,
