@@ -4,8 +4,11 @@
     "type": "module",
     "private": true,
     "main": "src/index.ts",
-    "bin": { "wizard": "./src/index.ts" },
+    "bin": {
+        "wizard": "./src/index.ts"
+    },
     "scripts": {
+        "build": "tsc --noEmit",
         "wizard": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
         "lint": "eslint --fix"
     },
