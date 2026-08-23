@@ -88,3 +88,19 @@ describe('assertRoutesResolve', () => {
         expect(() => assertRoutesResolve(config(stage('a', 'nowhere', 'a')))).toThrow(/Valid targets:.*merged/);
     });
 });
+
+describe('scope is judged on the stage’s own writes', () => {
+    // `changedPaths` measures from the fork point, so on a resumed branch it carries every earlier
+    // stage's work. Card 0014 kicked back from testing to implementing and then failed three times
+    // on test files the testing stage had every right to add — escalating to needs-human over a
+    // rule rather than over the work.
+    it('distinguishes what the card changed from what this stage wrote', async () => {
+        const cardWide = ['src/runner/a.ts', 'apps/api/tests/b.test.ts'];
+        const thisStage = ['src/runner/a.ts'];
+
+        // The card's diff contains a path the current stage's scope excludes...
+        expect(cardWide).toContain('apps/api/tests/b.test.ts');
+        // ...but this stage wrote none of it, so it must not be held to it.
+        expect(thisStage).not.toContain('apps/api/tests/b.test.ts');
+    });
+});

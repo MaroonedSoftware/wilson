@@ -23,11 +23,20 @@ export class ImplementingVerifier implements StageVerifier {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
-        if (changedPaths.length === 0) {
+        // What *this stage* wrote, as opposed to what the card has changed. A stage only commits on
+        // pass, so at verification time its own work is exactly the uncommitted set.
+        const written = await this.worktrees.uncommittedPaths(worktree);
+
+        if (written.length === 0) {
             failures.push('the diff is empty: the stage changed nothing');
         }
 
-        for (const path of changedPaths) {
+        // Scope is judged against this stage's own writes, never the card's whole diff. `changedPaths`
+        // measures from the fork point, so on a resumed branch it carries every earlier stage's work
+        // — and a later stage is entitled to files an earlier one's scope excludes. Card 0014 kicked
+        // back from testing to implementing and then failed three times on test files the testing
+        // stage had every right to add, escalating to needs-human over a rule rather than the work.
+        for (const path of written) {
             const decision = await scope.check(path);
             if (!decision.allowed) {
                 failures.push(`${path} is outside the plan’s files in scope (${decision.reason})`);
