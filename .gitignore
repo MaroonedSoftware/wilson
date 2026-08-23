@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+
+# Turbo
+.turbo
+
+# Testing
+coverage
+.coverage
+
+# Env
+.env
+.env.local
+*.log
+logs/
+
+# Runner working state — worktrees and materialized plans never belong in git
+.worktrees/
+.run/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude
+.claude/*
+!.claude/settings.json
+CLAUDE.local.md
+
+# dbmate schema dump (migrations are the source of truth)
+apps/api/db/schema.sql

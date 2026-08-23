@@ -1,0 +1,72 @@
+/**
+ * A card.
+ *
+ * The card file *is* the plan file (PROJECT.md, Board format): frontmatter carries the state the
+ * runner owns, the body carries the plan contract under fixed headings. One file per card, so a
+ * transition is a single atomic write and two cards moving at once cannot conflict.
+ */
+
+/** The plan contract headings, in the order they appear in a card file. */
+export const PLAN_SECTIONS = ['Goal', 'Constraints', 'Files in scope', 'Tasks', 'Acceptance criteria', 'Out of scope'] as const;
+
+export type PlanSection = (typeof PLAN_SECTIONS)[number];
+
+/**
+ * The closed enum a plan-review finding must anchor to. Kebab-cased section names — the machine
+ * readable form of the same headings.
+ */
+export const PLAN_SECTION_KEYS = ['goal', 'constraints', 'files-in-scope', 'tasks', 'acceptance-criteria', 'out-of-scope'] as const;
+
+export type PlanSectionKey = (typeof PLAN_SECTION_KEYS)[number];
+
+export const sectionKey = (section: PlanSection): PlanSectionKey => section.toLowerCase().replace(/\s+/g, '-') as PlanSectionKey;
+
+export interface CardFrontmatter {
+    id: string;
+    title: string;
+    stage: string;
+    branch?: string;
+    /** Hard blocks. A card whose dependency is unfinished must not dispatch. */
+    dependsOn: string[];
+    /** Kickback counters, keyed by the stage that kicked back. */
+    retries: Record<string, number>;
+    /**
+     * The board-repo commit of this card at plan approval. Downstream stages read the card at this
+     * sha, not at HEAD, so an edit made while a stage is running cannot retroactively change the
+     * contract the running agent is working to.
+     */
+    planSha?: string;
+    /** External source refs, e.g. `{ linear: 'ENG-123' }`. Durable here so it survives losing Postgres. */
+    external?: Record<string, string>;
+    /** Set by a card source when its ticket is closed upstream. Never moves the card by itself. */
+    sourceClosed?: boolean;
+}
+
+export interface Card {
+    frontmatter: CardFrontmatter;
+    /** Section heading → the markdown beneath it, trimmed. */
+    sections: Partial<Record<PlanSection, string>>;
+    /** The raw body, preserved verbatim so a round-trip through the parser changes nothing. */
+    body: string;
+}
+
+/**
+ * The globs a stage may write to, read from the `Files in scope` section.
+ *
+ * Globs, not paths, so a plan does not have to predict every file it will create. Bullet markers,
+ * inline code backticks and blank lines are all stripped; anything else on a line is taken as a
+ * pattern.
+ */
+export const filesInScope = (card: Card): string[] => {
+    const raw = card.sections['Files in scope'];
+    if (!raw) return [];
+    return raw
+        .split('\n')
+        .map(line =>
+            line
+                .replace(/^\s*[-*+]\s*/, '')
+                .replace(/`/g, '')
+                .trim(),
+        )
+        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+};

@@ -1,0 +1,39 @@
+services:
+    db:
+        image: postgres:17
+        restart: always
+        container_name: kanban-db
+        ports:
+            - '15532:5432'
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: kanban
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'kanban']
+            interval: 5s
+            timeout: 5s
+            start_period: 10s
+            retries: 5
+
+    # Dedicated Postgres for the test suite. Data lives in tmpfs and durability is
+    # off — DO NOT point anything you care about at this.
+    db-test:
+        image: postgres:17
+        restart: always
+        container_name: kanban-test-db
+        ports:
+            - '15533:5432'
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: kanban_test
+        command: ['postgres', '-c', 'fsync=off', '-c', 'synchronous_commit=off', '-c', 'full_page_writes=off']
+        tmpfs:
+            - /var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'kanban_test']
+            interval: 5s
+            timeout: 5s
+            start_period: 10s
+            retries: 5

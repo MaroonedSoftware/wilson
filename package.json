@@ -1,0 +1,32 @@
+{
+    "name": "kanban",
+    "private": true,
+    "scripts": {
+        "build": "turbo run build",
+        "dev": "turbo run dev",
+        "lint": "turbo run lint",
+        "format": "prettier --write .",
+        "test": "turbo run test",
+        "build:datatypes": "turbo run build:datatypes",
+        "migrate:create": "turbo run migrate:create --",
+        "migrate:up": "turbo run migrate:up",
+        "migrate:down": "turbo run migrate:down",
+        "migrate:down:all": "turbo run migrate:down:all",
+        "db:reset": "docker compose rm -sfv db && docker compose up -d --wait db && turbo run migrate:up",
+        "wizard": "pnpm --filter @kanban/cli exec node --no-warnings --import @swc-node/register/esm-register ./src/index.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^26.1.0",
+        "@vitest/coverage-v8": "^4.1.10",
+        "eslint": "^10.6.0",
+        "prettier": "^3.9.4",
+        "turbo": "^2.10.4",
+        "typescript": "6.0.3",
+        "unplugin-swc": "^1.5.9",
+        "vitest": "^4.1.10"
+    },
+    "packageManager": "pnpm@11.10.0",
+    "engines": {
+        "node": ">=22"
+    }
+}

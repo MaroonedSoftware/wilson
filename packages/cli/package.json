@@ -1,0 +1,25 @@
+{
+    "name": "@kanban/cli",
+    "version": "0.0.1",
+    "type": "module",
+    "private": true,
+    "main": "src/index.ts",
+    "bin": { "wizard": "./src/index.ts" },
+    "scripts": {
+        "wizard": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
+        "lint": "eslint --fix"
+    },
+    "dependencies": {
+        "@kanban/api": "workspace:*",
+        "@maroonedsoftware/johnny5": "^8.0.8",
+        "@swc-node/register": "^1.12.1",
+        "injectkit": "^1.7.0",
+        "pg": "^8.23.0",
+        "reflect-metadata": "^0.2.2"
+    },
+    "devDependencies": {
+        "@repo/config-eslint": "workspace:*",
+        "@repo/config-typescript": "workspace:*",
+        "@types/pg": "^8.20.0"
+    }
+}
