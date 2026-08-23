@@ -2,17 +2,15 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
-import { compactMessages } from '#modules/agent/compact.messages.js';
-import { ModelRegistry } from '#modules/agent/model.registry.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
-import { buildTools, REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
+import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
+import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { kickback, shouldAdvance } from './kickback.js';
@@ -34,20 +32,6 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
 };
 
 /**
- * The agent's report, read back off the step where it called the report tool.
- *
- * Absent when the agent never reported — which is itself a signal, since a stage that did not say
- * it had finished did not finish.
- */
-const reportedResult = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): unknown => {
-    for (const step of [...steps].reverse()) {
-        const call = step.toolCalls?.find(c => c.toolName === REPORT_TOOL);
-        if (call) return call.input;
-    }
-    return undefined;
-};
-
-/**
  * Run one stage for one card.
  *
  * Takes a stage config object even though exactly one stage is configured, because that is the seam
@@ -63,7 +47,7 @@ export class StageDispatcher {
         private readonly config: BoardConfig,
         private readonly board: BoardRepository,
         private readonly worktrees: WorktreeManager,
-        private readonly models: ModelRegistry,
+        private readonly agents: StageAgentMap,
         private readonly verifiers: StageVerifierMap,
         private readonly resultSchemas: StageResultSchemaMap,
         private readonly events: EventLog,
@@ -306,32 +290,14 @@ export class StageDispatcher {
             );
         }
 
-        const agent = new ToolLoopAgent({
-            model: this.models.resolve(stage.provider, stage.model),
-            instructions: stage.instructions,
-            tools: buildTools(context, resultSchema, stage.worktree),
-            ...(stage.tools ? { activeTools: stage.tools as never } : {}),
-            // The loop ends when the agent says it is finished, or when it runs out of steps.
-            // Two bounds on spend, because retry limits bound the loop count and not the cost.
-            stopWhen: [hasToolCall(REPORT_TOOL), stepCountIs(stage.maxSteps)],
-            maxOutputTokens: stage.maxOutputTokens,
-            // Without this the conversation grows until the provider refuses it outright.
-            prepareStep: ({ messages }) => ({ messages: compactMessages(messages) }),
-        });
+        const adapter = this.agents.get(stage.adapter);
+        if (!adapter) {
+            throw new Error(
+                `stage "${stage.name}" names adapter "${stage.adapter}", which is not registered (have: ${[...this.agents.keys()].join(', ')})`,
+            );
+        }
 
-        const run = await agent.generate({
-            prompt: [
-                `Card: ${card.frontmatter.title}`,
-                '',
-                `Your plan is at ${planPath}. Read it with the read tool before doing anything else — pass that`,
-                `path exactly as written. It is the contract for this card: its "Files in scope" is what you may`,
-                `change, and its "Out of scope" is binding even where you could technically make the change.`,
-                '',
-                `You are working in a git worktree at ${worktree.path}. Every other tool path is relative to it.`,
-                '',
-                'Implement the plan, then return the structured result.',
-            ].join('\n'),
-        });
+        const run = await adapter.run({ stage, context, planPath, title: card.frontmatter.title, resultSchema });
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
         if (!verifier) {
@@ -339,7 +305,7 @@ export class StageDispatcher {
                 `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
             );
         }
-        const reported = reportedResult(run.steps);
+        const reported = run.result;
         const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, result: reported });
         const failures = [...verification.failures];
 
@@ -352,7 +318,7 @@ export class StageDispatcher {
         // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
         // a third of the way through its plan, emitted a placeholder result, and passed — because
         // the diff was non-empty, in scope, and built. Truncation is knowable, so it is checked.
-        if (run.steps.length >= stage.maxSteps) {
+        if (run.truncated) {
             failures.unshift(
                 `the stage used all ${stage.maxSteps} of its steps and was cut off mid-run — its work is partial whatever the diff shows`,
             );
@@ -364,7 +330,7 @@ export class StageDispatcher {
             changedPaths: verification.changedPaths,
             scopeGrants: scope.grants(),
             result: reported,
-            usage: { inputTokens: run.usage?.inputTokens, outputTokens: run.usage?.outputTokens },
+            usage: run.usage,
         };
     }
 }

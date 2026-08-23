@@ -65,8 +65,7 @@ export const JobsModule: ServerKitModule = {
         registry
             .register(JobRunner)
             .useFactory(
-                container =>
-                    new PgBossJobRunner(container, container.get(PgBossJobRegistryMap), container.get(PgBoss), container.get(Logger)),
+                container => new PgBossJobRunner(container, container.get(PgBossJobRegistryMap), container.get(PgBoss), container.get(Logger)),
             )
             .asSingleton();
     },

@@ -20,6 +20,7 @@
         "@ai-sdk/anthropic": "^4.0.41",
         "@ai-sdk/openai": "^4.0.46",
         "@ai-sdk/xai": "^4.0.43",
+        "@anthropic-ai/claude-agent-sdk": "^0.3.241",
         "@maroonedsoftware/appconfig": "^2.4.6",
         "@maroonedsoftware/errors": "^1.8.5",
         "@maroonedsoftware/jobbroker": "^1.11.5",

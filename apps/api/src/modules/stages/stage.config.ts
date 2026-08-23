@@ -15,6 +15,14 @@ export const StageConfigSchema = z.object({
     name: z.string(),
     mode: z.enum(['agent', 'command', 'manual']),
     worktree: z.enum(['none', 'readonly', 'rw']).default('rw'),
+    /**
+     * Which engine runs this stage.
+     *
+     * `api` drives the AI SDK against a provider key and bills per token. `cli` drives the Claude
+     * Code engine from the operator's own credentials — no key, no per-token billing. They fail
+     * independently, which is the point: an exhausted API balance leaves `cli` working.
+     */
+    adapter: z.enum(['api', 'cli']).default('api'),
     provider: z.enum(PROVIDERS).default('anthropic'),
     model: z.string(),
     /** System guidance for the stage. The plan itself is passed as a file path, never inlined. */
@@ -23,12 +31,6 @@ export const StageConfigSchema = z.object({
     tools: z.array(z.string()).optional(),
     /** Commands the bash tool will run for this stage, as argv prefixes. */
     allowedCommands: z.array(z.string()).default([]),
-    /**
-     * Run once at worktree creation, before the agent starts.
-     *
-     * A fresh worktree has no node_modules, and without this the agent spends its budget installing
-     * dependencies and confirming the baseline builds instead of doing the card.
-     */
     /**
      * Where this stage's worktree comes from.
      *
@@ -44,6 +46,12 @@ export const StageConfigSchema = z.object({
      * to add files nobody could have declared in advance, so it carries its own.
      */
     extraScope: z.array(z.string()).default([]),
+    /**
+     * Run once at worktree creation, before the agent starts.
+     *
+     * A fresh worktree has no node_modules, and without this the agent spends its budget installing
+     * dependencies and confirming the baseline builds instead of doing the card.
+     */
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),
