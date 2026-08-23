@@ -71,7 +71,7 @@ export class StageDispatcher {
         this.assertDispatchable(card, stage);
 
         const branch = this.worktrees.branchName(cardId, card.frontmatter.title);
-        const worktree = await this.worktrees.create(cardId, branch);
+        const worktree = stage.worktreeFrom === 'branch' ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
         await this.events.append({
             project: this.config.project,
             cardId,

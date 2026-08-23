@@ -29,6 +29,14 @@ export const StageConfigSchema = z.object({
      * A fresh worktree has no node_modules, and without this the agent spends its budget installing
      * dependencies and confirming the baseline builds instead of doing the card.
      */
+    /**
+     * Where this stage's worktree comes from.
+     *
+     * `base` cuts fresh from HEAD — right for the first stage of a card, where every attempt starts
+     * clean. `branch` re-opens the card's existing branch, which every later stage needs: the
+     * testing stage works on the tree implementing produced.
+     */
+    worktreeFrom: z.enum(['base', 'branch']).default('base'),
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),

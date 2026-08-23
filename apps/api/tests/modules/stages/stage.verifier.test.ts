@@ -20,9 +20,7 @@ describe('StageVerifierMap', () => {
 
         const resolved = map.get('implementing');
         expect(resolved).toBe(verifier);
-        await expect(
-            resolved?.verify({} as VerificationInput),
-        ).resolves.toEqual({ passed: true, failures: [], changedPaths: ['src/a.ts'] });
+        await expect(resolved?.verify({} as VerificationInput)).resolves.toEqual({ passed: true, failures: [], changedPaths: ['src/a.ts'] });
     });
 
     it('leaves an unknown verifier name absent, which is the dispatcher’s cue to throw', () => {

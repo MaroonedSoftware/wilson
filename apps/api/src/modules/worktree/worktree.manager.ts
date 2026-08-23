@@ -63,6 +63,38 @@ export class WorktreeManager {
         return { path, branch, baseSha };
     }
 
+    /**
+     * Re-open the card's existing branch, keeping everything earlier stages committed to it.
+     *
+     * `create` cuts from a commit with `-B`, which *resets* the branch — right for implementing,
+     * where every attempt starts from a clean base, and fatal for every stage after it. The testing
+     * stage runs on the tree implementing produced; resetting the branch would delete the work it
+     * was asked to write tests for.
+     *
+     * `baseSha` is the fork point rather than the branch tip, so `changedPaths` still describes
+     * everything the card has changed since it started, across all of its stages.
+     */
+    async resume(cardId: string, branch: string): Promise<Worktree> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', branch]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) {
+            throw new Error(`this stage resumes the card's branch, but ${branch} does not exist — has an earlier stage run for this card?`);
+        }
+
+        await this.reclaim(cardId);
+        await mkdir(this.config.worktreeRoot, { recursive: true });
+
+        const path = this.path(cardId);
+        const baseSha = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
+
+        // No -B: the branch stays exactly where the previous stage left it.
+        await git(this.config.codeRoot, ['worktree', 'add', path, branch]);
+        this.logger.info(`worktree ${path} resumed on ${branch}, forked at ${baseSha.slice(0, 8)}`);
+        return { path, branch, baseSha };
+    }
+
     /** Remove a card's worktree and its git bookkeeping. Safe to call when there is nothing there. */
     async reclaim(cardId: string): Promise<void> {
         const path = this.path(cardId);

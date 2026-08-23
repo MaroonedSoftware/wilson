@@ -124,6 +124,40 @@ describe('WorktreeManager', () => {
         expect(stdout).not.toContain('0001');
     });
 
+    describe('resume', () => {
+        // Every stage after the first works on the tree the previous stage produced. `create` uses
+        // -B, which resets the branch — running the testing stage through it would delete the very
+        // work it was asked to write tests for.
+        it('keeps commits an earlier stage made on the branch', async () => {
+            const first = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(first.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: first.path });
+            await exec('git', ['commit', '-q', '-m', 'implementing'], { cwd: first.path });
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+
+            expect(existsSync(join(resumed.path, 'src', 'feature.ts'))).toBe(true);
+        });
+
+        it('reports the fork point, so the diff covers every stage of the card', async () => {
+            const first = await manager.create('0001', 'card/0001-thing');
+            const forkPoint = first.baseSha;
+            await writeFile(join(first.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: first.path });
+            await exec('git', ['commit', '-q', '-m', 'implementing'], { cwd: first.path });
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+
+            // Not the branch tip: the testing stage must still see what implementing changed.
+            expect(resumed.baseSha).toBe(forkPoint);
+            await expect(manager.changedPaths(resumed)).resolves.toEqual(['src/feature.ts']);
+        });
+
+        it('refuses when the branch does not exist, naming the likely cause', async () => {
+            await expect(manager.resume('0009', 'card/0009-never-ran')).rejects.toThrow(/has an earlier stage run/);
+        });
+    });
+
     it('is safe to reclaim something that was never created', async () => {
         await expect(manager.reclaim('9999')).resolves.toBeUndefined();
     });

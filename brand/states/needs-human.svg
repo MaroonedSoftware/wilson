@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-labelledby="wilson-needs-human-t">
+  <title id="wilson-needs-human-t">Wilson — needs human</title>
+  <mask id="wilson-needs-human" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+    <rect width="100" height="100" fill="black"/>
+    <g fill="white">
+    <rect x="22" y="22" width="12" height="30" rx="6" transform="rotate(-11 28 37)"/>
+    <rect x="36.5" y="15" width="12" height="37" rx="6" transform="rotate(-4 42.5 33)"/>
+    <rect x="51" y="17" width="12" height="35" rx="6" transform="rotate(4 57 34)"/>
+    <rect x="65.5" y="24" width="12" height="28" rx="6" transform="rotate(11 71.5 38)"/>
+    <path d="M16 40 h68 a10 10 0 0 1 10 10 v9 a34 34 0 0 1 -34 34 h-20 a34 34 0 0 1 -34 -34 v-9 a10 10 0 0 1 10 -10 z"/>
+    </g>
+    <g fill="none" stroke="black" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M29 57 q6 -7 11 0 q2 5 -5.5 8"/>
+      <path d="M60 57 q6 -7 11 0 q2 5 -5.5 8"/>
+      <path d="M36 80 h28"/>
+    </g>
+  </mask>
+  <rect width="100" height="100" fill="currentColor" mask="url(#wilson-needs-human)"/>
+</svg>

@@ -82,11 +82,7 @@ export class TestingVerifier implements StageVerifier {
         return { passed: failures.length === 0, failures, changedPaths };
     }
 
-    private async readReport(
-        worktreePath: string,
-        testReportPath: string | undefined,
-        failures: string[],
-    ): Promise<TestCounts | undefined> {
+    private async readReport(worktreePath: string, testReportPath: string | undefined, failures: string[]): Promise<TestCounts | undefined> {
         if (!testReportPath) {
             failures.push('no testReportPath configured: the test report was never checked');
             return undefined;
