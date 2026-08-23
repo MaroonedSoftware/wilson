@@ -27,8 +27,29 @@ const command: CommandModule<RunOpts> = {
 
         // The stage's own account of what it did. Printed on failure as much as success: when the
         // exit condition fails, what the agent believed it was doing is the first thing you need.
-        const result = outcome.result as { summary?: string; caveats?: string[] } | undefined;
+        const result = outcome.result as
+            | {
+                  summary?: string;
+                  caveats?: string[];
+                  verdict?: string;
+                  findings?: { severity: string; file: string; line: number; problem: string; suggestion: string }[];
+              }
+            | undefined;
         if (result?.summary) ctx.logger.info(`\n${result.summary}`);
+
+        // A review's findings are the whole point of running it; printing only the summary buries
+        // them.
+        if (result?.verdict) ctx.logger.info(`\nverdict: ${result.verdict}`);
+        if (result?.findings?.length) {
+            ctx.logger.info(`\nfindings (${result.findings.length}):`);
+            for (const finding of result.findings) {
+                const log = finding.severity === 'blocker' ? ctx.logger.error : ctx.logger.warn;
+                log(`  [${finding.severity}] ${finding.file}:${finding.line}  ${finding.problem}`);
+                log(`      → ${finding.suggestion}`);
+            }
+        } else if (result?.verdict) {
+            ctx.logger.info('findings: none');
+        }
         if (result?.caveats?.length) {
             ctx.logger.warn('\ncaveats the stage reported:');
             for (const caveat of result.caveats) ctx.logger.warn(`  - ${caveat}`);

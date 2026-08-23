@@ -30,6 +30,13 @@ export class ReviewVerifier implements StageVerifier {
             failures.push(`the review stage changed files, which a reviewer must not do: ${written.join(', ')}`);
         }
 
+        // Nothing to review is not a clean review. A card merged before its review reaches this
+        // stage with an empty diff, every finding would fail provenance for citing a file the diff
+        // does not contain, and an empty findings list would sail through as a pass.
+        if (changedPaths.length === 0) {
+            failures.push('the card has an empty diff: there is nothing to review, so a pass here would mean nothing');
+        }
+
         const parsed = ReviewResultSchema.safeParse(result);
         if (!parsed.success) {
             failures.push(`the reported result does not match the review schema: ${parsed.error.message}`);

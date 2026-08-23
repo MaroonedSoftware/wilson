@@ -152,7 +152,15 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: outcome.passed ? 'stage.passed' : 'stage.failed',
-                payload: { failures: outcome.failures, changedPaths: outcome.changedPaths, grants: outcome.scopeGrants, usage: outcome.usage },
+                payload: {
+                    failures: outcome.failures,
+                    changedPaths: outcome.changedPaths,
+                    grants: outcome.scopeGrants,
+                    usage: outcome.usage,
+                    // The result itself, not just its shape. A review's findings *are* the output of
+                    // the stage; recording only that it passed throws away the thing it produced.
+                    result: outcome.result ?? null,
+                },
             });
             return outcome;
         } catch (err) {
