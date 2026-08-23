@@ -12,6 +12,9 @@ build/
 # Testing
 coverage
 .coverage
+# Written by the testing stage's test command and read by its verifier. A generated
+# artifact: commit-on-pass does `git add -A`, so without this it lands on the branch.
+.vitest-report.json
 
 # Env
 .env
