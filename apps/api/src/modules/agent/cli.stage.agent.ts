@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { query, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import type { z } from 'zod';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import type { ToolContext } from './tools/index.js';
@@ -20,6 +21,15 @@ const subscriptionEnv = (): NodeJS.ProcessEnv => {
     delete env.ANTHROPIC_AUTH_TOKEN;
     return env;
 };
+
+/**
+ * The in-process MCP server carrying this adapter's report tool, and the name the engine exposes it
+ * under. MCP tools are addressed as `mcp__<server>__<tool>`, which is what the model must call and
+ * what `canUseTool` sees.
+ */
+const REPORT_SERVER = 'wilson';
+const REPORT_TOOL = 'report_result';
+const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
@@ -50,7 +60,29 @@ export class CliStageAgent extends StageAgent {
         super();
     }
 
-    async run({ stage, context, planPath, title }: AgentRunInput): Promise<AgentRunOutput> {
+    async run({ stage, context, planPath, title, resultSchema }: AgentRunInput): Promise<AgentRunOutput> {
+        // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
+        // in-process MCP server carrying this stage's own result schema. Without it a stage can only
+        // hand back prose, which the review verifier rightly refuses — card 0014 failed its review
+        // on a missing `verdict` and was kicked back to implementing for a defect no amount of
+        // re-implementing could fix.
+        let reported: unknown;
+        const reportServer = createSdkMcpServer({
+            name: REPORT_SERVER,
+            tools: [
+                tool(
+                    REPORT_TOOL,
+                    'Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes.',
+                    (resultSchema as z.ZodObject<z.ZodRawShape>).shape,
+                    async input => {
+                        reported = input;
+                        return { content: [{ type: 'text' as const, text: 'reported' }] };
+                    },
+                ),
+            ],
+            alwaysLoad: true,
+        });
+
         const stream = query({
             prompt: [
                 `Card: ${title}`,
@@ -62,7 +94,9 @@ export class CliStageAgent extends StageAgent {
                 '',
                 stage.instructions,
                 '',
-                'When the work is done and the build passes, finish with a short summary of what you changed.',
+                `When the work is done and the build passes, call ${qualifiedReportTool()} with your result.`,
+                'Work first, report last: that call ends the stage, and a result describing work you did',
+                'not do fails it, because the runner checks the diff and not your summary.',
             ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
@@ -71,6 +105,7 @@ export class CliStageAgent extends StageAgent {
                 permissionMode: 'default',
                 canUseTool: createToolGuard(context, stage.worktree),
                 env: subscriptionEnv(),
+                mcpServers: { [REPORT_SERVER]: reportServer },
             },
         });
 
@@ -87,12 +122,15 @@ export class CliStageAgent extends StageAgent {
                 // The engine reports its own truncation; treat anything but a clean end as cut off.
                 if (message.subtype !== 'success') {
                     this.logger.warn(`cli stage ended as ${message.subtype}`);
-                    return { result: summary ? { summary } : undefined, usage, truncated: true };
+                    return { result: reported ?? (summary ? { summary } : undefined), usage, truncated: true };
                 }
             }
         }
 
-        return { result: summary ? { summary } : undefined, usage, truncated: false };
+        // A stage that never called the report tool did not say it had finished, and the dispatcher
+        // treats an absent result as exactly that. The prose summary is a fallback for the truncated
+        // case only, never a substitute for a structured report.
+        return { result: reported, usage, truncated: false };
     }
 }
 
@@ -138,6 +176,13 @@ export const createToolGuard = (context: ToolContext, writable: string): CanUseT
             const command = String(input.command ?? '');
             const decision = context.commands.check(command);
             return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { command });
+        }
+
+        // This adapter's own report tool, supplied as an in-process MCP server. Allowed
+        // unconditionally: it writes nothing and takes no path, and the schema it must satisfy is
+        // enforced by the stage's verifier rather than here.
+        if (toolName === qualifiedReportTool()) {
+            return { behavior: 'allow' };
         }
 
         return deny(`${toolName} is not available to this stage`, {});

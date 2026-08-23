@@ -86,6 +86,19 @@ describe('createToolGuard', () => {
         });
     });
 
+    it('allows the adapter’s own MCP report tool', async () => {
+        // Its absence is not cosmetic: without a structured report the review stage cannot produce a
+        // verdict, its verifier rightly refuses the result, and the runner kicks the card back to
+        // implementing for a defect no amount of re-implementing can fix. Card 0014 did exactly that.
+        const { guard } = build('rw');
+        await expect(guard('mcp__wilson__report_result', { summary: 'done' }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+    });
+
+    it('still denies an MCP tool from any other server', async () => {
+        const { guard } = build('rw');
+        await expect(guard('mcp__elsewhere__exfiltrate', {}, opts)).resolves.toMatchObject({ behavior: 'deny' });
+    });
+
     it('denies any tool it does not recognise', async () => {
         // The deny-by-default branch is what makes omitting allowedTools safe: every tool the engine
         // offers must pass through here, and anything unlisted is refused rather than waved through.
