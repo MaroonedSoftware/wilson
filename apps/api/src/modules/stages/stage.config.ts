@@ -100,7 +100,31 @@ export const loadStages = async (boardRoot: string): Promise<ProjectStages> => {
             `${path} is not valid stage config: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
         );
     }
+
+    assertRoutesResolve(parsed.data, path);
     return parsed.data;
+};
+
+/**
+ * Every on-pass and on-fail target must name a configured stage or a terminal state.
+ *
+ * A route to somewhere that does not exist strands the card silently: the transition is written, the
+ * card lands in a state nothing dispatches, and nothing reports a problem. Card 0011 found this the
+ * expensive way — its implementing stage failed, was kicked back to `planning` exactly as configured,
+ * and `planning` is not a stage anyone has built yet.
+ */
+export const assertRoutesResolve = (stages: ProjectStages, path = 'stages.yaml'): void => {
+    const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
+
+    const dangling = stages.stages.flatMap(stage =>
+        (['onPass', 'onFail'] as const).filter(key => !known.has(stage[key])).map(key => `${stage.name}.${key} → "${stage[key]}"`),
+    );
+
+    if (dangling.length > 0) {
+        throw new StageConfigError(
+            `${path} routes to states that do not exist: ${dangling.join(', ')}. Valid targets: ${[...known].sort().join(', ')}.`,
+        );
+    }
 };
 
 /**

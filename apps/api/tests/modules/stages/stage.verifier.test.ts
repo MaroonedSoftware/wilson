@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StageConfigSchema } from '#modules/stages/stage.config.js';
+import { StageConfigSchema, assertRoutesResolve } from '#modules/stages/stage.config.js';
 import type { VerificationInput, VerificationOutcome } from '#modules/stages/stage.verifier.js';
 import { StageVerifierMap, type StageVerifier } from '#modules/stages/stage.verifier.js';
 
@@ -45,5 +45,46 @@ describe('StageConfigSchema', () => {
         const parsed = StageConfigSchema.safeParse(baseStage);
         expect(parsed.success).toBe(true);
         expect(parsed.data?.verifier).toBeUndefined();
+    });
+});
+
+describe('assertRoutesResolve', () => {
+    const stage = (name: string, onPass: string, onFail: string) => ({
+        name,
+        mode: 'agent' as const,
+        worktree: 'rw' as const,
+        worktreeFrom: 'base' as const,
+        extraScope: [],
+        provider: 'anthropic' as const,
+        model: 'm',
+        instructions: '',
+        allowedCommands: [],
+        maxSteps: 10,
+        maxOutputTokens: 1024,
+        onPass,
+        onFail,
+        maxKickbacks: 3,
+        baselineCheck: true,
+    });
+    const config = (...stages: ReturnType<typeof stage>[]) => ({ scopeViolation: 'widen' as const, alwaysAllowed: [], deny: [], stages });
+
+    it('accepts a route to another configured stage', () => {
+        expect(() => assertRoutesResolve(config(stage('a', 'b', 'a'), stage('b', 'merged', 'a')))).not.toThrow();
+    });
+
+    it('accepts a route to a terminal state', () => {
+        expect(() => assertRoutesResolve(config(stage('a', 'merged', 'needs-human')))).not.toThrow();
+    });
+
+    it('rejects a route to a stage nobody built, naming it', () => {
+        // Card 0011 found this by being stranded: implementing.onFail was `planning`, the transition
+        // was written exactly as configured, and the card landed where nothing dispatches.
+        expect(() => assertRoutesResolve(config(stage('implementing', 'testing', 'planning')), 'stages.yaml')).toThrow(
+            /implementing\.onFail → "planning"/,
+        );
+    });
+
+    it('lists the valid targets so the fix is obvious', () => {
+        expect(() => assertRoutesResolve(config(stage('a', 'nowhere', 'a')))).toThrow(/Valid targets:.*merged/);
     });
 });

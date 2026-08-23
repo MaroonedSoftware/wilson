@@ -98,9 +98,11 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
     });
 
     const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
-        (dispatcher as unknown as {
-            writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string>;
-        }).writeTransition('0001', 'testing', stage, card, result);
+        (
+            dispatcher as unknown as {
+                writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string>;
+            }
+        ).writeTransition('0001', 'testing', stage, card, result);
 
     it('advances a passing stage to onPass and leaves the body untouched', async () => {
         const stage = makeStage({ onPass: 'review' });
@@ -136,9 +138,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
                 passed: true,
                 result: {
                     verdict: 'revise',
-                    findings: [
-                        { severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' },
-                    ],
+                    findings: [{ severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' }],
                 },
             }),
         );

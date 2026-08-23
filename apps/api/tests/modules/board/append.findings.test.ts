@@ -18,8 +18,7 @@ describe('withFindings', () => {
         const result = withFindings(body, [finding()]);
 
         expect(result).toBe(
-            '## Goal\n\nDo the thing.\n\n## Review findings\n\n' +
-                "- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing",
+            '## Goal\n\nDo the thing.\n\n## Review findings\n\n' + '- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing',
         );
     });
 
@@ -32,23 +31,11 @@ describe('withFindings', () => {
 
         const result = withFindings(body, findings);
 
-        expect(result).toBe(
-            'Some body text.\n\n## Review findings\n\n' +
-                '- **blocker** `a.ts:1`: p1 — s1\n' +
-                '- **concern** `b.ts:2`: p2 — s2',
-        );
+        expect(result).toBe('Some body text.\n\n## Review findings\n\n' + '- **blocker** `a.ts:1`: p1 — s1\n' + '- **concern** `b.ts:2`: p2 — s2');
     });
 
     it('replaces an existing findings section rather than duplicating it', () => {
-        const body = [
-            '## Goal',
-            '',
-            'Do the thing.',
-            '',
-            '## Review findings',
-            '',
-            '- **blocker** `old.ts:1`: stale problem — stale fix',
-        ].join('\n');
+        const body = ['## Goal', '', 'Do the thing.', '', '## Review findings', '', '- **blocker** `old.ts:1`: stale problem — stale fix'].join('\n');
 
         const result = withFindings(body, [finding({ file: 'new.ts', line: 5, problem: 'fresh problem', suggestion: 'fresh fix' })]);
 
