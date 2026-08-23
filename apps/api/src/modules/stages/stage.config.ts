@@ -32,6 +32,16 @@ export const StageConfigSchema = z.object({
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),
+    /** The command that runs the test suite and writes the report `testReportPath` points at. */
+    testCommand: z.string().optional(),
+    /** Where the test report lands, relative to the worktree. */
+    testReportPath: z.string().optional(),
+    /**
+     * Test counts the suite had before this card, so the testing verifier can catch tests removed
+     * or turned into skips instead of fixed. Card 0004 will derive these from a baseline worktree;
+     * until then they come from config, and their absence is recorded rather than silently passing.
+     */
+    baselineCounts: z.object({ total: z.number(), skipped: z.number() }).optional(),
     /** Name of the registered verifier to run at the exit condition. Defaults to the stage's own name. */
     verifier: z.string().optional(),
     maxSteps: z.number().int().min(1).default(60),
