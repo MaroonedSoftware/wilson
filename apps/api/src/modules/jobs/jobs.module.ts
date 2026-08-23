@@ -52,21 +52,23 @@ export const JobsModule: ServerKitModule = {
 
         registry.register(CardStageJob).useClass(CardStageJob).asTransient();
 
-        registry
-            .register(PgBossJobRegistryMap)
-            .useFactory(() => {
-                const registrations = new PgBossJobRegistryMap();
-                registrations.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
-                return registrations;
-            })
-            .asSingleton();
+        const jobRegistry = new PgBossJobRegistryMap();
+        jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
+        registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 
         // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding
         // database transaction, so there is nothing to override.
         registry.register(PgBossConnectionProvider).useClass(PgBossConnectionProvider).asSingleton();
 
+        registry.register(PgBossJobBroker).useClass(PgBossJobBroker).asSingleton();
         registry.register(JobBroker).useClass(PgBossJobBroker).asSingleton();
-        registry.register(JobRunner).useClass(PgBossJobRunner).asSingleton();
+        registry
+            .register(JobRunner)
+            .useFactory(
+                container =>
+                    new PgBossJobRunner(container, container.get(PgBossJobRegistryMap), container.get(PgBoss), container.get(Logger)),
+            )
+            .asSingleton();
     },
     // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
