@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { Output, ToolLoopAgent, stepCountIs } from 'ai';
+import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
@@ -11,13 +11,27 @@ import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { compactMessages } from '#modules/agent/compact.messages.js';
 import { ModelRegistry } from '#modules/agent/model.registry.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
-import { buildTools, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
+import { buildTools, REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
+
+/**
+ * The agent's report, read back off the step where it called the report tool.
+ *
+ * Absent when the agent never reported — which is itself a signal, since a stage that did not say
+ * it had finished did not finish.
+ */
+const reportedResult = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): unknown => {
+    for (const step of [...steps].reverse()) {
+        const call = step.toolCalls?.find(c => c.toolName === REPORT_TOOL);
+        if (call) return call.input;
+    }
+    return undefined;
+};
 
 /**
  * Run one stage for one card.
@@ -185,14 +199,14 @@ export class StageDispatcher {
         const agent = new ToolLoopAgent({
             model: this.models.resolve(stage.provider, stage.model),
             instructions: stage.instructions,
-            tools: buildTools(context),
+            tools: buildTools(context, ImplementingResultSchema),
             ...(stage.tools ? { activeTools: stage.tools as never } : {}),
+            // The loop ends when the agent says it is finished, or when it runs out of steps.
             // Two bounds on spend, because retry limits bound the loop count and not the cost.
-            stopWhen: stepCountIs(stage.maxSteps),
+            stopWhen: [hasToolCall(REPORT_TOOL), stepCountIs(stage.maxSteps)],
             maxOutputTokens: stage.maxOutputTokens,
             // Without this the conversation grows until the provider refuses it outright.
             prepareStep: ({ messages }) => ({ messages: compactMessages(messages) }),
-            output: Output.object({ schema: ImplementingResultSchema }),
         });
 
         const run = await agent.generate({
@@ -211,6 +225,13 @@ export class StageDispatcher {
 
         const verification = await this.verifier.verify({ worktree, scope, stage });
         const failures = [...verification.failures];
+        const reported = reportedResult(run.steps);
+
+        // A stage that never called the report tool never said it was finished. Whatever is in the
+        // tree is where it happened to stop, not what it set out to produce.
+        if (reported === undefined) {
+            failures.unshift(`the stage ended without calling ${REPORT_TOOL}, so it never reported finishing`);
+        }
 
         // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
         // a third of the way through its plan, emitted a placeholder result, and passed — because
@@ -226,7 +247,7 @@ export class StageDispatcher {
             failures,
             changedPaths: verification.changedPaths,
             scopeGrants: scope.grants(),
-            result: run.output,
+            result: reported,
             usage: { inputTokens: run.usage?.inputTokens, outputTokens: run.usage?.outputTokens },
         };
     }
