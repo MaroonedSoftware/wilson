@@ -51,7 +51,7 @@ importers:
         specifier: ^1.8.5
         version: 1.8.5
       '@maroonedsoftware/jobbroker':
-        specifier: ^1.11.0
+        specifier: ^1.11.5
         version: 1.11.5(pg-boss@12.27.0)
       '@maroonedsoftware/koa':
         specifier: ^3.0.8
@@ -81,7 +81,7 @@ importers:
         specifier: ^8.23.0
         version: 8.23.0
       pg-boss:
-        specifier: ^12.25.1
+        specifier: ^12.27.0
         version: 12.27.0
       picomatch:
         specifier: ^4.0.5

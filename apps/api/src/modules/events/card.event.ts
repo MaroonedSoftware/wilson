@@ -19,7 +19,8 @@ export type CardEventType =
     | 'worktree.reclaimed'
     | 'transition.written'
     | 'transition.failed'
-    | 'external.transition';
+    | 'external.transition'
+    | 'chain.stopped';
 
 export interface CardEvent {
     project: string;
