@@ -58,12 +58,7 @@ describe('CardStageJob', () => {
         broker = { send: vi.fn(async () => {}) };
         events = { append: vi.fn(async () => {}) };
 
-        job = new CardStageJob(
-            dispatcher as unknown as StageDispatcher,
-            broker as unknown as JobBroker,
-            board,
-            events as unknown as EventLog,
-        );
+        job = new CardStageJob(dispatcher as unknown as StageDispatcher, broker as unknown as JobBroker, board, events as unknown as EventLog);
     });
 
     it('does nothing when the dispatcher leaves the stage un-transitioned (a manual gate)', async () => {

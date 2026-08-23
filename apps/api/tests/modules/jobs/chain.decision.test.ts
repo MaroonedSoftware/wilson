@@ -68,10 +68,7 @@ describe('decideChain', () => {
     it('continues the chain on a kickback target, even though it is "backward"', () => {
         const decision = decideChain(
             'implementing',
-            stages([
-                makeStage({ name: 'implementing', mode: 'agent' }),
-                makeStage({ name: 'testing', mode: 'agent', onFail: 'implementing' }),
-            ]),
+            stages([makeStage({ name: 'implementing', mode: 'agent' }), makeStage({ name: 'testing', mode: 'agent', onFail: 'implementing' })]),
         );
 
         expect(decision).toEqual({ continue: true });

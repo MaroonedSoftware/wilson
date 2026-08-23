@@ -35,9 +35,14 @@ const EXEC_TOOLS = ['Bash'];
  * The engine brings its own tool loop and its own tools, so `ScopeGuard` and `CommandAllowlist` are
  * not in the path the way they are for the `api` adapter. `canUseTool` is where they are put back:
  * every Write, Edit and Bash the engine proposes is checked against the same guards before it runs,
- * and a denial is returned to the model as a message rather than thrown. The enforcement is
- * therefore equivalent, but it is a *bridge* rather than the tools themselves — worth remembering
- * when auditing what an agent can reach.
+ * and a denial is returned to the model as a message rather than thrown.
+ *
+ * **`allowedTools` is deliberately not set.** Listing a tool there marks it *pre-approved*, and the
+ * engine then never consults `canUseTool` for it — so naming Write and Bash as allowed, which reads
+ * like granting exactly the intended permissions, silently disables every check meant to constrain
+ * them. Measured, not assumed: with Write allowed, a probe wrote a file outside the declared scope
+ * and the guard was never called once. Permission comes solely from the callback, whose final
+ * branch denies any tool it does not recognise.
  */
 @Injectable()
 export class CliStageAgent extends StageAgent {
@@ -46,8 +51,6 @@ export class CliStageAgent extends StageAgent {
     }
 
     async run({ stage, context, planPath, title }: AgentRunInput): Promise<AgentRunOutput> {
-        const allowedTools = [...READ_TOOLS, ...(stage.worktree === 'rw' ? [...WRITE_TOOLS, ...EXEC_TOOLS] : EXEC_TOOLS)];
-
         const stream = query({
             prompt: [
                 `Card: ${title}`,
@@ -63,11 +66,10 @@ export class CliStageAgent extends StageAgent {
             ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
-                allowedTools,
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
-                canUseTool: this.guard(context),
+                canUseTool: createToolGuard(context, stage.worktree),
                 env: subscriptionEnv(),
             },
         });
@@ -92,48 +94,52 @@ export class CliStageAgent extends StageAgent {
 
         return { result: summary ? { summary } : undefined, usage, truncated: false };
     }
-
-    /**
-     * Put `ScopeGuard` and `CommandAllowlist` back in the path.
-     *
-     * Reads are allowed through the read check, writes through the full scope check, and Bash
-     * through the command allowlist — the same three decisions the `api` adapter's tools make, at
-     * the only point the engine offers for making them.
-     */
-    private guard(context: ToolContext): CanUseTool {
-        return async (toolName, input): Promise<PermissionResult> => {
-            const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
-                await context.events.append({
-                    project: context.project,
-                    cardId: context.cardId,
-                    stage: context.stage,
-                    type: 'tool.denied',
-                    payload: { tool: toolName, reason, ...detail },
-                });
-                return { behavior: 'deny', message: reason };
-            };
-
-            if (WRITE_TOOLS.includes(toolName)) {
-                const path = String(input.file_path ?? input.path ?? '');
-                const decision = await context.scope.check(path);
-                return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
-            }
-
-            if (READ_TOOLS.includes(toolName)) {
-                const path = String(input.file_path ?? input.path ?? input.pattern ?? '');
-                // Glob and Grep carry patterns rather than paths; only check when it looks like one.
-                if (!path || !input.file_path) return { behavior: 'allow' };
-                const decision = await context.scope.checkRead(path);
-                return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
-            }
-
-            if (EXEC_TOOLS.includes(toolName)) {
-                const command = String(input.command ?? '');
-                const decision = context.commands.check(command);
-                return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { command });
-            }
-
-            return deny(`${toolName} is not available to this stage`, {});
-        };
-    }
 }
+
+/**
+ * Put `ScopeGuard` and `CommandAllowlist` back in the path.
+ *
+ * Reads go through the read check, writes through the full scope check, and Bash through the
+ * command allowlist — the same three decisions the `api` adapter's tools make, at the only point
+ * the engine offers for making them. Exported rather than private because it is the whole of this
+ * adapter's enforcement, and a live model declining to misbehave is not evidence that a guard works.
+ */
+export const createToolGuard = (context: ToolContext, writable: string): CanUseTool => {
+    return async (toolName, input): Promise<PermissionResult> => {
+        const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
+            await context.events.append({
+                project: context.project,
+                cardId: context.cardId,
+                stage: context.stage,
+                type: 'tool.denied',
+                payload: { tool: toolName, reason, ...detail },
+            });
+            return { behavior: 'deny', message: reason };
+        };
+
+        if (WRITE_TOOLS.includes(toolName)) {
+            if (writable !== 'rw') {
+                return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
+            }
+            const path = String(input.file_path ?? input.path ?? '');
+            const decision = await context.scope.check(path);
+            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
+        }
+
+        if (READ_TOOLS.includes(toolName)) {
+            const path = String(input.file_path ?? input.path ?? input.pattern ?? '');
+            // Glob and Grep carry patterns rather than paths; only check when it looks like one.
+            if (!path || !input.file_path) return { behavior: 'allow' };
+            const decision = await context.scope.checkRead(path);
+            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
+        }
+
+        if (EXEC_TOOLS.includes(toolName)) {
+            const command = String(input.command ?? '');
+            const decision = context.commands.check(command);
+            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { command });
+        }
+
+        return deny(`${toolName} is not available to this stage`, {});
+    };
+};
