@@ -17,10 +17,10 @@ export const boardRepoReady: Check = {
     run: async ctx => {
         const root = ctx.config.get('PROJECT_BOARD_ROOT', '');
         if (!root) {
-            return { ok: false, message: 'PROJECT_BOARD_ROOT is not set', fixHint: 'Set it in apps/api/.env, then run `wizard board init`.' };
+            return { ok: false, message: 'PROJECT_BOARD_ROOT is not set', fixHint: 'Set it in apps/api/.env, then run `wilson board init`.' };
         }
         if (!existsSync(join(root, 'config', 'stages.yaml'))) {
-            return { ok: false, message: `no board at ${root}`, fixHint: 'Run `wizard board init`.' };
+            return { ok: false, message: `no board at ${root}`, fixHint: 'Run `wilson board init`.' };
         }
 
         try {
@@ -34,7 +34,7 @@ export const boardRepoReady: Check = {
             }
             return { ok: true, message: root };
         } catch (err) {
-            return { ok: false, message: `not a git repo: ${(err as Error).message}`, fixHint: 'Run `wizard board init`.' };
+            return { ok: false, message: `not a git repo: ${(err as Error).message}`, fixHint: 'Run `wilson board init`.' };
         }
     },
 };

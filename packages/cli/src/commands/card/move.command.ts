@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, BoardRepository, EventLog, loadStages, validTargets } from '@kanban/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, EventLog, loadStages, validTargets } from '@wilson/api/cli-bootstrap';
 
 /**
  * Move a card to another stage.

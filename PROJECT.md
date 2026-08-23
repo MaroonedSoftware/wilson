@@ -341,7 +341,7 @@ main, the running work lives on a branch, and the running stage is pinned to
 
 ServerKit `comms` with a `ChannelRouter`; the Slack and Discord packages each ship a
 `./comms` adapter, so the channel is configuration. Per project:
-`notify: { channel: slack, target: "#kanban" }`.
+`notify: { channel: slack, target: "#wilson" }`.
 
 Notifications are dispatched as jobbroker jobs, never inline, so a Slack outage
 cannot fail a transition.

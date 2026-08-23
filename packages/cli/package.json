@@ -1,19 +1,19 @@
 {
-    "name": "@kanban/cli",
+    "name": "@wilson/cli",
     "version": "0.0.1",
     "type": "module",
     "private": true,
     "main": "src/index.ts",
     "bin": {
-        "wizard": "./src/index.ts"
+        "wilson": "./src/index.ts"
     },
     "scripts": {
         "build": "tsc --noEmit",
-        "wizard": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
+        "wilson": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
         "lint": "eslint --fix"
     },
     "dependencies": {
-        "@kanban/api": "workspace:*",
+        "@wilson/api": "workspace:*",
         "@maroonedsoftware/johnny5": "^8.0.8",
         "@swc-node/register": "^1.12.1",
         "injectkit": "^1.7.0",
