@@ -75,6 +75,31 @@ export const loadStages = async (boardRoot: string): Promise<ProjectStages> => {
     return parsed.data;
 };
 
+/**
+ * States a card may occupy that are not agent stages.
+ *
+ * Terminal states end a card's life and nothing dispatches them, so they have no stage config
+ * (PROJECT.md, Stage model). `parking-lot` is a column the dispatch query excludes.
+ */
+export const NON_STAGE_STATES = ['parking-lot', 'merged', 'needs-human', 'poisoned', 'dropped'] as const;
+
+/**
+ * Every state a card may legitimately be moved to.
+ *
+ * A stage the graph names as an on-pass or on-fail target counts even before anything implements
+ * it: that is precisely the state of a half-built pipeline, and refusing it would mean a card that
+ * passed `implementing` had nowhere to go.
+ */
+export const validTargets = (stages: ProjectStages): string[] => {
+    const targets = new Set<string>(NON_STAGE_STATES);
+    for (const stage of stages.stages) {
+        targets.add(stage.name);
+        targets.add(stage.onPass);
+        targets.add(stage.onFail);
+    }
+    return [...targets].sort();
+};
+
 export const findStage = (stages: ProjectStages, name: string): StageConfig => {
     const stage = stages.stages.find(s => s.name === name);
     if (!stage) {

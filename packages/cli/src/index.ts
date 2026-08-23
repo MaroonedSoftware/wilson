@@ -8,6 +8,7 @@ import { buildConfig, modules } from '@kanban/api/cli-bootstrap';
 
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
+import cardMoveCommand from './commands/card/move.command.js';
 import cardRunCommand from './commands/card/run.command.js';
 import cardShowCommand from './commands/card/show.command.js';
 
@@ -36,6 +37,7 @@ const app = await createCliApp({
         reg(['board', 'init'], boardInitCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'show'], cardShowCommand),
+        reg(['card', 'move'], cardMoveCommand),
         reg(['card', 'run'], cardRunCommand),
     ],
     checks: [
