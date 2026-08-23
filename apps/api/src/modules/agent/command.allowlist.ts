@@ -1,6 +1,38 @@
 export type CommandDecision = { allowed: true; argv: string[] } | { allowed: false; reason: string };
 
 /**
+ * Commands that have a tool, mapped to the tool that replaces them.
+ *
+ * A refusal that only says no gets retried in variants — card 0001 spent four calls on `find /`
+ * before giving up. Naming the tool that does the job ends the loop on the first denial.
+ */
+const TOOL_EQUIVALENTS: Record<string, string> = {
+    cat: 'the read tool',
+    head: 'the read tool (it takes offset and limit)',
+    tail: 'the read tool (it takes offset and limit)',
+    less: 'the read tool',
+    more: 'the read tool',
+    find: 'the glob tool (pass include_ignored to reach node_modules)',
+    ls: 'the glob tool',
+    tree: 'the glob tool',
+    grep: 'the grep tool (pass include_ignored to reach node_modules)',
+    rg: 'the grep tool (pass include_ignored to reach node_modules)',
+    ack: 'the grep tool',
+    sed: 'the edit tool',
+    awk: 'the read and edit tools',
+    touch: 'the write tool',
+    tee: 'the write tool',
+    echo: 'the write tool, if you meant to create a file',
+    mkdir: 'the write tool, which creates parent directories itself',
+};
+
+/** The tool that replaces `command`, if one does. */
+const suggestionFor = (argv: string[]): string | undefined => {
+    const head = argv[0];
+    return head ? TOOL_EQUIVALENTS[head] : undefined;
+};
+
+/**
  * Which commands a stage may run.
  *
  * Stage config names them (`pnpm build`, `pnpm test`) and this parses the agent's requested command
@@ -25,7 +57,13 @@ export class CommandAllowlist {
 
     check(command: string): CommandDecision {
         if (SHELL_METACHARACTERS.test(command)) {
-            return { allowed: false, reason: 'command contains shell syntax; commands run without a shell' };
+            const suggestion = suggestionFor(command.trim().split(/\s+/).filter(Boolean));
+            return {
+                allowed: false,
+                reason: `command contains shell syntax and there is no shell to interpret it — no pipes, redirects, chaining, globs or substitution. ${
+                    suggestion ? `Use ${suggestion} instead.` : 'Run a single command with plain arguments.'
+                }`,
+            };
         }
 
         const argv = command.trim().split(/\s+/).filter(Boolean);
@@ -39,9 +77,13 @@ export class CommandAllowlist {
             }
         }
 
+        const suggestion = suggestionFor(argv);
+        const allowed = this.prefixes.map(p => p.join(' ')).join(', ') || 'nothing';
         return {
             allowed: false,
-            reason: `command is not in this stage's allowlist (${this.prefixes.map(p => p.join(' ')).join(', ') || 'empty'})`,
+            reason: suggestion
+                ? `${argv[0]} is not available, and does not need to be — use ${suggestion}.`
+                : `command is not in this stage's allowlist. Allowed: ${allowed}.`,
         };
     }
 }

@@ -24,6 +24,37 @@ describe('CommandAllowlist', () => {
         expect(list.check('curl https://example.com')).toMatchObject({ allowed: false });
     });
 
+    describe('actionable refusals', () => {
+        // A refusal that only says no gets retried in variants. Card 0001 spent four calls on
+        // `find /` before giving up and guessing at the contract.
+        it.each([
+            ['find . -name "*.ts"', 'glob tool'],
+            ['ls node_modules', 'glob tool'],
+            ['cat src/index.ts', 'read tool'],
+            ['head -20 src/index.ts', 'read tool'],
+            ['grep -rn foo src', 'grep tool'],
+            ['rg foo', 'grep tool'],
+            ['sed -i s/a/b/ f.ts', 'edit tool'],
+            ['mkdir -p src/new', 'write tool'],
+        ])('points %s at the tool that replaces it', (command, expected) => {
+            const decision = list.check(command);
+            expect(decision.allowed).toBe(false);
+            expect((decision as { reason: string }).reason).toContain(expected);
+        });
+
+        it('names the allowlist when there is no tool equivalent', () => {
+            const decision = list.check('curl https://example.com');
+            expect((decision as { reason: string }).reason).toContain('pnpm build');
+        });
+
+        it('suggests the tool even when the command also carries shell syntax', () => {
+            // `find / ... 2>/dev/null | head` trips the metacharacter check first; without this the
+            // agent is told about the shell and learns nothing about glob.
+            const decision = list.check('find / -name johnny5 2>/dev/null | head -20');
+            expect((decision as { reason: string }).reason).toContain('glob tool');
+        });
+    });
+
     it('refuses a command whose first token merely starts with an allowed one', () => {
         // `pnpmx` is not `pnpm`; token equality, not string prefix.
         expect(list.check('pnpmx build')).toMatchObject({ allowed: false });
