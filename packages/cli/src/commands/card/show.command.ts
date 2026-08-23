@@ -1,6 +1,7 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository, EventLog, BoardConfig, filesInScope } from '@wilson/api/cli-bootstrap';
+import { DateTime } from 'luxon';
+import { BoardRepository, EventLog, BoardConfig, filesInScope, timeInCurrentStage } from '@wilson/api/cli-bootstrap';
 
 interface ShowOpts {
     json?: boolean;
@@ -15,6 +16,9 @@ const command: CommandModule<ShowOpts> = {
         const card = await ctx.container.get(BoardRepository).read(cardId);
         const fm = card.frontmatter;
 
+        const events = await ctx.container.get(EventLog).tail(ctx.container.get(BoardConfig).project, cardId, 20);
+        const timeInStage = timeInCurrentStage(events, DateTime.utc());
+
         if (opts.json) {
             const scope = filesInScope(card);
             ctx.logger.info(
@@ -27,6 +31,7 @@ const command: CommandModule<ShowOpts> = {
                         planSha: fm.planSha ?? null,
                         dependsOn: fm.dependsOn,
                         filesInScope: scope,
+                        secondsInStage: timeInStage ? timeInStage.as('seconds') : null,
                     },
                     null,
                     2,
@@ -37,6 +42,7 @@ const command: CommandModule<ShowOpts> = {
 
         ctx.logger.info(`${fm.id}  ${fm.title}`);
         ctx.logger.info(`stage:    ${fm.stage}`);
+        if (timeInStage) ctx.logger.info(`for:      ${timeInStage.shiftTo('days', 'hours', 'minutes').toHuman()}`);
         ctx.logger.info(`branch:   ${fm.branch ?? '—'}`);
         ctx.logger.info(`planSha:  ${fm.planSha ?? '— (not approved; stages run against the working copy)'}`);
         if (fm.dependsOn.length > 0) ctx.logger.info(`blocked:  ${fm.dependsOn.join(', ')}`);
@@ -45,7 +51,6 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`\nfiles in scope (${scope.length}):`);
         for (const glob of scope) ctx.logger.info(`  ${glob}`);
 
-        const events = await ctx.container.get(EventLog).tail(ctx.container.get(BoardConfig).project, cardId, 20);
         if (events.length > 0) {
             ctx.logger.info('\nrecent events:');
             for (const event of events) {
