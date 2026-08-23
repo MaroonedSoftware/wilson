@@ -19,6 +19,7 @@ import { boardRepoReady } from './checks/board.repo.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
 import { providerKeySet } from './checks/provider.key.js';
+import { queueReachable } from './checks/queue.reachable.js';
 
 // johnny5's `CommandRegistration.module` is typed as `CommandModule<Record<string, unknown>>`, but
 // command files declare narrow `*Opts` interfaces so their `run` bodies stay type-safe. `reg()` is
@@ -51,6 +52,7 @@ const app = await createCliApp({
         envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT', 'PROJECT_BOARD_ROOT'] }),
         dockerServicesUp({ autoStart: true }),
         postgresReachable,
+        queueReachable,
         providerKeySet,
         codeRepoReady,
         boardRepoReady,
