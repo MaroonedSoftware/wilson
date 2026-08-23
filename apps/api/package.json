@@ -41,6 +41,7 @@
     "devDependencies": {
         "@repo/config-eslint": "workspace:*",
         "@repo/config-typescript": "workspace:*",
+        "@maroonedsoftware/johnny5": "^8.0.8",
         "@swc-node/register": "^1.12.1",
         "@types/luxon": "^3.7.2",
         "@types/pg": "^8.20.0",

@@ -96,6 +96,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@maroonedsoftware/johnny5':
+        specifier: ^8.0.8
+        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
       '@repo/config-eslint':
         specifier: workspace:*
         version: link:../../packages/config-eslint
@@ -125,7 +128,7 @@ importers:
     dependencies:
       '@maroonedsoftware/johnny5':
         specifier: ^8.0.8
-        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(pg@8.23.0)(yaml@2.9.0)
+        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
       '@swc-node/register':
         specifier: ^1.12.1
         version: 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
@@ -3017,7 +3020,7 @@ snapshots:
     optionalDependencies:
       pg-boss: 12.27.0
 
-  '@maroonedsoftware/johnny5@8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(pg@8.23.0)(yaml@2.9.0)':
+  '@maroonedsoftware/johnny5@8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)':
     dependencies:
       '@clack/prompts': 1.7.0
       '@maroonedsoftware/appconfig': 2.4.6(pg@8.23.0)(yaml@2.9.0)
@@ -3029,6 +3032,7 @@ snapshots:
     optionalDependencies:
       '@maroonedsoftware/koa': 3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)
       '@swc-node/register': 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
+      kysely: 0.29.5
       pg: 8.23.0
     transitivePeerDependencies:
       - '@aws-sdk/client-secrets-manager'
