@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository, JobBroker } from '@wilson/api/cli-bootstrap';
+import { BoardRepository, JobBroker, PgBoss } from '@wilson/api/cli-bootstrap';
 
 /**
  * Enqueue a card's current stage on the job queue.
@@ -20,9 +20,18 @@ const command: CommandModule = {
         const card = await board.read(cardId);
         const stageName = card.frontmatter.stage;
 
-        const jobId = await broker.send('card.stage', { cardId, stageName });
-
-        ctx.logger.info(`enqueued ${cardId} · ${stageName} (job ${jobId})`);
+        // pg-boss refuses to send on an unopened connection, and nothing has opened one: johnny5's
+        // CLI bootstrap runs every module's `setup` but never its `start`, so JobsModule.start()
+        // — which is where the daemon's runner opens pg-boss — has not fired in this process.
+        // A producer-only command has to open and close it itself.
+        const pgBoss = ctx.container.get(PgBoss);
+        await pgBoss.start();
+        try {
+            const jobId = await broker.send('card.stage', { cardId, stageName });
+            ctx.logger.info(`enqueued ${cardId} · ${stageName} (job ${jobId})`);
+        } finally {
+            await pgBoss.stop();
+        }
         ctx.logger.info('the job runs in whatever process holds the JobRunner — that process must stay running for it to happen.');
         return 0;
     }),

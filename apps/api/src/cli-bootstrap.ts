@@ -22,6 +22,7 @@ export const buildConfig = async (options: { envFile?: string } = {}): Promise<A
 };
 
 export { modules };
+export { PgBoss } from 'pg-boss';
 export { JobBroker, JobRunner } from '@maroonedsoftware/jobbroker';
 export { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 export { BoardRepository } from '#modules/board/board.repository.js';
