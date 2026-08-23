@@ -207,10 +207,20 @@ export class StageDispatcher {
         });
 
         const verification = await this.verifier.verify({ worktree, scope, stage });
+        const failures = [...verification.failures];
+
+        // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
+        // a third of the way through its plan, emitted a placeholder result, and passed — because
+        // the diff was non-empty, in scope, and built. Truncation is knowable, so it is checked.
+        if (run.steps.length >= stage.maxSteps) {
+            failures.unshift(
+                `the stage used all ${stage.maxSteps} of its steps and was cut off mid-run — its work is partial whatever the diff shows`,
+            );
+        }
 
         return {
-            passed: verification.passed,
-            failures: verification.failures,
+            passed: failures.length === 0,
+            failures,
             changedPaths: verification.changedPaths,
             scopeGrants: scope.grants(),
             result: run.output,
