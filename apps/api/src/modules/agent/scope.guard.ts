@@ -13,6 +13,14 @@ export interface ScopeGuardOptions {
     alwaysAllowed: string[];
     /** Extra deny globs from project config. The built-in denies below are always applied. */
     deny?: string[];
+    /**
+     * Absolute paths of individual files the agent may read despite living outside the worktree.
+     *
+     * Exactly one thing needs this: the plan. It is materialized outside the tree on purpose, so it
+     * can never be committed to the card's branch — which also put it beyond every tool, leaving the
+     * agent to infer its own contract. Exact file paths only, never directories, and read-only.
+     */
+    readableExtras?: string[];
 }
 
 /**
@@ -38,8 +46,10 @@ export class ScopeGuard {
     private readonly matchAllow: (path: string) => boolean;
     private readonly matchDeny: (path: string) => boolean;
     private readonly granted = new Set<string>();
+    private readonly readableExtras: Set<string>;
 
     constructor(private readonly options: ScopeGuardOptions) {
+        this.readableExtras = new Set((options.readableExtras ?? []).map(path => resolve(path)));
         const allow = [...options.allow, ...options.alwaysAllowed];
         // An empty allow list denies everything rather than allowing everything. A plan with no
         // `Files in scope` has not said what it may touch, and the safe reading of silence is "no".
@@ -47,9 +57,21 @@ export class ScopeGuard {
         this.matchDeny = picomatch([...ALWAYS_DENIED, ...(options.deny ?? [])], { dot: true });
     }
 
-    /** Record a scope widening granted for this run. Subsequent writes to the path are allowed. */
-    grant(relativePath: string): void {
-        this.granted.add(relativePath);
+    /**
+     * Record a scope widening granted for this run.
+     *
+     * Refuses a path that could never take effect. A grant on something outside the worktree reads
+     * to the operator as a widening that happened, when containment would still refuse every write —
+     * a misleading entry in the log is worse than an honest refusal.
+     */
+    async grant(candidate: string): Promise<ScopeDecision> {
+        const contained = await this.contain(candidate);
+        if (!contained.allowed) return contained;
+        if (this.matchDeny(contained.path)) {
+            return { allowed: false, path: contained.path, reason: 'path is denied: the runner owns it, not the plan' };
+        }
+        this.granted.add(contained.path);
+        return contained;
     }
 
     /** Every widening granted so far, for the exit condition and the event log. */
@@ -65,6 +87,12 @@ export class ScopeGuard {
      * plan nobody could write. Scope constrains what changes, not what is understood.
      */
     async checkRead(candidate: string): Promise<ScopeDecision> {
+        // Checked before containment, since the whole point of an extra is that it is outside.
+        const absolute = isAbsolute(candidate) ? resolve(candidate) : resolve(this.options.worktreeRoot, candidate);
+        if (this.readableExtras.has(absolute)) {
+            return { allowed: true, path: absolute };
+        }
+
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
         if (this.matchDeny(contained.path)) {

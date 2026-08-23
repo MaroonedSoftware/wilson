@@ -39,7 +39,20 @@ export const scopeTool = (ctx: ToolContext) =>
                 throw new ScopeKickbackError(path, reason);
             }
 
-            ctx.scope.grant(path);
+            const granted = await ctx.scope.grant(path);
+            if (!granted.allowed) {
+                // Refused rather than recorded: a grant that containment would still refuse is a
+                // widening the operator would see in the log but that never actually happened.
+                await ctx.events.append({
+                    project: ctx.project,
+                    cardId: ctx.cardId,
+                    stage: ctx.stage,
+                    type: 'scope.refused',
+                    payload: { path, reason, refusal: granted.reason },
+                });
+                return `error: ${granted.reason} (${path}). This path can never be written from this stage.`;
+            }
+
             await ctx.events.append({
                 project: ctx.project,
                 cardId: ctx.cardId,
@@ -47,6 +60,6 @@ export const scopeTool = (ctx: ToolContext) =>
                 type: 'scope.granted',
                 payload: { path, reason },
             });
-            return `granted: ${path} is writable for this run, and the widening is recorded on the card.`;
+            return `granted: ${granted.path} is writable for this run, and the widening is recorded on the card.`;
         },
     });

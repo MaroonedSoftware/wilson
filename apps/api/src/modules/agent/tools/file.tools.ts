@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { ToolContext } from './tool.context.js';
@@ -25,7 +25,8 @@ export const fileTools = (ctx: ToolContext) => ({
             const decision = await ctx.scope.checkRead(path);
             if (!decision.allowed) return `error: ${decision.reason} (${path})`;
 
-            const absolute = join(ctx.worktreeRoot, decision.path);
+            // A readable extra (the plan) comes back absolute; everything else is worktree-relative.
+            const absolute = isAbsolute(decision.path) ? decision.path : join(ctx.worktreeRoot, decision.path);
             const raw = await readFile(absolute, 'utf8').catch((err: Error) => err);
             if (raw instanceof Error) return `error: could not read ${decision.path}: ${raw.message}`;
             if (raw.length > MAX_READ_BYTES && !offset && !limit) {

@@ -64,14 +64,17 @@ export class StageDispatcher {
             payload: { branch, baseSha: worktree.baseSha, path: worktree.path },
         });
 
+        const planPath = await this.materializePlan(card, pinnedSha);
+
         const scope = new ScopeGuard({
             worktreeRoot: worktree.path,
             allow: filesInScope(card),
             alwaysAllowed: stages.alwaysAllowed,
             deny: stages.deny,
+            // The plan lives outside the worktree so it cannot be committed to the card's branch.
+            // Without this it is also unreadable, and the agent infers its own contract.
+            readableExtras: [planPath],
         });
-
-        const planPath = await this.materializePlan(card, pinnedSha);
 
         await this.events.append({
             project: this.config.project,
@@ -170,11 +173,15 @@ export class StageDispatcher {
 
         const run = await agent.generate({
             prompt: [
-                `Your plan is at ${planPath}. Read it first — it is the contract for this card, and nothing outside it is in scope.`,
-                `You are working in a git worktree at ${worktree.path}. All tool paths are relative to it.`,
                 `Card: ${card.frontmatter.title}`,
                 '',
-                'Implement the plan. When you are done, return the structured result.',
+                `Your plan is at ${planPath}. Read it with the read tool before doing anything else — pass that`,
+                `path exactly as written. It is the contract for this card: its "Files in scope" is what you may`,
+                `change, and its "Out of scope" is binding even where you could technically make the change.`,
+                '',
+                `You are working in a git worktree at ${worktree.path}. Every other tool path is relative to it.`,
+                '',
+                'Implement the plan, then return the structured result.',
             ].join('\n'),
         });
 

@@ -90,16 +90,46 @@ describe('ScopeGuard', () => {
         it('allows a path once it has been granted, and reports it', async () => {
             const g = guard(['src/runner/**']);
             expect((await g.check('docs/readme.md')).allowed).toBe(false);
-            g.grant('docs/readme.md');
+            await g.grant('docs/readme.md');
             expect((await g.check('docs/readme.md')).allowed).toBe(true);
             expect(g.grants()).toEqual(['docs/readme.md']);
         });
 
-        it('does not let a grant override the deny list', async () => {
+        it('refuses to grant the deny list', async () => {
             const g = guard(['**']);
-            g.grant('.runner/state.json');
-            // Deny is checked first on purpose: no grant makes the machinery writable.
+            await expect(g.grant('.runner/state.json')).resolves.toMatchObject({ allowed: false });
             await expect(g.check('.runner/state.json')).resolves.toMatchObject({ allowed: false });
+            expect(g.grants()).toEqual([]);
+        });
+
+        it('refuses to grant a path outside the worktree, rather than recording a lie', async () => {
+            // A grant containment would still refuse reads to the operator as a widening that
+            // happened. It did not, and no write to it will ever succeed.
+            const g = guard(['**']);
+            await expect(g.grant(join(outside, 'secret.txt'))).resolves.toMatchObject({ allowed: false });
+            expect(g.grants()).toEqual([]);
+        });
+    });
+
+    describe('readable extras', () => {
+        const withPlan = (plan: string) => new ScopeGuard({ worktreeRoot: root, allow: ['src/**'], alwaysAllowed: [], readableExtras: [plan] });
+
+        it('allows reading the plan even though it lives outside the worktree', async () => {
+            // The plan is materialized outside the tree so it can never be committed to the card's
+            // branch. Without this exception it is also unreadable, and the agent — as card 0001
+            // proved — infers its own contract and violates the plan's out-of-scope section.
+            const plan = join(outside, 'plan.md');
+            await expect(withPlan(plan).checkRead(plan)).resolves.toMatchObject({ allowed: true, path: plan });
+        });
+
+        it('does not make the plan writable', async () => {
+            const plan = join(outside, 'plan.md');
+            await expect(withPlan(plan).check(plan)).resolves.toMatchObject({ allowed: false });
+        });
+
+        it('does not admit its siblings', async () => {
+            // Exact file paths only: an extra is not a directory grant.
+            await expect(withPlan(join(outside, 'plan.md')).checkRead(join(outside, 'secret.txt'))).resolves.toMatchObject({ allowed: false });
         });
     });
 
