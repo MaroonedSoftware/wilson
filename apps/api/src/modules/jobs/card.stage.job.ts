@@ -1,7 +1,9 @@
 import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
+import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { decideChain } from './chain.decision.js';
@@ -26,13 +28,24 @@ export class CardStageJob extends Job<CardStagePayload> {
         private readonly dispatcher: StageDispatcher,
         private readonly broker: JobBroker,
         private readonly board: BoardConfig,
+        private readonly boardRepo: BoardRepository,
         private readonly events: EventLog,
     ) {
         super();
     }
 
     async run({ cardId, stageName }: CardStagePayload): Promise<void> {
-        const outcome = await this.dispatcher.run(cardId, stageName);
+        let outcome;
+        try {
+            outcome = await this.dispatcher.run(cardId, stageName);
+        } catch (error) {
+            if (!isPermanentFailure(error)) {
+                // Transient: let it throw so the queue retries under its policy.
+                throw error;
+            }
+            await this.poison(cardId, stageName, error);
+            return;
+        }
 
         // Unset means the stage just run was a `manual` gate the dispatcher left alone — nothing
         // for the chain to do until a human moves the card.
@@ -56,6 +69,39 @@ export class CardStageJob extends Job<CardStagePayload> {
             stage: stageName,
             type: 'chain.stopped',
             payload: { target: outcome.transitionedTo, reason: decision.reason },
+        });
+    }
+
+    /**
+     * Stop a card whose failure retrying cannot fix.
+     *
+     * `poisoned` is a terminal state and deliberately not a kickback: the card's retry budget is for
+     * work that came back wrong, and spending it on an exhausted balance or a missing credential
+     * both wastes the budget and misreports the cause. The job returns normally afterwards so the
+     * queue does not retry it either — the whole point is that the next attempt fails identically.
+     */
+    private async poison(cardId: string, stageName: string, error: unknown): Promise<void> {
+        const reason = error instanceof Error ? error.message : String(error);
+
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'stage.poisoned',
+            payload: { reason },
+        });
+
+        await this.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => ({
+            ...card,
+            frontmatter: { ...card.frontmatter, stage: 'poisoned' },
+        }));
+
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'transition.written',
+            payload: { from: stageName, to: 'poisoned', by: 'runner', reason },
         });
     }
 }

@@ -9,6 +9,7 @@ export type CardEventType =
     | 'stage.dispatched'
     | 'stage.passed'
     | 'stage.failed'
+    | 'stage.poisoned'
     | 'tool.denied'
     | 'scope.requested'
     | 'scope.granted'
