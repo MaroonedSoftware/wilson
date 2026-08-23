@@ -1,4 +1,5 @@
 import type { ColumnType, Generated } from 'kysely';
+import type { DateTime } from 'luxon';
 
 /**
  * Database types.
@@ -15,7 +16,10 @@ export interface CardEvents {
     stage: string | null;
     type: string;
     payload: unknown;
-    createdAt: ColumnType<Date, Date | string | undefined, never>;
+    // KyselyPgTypeOverrides parses timestamptz into a Luxon DateTime, not a JS Date. Declaring it
+    // as Date compiles and then fails at runtime on `.toISOString()`, which is exactly how it got
+    // past tsc the first time.
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
 export interface DB {

@@ -24,7 +24,7 @@ const command: CommandModule = {
         if (events.length > 0) {
             ctx.logger.info('\nrecent events:');
             for (const event of events) {
-                ctx.logger.info(`  ${event.createdAt.toISOString()}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`);
+                ctx.logger.info(`  ${event.createdAt.toISO()}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`);
             }
         }
         return 0;

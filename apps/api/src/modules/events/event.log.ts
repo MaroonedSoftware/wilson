@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
+import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
 import type { CardEvent, CardEventType } from './card.event.js';
 
@@ -8,7 +9,7 @@ export interface CardEventRow {
     stage: string | null;
     type: CardEventType;
     payload: Record<string, unknown>;
-    createdAt: Date;
+    createdAt: DateTime;
 }
 
 /**
