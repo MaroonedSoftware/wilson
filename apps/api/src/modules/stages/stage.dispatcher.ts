@@ -229,7 +229,7 @@ export class StageDispatcher {
                 `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
             );
         }
-        const verification = await verifier.verify({ worktree, scope, stage });
+        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id });
         const failures = [...verification.failures];
         const reported = reportedResult(run.steps);
 

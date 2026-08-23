@@ -37,11 +37,12 @@ export const StageConfigSchema = z.object({
     /** Where the test report lands, relative to the worktree. */
     testReportPath: z.string().optional(),
     /**
-     * Test counts the suite had before this card, so the testing verifier can catch tests removed
-     * or turned into skips instead of fixed. Card 0004 will derive these from a baseline worktree;
-     * until then they come from config, and their absence is recorded rather than silently passing.
+     * Whether the testing verifier should run the pre-change baseline: a second worktree, cut from
+     * the same base, that proves this card's new tests fail before the change. Defaults on; the
+     * escape hatch exists for stages where a baseline run cannot be completed at all rather than for
+     * saving time (PROJECT.md decision on exit conditions that can be satisfied by doing less work).
      */
-    baselineCounts: z.object({ total: z.number(), skipped: z.number() }).optional(),
+    baselineCheck: z.boolean().default(true),
     /** Name of the registered verifier to run at the exit condition. Defaults to the stage's own name. */
     verifier: z.string().optional(),
     maxSteps: z.number().int().min(1).default(60),
