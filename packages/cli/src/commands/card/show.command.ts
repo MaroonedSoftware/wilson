@@ -2,13 +2,38 @@ import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
 import { BoardRepository, EventLog, BoardConfig, filesInScope } from '@kanban/api/cli-bootstrap';
 
-const command: CommandModule = {
+interface ShowOpts {
+    json?: boolean;
+}
+
+const command: CommandModule<ShowOpts> = {
     description: 'Show a card: its state, its files in scope, and the tail of its event log',
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
-    run: requireContainer(async (_opts, ctx, args) => {
+    options: [{ flags: '--json', description: 'Print the card state as a single JSON object', type: 'boolean' }],
+    run: requireContainer<ShowOpts>(async (opts, ctx, args) => {
         const cardId = String(args[0]);
         const card = await ctx.container.get(BoardRepository).read(cardId);
         const fm = card.frontmatter;
+
+        if (opts.json) {
+            const scope = filesInScope(card);
+            ctx.logger.info(
+                JSON.stringify(
+                    {
+                        id: fm.id,
+                        title: fm.title,
+                        stage: fm.stage,
+                        branch: fm.branch ?? null,
+                        planSha: fm.planSha ?? null,
+                        dependsOn: fm.dependsOn,
+                        filesInScope: scope,
+                    },
+                    null,
+                    2,
+                ),
+            );
+            return 0;
+        }
 
         ctx.logger.info(`${fm.id}  ${fm.title}`);
         ctx.logger.info(`stage:    ${fm.stage}`);
