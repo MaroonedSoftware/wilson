@@ -182,7 +182,25 @@ export class StageDispatcher {
                 return outcome;
             }
 
-            const transitionedTo = await this.writeTransition(cardId, stageName, stage, card, outcome);
+            // Outside the try below, and in its own: the stage's outcome is already recorded, and a
+            // transition that fails to write must not be reported as the stage having failed. Sharing
+            // the catch would append a `stage.failed` event after a `stage.passed` one for the same
+            // run, leaving the card's history contradicting itself about what the stage did.
+            let transitionedTo: string | undefined;
+            try {
+                transitionedTo = await this.writeTransition(cardId, stageName, stage, card, outcome);
+            } catch (err) {
+                await this.events.append({
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'transition.failed',
+                    payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
+                });
+                // Still thrown: the card is now stranded in a stage whose work is done, and a
+                // silent failure here is how a card sits untouched forever.
+                throw err;
+            }
             return { ...outcome, transitionedTo };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
@@ -205,13 +223,7 @@ export class StageDispatcher {
      * stage's own `stage.passed`/`stage.failed` event is already recorded, but a transition that did
      * not happen must surface, so this throws rather than catching.
      */
-    private async writeTransition(
-        cardId: string,
-        stageName: string,
-        stage: StageConfig,
-        card: Card,
-        outcome: StageOutcome,
-    ): Promise<string> {
+    private async writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string> {
         const decision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: card.frontmatter.retries }
             : kickback(stage, card.frontmatter.retries);

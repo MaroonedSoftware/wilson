@@ -18,6 +18,7 @@ export type CardEventType =
     | 'work.committed'
     | 'worktree.reclaimed'
     | 'transition.written'
+    | 'transition.failed'
     | 'external.transition';
 
 export interface CardEvent {
