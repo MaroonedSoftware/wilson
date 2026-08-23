@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -158,6 +158,12 @@ export class TestingVerifier implements StageVerifier {
                 await mkdir(dirname(dest), { recursive: true });
                 await copyFile(join(worktree.path, path), dest);
             }
+
+            // Delete the first run's report before the second. Otherwise a run that dies before
+            // writing one leaves the full-suite report in place, and the check reads its counts as
+            // though they described the copied tests. It would err towards failing rather than
+            // passing, but on evidence about a different set of tests entirely.
+            if (stage.testReportPath) await rm(join(baseline.path, stage.testReportPath), { force: true });
 
             const run = await runConfiguredCommand(baseline.path, `${stage.testCommand} ${testPaths.join(' ')}`);
             // Unlike the first run, an unreadable report here is expected in the common case — a new

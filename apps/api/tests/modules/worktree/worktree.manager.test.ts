@@ -46,6 +46,37 @@ describe('WorktreeManager', () => {
         expect(worktree.baseSha).toBe(head.stdout.trim());
     });
 
+    describe('cutting from a specific commit', () => {
+        // The baseline check (card 0004) cuts a second worktree from the card's own base rather than
+        // from HEAD, so that "pre-change" means what the card actually branched from — not whatever
+        // has landed on main since.
+        it('cuts from the given commit rather than HEAD', async () => {
+            const base = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            await writeFile(join(codeRoot, 'src', 'later.ts'), 'export const later = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'later'], { cwd: codeRoot });
+
+            const worktree = await manager.create('0001-baseline', 'card/0001-baseline', base);
+
+            expect(worktree.baseSha).toBe(base);
+            // The file added after `base` must not be there, or the baseline is not the pre-change tree.
+            expect(existsSync(join(worktree.path, 'src', 'later.ts'))).toBe(false);
+        });
+
+        it('still uses HEAD when no commit is given', async () => {
+            const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            await expect(manager.create('0001', 'card/0001-thing')).resolves.toMatchObject({ baseSha: head });
+        });
+
+        it('can hold a baseline worktree and the card worktree at once', async () => {
+            // They coexist during the baseline check, on different branches and different commits.
+            const card = await manager.create('0001', 'card/0001-thing');
+            const baseline = await manager.create('0001-baseline', 'card/0001-baseline', card.baseSha);
+            expect(existsSync(card.path)).toBe(true);
+            expect(existsSync(baseline.path)).toBe(true);
+        });
+    });
+
     it('reclaims a stale worktree instead of colliding with it', async () => {
         const first = await manager.create('0001', 'card/0001-thing');
         // A dead run leaves artifacts behind; the next attempt must not verify them.
