@@ -16,7 +16,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
-import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
+import { StageResultSchemaMap, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
 /** The stage's own summary, for the commit message body. */
@@ -57,6 +57,7 @@ export class StageDispatcher {
         private readonly worktrees: WorktreeManager,
         private readonly models: ModelRegistry,
         private readonly verifiers: StageVerifierMap,
+        private readonly resultSchemas: StageResultSchemaMap,
         private readonly events: EventLog,
         private readonly logger: Logger,
     ) {}
@@ -220,10 +221,17 @@ export class StageDispatcher {
             logger: this.logger,
         };
 
+        const resultSchema = this.resultSchemas.get(stage.verifier ?? stage.name);
+        if (!resultSchema) {
+            throw new Error(
+                `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which has no registered result schema (have: ${[...this.resultSchemas.keys()].join(', ')})`,
+            );
+        }
+
         const agent = new ToolLoopAgent({
             model: this.models.resolve(stage.provider, stage.model),
             instructions: stage.instructions,
-            tools: buildTools(context, ImplementingResultSchema),
+            tools: buildTools(context, resultSchema, stage.worktree),
             ...(stage.tools ? { activeTools: stage.tools as never } : {}),
             // The loop ends when the agent says it is finished, or when it runs out of steps.
             // Two bounds on spend, because retry limits bound the loop count and not the cost.
@@ -253,9 +261,9 @@ export class StageDispatcher {
                 `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
             );
         }
-        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id });
-        const failures = [...verification.failures];
         const reported = reportedResult(run.steps);
+        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, result: reported });
+        const failures = [...verification.failures];
 
         // A stage that never called the report tool never said it was finished. Whatever is in the
         // tree is where it happened to stop, not what it set out to produce.

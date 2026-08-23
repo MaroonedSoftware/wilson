@@ -19,6 +19,30 @@ export type ImplementingResult = z.infer<typeof ImplementingResultSchema>;
 /** The verdict shape the plan-review stage will emit at step 5. Defined now so the enum is shared. */
 export const FindingSeverity = z.enum(['blocker', 'concern']);
 
+export const ReviewFindingSchema = z.object({
+    severity: z.enum(['blocker', 'concern']),
+    file: z.string().describe('A path from this card’s diff, exactly as the diff lists it.'),
+    line: z.number().int().min(1).describe('A line number in that file.'),
+    problem: z.string().describe('What is wrong, in one sentence.'),
+    suggestion: z.string().describe('What would fix it, in one sentence.'),
+});
+
+export const ReviewResultSchema = z.object({
+    summary: z.string(),
+    verdict: z.enum(['pass', 'revise']),
+    findings: z.array(ReviewFindingSchema).max(20),
+});
+
+export type ReviewResult = z.infer<typeof ReviewResultSchema>;
+
+/**
+ * Stage name (or its `verifier` override) -> the schema its report tool enforces.
+ *
+ * Registered in `StagesModule` the same way `StageVerifierMap` is, so `buildTools` never hardcodes
+ * one stage's shape for every stage.
+ */
+export class StageResultSchemaMap extends Map<string, z.ZodTypeAny> {}
+
 export interface StageOutcome {
     passed: boolean;
     /** Why the exit condition failed, in the order the checks ran. */
