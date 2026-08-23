@@ -37,6 +37,13 @@ export const StageConfigSchema = z.object({
      * testing stage works on the tree implementing produced.
      */
     worktreeFrom: z.enum(['base', 'branch']).default('base'),
+    /**
+     * Globs this stage may write on top of the card's own "Files in scope".
+     *
+     * A card's scope is written for the stage that implements it. The testing stage's whole job is
+     * to add files nobody could have declared in advance, so it carries its own.
+     */
+    extraScope: z.array(z.string()).default([]),
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),

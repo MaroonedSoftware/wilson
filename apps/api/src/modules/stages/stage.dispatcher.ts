@@ -110,7 +110,7 @@ export class StageDispatcher {
 
         const scope = new ScopeGuard({
             worktreeRoot: worktree.path,
-            allow: filesInScope(card),
+            allow: [...filesInScope(card), ...stage.extraScope],
             alwaysAllowed: stages.alwaysAllowed,
             deny: stages.deny,
             // The plan lives outside the worktree so it cannot be committed to the card's branch.

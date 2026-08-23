@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -62,12 +62,13 @@ export class TestingVerifier implements StageVerifier {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
+        const startedAt = Date.now();
         if (stage.testCommand) {
             const run = await runConfiguredCommand(worktree.path, stage.testCommand);
             if (run) failures.push(`the suite is not green: ${run.reason}`);
         }
 
-        const counts = await this.readReport(worktree.path, stage.testReportPath, failures);
+        const counts = await this.readReport(worktree.path, stage.testReportPath, failures, startedAt);
 
         if (!changedPaths.some(path => TEST_FILE_PATTERN.test(path))) {
             failures.push('the diff contains no file matching *.test.ts: the testing stage added no tests');
@@ -82,13 +83,35 @@ export class TestingVerifier implements StageVerifier {
         return { passed: failures.length === 0, failures, changedPaths };
     }
 
-    private async readReport(worktreePath: string, testReportPath: string | undefined, failures: string[]): Promise<TestCounts | undefined> {
+    /**
+     * Read a report, refusing one that predates the run that was supposed to write it.
+     *
+     * `pnpm --filter` exits 0 when its filter matches no project, so a stale package name in stage
+     * config turns the test command into a silent no-op. The first time the testing stage ran for
+     * real, that is exactly what happened, and a missing report was the only symptom. A report left
+     * over from an earlier run would have been worse — it would have been believed.
+     */
+    private async readReport(
+        worktreePath: string,
+        testReportPath: string | undefined,
+        failures: string[],
+        notBefore?: number,
+    ): Promise<TestCounts | undefined> {
         if (!testReportPath) {
             failures.push('no testReportPath configured: the test report was never checked');
             return undefined;
         }
 
         const path = join(worktreePath, testReportPath);
+
+        if (notBefore !== undefined) {
+            const stats = await stat(path).catch(() => undefined);
+            if (stats && stats.mtimeMs < notBefore) {
+                failures.push(`the test report at ${testReportPath} predates this run: the test command wrote nothing`);
+                return undefined;
+            }
+        }
+
         const raw = await readFile(path, 'utf8').catch((err: Error) => err);
         if (raw instanceof Error) {
             failures.push(`could not read test report at ${testReportPath}: ${raw.message}`);
@@ -143,8 +166,9 @@ export class TestingVerifier implements StageVerifier {
             // health is unrelated to whether this card's tests exercise its change. parseTestReport
             // does not care whether tests failed, only whether the report is readable, so a failing
             // suite reaches here as ordinary counts rather than a pushed failure.
+            const baselineStartedAt = Date.now();
             await runConfiguredCommand(baseline.path, stage.testCommand);
-            const baselineCounts = await this.readReport(baseline.path, stage.testReportPath, failures);
+            const baselineCounts = await this.readReport(baseline.path, stage.testReportPath, failures, baselineStartedAt);
             if (counts && baselineCounts) {
                 failures.push(...checkCounts(counts, baselineCounts));
             }

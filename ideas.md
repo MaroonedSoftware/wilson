@@ -1,0 +1,4 @@
+- [ ] Reduce scope automatically during the plan phase
+    - [ ] the agent should give suggestions on what to remove from a plan to keep the scope small
+- [ ] email plugin
+    - [ ] reference emails to build plans or parking lot ideas
