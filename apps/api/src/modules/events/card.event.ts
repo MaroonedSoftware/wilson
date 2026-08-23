@@ -14,6 +14,7 @@ export type CardEventType =
     | 'scope.granted'
     | 'scope.refused'
     | 'worktree.created'
+    | 'worktree.prepared'
     | 'worktree.reclaimed'
     | 'transition.written'
     | 'external.transition';

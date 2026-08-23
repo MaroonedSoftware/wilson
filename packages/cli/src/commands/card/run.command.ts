@@ -25,6 +25,15 @@ const command: CommandModule<RunOpts> = {
 
         ctx.logger.info(`\n${outcome.passed ? 'PASS' : 'FAIL'}  ${cardId} · ${stage}`);
 
+        // The stage's own account of what it did. Printed on failure as much as success: when the
+        // exit condition fails, what the agent believed it was doing is the first thing you need.
+        const result = outcome.result as { summary?: string; caveats?: string[] } | undefined;
+        if (result?.summary) ctx.logger.info(`\n${result.summary}`);
+        if (result?.caveats?.length) {
+            ctx.logger.warn('\ncaveats the stage reported:');
+            for (const caveat of result.caveats) ctx.logger.warn(`  - ${caveat}`);
+        }
+
         if (outcome.changedPaths.length > 0) {
             ctx.logger.info(`\nchanged (${outcome.changedPaths.length}):`);
             for (const path of outcome.changedPaths) ctx.logger.info(`  ${path}`);
@@ -36,15 +45,15 @@ const command: CommandModule<RunOpts> = {
             for (const path of outcome.scopeGrants) ctx.logger.warn(`  ${path}`);
         }
 
+        const usage = outcome.usage;
+        if (usage) ctx.logger.info(`\ntokens: ${usage.inputTokens ?? '?'} in / ${usage.outputTokens ?? '?'} out`);
+
         if (!outcome.passed) {
             ctx.logger.error('\nexit condition not met:');
             for (const failure of outcome.failures) ctx.logger.error(`  - ${failure}`);
             ctx.logger.info('\nThe branch is preserved for inspection.');
             return 1;
         }
-
-        const usage = outcome.usage;
-        if (usage) ctx.logger.info(`\ntokens: ${usage.inputTokens ?? '?'} in / ${usage.outputTokens ?? '?'} out`);
         ctx.logger.info('\nReview the branch, then move the card yourself — the runner does not transition in step 0.');
         return 0;
     }),

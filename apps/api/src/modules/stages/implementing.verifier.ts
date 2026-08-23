@@ -1,11 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { Injectable } from 'injectkit';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
-
-const exec = promisify(execFile);
 
 export interface VerificationInput {
     worktree: Worktree;
@@ -45,26 +42,10 @@ export class ImplementingVerifier {
         }
 
         if (stage.buildCommand) {
-            const build = await this.runBuild(worktree.path, stage.buildCommand);
-            if (build) failures.push(build);
+            const build = await runConfiguredCommand(worktree.path, stage.buildCommand);
+            if (build) failures.push(build.reason);
         }
 
         return { passed: failures.length === 0, failures, changedPaths };
-    }
-
-    /** Returns a failure string, or undefined when the build passed. */
-    private async runBuild(cwd: string, command: string): Promise<string | undefined> {
-        const [file, ...args] = command.trim().split(/\s+/).filter(Boolean);
-        if (!file) return 'stage has a buildCommand that is empty';
-
-        try {
-            await exec(file, args, { cwd, timeout: 10 * 60 * 1000, maxBuffer: 16 * 1024 * 1024 });
-            return undefined;
-        } catch (err) {
-            const e = err as Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean };
-            if (e.killed) return `build command timed out: ${command}`;
-            const output = [e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n').slice(-4000);
-            return `build command failed (exit ${e.code ?? 'unknown'}): ${command}\n${output}`;
-        }
     }
 }

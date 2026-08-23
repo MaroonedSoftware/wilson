@@ -23,6 +23,13 @@ export const StageConfigSchema = z.object({
     tools: z.array(z.string()).optional(),
     /** Commands the bash tool will run for this stage, as argv prefixes. */
     allowedCommands: z.array(z.string()).default([]),
+    /**
+     * Run once at worktree creation, before the agent starts.
+     *
+     * A fresh worktree has no node_modules, and without this the agent spends its budget installing
+     * dependencies and confirming the baseline builds instead of doing the card.
+     */
+    setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),
     maxSteps: z.number().int().min(1).default(60),

@@ -14,6 +14,7 @@ import { buildTools, ScopeKickbackError, type ToolContext } from '#modules/agent
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
+import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
 
@@ -63,6 +64,26 @@ export class StageDispatcher {
             type: 'worktree.created',
             payload: { branch, baseSha: worktree.baseSha, path: worktree.path },
         });
+
+        // Before the agent sees the tree, not as its first task: a fresh worktree has no
+        // node_modules, and card 0001 twice spent its whole run installing dependencies and
+        // confirming the baseline built, then reported that as the work.
+        if (stage.setupCommand) {
+            const failure = await runConfiguredCommand(worktree.path, stage.setupCommand);
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'worktree.prepared',
+                payload: { command: stage.setupCommand, ok: !failure, ...(failure ? { reason: failure.reason } : {}) },
+            });
+            if (failure) {
+                // An unprepared worktree makes every later signal meaningless — the build would fail
+                // for reasons that have nothing to do with the card.
+                throw new Error(`worktree setup failed for ${cardId}: ${failure.reason}`);
+            }
+            this.logger.info(`worktree prepared with \`${stage.setupCommand}\``);
+        }
 
         const planPath = await this.materializePlan(card, pinnedSha);
 
