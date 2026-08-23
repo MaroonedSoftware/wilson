@@ -45,13 +45,17 @@ export class WorktreeManager {
      * Reclaiming rather than failing is deliberate: the common reason a worktree already exists is
      * that a previous run died, and a dead run's tree holds artifacts the runner must not verify
      * (PROJECT.md, resume semantics — partial output is never verified).
+     *
+     * `at` cuts the worktree from a specific commit instead of HEAD — the testing verifier's baseline
+     * check uses it to cut from the card worktree's own base, so "pre-change" means exactly what the
+     * card branched from rather than whatever HEAD has moved to since.
      */
-    async create(cardId: string, branch: string): Promise<Worktree> {
+    async create(cardId: string, branch: string, at?: string): Promise<Worktree> {
         await this.reclaim(cardId);
         await mkdir(this.config.worktreeRoot, { recursive: true });
 
         const path = this.path(cardId);
-        const baseSha = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+        const baseSha = at ?? (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
 
         // -B so a leftover branch from a prior attempt is reset to the base rather than colliding.
         await git(this.config.codeRoot, ['worktree', 'add', '-B', branch, path, baseSha]);

@@ -6,6 +6,8 @@ export interface VerificationInput {
     worktree: Worktree;
     scope: ScopeGuard;
     stage: StageConfig;
+    /** The card being verified. Only the testing verifier's baseline check uses it. */
+    cardId: string;
 }
 
 export interface VerificationOutcome {

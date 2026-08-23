@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkCounts } from '#modules/stages/testing.verifier.js';
+import { baselineProvesChange, checkCounts } from '#modules/stages/testing.verifier.js';
 import { parseTestReport } from '#modules/stages/test.report.js';
 
 describe('parseTestReport', () => {
@@ -66,5 +66,23 @@ describe('checkCounts', () => {
     it('skips both checks without failing when baselineCounts is absent', () => {
         expect(checkCounts(counts, undefined)).toEqual([]);
         expect(checkCounts({ ...counts, total: 0, skipped: 100 }, undefined)).toEqual([]);
+    });
+});
+
+describe('baselineProvesChange', () => {
+    it('passes when the baseline run had at least one failure', () => {
+        expect(baselineProvesChange({ total: 1, passed: 0, failed: 1, skipped: 0 }, false)).toBe(true);
+    });
+
+    it('fails when the baseline run had zero failures', () => {
+        expect(baselineProvesChange({ total: 1, passed: 1, failed: 0, skipped: 0 }, false)).toBe(false);
+    });
+
+    it('passes on a non-zero exit with no parseable report — a test that fails to even import', () => {
+        expect(baselineProvesChange(undefined, true)).toBe(true);
+    });
+
+    it('fails on a zero exit with no parseable report', () => {
+        expect(baselineProvesChange(undefined, false)).toBe(false);
     });
 });
