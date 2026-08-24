@@ -12,6 +12,15 @@
                     "routes": "src/routes/{filename}.router.ts",
                     "types": "src/generated/{filename}.ts"
                 }
+            },
+            "sdk": {
+                "baseDir": "packages/sdk/",
+                "name": "wilson",
+                "output": {
+                    "sdk": "src/{name}.sdk.ts",
+                    "types": "src/types/{filename}.ts",
+                    "clients": "src/{filename}.client.ts"
+                }
             }
         }
     }

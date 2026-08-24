@@ -1,0 +1,15 @@
+{
+    "name": "@wilson/sdk",
+    "version": "0.0.1",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "scripts": {
+        "build": "tsc --noEmit",
+        "lint": "eslint --fix"
+    },
+    "devDependencies": {
+        "@repo/config-eslint": "workspace:*",
+        "@repo/config-typescript": "workspace:*"
+    }
+}

@@ -10,6 +10,7 @@ import boardInitCommand from './commands/board/init.command.js';
 import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
+import cardDependCommand from './commands/card/depend.command.js';
 import cardEditCommand from './commands/card/edit.command.js';
 import cardMoveCommand from './commands/card/move.command.js';
 import cardNextCommand from './commands/card/next.command.js';
@@ -47,6 +48,7 @@ const app = await createCliApp({
         reg(['board', 'import'], boardImportCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'create'], cardCreateCommand),
+        reg(['card', 'depend'], cardDependCommand),
         reg(['card', 'edit'], cardEditCommand),
         reg(['card', 'show'], cardShowCommand),
         reg(['card', 'move'], cardMoveCommand),
