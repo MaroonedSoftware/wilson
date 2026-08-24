@@ -133,6 +133,87 @@ describe('ScopeGuard', () => {
         });
     });
 
+    describe('collateral', () => {
+        const guardWithCollateral = (allow: string[], collateral: string[]) => new ScopeGuard({ worktreeRoot: root, allow, alwaysAllowed: [], collateral });
+
+        it('allows a write to a path outside scope when it is listed as collateral, and reports via collateral', async () => {
+            const g = guardWithCollateral(['src/runner/**'], ['src/other/thing.ts']);
+
+            const decision = await g.check('src/other/thing.ts');
+
+            expect(decision).toMatchObject({ allowed: true, path: 'src/other/thing.ts', via: 'collateral' });
+            expect(g.collateralHits()).toEqual(['src/other/thing.ts']);
+        });
+
+        it('still denies a path that is neither in scope nor listed as collateral', async () => {
+            const g = guardWithCollateral(['src/runner/**'], ['src/other/thing.ts']);
+
+            const decision = await g.check('src/unrelated/thing.ts');
+
+            expect(decision.allowed).toBe(false);
+            expect(g.collateralHits()).toEqual([]);
+        });
+
+        it('reports a path matched by the scope glob as via scope, not as a collateral hit, even when it is also listed as collateral', async () => {
+            // The two lists can legitimately overlap (a scoped file that also happens to import
+            // another scoped file); the report should not count that as a widening.
+            const g = guardWithCollateral(['src/other/**'], ['src/other/thing.ts']);
+
+            const decision = await g.check('src/other/thing.ts');
+
+            expect(decision).toMatchObject({ allowed: true, via: 'scope' });
+            expect(g.collateralHits()).toEqual([]);
+        });
+
+        it('still refuses a collateral path that matches the deny list, and does not record a hit for it', async () => {
+            const g = guardWithCollateral(['**'], ['.runner/state.json']);
+
+            const decision = await g.check('.runner/state.json');
+
+            expect(decision).toMatchObject({ allowed: false });
+            expect(g.collateralHits()).toEqual([]);
+        });
+
+        it('reports an explicit grant as via grant even when the same path is also listed as collateral', async () => {
+            const g = guardWithCollateral([], ['src/other/thing.ts']);
+            await g.grant('src/other/thing.ts');
+
+            const decision = await g.check('src/other/thing.ts');
+
+            expect(decision).toMatchObject({ allowed: true, via: 'grant' });
+            expect(g.collateralHits()).toEqual([]);
+        });
+
+        it('accumulates every distinct collateral path actually used, without duplicates, sorted', async () => {
+            const g = guardWithCollateral([], ['src/other/b.ts', 'src/other/a.ts']);
+
+            await g.check('src/other/b.ts');
+            await g.check('src/other/a.ts');
+            await g.check('src/other/b.ts');
+
+            expect(g.collateralHits()).toEqual(['src/other/a.ts', 'src/other/b.ts']);
+        });
+
+        it('does not report a collateral hit for a path that was only checked, never actually collateral-matched', async () => {
+            // Reading is unaffected by collateral — checkRead already allows anything inside the
+            // worktree — but a failed check() must not be mistaken for a widening either.
+            const g = guardWithCollateral(['src/runner/**'], []);
+
+            await g.check('src/other/thing.ts');
+
+            expect(g.collateralHits()).toEqual([]);
+        });
+
+        it('defaults to no collateral at all when the option is omitted', async () => {
+            const g = new ScopeGuard({ worktreeRoot: root, allow: ['src/runner/**'], alwaysAllowed: [] });
+
+            const decision = await g.check('src/other/thing.ts');
+
+            expect(decision.allowed).toBe(false);
+            expect(g.collateralHits()).toEqual([]);
+        });
+    });
+
     describe('checkRead', () => {
         it('allows reading outside the scope globs, since understanding is not changing', async () => {
             await expect(guard(['src/runner/**']).checkRead('src/other/thing.ts')).resolves.toMatchObject({ allowed: true });
