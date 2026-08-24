@@ -2,7 +2,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
-import { overBudget } from './budget.js';
+import { overBudget, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import type { ToolContext } from './tools/index.js';
@@ -148,7 +148,12 @@ export class CliStageAgent extends StageAgent {
         } catch (err) {
             if ((err as { name?: string }).name === 'AbortError') {
                 this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
-                return { result: reported ?? (summary ? { summary } : undefined), usage, truncated: true };
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    budgetFailure: wallClockExceeded(stage.maxWallClockMs),
+                };
             }
             throw err;
         }

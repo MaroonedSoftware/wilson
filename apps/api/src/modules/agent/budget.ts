@@ -33,3 +33,13 @@ export const overBudget = (used: number | undefined, cap: number): string | unde
     if (used === undefined || used < cap) return undefined;
     return `input token budget exceeded: used ${used}, cap ${cap}`;
 };
+
+/**
+ * A failure string for a run aborted after exceeding its wall-clock budget.
+ *
+ * Distinct from `overBudget`: the abort fires at the cap itself, so there is no smaller "actual"
+ * figure to report, and the cause is a different cap (`maxWallClockMs`, not `maxInputTokens`). A
+ * stage cut off after a handful of steps by a timeout is not a stage that ran out of steps, and
+ * reporting it as one sends an operator to raise the wrong number.
+ */
+export const wallClockExceeded = (capMs: number): string => `wall-clock budget exceeded: cap ${capMs}ms`;

@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import type { z } from 'zod';
-import { overBudget, tokenBudgetExceeded } from './budget.js';
+import { overBudget, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
@@ -62,7 +62,7 @@ export class ApiStageAgent extends StageAgent {
             return output;
         } catch (err) {
             if ((err as { name?: string }).name === 'AbortError') {
-                return { truncated: true };
+                return { truncated: true, budgetFailure: wallClockExceeded(stage.maxWallClockMs) };
             }
             throw err;
         }
