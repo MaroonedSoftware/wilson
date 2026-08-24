@@ -1,9 +1,13 @@
 import { Badge, Box, Group, Paper, ScrollArea, Stack, Text, Title } from '@mantine/core';
+import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
 
-/** Terminal states and the parking lot read as quieter than the stages a card is moving through. */
-const TONE: Record<string, string> = {
+/**
+ * Terminal states and the parking lot read as quieter than the stages a card is moving through.
+ * Exported so the card detail view colours its stage badge the same way the board does.
+ */
+export const TONE: Record<string, string> = {
     'parking-lot': 'gray',
     implementing: 'blue',
     testing: 'violet',
@@ -17,21 +21,26 @@ const TONE: Record<string, string> = {
 
 function Card({ card, blockedBy }: { card: CardSummary; blockedBy: string[] }) {
     return (
-        <Paper withBorder p="xs" radius="sm">
-            <Group gap={6} wrap="nowrap" align="baseline">
-                <Text size="xs" c="dimmed" ff="monospace">
-                    {card.id}
-                </Text>
-                <Text size="sm" style={{ lineHeight: 1.3 }}>
-                    {card.title}
-                </Text>
-            </Group>
-            {blockedBy.length > 0 && (
-                <Badge size="xs" color="orange" variant="light" mt={6}>
-                    blocked on {blockedBy.join(', ')}
-                </Badge>
-            )}
-        </Paper>
+        // `Link` wraps `Paper` rather than `Paper` taking `component={Link}` — routed through
+        // Mantine's generic `component` prop, `to`/`params` lose the literal typing TanStack
+        // Router needs to check `cardId` against this route's params.
+        <Link to="/cards/$cardId" params={{ cardId: card.id }} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+            <Paper withBorder p="xs" radius="sm">
+                <Group gap={6} wrap="nowrap" align="baseline">
+                    <Text size="xs" c="dimmed" ff="monospace">
+                        {card.id}
+                    </Text>
+                    <Text size="sm" style={{ lineHeight: 1.3 }}>
+                        {card.title}
+                    </Text>
+                </Group>
+                {blockedBy.length > 0 && (
+                    <Badge size="xs" color="orange" variant="light" mt={6}>
+                        blocked on {blockedBy.join(', ')}
+                    </Badge>
+                )}
+            </Paper>
+        </Link>
     );
 }
 
