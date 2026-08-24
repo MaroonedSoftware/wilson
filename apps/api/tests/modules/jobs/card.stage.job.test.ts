@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
@@ -215,6 +216,85 @@ describe('CardStageJob', () => {
             await job.run({ cardId: '0001', stageName: 'implementing' });
 
             expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        });
+    });
+
+    /**
+     * Card 0044. `assertDispatchable`'s three refusals are now typed `NotDispatchableError`s instead
+     * of bare `Error`s, and job 905c29e8 on card 0035 is the reason: two of these three used to fall
+     * through to `isPermanentFailure`'s message matching, get retried under the queue's normal policy
+     * (cutting a worktree and calling a model that would refuse identically every time), and burn the
+     * budget a real, transient failure later needed. These pin the routing down by discriminant kind
+     * rather than message text, so a future refusal added to `assertDispatchable` without updating
+     * the routing fails loudly here instead of quietly falling back to message matching.
+     */
+    describe('NotDispatchableError routing', () => {
+        const notDispatchable = (kind: 'wrong-stage' | 'empty-scope', message: string) =>
+            new NotDispatchableError({ kind }, message);
+
+        it.each([
+            ['wrong-stage' as const, 'card 0001 is in stage "implementing", not "testing"'],
+            ['empty-scope' as const, 'card 0001 has an empty "Files in scope"; nothing would be writable'],
+        ])('poisons the card for a "%s" refusal, the same as a permanent failure', async (kind, message) => {
+            dispatcher.run = vi.fn(async () => {
+                throw notDispatchable(kind, message);
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('dispatch.deferred');
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('does not throw for a wrong-stage or empty-scope refusal, so the queue does not retry it', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw notDispatchable('wrong-stage', 'card 0001 is in stage "implementing", not "testing"');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+        });
+
+        it('defers rather than poisons an unsatisfied-dependency refusal, naming the outstanding cards', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new NotDispatchableError({ kind: 'unsatisfied-dependency', outstanding: ['0030', '0031'] }, 'card 0001 is waiting on 0030, 0031');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'dispatch.deferred',
+                    payload: { outstanding: ['0030', '0031'], reason: 'card 0001 is waiting on 0030, 0031' },
+                }),
+            );
+        });
+
+        it('does not poison, write the board, or enqueue anything for an unsatisfied-dependency refusal', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new NotDispatchableError({ kind: 'unsatisfied-dependency', outstanding: ['0030'] }, 'card 0001 is waiting on 0030');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).not.toHaveBeenCalled();
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('releases the claim after deferring, so a poller can enqueue the card again later', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new NotDispatchableError({ kind: 'unsatisfied-dependency', outstanding: ['0030'] }, 'card 0001 is waiting on 0030');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+            expect(cardJobs.record).not.toHaveBeenCalled();
         });
     });
 });
