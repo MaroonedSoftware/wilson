@@ -2,20 +2,22 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { routers } from '#src/routes/routes.setup.js';
+import { FeedRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 
 /**
- * Every router the server mounts is generated from a contract.
+ * Every router the server mounts is either generated from a contract, or — for the one route that
+ * cannot be, the SSE feed — built by hand in `routes.setup.ts` itself rather than a new file.
  *
  * Card 0019 wrote the health route by hand and said why that was temporary: a hand-written route is
- * the only place the API can drift from the contract that documents it. It is now generated too, so
- * the rule has no exceptions — and a rule with no exceptions is worth asserting rather than trusting.
+ * the only place the API can drift from the contract that documents it. The health and board
+ * routes are generated now; `FeedRouter` (card 0034) is the deliberate, permanent exception —
+ * ContractKit emits JSON handlers, and an SSE stream isn't one.
  */
 describe('routers', () => {
-    it('mounts the generated health and board routers, and nothing else', () => {
-        expect(routers).toEqual([HealthRouter, BoardRouter]);
+    it('mounts the generated health and board routers plus the hand-written feed router, and nothing else', () => {
+        expect(routers).toEqual([HealthRouter, BoardRouter, FeedRouter]);
     });
 
     /**
@@ -46,6 +48,10 @@ describe('routers', () => {
 
     it('routes GET /api/health to the health router', () => {
         expect(HealthRouter.match('/api/health', 'GET').route).toBe(true);
+    });
+
+    it('routes GET /api/feed to the feed router', () => {
+        expect(FeedRouter.match('/api/feed', 'GET').route).toBe(true);
     });
 
     it('does not route a write method to any board path — the board surface is read-only', () => {

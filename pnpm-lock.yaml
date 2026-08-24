@@ -58,13 +58,16 @@ importers:
         version: 1.11.5(pg-boss@12.27.0)
       '@maroonedsoftware/koa':
         specifier: ^3.0.8
-        version: 3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)
+        version: 3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)
       '@maroonedsoftware/kysely':
         specifier: ^0.7.8
         version: 0.7.8
       '@maroonedsoftware/logger':
         specifier: ^1.1.8
         version: 1.1.8
+      '@maroonedsoftware/serverfeed':
+        specifier: ^0.1.5
+        version: 0.1.5(@maroonedsoftware/logger@1.1.8)
       '@maroonedsoftware/utilities':
         specifier: ^1.11.5
         version: 1.11.5
@@ -110,7 +113,7 @@ importers:
         version: 0.31.2
       '@maroonedsoftware/johnny5':
         specifier: ^8.0.8
-        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
+        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
       '@repo/config-eslint':
         specifier: workspace:*
         version: link:../../packages/config-eslint
@@ -204,7 +207,7 @@ importers:
     dependencies:
       '@maroonedsoftware/johnny5':
         specifier: ^8.0.8
-        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
+        version: 8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)
       '@swc-node/register':
         specifier: ^1.12.1
         version: 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
@@ -802,6 +805,15 @@ packages:
   '@maroonedsoftware/policies@0.6.5':
     resolution: {integrity: sha512-xgt4s3QwDx4gKUXeJX5whV6XIl10Ft5oVLMieN1VRUWy86MtzDDIkFpWxOL0bfgrREiJai5N1QKk/BXJxjwJBA==}
     engines: {node: '>=22'}
+
+  '@maroonedsoftware/serverfeed@0.1.5':
+    resolution: {integrity: sha512-4oiwdVsPV34giYLZii0iigUAhcPTTMl8r4Vgt6Ge4vXz1YTPOTe5XhAuJKxMxaYdgOgWk6i46+HQOMZTdbADlw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@maroonedsoftware/logger': 1.1.8
+    peerDependenciesMeta:
+      '@maroonedsoftware/logger':
+        optional: true
 
   '@maroonedsoftware/utilities@1.11.5':
     resolution: {integrity: sha512-hkH6nYsz+CdBcexBRzlv2ve0h+6VlkEGbWJXhqofPOBhrnThIfkUYwCPnFDnWRB7ZyL4ImLSQnXmHMvlTuJ6QQ==}
@@ -4113,7 +4125,7 @@ snapshots:
     optionalDependencies:
       pg-boss: 12.27.0
 
-  '@maroonedsoftware/johnny5@8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)':
+  '@maroonedsoftware/johnny5@8.0.8(@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0))(@swc-node/register@1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3))(kysely@0.29.5)(pg@8.23.0)(yaml@2.9.0)':
     dependencies:
       '@clack/prompts': 1.7.0
       '@maroonedsoftware/appconfig': 2.4.6(pg@8.23.0)(yaml@2.9.0)
@@ -4123,7 +4135,7 @@ snapshots:
       injectkit: 1.7.0
       luxon: 3.7.2
     optionalDependencies:
-      '@maroonedsoftware/koa': 3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)
+      '@maroonedsoftware/koa': 3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)
       '@swc-node/register': 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
       kysely: 0.29.5
       pg: 8.23.0
@@ -4132,7 +4144,7 @@ snapshots:
       - '@google-cloud/secret-manager'
       - yaml
 
-  '@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)':
+  '@maroonedsoftware/koa@3.0.8(@koa/cors@5.0.0)(@koa/router@15.7.0(koa@3.2.1))(@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8))(koa@3.2.1)(pg@8.23.0)(yaml@2.9.0)':
     dependencies:
       '@hapi/bourne': 4.0.1
       '@koa/cors': 5.0.0
@@ -4152,6 +4164,8 @@ snapshots:
       qs: 6.15.3
       rate-limiter-flexible: 11.2.0
       raw-body: 3.0.2
+    optionalDependencies:
+      '@maroonedsoftware/serverfeed': 0.1.5(@maroonedsoftware/logger@1.1.8)
     transitivePeerDependencies:
       - '@aws-sdk/client-secrets-manager'
       - '@google-cloud/secret-manager'
@@ -4184,6 +4198,12 @@ snapshots:
       '@maroonedsoftware/errors': 1.8.5
       injectkit: 1.7.0
       luxon: 3.7.2
+
+  '@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8)':
+    dependencies:
+      luxon: 3.7.2
+    optionalDependencies:
+      '@maroonedsoftware/logger': 1.1.8
 
   '@maroonedsoftware/utilities@1.11.5': {}
 

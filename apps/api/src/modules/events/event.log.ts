@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely, sql, type Transaction } from 'kysely';
 import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
+import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import type { CardEvent, CardEventType } from './card.event.js';
 
 export interface CardEventRow {
@@ -55,6 +56,20 @@ export class EventLog {
                 payload: JSON.stringify(event.payload ?? {}),
             })
             .execute();
+
+        // Publish on the same executor that did the insert. Postgres queues a `NOTIFY` issued
+        // inside a transaction and only delivers it once that transaction commits, discarding it
+        // on rollback — exactly "publish after commit, not inside it" for `writeWithEvent`'s open
+        // transaction, with no in-process commit tracking needed. For a standalone event (the
+        // pool default) the insert already commits on its own, so the notify goes out right away.
+        // See `modules/feed/card.feed.listener.ts` for the subscriber on the other end.
+        await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${JSON.stringify({
+            project: event.project,
+            cardId: event.cardId,
+            stage: event.stage ?? null,
+            type: event.type,
+            payload: event.payload ?? {},
+        })})`.execute(executor);
     }
 
     /**
