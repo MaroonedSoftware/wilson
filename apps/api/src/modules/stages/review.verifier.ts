@@ -47,21 +47,32 @@ export class ReviewVerifier implements StageVerifier {
         const lineCounts = new Map<string, number | undefined>();
 
         for (const finding of findings) {
-            if (!changedPaths.includes(finding.file)) {
-                failures.push(
-                    `finding cites ${finding.file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'})`,
-                );
-                continue;
-            }
-
             if (!lineCounts.has(finding.file)) {
                 lineCounts.set(finding.file, await this.countLines(worktree.path, finding.file));
             }
             const lineCount = lineCounts.get(finding.file);
 
+            // An omission is a claim about work the card did not do, so there is no line in the diff
+            // to cite — the file names where the missing work belongs. What stays checkable is that
+            // the file is real: a reviewer still cannot invent one.
+            if (finding.kind === 'omission') {
+                if (lineCount === undefined) {
+                    failures.push(`finding cites ${finding.file}, which does not exist in the worktree`);
+                }
+                continue;
+            }
+
+            if (!changedPaths.includes(finding.file)) {
+                failures.push(
+                    `finding cites ${finding.file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'}). ` +
+                        `If the point is that the card should have changed it and did not, report it as kind "omission".`,
+                );
+                continue;
+            }
+
             if (lineCount === undefined) {
                 failures.push(`finding cites ${finding.file}, which could not be read from the worktree`);
-            } else if (finding.line > lineCount) {
+            } else if (finding.line !== undefined && finding.line > lineCount) {
                 failures.push(`finding cites ${finding.file}:${finding.line}, but the file has only ${lineCount} lines`);
             }
         }

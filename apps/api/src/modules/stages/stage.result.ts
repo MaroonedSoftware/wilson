@@ -19,13 +19,32 @@ export type ImplementingResult = z.infer<typeof ImplementingResultSchema>;
 /** The verdict shape the plan-review stage will emit at step 5. Defined now so the enum is shared. */
 export const FindingSeverity = z.enum(['blocker', 'concern']);
 
-export const ReviewFindingSchema = z.object({
-    severity: z.enum(['blocker', 'concern']),
-    file: z.string().describe('A path from this card’s diff, exactly as the diff lists it.'),
-    line: z.number().int().min(1).describe('A line number in that file.'),
-    problem: z.string().describe('What is wrong, in one sentence.'),
-    suggestion: z.string().describe('What would fix it, in one sentence.'),
-});
+/**
+ * What a finding is about, which decides how the runner can check it is real.
+ *
+ * `defect` is a claim about code the card wrote: it must cite a path from the diff and a line that
+ * exists there. `omission` is a claim about work the card did *not* do, which by construction has no
+ * line in the diff to point at — the file is named because that is where the missing work belongs.
+ *
+ * Without the distinction, a true finding is inexpressible. Card 0015's review correctly spotted
+ * that a value was never wired into the dispatcher, cited the dispatcher, and had its whole result
+ * rejected because that file is not in the diff — precisely because the wiring was missing.
+ */
+export const ReviewFindingKind = z.enum(['defect', 'omission']);
+
+export const ReviewFindingSchema = z
+    .object({
+        severity: z.enum(['blocker', 'concern']),
+        kind: ReviewFindingKind.default('defect'),
+        file: z.string().describe('For a defect, a path from this card’s diff. For an omission, the file where the missing work belongs.'),
+        line: z.number().int().min(1).optional().describe('A line number in that file. Required for a defect, omitted for an omission.'),
+        problem: z.string().describe('What is wrong, in one sentence.'),
+        suggestion: z.string().describe('What would fix it, in one sentence.'),
+    })
+    .refine(finding => finding.kind !== 'defect' || finding.line !== undefined, {
+        message: 'a defect must cite a line; use kind "omission" for work that was not done',
+        path: ['line'],
+    });
 
 export const ReviewResultSchema = z.object({
     summary: z.string(),

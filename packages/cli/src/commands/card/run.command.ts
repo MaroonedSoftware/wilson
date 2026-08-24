@@ -44,7 +44,9 @@ const command: CommandModule<RunOpts> = {
             ctx.logger.info(`\nfindings (${result.findings.length}):`);
             for (const finding of result.findings) {
                 const log = finding.severity === 'blocker' ? ctx.logger.error : ctx.logger.warn;
-                log(`  [${finding.severity}] ${finding.file}:${finding.line}  ${finding.problem}`);
+                // An omission has no line: the file is where the missing work belongs, not where it is.
+                const where = finding.line === undefined ? `${finding.file} (missing)` : `${finding.file}:${finding.line}`;
+                log(`  [${finding.severity}] ${where}  ${finding.problem}`);
                 log(`      → ${finding.suggestion}`);
             }
         } else if (result?.verdict) {
