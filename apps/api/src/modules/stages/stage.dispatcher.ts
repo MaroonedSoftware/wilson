@@ -9,6 +9,7 @@ import { filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { collateralPaths } from '#modules/agent/collateral.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
@@ -32,6 +33,30 @@ const describe = (result: unknown): string => {
 const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
     const findings = (result as { findings?: unknown } | undefined)?.findings;
     return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
+};
+
+/**
+ * Folds collateral writes into the stage's own caveats.
+ *
+ * A `scope.collateral` event records the widening for the audit trail, but the event log is not
+ * where the review looks for what to check — the reported result is. Without this, "recorded" would
+ * mean only a log entry nobody reads before the review runs.
+ */
+const withCollateralCaveats = (outcome: StageOutcome, collateral: string[]): StageOutcome => {
+    if (collateral.length === 0) return outcome;
+    const result = outcome.result as { caveats?: unknown } | undefined;
+    if (!result || !Array.isArray(result.caveats)) return outcome;
+
+    return {
+        ...outcome,
+        result: {
+            ...result,
+            caveats: [
+                ...result.caveats,
+                ...collateral.map(path => `wrote ${path} as collateral: not itself in scope, but a file something in scope imports`),
+            ],
+        },
+    };
 };
 
 /**
@@ -134,11 +159,17 @@ export class StageDispatcher {
 
         const planPath = await this.materializePlan(card, pinnedSha);
 
+        // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
+        // for the file defining a type it is already using because something in scope imports it.
+        const scoped = [...filesInScope(card), ...stage.extraScope];
+        const collateral = await collateralPaths(worktree.path, scoped);
+
         const scope = new ScopeGuard({
             worktreeRoot: worktree.path,
-            allow: [...filesInScope(card), ...stage.extraScope],
+            allow: scoped,
             alwaysAllowed: stages.alwaysAllowed,
             deny: stages.deny,
+            collateral,
             // The plan lives outside the worktree so it cannot be committed to the card's branch.
             // Without this it is also unreadable, and the agent infers its own contract.
             readableExtras: [planPath],
@@ -153,7 +184,22 @@ export class StageDispatcher {
         });
 
         try {
-            const outcome = await this.runAgent({ card, stage, worktree, scope, planPath, stages });
+            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, stages });
+
+            // A write is allowed as collateral without a `request_scope` round trip, but it is still
+            // a widening — reported here, always, so the review sees it and a stage can never widen
+            // its own scope silently (PROJECT.md, Scope enforcement).
+            const collateralHits = scope.collateralHits();
+            for (const path of collateralHits) {
+                await this.events.append({
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'scope.collateral',
+                    payload: { path },
+                });
+            }
+            const outcome = withCollateralCaveats(ran, collateralHits);
 
             // Only a passing stage commits. A failed stage leaves its work in the worktree for
             // inspection, and the next attempt starts from the base rather than building on a tree

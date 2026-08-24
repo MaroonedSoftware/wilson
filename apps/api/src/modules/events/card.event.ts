@@ -14,6 +14,7 @@ export type CardEventType =
     | 'scope.requested'
     | 'scope.granted'
     | 'scope.refused'
+    | 'scope.collateral'
     | 'worktree.created'
     | 'worktree.prepared'
     | 'work.committed'

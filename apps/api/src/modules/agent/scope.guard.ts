@@ -2,7 +2,9 @@ import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 
-export type ScopeDecision = { allowed: true; path: string } | { allowed: false; path: string; reason: string };
+export type ScopeDecision =
+    | { allowed: true; path: string; via?: 'scope' | 'collateral' | 'grant' }
+    | { allowed: false; path: string; reason: string };
 
 export interface ScopeGuardOptions {
     /** Absolute path to the worktree. Nothing outside this is ever writable. */
@@ -13,6 +15,11 @@ export interface ScopeGuardOptions {
     alwaysAllowed: string[];
     /** Extra deny globs from project config. The built-in denies below are always applied. */
     deny?: string[];
+    /**
+     * Worktree-relative paths a scoped file structurally depends on, derived by {@link collateralPaths}.
+     * Allowed for a write without a `request_scope` round trip, but always reported — see `check`.
+     */
+    collateral?: string[];
     /**
      * Absolute paths of individual files the agent may read despite living outside the worktree.
      *
@@ -47,6 +54,8 @@ export class ScopeGuard {
     private readonly matchDeny: (path: string) => boolean;
     private readonly granted = new Set<string>();
     private readonly readableExtras: Set<string>;
+    private readonly collateral: Set<string>;
+    private readonly collateralUsed = new Set<string>();
 
     constructor(private readonly options: ScopeGuardOptions) {
         this.readableExtras = new Set((options.readableExtras ?? []).map(path => resolve(path)));
@@ -55,6 +64,7 @@ export class ScopeGuard {
         // `Files in scope` has not said what it may touch, and the safe reading of silence is "no".
         this.matchAllow = allow.length > 0 ? picomatch(allow, { dot: true }) : () => false;
         this.matchDeny = picomatch([...ALWAYS_DENIED, ...(options.deny ?? [])], { dot: true });
+        this.collateral = new Set(options.collateral ?? []);
     }
 
     /**
@@ -77,6 +87,11 @@ export class ScopeGuard {
     /** Every widening granted so far, for the exit condition and the event log. */
     grants(): string[] {
         return [...this.granted].sort();
+    }
+
+    /** Every collateral path a write was actually allowed against, for the event log and caveats. */
+    collateralHits(): string[] {
+        return [...this.collateralUsed].sort();
     }
 
     /**
@@ -110,12 +125,19 @@ export class ScopeGuard {
             return { allowed: false, path: key, reason: 'path is denied: the runner owns it, not the plan' };
         }
         if (this.granted.has(key)) {
-            return { allowed: true, path: key };
+            return { allowed: true, path: key, via: 'grant' };
         }
-        if (!this.matchAllow(key)) {
-            return { allowed: false, path: key, reason: 'path is outside the plan’s files in scope' };
+        if (this.matchAllow(key)) {
+            return { allowed: true, path: key, via: 'scope' };
         }
-        return { allowed: true, path: key };
+        // Not itself in scope, but a file something in scope structurally depends on. Allowed
+        // without a `request_scope` round trip — the caller still has to record it, since this is a
+        // widening even though it needed no explicit ask.
+        if (this.collateral.has(key)) {
+            this.collateralUsed.add(key);
+            return { allowed: true, path: key, via: 'collateral' };
+        }
+        return { allowed: false, path: key, reason: 'path is outside the plan’s files in scope' };
     }
 
     /**
