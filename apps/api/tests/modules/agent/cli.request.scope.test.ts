@@ -144,6 +144,34 @@ describe('CliStageAgent request_scope tool', () => {
         const call = queryMock.mock.calls[0]?.[0] as { prompt: string };
         expect(call.prompt).toContain('mcp__wilson__request_scope');
     });
+
+    // The review on this card caught request_scope registered unconditionally: a readonly or none
+    // stage could call it, log scope.requested/granted, or even trip ScopeKickbackError under the
+    // kickback policy for a widening it could never use, since it can never write in the first
+    // place. The fix gates the tool — and the prompt line naming it — on stage.worktree === 'rw',
+    // the same condition the api adapter's buildTools uses. These two cases are what that fix does.
+    it.each(['readonly', 'none'] as const)(
+        'does not register request_scope on the MCP server for a %s stage, though report_result is still there',
+        async worktree => {
+            queryMock.mockReturnValue(streamOf([]));
+            const agent = new CliStageAgent(silentLogger as never);
+
+            await agent.run(runInput(makeStage({ worktree }), buildContext()) as never);
+
+            expect(tools.has('request_scope')).toBe(false);
+            expect(tools.has('report_result')).toBe(true);
+        },
+    );
+
+    it.each(['readonly', 'none'] as const)('does not name request_scope in the prompt for a %s stage', async worktree => {
+        queryMock.mockReturnValue(streamOf([]));
+        const agent = new CliStageAgent(silentLogger as never);
+
+        await agent.run(runInput(makeStage({ worktree }), buildContext()) as never);
+
+        const call = queryMock.mock.calls[0]?.[0] as { prompt: string };
+        expect(call.prompt).not.toContain('mcp__wilson__request_scope');
+    });
 });
 
 describe('createToolGuard and request_scope', () => {
@@ -164,4 +192,16 @@ describe('createToolGuard and request_scope', () => {
 
         await expect(guard('mcp__elsewhere__request_scope', { path: 'x', reason: 'y' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
     });
+
+    it.each(['readonly', 'none'] as const)(
+        'denies the adapter’s own request_scope tool for a %s stage, the same reason it denies a write',
+        async writable => {
+            const context = buildContext('widen');
+            const guard = createToolGuard(context as never, writable);
+
+            const decision = await guard('mcp__wilson__request_scope', { path: 'src/other/thing.ts', reason: 'why' }, opts);
+
+            expect(decision).toMatchObject({ behavior: 'deny', message: `this stage is ${writable}: it may not write` });
+        },
+    );
 });
