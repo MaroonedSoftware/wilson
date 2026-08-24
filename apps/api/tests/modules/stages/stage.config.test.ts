@@ -34,6 +34,20 @@ describe('StageConfigSchema budget fields', () => {
         expect(stage.maxBudgetUsd).toBeUndefined();
     });
 
+    it('defaults the idle window below the wall clock, so a tight time budget does not carry an unreachable guard', () => {
+        const tight = StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: 60_000 });
+        expect(tight.maxIdleMs).toBe(60_000);
+
+        const roomy = StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: 1_800_000 });
+        expect(roomy.maxIdleMs).toBe(300_000);
+    });
+
+    it('refuses an explicit idle window that can never fire before the wall clock', () => {
+        // Dead config that reads like a working guard, which is the failure worth catching.
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: 60_000, maxIdleMs: 60_000 })).toThrow(/maxIdleMs/);
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: 60_000, maxIdleMs: 90_000 })).toThrow(/maxIdleMs/);
+    });
+
     it('accepts an explicit maxInputTokens, maxWallClockMs and maxBudgetUsd', () => {
         const stage = StageConfigSchema.parse({ ...minimalStage, maxInputTokens: 500_000, maxWallClockMs: 60_000, maxBudgetUsd: 5 });
         expect(stage.maxInputTokens).toBe(500_000);

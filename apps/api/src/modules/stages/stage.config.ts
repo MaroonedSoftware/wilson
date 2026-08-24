@@ -16,6 +16,14 @@ import { PROVIDERS } from '#modules/agent/model.registry.js';
 export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
 
 /**
+ * How long a stage may produce nothing before it is abandoned, unless it says otherwise.
+ *
+ * Capped at the stage's own wall clock when that is shorter, so a stage with a tight time budget
+ * does not carry an idle window it can never reach.
+ */
+const DEFAULT_IDLE_MS = 300_000;
+
+/**
  * Stages are config, not code (PROJECT.md decision 8).
  *
  * Only `implementing` is configured today, but the shape is the full one — mode, worktree
@@ -91,6 +99,27 @@ export const StageConfigSchema = z.object({
      " one branch. Rejecting the config is the only place that can be caught before it happens.
      */
     maxWallClockMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).default(1_800_000),
+    /**
+     * The longest the engine may produce nothing at all before the run is abandoned.
+     *
+     * Silence, not duration: `maxWallClockMs` already bounds a stage that is working too slowly, and
+     * this bounds one that is not working at all. Card 0052's engine exited without emitting a
+     * `result`, leaving the adapter reading a stream that would never close — and because the
+     * wall-clock abort could not break that read either, the only thing that recovered the card was
+     * the queue expiring the job 62 minutes later, spending one of its three retries on a run that
+     * produced nothing.
+     *
+     * The default has to clear the longest *legitimate* silence, which is a single tool call: the
+     * engine emits no message between requesting a tool and reporting its result, so a full test run
+     * is minutes of honest quiet. Five minutes is roughly an order of magnitude above the model
+     * turnaround these stages see and still an order of magnitude below the queue's hour. Erring
+     * long is cheap; erring short kills working stages.
+     *
+     * Optional rather than defaulted, because the default has to know `maxWallClockMs`: a stage that
+     * legitimately sets a one-minute wall clock must not inherit a five-minute idle window it can
+     * never reach. Resolved below, where both are in hand.
+     */
+    maxIdleMs: z.number().int().min(1000).optional(),
     /** Dollar ceiling passed to the `cli` engine, which tracks cost itself. Unset means no ceiling. */
     maxBudgetUsd: z.number().positive().optional(),
     /**
@@ -104,7 +133,21 @@ export const StageConfigSchema = z.object({
     onPass: z.string(),
     onFail: z.string(),
     maxKickbacks: z.number().int().min(0).default(3),
-});
+})
+    .superRefine((stage, ctx) => {
+        // Only an *explicit* value is rejected. An idle window at or above the wall clock can never
+        // fire first, which is dead config that reads like a working guard — the same class of
+        // mistake `assertRoutesResolve` exists to catch for routes. The resolved default below can
+        // never be in that state, so it is not worth failing a config over.
+        if (stage.maxIdleMs !== undefined && stage.maxIdleMs >= stage.maxWallClockMs) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['maxIdleMs'],
+                message: `maxIdleMs (${stage.maxIdleMs}) must be below maxWallClockMs (${stage.maxWallClockMs}), or the idle guard can never fire`,
+            });
+        }
+    })
+    .transform(stage => ({ ...stage, maxIdleMs: stage.maxIdleMs ?? Math.min(DEFAULT_IDLE_MS, stage.maxWallClockMs) }));
 
 export type StageConfig = z.infer<typeof StageConfigSchema>;
 

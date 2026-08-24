@@ -24,6 +24,12 @@ export interface AgentRunOutput {
      * aborted for exceeding `maxWallClockMs` — naming which cap and, where known, the actual figure.
      */
     budgetFailure?: string;
+    /**
+     * Set when the run was abandoned because the engine stopped responding rather than because it
+     * spent something. Kept separate from `budgetFailure` so an operator is not sent to raise a cap
+     * that was never the problem, and so the caller does not also blame the step budget.
+     */
+    engineFailure?: string;
 }
 
 /**
