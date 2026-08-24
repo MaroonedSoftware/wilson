@@ -11,6 +11,8 @@ export interface NextCard {
     next?: Card;
     /** Eligible but for their dependencies, lowest id first. */
     blocked: Blocked[];
+    /** Flagged for a human via `needsHuman`, lowest id first. Never `next`, never in `blocked`. */
+    flagged: Card[];
 }
 
 /**
@@ -39,9 +41,17 @@ export const nextCard = (cards: Card[]): NextCard => {
 
     const candidates: Card[] = [];
     const blocked: Blocked[] = [];
+    const flagged: Card[] = [];
 
     for (const card of cards) {
         if (nonStageStates.includes(card.frontmatter.stage)) continue;
+
+        // Flagged first and exclusively: a card waiting on a person is neither the next thing to work
+        // on nor merely blocked on a dependency, so it must land in neither of those buckets.
+        if (card.frontmatter.needsHuman) {
+            flagged.push(card);
+            continue;
+        }
 
         const blockedBy = unsatisfiedDependencies(card, cards);
         if (blockedBy.length === 0) {
@@ -53,6 +63,7 @@ export const nextCard = (cards: Card[]): NextCard => {
 
     candidates.sort((a, b) => (a.frontmatter.id < b.frontmatter.id ? -1 : a.frontmatter.id > b.frontmatter.id ? 1 : 0));
     blocked.sort((a, b) => (a.card.frontmatter.id < b.card.frontmatter.id ? -1 : a.card.frontmatter.id > b.card.frontmatter.id ? 1 : 0));
+    flagged.sort((a, b) => (a.frontmatter.id < b.frontmatter.id ? -1 : a.frontmatter.id > b.frontmatter.id ? 1 : 0));
 
-    return { next: candidates[0], blocked };
+    return { next: candidates[0], blocked, flagged };
 };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import type { ProjectStages, StageConfig } from '#modules/stages/stage.config.js';
+import type { Card, CardFrontmatter } from '#modules/board/card.js';
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
     name: 'testing',
@@ -28,10 +29,22 @@ const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
     stages: overrides.length ? overrides.map(o => makeStage(o)) : [makeStage()],
 });
 
+const card = (stage: string): Card => ({
+    frontmatter: {
+        id: '0001',
+        title: 'a card',
+        stage,
+        dependsOn: [],
+        retries: {},
+    } as CardFrontmatter,
+    sections: {},
+    body: '',
+});
+
 describe('whyNotDispatchable', () => {
     it('refuses every terminal state, naming it and saying the card is finished', () => {
         for (const target of ['merged', 'needs-human', 'poisoned', 'dropped']) {
-            const result = whyNotDispatchable(target, stages([]));
+            const result = whyNotDispatchable(card(target), stages([]));
 
             expect(result).toBeDefined();
             expect(result?.reason).toContain(target);
@@ -40,7 +53,7 @@ describe('whyNotDispatchable', () => {
     });
 
     it('refuses parking-lot for a different reason than a terminal state: parked, not finished', () => {
-        const result = whyNotDispatchable('parking-lot', stages([]));
+        const result = whyNotDispatchable(card('parking-lot'), stages([]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('parked');
@@ -49,7 +62,7 @@ describe('whyNotDispatchable', () => {
     });
 
     it('refuses a stage name nothing configures, and lists the configured stage names to fix it', () => {
-        const result = whyNotDispatchable('nonexistent', stages([makeStage({ name: 'implementing' }), makeStage({ name: 'testing' })]));
+        const result = whyNotDispatchable(card('nonexistent'), stages([makeStage({ name: 'implementing' }), makeStage({ name: 'testing' })]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('nonexistent');
@@ -58,7 +71,7 @@ describe('whyNotDispatchable', () => {
     });
 
     it('refuses a manual stage, naming the mode and stating the runner will not dispatch it — distinct from the terminal-state wording', () => {
-        const result = whyNotDispatchable('review', stages([makeStage({ name: 'review', mode: 'manual' })]));
+        const result = whyNotDispatchable(card('review'), stages([makeStage({ name: 'review', mode: 'manual' })]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('review');
@@ -68,7 +81,7 @@ describe('whyNotDispatchable', () => {
     });
 
     it('refuses a command stage, naming the "command" mode', () => {
-        const result = whyNotDispatchable('lint', stages([makeStage({ name: 'lint', mode: 'command' })]));
+        const result = whyNotDispatchable(card('lint'), stages([makeStage({ name: 'lint', mode: 'command' })]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('lint');
@@ -76,13 +89,13 @@ describe('whyNotDispatchable', () => {
     });
 
     it('allows an agent stage through, returning undefined', () => {
-        const result = whyNotDispatchable('implementing', stages([makeStage({ name: 'implementing', mode: 'agent' })]));
+        const result = whyNotDispatchable(card('implementing'), stages([makeStage({ name: 'implementing', mode: 'agent' })]));
 
         expect(result).toBeUndefined();
     });
 
     it('checks terminal status ahead of stage lookup, so a terminal name with no matching stage still gets the terminal-specific reason', () => {
-        const result = whyNotDispatchable('needs-human', stages([makeStage({ name: 'implementing' })]));
+        const result = whyNotDispatchable(card('needs-human'), stages([makeStage({ name: 'implementing' })]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('finished');

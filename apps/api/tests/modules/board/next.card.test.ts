@@ -16,7 +16,7 @@ const card = (id: string, stage: string, dependsOn: string[] = []): Card => ({
 
 describe('nextCard', () => {
     it('returns no candidate and no blocked cards for an empty board', () => {
-        expect(nextCard([])).toEqual({ next: undefined, blocked: [] });
+        expect(nextCard([])).toEqual({ next: undefined, blocked: [], flagged: [] });
     });
 
     it('picks the eligible card with the lowest id, compared as a zero-padded string', () => {
@@ -109,7 +109,7 @@ describe('nextCard', () => {
     it('reports no candidate and no blocked cards when the whole board is finished or parked', () => {
         const cards = [card('0001', 'merged'), card('0002', 'parking-lot')];
 
-        expect(nextCard(cards)).toEqual({ next: undefined, blocked: [] });
+        expect(nextCard(cards)).toEqual({ next: undefined, blocked: [], flagged: [] });
     });
 });
 
