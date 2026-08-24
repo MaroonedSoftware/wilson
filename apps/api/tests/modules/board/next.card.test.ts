@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextCard } from '#modules/board/next.card.js';
+import { nextCard, unsatisfiedDependencies } from '#modules/board/next.card.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 
 const card = (id: string, stage: string, dependsOn: string[] = []): Card => ({
@@ -110,5 +110,47 @@ describe('nextCard', () => {
         const cards = [card('0001', 'merged'), card('0002', 'parking-lot')];
 
         expect(nextCard(cards)).toEqual({ next: undefined, blocked: [] });
+    });
+});
+
+// Card 0023: `nextCard`'s blocking question, pulled out so `card list` and `StageDispatcher` can ask
+// it about a single card without reimplementing "is this dependency satisfied". These exercise the
+// export directly rather than only through `nextCard`'s `blocked` output above, since a caller that
+// imports `unsatisfiedDependencies` and gets back the wrong thing would not be caught by any test of
+// `nextCard` itself.
+describe('unsatisfiedDependencies', () => {
+    it('returns an empty array for a card with no dependencies', () => {
+        const cards = [card('0001', 'implementing')];
+
+        expect(unsatisfiedDependencies(cards[0]!, cards)).toEqual([]);
+    });
+
+    it('returns an empty array when every named dependency has merged', () => {
+        const dependency = card('0001', 'merged');
+        const dependent = card('0002', 'planning', ['0001']);
+
+        expect(unsatisfiedDependencies(dependent, [dependency, dependent])).toEqual([]);
+    });
+
+    it('returns a dependency id whose card exists but has not reached merged', () => {
+        const dependency = card('0001', 'implementing');
+        const dependent = card('0002', 'planning', ['0001']);
+
+        expect(unsatisfiedDependencies(dependent, [dependency, dependent])).toEqual(['0001']);
+    });
+
+    it('treats a dependency id absent from the board as unsatisfied, not as fine', () => {
+        const dependent = card('0002', 'planning', ['9999']);
+
+        expect(unsatisfiedDependencies(dependent, [dependent])).toEqual(['9999']);
+    });
+
+    it('returns only the outstanding ids, in the order dependsOn names them, when some are satisfied and some are not', () => {
+        const merged = card('0001', 'merged');
+        const dependent = card('0004', 'testing', ['0003', '0001', '0002']);
+
+        const result = unsatisfiedDependencies(dependent, [merged, dependent]);
+
+        expect(result).toEqual(['0003', '0002']);
     });
 });

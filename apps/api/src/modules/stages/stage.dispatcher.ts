@@ -6,6 +6,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
+import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
@@ -69,7 +70,8 @@ export class StageDispatcher {
             this.logger.warn(`card ${cardId} has no approved plan version; running against current state`);
         }
 
-        this.assertDispatchable(card, stage);
+        const boardCards = await this.board.list();
+        this.assertDispatchable(card, stage, boardCards);
 
         // Checked before any worktree is cut, not after: an over-budget card must not cut a tree,
         // install dependencies or reach a model. Absent `maxCardInputTokens` means unbounded, so
@@ -343,16 +345,15 @@ export class StageDispatcher {
         };
     }
 
-    private assertDispatchable(card: Card, stage: StageConfig): void {
+    private assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void {
         if (card.frontmatter.stage !== stage.name) {
             throw new Error(`card ${card.frontmatter.id} is in stage "${card.frontmatter.stage}", not "${stage.name}"`);
         }
         // A hard block: file-based coordination cannot carry an in-flight API contract between two
         // running agents (PROJECT.md, dependency blocking).
-        if (card.frontmatter.dependsOn.length > 0) {
-            throw new Error(
-                `card ${card.frontmatter.id} depends on ${card.frontmatter.dependsOn.join(', ')}; dependency checking lands with the queue at step 3`,
-            );
+        const outstanding = unsatisfiedDependencies(card, cards);
+        if (outstanding.length > 0) {
+            throw new Error(`card ${card.frontmatter.id} is waiting on ${outstanding.join(', ')}`);
         }
         if (filesInScope(card).length === 0) {
             throw new Error(`card ${card.frontmatter.id} has an empty "Files in scope"; nothing would be writable`);

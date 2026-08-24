@@ -14,18 +14,28 @@ export interface NextCard {
 }
 
 /**
+ * The dependency ids named on `card` that are not yet satisfied, in the order they appear.
+ *
+ * A dependency is satisfied only when the named card exists on the board and has reached `merged`
+ * — a card whose dependency is missing from the board entirely is treated exactly like one whose
+ * dependency has not finished, never as "fine". The one place this question is answered; `nextCard`
+ * and every other caller go through it so there is no second definition of "blocked" to drift out
+ * of sync.
+ */
+export const unsatisfiedDependencies = (card: Card, cards: Card[]): string[] => {
+    const byId = new Map(cards.map(c => [c.frontmatter.id, c]));
+    const isFinished = (id: string): boolean => byId.get(id)?.frontmatter.stage === 'merged';
+    return card.frontmatter.dependsOn.filter(id => !isFinished(id));
+};
+
+/**
  * Pick the next card to work on.
  *
  * A pure function over the whole board: no filesystem, no config, so it can be tested and reasoned
- * about without standing up a repository. `dependsOn` is a hard block (PROJECT.md) — a card whose
- * dependency is missing from the board entirely is treated exactly like one whose dependency has
- * not finished, never as "fine".
+ * about without standing up a repository.
  */
 export const nextCard = (cards: Card[]): NextCard => {
     const nonStageStates: readonly string[] = NON_STAGE_STATES;
-    const byId = new Map(cards.map(card => [card.frontmatter.id, card]));
-
-    const isFinished = (id: string): boolean => byId.get(id)?.frontmatter.stage === 'merged';
 
     const candidates: Card[] = [];
     const blocked: Blocked[] = [];
@@ -33,7 +43,7 @@ export const nextCard = (cards: Card[]): NextCard => {
     for (const card of cards) {
         if (nonStageStates.includes(card.frontmatter.stage)) continue;
 
-        const blockedBy = card.frontmatter.dependsOn.filter(id => !isFinished(id));
+        const blockedBy = unsatisfiedDependencies(card, cards);
         if (blockedBy.length === 0) {
             candidates.push(card);
         } else {
