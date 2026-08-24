@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository } from '@wilson/api/cli-bootstrap';
+import { BoardRepository, unsatisfiedDependencies } from '@wilson/api/cli-bootstrap';
 
 const command: CommandModule = {
     description: 'List every card on the board with its stage',
@@ -13,7 +13,8 @@ const command: CommandModule = {
 
         const width = Math.max(...cards.map(c => c.frontmatter.stage.length));
         for (const card of cards) {
-            const blocked = card.frontmatter.dependsOn.length > 0 ? ` (blocked on ${card.frontmatter.dependsOn.join(', ')})` : '';
+            const outstanding = unsatisfiedDependencies(card, cards);
+            const blocked = outstanding.length > 0 ? ` (blocked on ${outstanding.join(', ')})` : '';
             ctx.logger.info(`${card.frontmatter.id}  ${card.frontmatter.stage.padEnd(width)}  ${card.frontmatter.title}${blocked}`);
         }
         return 0;
