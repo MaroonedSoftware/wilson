@@ -76,6 +76,14 @@ export const StageConfigSchema = z.object({
     maxWallClockMs: z.number().int().min(1000).default(1_800_000),
     /** Dollar ceiling passed to the `cli` engine, which tracks cost itself. Unset means no ceiling. */
     maxBudgetUsd: z.number().positive().optional(),
+    /**
+     * Ceiling on everything a card has ever spent, across every stage and every attempt.
+     *
+     * Unlike `maxInputTokens`, which bounds one run, this bounds the card. It sits on the stage
+     * rather than the card because that is where every other budget lives, and a project sets it
+     * once across its stages. Optional: absent means unbounded, exactly as today.
+     */
+    maxCardInputTokens: z.number().int().min(1000).optional(),
     onPass: z.string(),
     onFail: z.string(),
     maxKickbacks: z.number().int().min(0).default(3),
