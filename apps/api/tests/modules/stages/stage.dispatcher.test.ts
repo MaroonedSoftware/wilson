@@ -282,4 +282,41 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
         expect(result.passed).toBe(true);
         expect(result.failures).toEqual([]);
     });
+
+    // A wall-clock or token-budget cutoff reports `truncated: true` alongside its `budgetFailure`,
+    // same as ordinary step exhaustion does with `truncated: true` alone. The review's blocker was
+    // that both landed together as `truncated: true` with no way to tell them apart, so the generic
+    // "used all N of its steps" message was reported even when the real cause was a timeout after a
+    // handful of steps. The fix — `run.truncated && !run.budgetFailure` in the dispatcher — has to be
+    // checked from both sides: the step message must disappear once a budgetFailure explains the cut
+    // off, and it must still appear when nothing more specific is known.
+    it('reports only the budgetFailure, not the generic step-exhaustion message, when a run is both truncated and over budget', async () => {
+        const dispatcher = buildDispatcher(
+            {
+                result: undefined,
+                usage: { inputTokens: 10 },
+                truncated: true,
+                budgetFailure: 'wall-clock budget exceeded: cap 1800000ms',
+            },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain('wall-clock budget exceeded: cap 1800000ms');
+        expect(result.failures.some(f => f.includes('used all'))).toBe(false);
+    });
+
+    it('still reports the generic step-exhaustion message when a run is truncated with no more specific cause known', async () => {
+        const dispatcher = buildDispatcher(
+            { result: undefined, usage: { inputTokens: 10 }, truncated: true },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures.some(f => f.includes(`used all ${stage.maxSteps} of its steps`))).toBe(true);
+    });
 });

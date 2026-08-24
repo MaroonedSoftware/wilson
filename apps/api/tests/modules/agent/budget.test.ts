@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { overBudget, sumInputTokens, tokenBudgetExceeded } from '#modules/agent/budget.js';
+import { overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
 
 /**
  * Card 0015: nothing bounded input tokens before this. One stage consumed 6.3M input tokens while
@@ -74,5 +74,28 @@ describe('overBudget', () => {
 
     it('names both figures, so an operator does not have to go dig for them', () => {
         expect(overBudget(2_500_000, 2_000_000)).toBe('input token budget exceeded: used 2500000, cap 2000000');
+    });
+});
+
+describe('wallClockExceeded', () => {
+    // A wall-clock abort fires at the cap itself, so there is no smaller "actual" figure the way
+    // `overBudget` has one — the message names the cap and, distinctly from `overBudget`'s wording,
+    // identifies the cause as the wall clock rather than the input-token budget. Reviewer feedback on
+    // this card was specifically that a timeout getting reported as step exhaustion sends an operator
+    // to raise the wrong number, so the message text itself is worth pinning down.
+    it('names the maxWallClockMs cap that was hit', () => {
+        expect(wallClockExceeded(1_800_000)).toBe('wall-clock budget exceeded: cap 1800000ms');
+    });
+
+    it('reflects whatever cap it is given, not a fixed figure', () => {
+        expect(wallClockExceeded(42_000)).toBe('wall-clock budget exceeded: cap 42000ms');
+    });
+
+    it('is worded distinctly from overBudget, so the two causes never read the same', () => {
+        const wallClock = wallClockExceeded(1000);
+        const tokenBudget = overBudget(1000, 1000);
+        expect(wallClock).not.toBe(tokenBudget);
+        expect(wallClock).toContain('wall-clock');
+        expect(tokenBudget).toContain('input token');
     });
 });

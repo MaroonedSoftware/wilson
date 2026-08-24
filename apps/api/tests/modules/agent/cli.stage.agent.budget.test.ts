@@ -161,8 +161,14 @@ describe('CliStageAgent budget wiring', () => {
         }));
         const agent = new CliStageAgent(silentLogger as never);
 
-        const output = (await agent.run(runInput(makeStage({ maxWallClockMs: 20 })) as never)) as { truncated: boolean };
+        const output = (await agent.run(runInput(makeStage({ maxWallClockMs: 20 })) as never)) as {
+            truncated: boolean;
+            budgetFailure?: string;
+        };
 
         expect(output.truncated).toBe(true);
+        // Distinct from the input-token overBudget message: a wall-clock cutoff must name
+        // maxWallClockMs specifically, not read as if the token cap were what was hit.
+        expect(output.budgetFailure).toBe('wall-clock budget exceeded: cap 20ms');
     }, 10_000);
 });

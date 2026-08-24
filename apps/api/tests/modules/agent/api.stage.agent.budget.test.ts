@@ -108,11 +108,23 @@ describe('ApiStageAgent budget wiring', () => {
         // A wall-clock abort must not propagate as an unhandled error — the whole point is that this
         // becomes an ordinary stage failure, not a crash the job runner has to catch.
         generateMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+        const stage = makeStage({ maxWallClockMs: 1_800_000 });
         const agent = new ApiStageAgent(fakeModels);
 
-        const output = await agent.run(runInput(makeStage()));
+        const output = await agent.run(runInput(stage));
 
-        expect(output).toEqual({ truncated: true });
+        // The abort must also name which budget it was — not just "truncated" — so an operator does
+        // not mistake a wall-clock cutoff for exhausted steps.
+        expect(output).toEqual({ truncated: true, budgetFailure: 'wall-clock budget exceeded: cap 1800000ms' });
+    });
+
+    it('names the actual maxWallClockMs figure in the abort’s budgetFailure, not a fixed string', async () => {
+        generateMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+        const agent = new ApiStageAgent(fakeModels);
+
+        const output = (await agent.run(runInput(makeStage({ maxWallClockMs: 42_000 })))) as { budgetFailure?: string };
+
+        expect(output.budgetFailure).toBe('wall-clock budget exceeded: cap 42000ms');
     });
 
     it('still throws a non-abort error rather than silently truncating', async () => {
