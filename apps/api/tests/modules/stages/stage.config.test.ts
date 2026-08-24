@@ -56,3 +56,28 @@ describe('StageConfigSchema budget fields', () => {
         expect(() => StageConfigSchema.parse({ ...minimalStage, maxBudgetUsd: -5 })).toThrow();
     });
 });
+
+/**
+ * Card 0018 added `maxCardInputTokens`: a ceiling on everything a card has ever spent, across every
+ * stage and every attempt — distinct from `maxInputTokens`, which bounds one run. Absent config must
+ * mean unbounded, exactly as every other budget field here already behaves.
+ */
+describe('StageConfigSchema maxCardInputTokens', () => {
+    it('leaves maxCardInputTokens unset when omitted, rather than defaulting it', () => {
+        const stage = StageConfigSchema.parse(minimalStage);
+        expect(stage.maxCardInputTokens).toBeUndefined();
+    });
+
+    it('accepts an explicit maxCardInputTokens', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, maxCardInputTokens: 5_000_000 });
+        expect(stage.maxCardInputTokens).toBe(5_000_000);
+    });
+
+    it('rejects a maxCardInputTokens below the 1000 floor', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxCardInputTokens: 500 })).toThrow();
+    });
+
+    it('rejects a non-integer maxCardInputTokens', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxCardInputTokens: 1000.5 })).toThrow();
+    });
+});
