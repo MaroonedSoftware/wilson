@@ -329,10 +329,18 @@ export class StageDispatcher {
         // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
         // a third of the way through its plan, emitted a placeholder result, and passed — because
         // the diff was non-empty, in scope, and built. Truncation is knowable, so it is checked.
-        if (run.truncated) {
+        //
+        // Only when no more specific cause is known: a wall-clock or token-budget cutoff can land
+        // with `truncated: true` well before the step count is exhausted, and naming the step cap
+        // there would be false — `run.budgetFailure`, pushed below, already names the real cause.
+        if (run.truncated && !run.budgetFailure) {
             failures.unshift(
                 `the stage used all ${stage.maxSteps} of its steps and was cut off mid-run — its work is partial whatever the diff shows`,
             );
+        }
+
+        if (run.budgetFailure) {
+            failures.unshift(run.budgetFailure);
         }
 
         return {

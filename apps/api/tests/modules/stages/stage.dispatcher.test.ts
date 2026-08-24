@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
+import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '#modules/stages/stage.verifier.js';
+import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
@@ -14,8 +18,6 @@ import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { ModelRegistry } from '#modules/agent/model.registry.js';
-import type { StageVerifierMap } from '#modules/stages/stage.verifier.js';
-import type { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -195,5 +197,126 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(target).toBe('needs-human');
         const stored = await board.read('0001');
         expect(stored.frontmatter.stage).toBe('needs-human');
+    });
+});
+
+/**
+ * Card 0015: both adapters compute a `budgetFailure` string when a run's input tokens meet the
+ * stage's cap, but that value only matters if the dispatcher actually reads it. A review of this
+ * card's own implementation caught exactly that gap — `run.budgetFailure` was returned by the
+ * adapters and typed on `AgentRunOutput`, but nothing in `StageDispatcher` ever looked at it, so an
+ * over-budget run could still pass because the generic "no report" and truncation checks are the
+ * only things that fire.
+ *
+ * `runAgent` (private) is exercised directly, the same way `writeTransition` is above, with a fake
+ * adapter and verifier standing in for a real agent run — the point here is what the dispatcher does
+ * with `run.budgetFailure`, not the agent loop that produced it.
+ */
+describe('StageDispatcher runAgent (via private access) surfaces a run’s budgetFailure', () => {
+    const stage = makeStage({ adapter: 'api' as never, verifier: 'testing' });
+    const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'testing' } };
+    const scope = new ScopeGuard({ worktreeRoot: '/tmp/worktree', allow: ['**'], alwaysAllowed: [] });
+    const worktree = { path: '/tmp/worktree', baseSha: 'deadbeef' } as unknown as Awaited<ReturnType<WorktreeManager['create']>>;
+    const stages = { scopeViolation: 'widen' as const, alwaysAllowed: [], deny: [], stages: [stage] };
+
+    const buildDispatcher = (adapterOutput: AgentRunOutput, verifierOutcome: VerificationOutcome) => {
+        const agents = new StageAgentMap();
+        agents.set('api', { run: async () => adapterOutput });
+        const verifiers = new StageVerifierMap();
+        const verifier: StageVerifier = { verify: async () => verifierOutcome };
+        verifiers.set('testing', verifier);
+        const resultSchemas = new StageResultSchemaMap();
+        resultSchemas.set('testing', {} as never);
+
+        return new StageDispatcher(
+            { project: 'test' } as BoardConfig,
+            {} as BoardRepository,
+            {} as WorktreeManager,
+            agents,
+            verifiers,
+            resultSchemas,
+            {} as EventLog,
+            silentLogger as never,
+        );
+    };
+
+    const runAgent = (dispatcher: StageDispatcher) =>
+        (
+            dispatcher as unknown as {
+                runAgent(input: {
+                    card: Card;
+                    stage: StageConfig;
+                    worktree: typeof worktree;
+                    scope: ScopeGuard;
+                    planPath: string;
+                    stages: typeof stages;
+                }): Promise<StageOutcome>;
+            }
+        ).runAgent({ card, stage, worktree, scope, planPath: '/run/plan.md', stages });
+
+    it('fails the stage on a budgetFailure even though the verifier itself passed', async () => {
+        const dispatcher = buildDispatcher(
+            {
+                result: { summary: 'did the thing' },
+                usage: { inputTokens: 5000 },
+                truncated: false,
+                budgetFailure: 'input token budget exceeded: used 5000, cap 1000',
+            },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain('input token budget exceeded: used 5000, cap 1000');
+    });
+
+    it('leaves a passing outcome alone when the run reports no budgetFailure', async () => {
+        const dispatcher = buildDispatcher(
+            { result: { summary: 'did the thing' }, usage: { inputTokens: 500 }, truncated: false },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(true);
+        expect(result.failures).toEqual([]);
+    });
+
+    // A wall-clock or token-budget cutoff reports `truncated: true` alongside its `budgetFailure`,
+    // same as ordinary step exhaustion does with `truncated: true` alone. The review's blocker was
+    // that both landed together as `truncated: true` with no way to tell them apart, so the generic
+    // "used all N of its steps" message was reported even when the real cause was a timeout after a
+    // handful of steps. The fix — `run.truncated && !run.budgetFailure` in the dispatcher — has to be
+    // checked from both sides: the step message must disappear once a budgetFailure explains the cut
+    // off, and it must still appear when nothing more specific is known.
+    it('reports only the budgetFailure, not the generic step-exhaustion message, when a run is both truncated and over budget', async () => {
+        const dispatcher = buildDispatcher(
+            {
+                result: undefined,
+                usage: { inputTokens: 10 },
+                truncated: true,
+                budgetFailure: 'wall-clock budget exceeded: cap 1800000ms',
+            },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain('wall-clock budget exceeded: cap 1800000ms');
+        expect(result.failures.some(f => f.includes('used all'))).toBe(false);
+    });
+
+    it('still reports the generic step-exhaustion message when a run is truncated with no more specific cause known', async () => {
+        const dispatcher = buildDispatcher(
+            { result: undefined, usage: { inputTokens: 10 }, truncated: true },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures.some(f => f.includes(`used all ${stage.maxSteps} of its steps`))).toBe(true);
     });
 });

@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
+import { overBudget, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import type { ToolContext } from './tools/index.js';
@@ -83,6 +84,11 @@ export class CliStageAgent extends StageAgent {
             alwaysLoad: true,
         });
 
+        // The engine has no direct "abort after this signal" option, so the timeout is wired through
+        // an AbortController it does accept.
+        const abortController = new AbortController();
+        AbortSignal.timeout(stage.maxWallClockMs).addEventListener('abort', () => abortController.abort());
+
         const stream = query({
             prompt: [
                 `Card: ${title}`,
@@ -106,31 +112,57 @@ export class CliStageAgent extends StageAgent {
                 canUseTool: createToolGuard(context, stage.worktree),
                 env: subscriptionEnv(),
                 mcpServers: { [REPORT_SERVER]: reportServer },
+                // The engine enforces its own bounds; `maxSteps` and the wall clock are ours to
+                // configure here rather than reimplement.
+                maxTurns: stage.maxSteps,
+                ...(stage.maxBudgetUsd !== undefined ? { maxBudgetUsd: stage.maxBudgetUsd } : {}),
+                abortController,
             },
         });
 
         let summary = '';
         let usage: AgentRunOutput['usage'];
 
-        for await (const message of stream) {
-            if (message.type === 'assistant') {
-                const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
-                if (text.trim()) summary = text.trim();
-            }
-            if (message.type === 'result') {
-                usage = { inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens };
-                // The engine reports its own truncation; treat anything but a clean end as cut off.
-                if (message.subtype !== 'success') {
-                    this.logger.warn(`cli stage ended as ${message.subtype}`);
-                    return { result: reported ?? (summary ? { summary } : undefined), usage, truncated: true };
+        try {
+            for await (const message of stream) {
+                if (message.type === 'assistant') {
+                    const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
+                    if (text.trim()) summary = text.trim();
+                }
+                if (message.type === 'result') {
+                    usage = { inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens };
+                    // The engine reports its own truncation; treat anything but a clean end as cut off.
+                    // That covers `error_max_budget_usd` too: it is not `success`, so it lands here.
+                    if (message.subtype !== 'success') {
+                        this.logger.warn(`cli stage ended as ${message.subtype}`);
+                        const output = {
+                            result: reported ?? (summary ? { summary } : undefined),
+                            usage,
+                            truncated: true,
+                            budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                        };
+                        return output;
+                    }
                 }
             }
+        } catch (err) {
+            if ((err as { name?: string }).name === 'AbortError') {
+                this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    budgetFailure: wallClockExceeded(stage.maxWallClockMs),
+                };
+            }
+            throw err;
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher
         // treats an absent result as exactly that. The prose summary is a fallback for the truncated
         // case only, never a substitute for a structured report.
-        return { result: reported, usage, truncated: false };
+        const output = { result: reported, usage, truncated: false, budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens) };
+        return output;
     }
 }
 
