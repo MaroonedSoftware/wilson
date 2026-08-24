@@ -30,9 +30,33 @@ describe('BoardService', () => {
 
             const summaries = await service.list();
 
-            expect(summaries).toEqual([{ id: '0001', title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'] }]);
+            expect(summaries).toEqual([
+                { id: '0001', title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'], needsHuman: false, needsHumanReason: undefined },
+            ]);
             expect(summaries[0]).not.toHaveProperty('body');
             expect(summaries[0]).not.toHaveProperty('sections');
+        });
+
+        it('defaults needsHuman to false on the wire when the frontmatter omits it, so the web never sees an absent flag', async () => {
+            const cards = [card('0001', { needsHuman: undefined })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config);
+
+            const [summary] = await service.list();
+
+            expect(summary.needsHuman).toBe(false);
+            expect(summary.needsHumanReason).toBeUndefined();
+        });
+
+        it('carries needsHuman and its reason through to the summary when the frontmatter sets them', async () => {
+            const cards = [card('0001', { needsHuman: true, needsHumanReason: 'waiting on legal sign-off' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config);
+
+            const [summary] = await service.list();
+
+            expect(summary.needsHuman).toBe(true);
+            expect(summary.needsHumanReason).toBe('waiting on legal sign-off');
         });
 
         it('leaves branch undefined for a card that has none, rather than sending null', async () => {
