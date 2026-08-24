@@ -18,6 +18,7 @@ import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
+import { isTerminal } from './terminal.js';
 
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
@@ -237,6 +238,24 @@ export class StageDispatcher {
             type: 'transition.written',
             payload: { from: stageName, to: decision.target, retries: decision.retries, by: 'runner' },
         });
+
+        if (isTerminal(decision.target)) {
+            // The card's life has ended; the transition above already stands. A worktree left behind
+            // is a tidiness problem, not a correctness one, so a failure here is logged and swallowed
+            // rather than allowed to unwind a transition that already happened.
+            try {
+                await this.worktrees.reclaim(cardId);
+                await this.events.append({
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'worktree.reclaimed',
+                    payload: { cardId, target: decision.target },
+                });
+            } catch (err) {
+                this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${decision.target}": ${(err as Error).message}`);
+            }
+        }
 
         return decision.target;
     }
