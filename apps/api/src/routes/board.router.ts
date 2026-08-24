@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ServerKitRouter } from '@maroonedsoftware/koa';
 import { BoardService } from '#modules/board/board.service.js';
-import { CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from './board.js';
+import { CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from '../generated/board.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**

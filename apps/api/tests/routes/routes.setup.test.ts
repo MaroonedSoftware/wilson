@@ -1,9 +1,10 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { routers } from '#src/routes/routes.setup.js';
-import { BoardRouter } from '#src/generated/board.router.js';
-import { HealthRouter } from '#src/generated/health.router.js';
+import { BoardRouter } from '#src/routes/board.router.js';
+import { HealthRouter } from '#src/routes/health.router.js';
 
 /**
  * Every router the server mounts is generated from a contract.
@@ -19,12 +20,21 @@ describe('routers', () => {
 
     /**
      * The invariant, not just today's list. A hand-written router would satisfy the assertion above
-     * simply by being added to it; this fails instead, which is the point — `src/routes/` holds the
-     * mounting list and nothing else, because every route lives in `src/generated/`.
+     * simply by being added to it, so this checks provenance instead: every router file beside
+     * `routes.setup.ts` has to carry the header ContractKit writes, naming the contract it came
+     * from. Location cannot prove that any more now that generated routers live here too — but a
+     * file claiming a source contract is a stronger claim than a file sitting in the right folder.
      */
-    it('keeps no route definitions outside src/generated', async () => {
+    it('has no router beside routes.setup.ts that was not generated from a contract', async () => {
         const dir = fileURLToPath(new URL('../../src/routes/', import.meta.url));
-        expect((await readdir(dir)).sort()).toEqual(['routes.setup.ts']);
+        const files = (await readdir(dir)).sort();
+        expect(files).toContain('routes.setup.ts');
+
+        for (const file of files.filter(f => f !== 'routes.setup.ts')) {
+            expect(file, `${file} is beside routes.setup.ts but is not a router`).toMatch(/\.router\.ts$/);
+            const source = await readFile(join(dir, file), 'utf8');
+            expect(source, `${file} carries no "generated from" header`).toMatch(/generated from \[[^\]]+\.ck\]/);
+        }
     });
 
     it.each([['/api/cards'], ['/api/cards/0001'], ['/api/cards/0001/events'], ['/api/cards/0001/versions']])(

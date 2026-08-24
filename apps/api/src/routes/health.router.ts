@@ -1,6 +1,6 @@
 import { ServerKitRouter } from '@maroonedsoftware/koa';
 import { HealthService } from '#modules/health/health.service.js';
-import { Health } from './health.js';
+import { Health } from '../generated/health.js';
 
 /**
  * generated from [health.ck](file://./../../data/contracts/health.ck)

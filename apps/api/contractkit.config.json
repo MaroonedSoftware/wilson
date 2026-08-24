@@ -9,7 +9,7 @@
                 "baseDir": "apps/api/",
                 "zod": true,
                 "output": {
-                    "routes": "src/generated/{filename}.router.ts",
+                    "routes": "src/routes/{filename}.router.ts",
                     "types": "src/generated/{filename}.ts"
                 }
             }
