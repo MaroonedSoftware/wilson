@@ -13,6 +13,20 @@ export interface CardEventRow {
 }
 
 /**
+ * `card.over-budget` (card 0018) belongs in the closed `CardEventType` union alongside
+ * `stage.poisoned`, but `card.event.ts` is outside this card's "Files in scope" — a conflict a
+ * prior review flagged, since widening `append` to plain `string` would drop the closed union's
+ * compile-time typo protection for the very event type this card adds.
+ *
+ * Extending the union locally, at the one call site that needs it, keeps that protection without
+ * touching the file this card cannot edit. A follow-up card can fold this member into
+ * `CardEventType` itself and delete this alias.
+ */
+export type AppendableCardEventType = CardEventType | 'card.over-budget';
+
+export type AppendableCardEvent = Omit<CardEvent, 'type'> & { type: AppendableCardEventType };
+
+/**
  * The operational record: append-only, never updated, never deleted.
  *
  * The card file in the board repo is the durable record of *what a card is*; this is the record of
@@ -23,7 +37,7 @@ export interface CardEventRow {
 export class EventLog {
     constructor(private readonly db: Kysely<DB>) {}
 
-    async append(event: CardEvent): Promise<void> {
+    async append(event: AppendableCardEvent): Promise<void> {
         await this.db
             .insertInto('runner.cardEvents')
             .values({

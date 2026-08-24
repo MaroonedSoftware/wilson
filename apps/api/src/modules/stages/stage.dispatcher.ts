@@ -11,7 +11,6 @@ import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
-import type { CardEventType } from '#modules/events/card.event.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
@@ -21,15 +20,6 @@ import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { isTerminal } from './terminal.js';
-
-/**
- * `card.over-budget` belongs in the closed `CardEventType` union (`modules/events/card.event.ts`)
- * alongside `stage.poisoned`, but that file is outside this card's "Files in scope". Widening
- * through the untyped `string` here — rather than a direct literal assertion, which the compiler
- * rejects as a non-overlapping cast — keeps the rest of the event-log call sites unchanged until
- * a follow-up card can add the member properly.
- */
-const CARD_OVER_BUDGET: string = 'card.over-budget';
 
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
@@ -304,7 +294,7 @@ export class StageDispatcher {
             project: this.config.project,
             cardId,
             stage: stageName,
-            type: CARD_OVER_BUDGET as CardEventType,
+            type: 'card.over-budget',
             payload: { spent, cap },
         });
 
