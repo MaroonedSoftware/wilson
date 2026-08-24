@@ -2,16 +2,19 @@ export type MarkdownBlock =
     | { type: 'heading'; level: number; text: string }
     | { type: 'paragraph'; text: string }
     | { type: 'list'; ordered: boolean; items: string[] }
-    | { type: 'code'; lang?: string; text: string };
+    | { type: 'code'; lang?: string; text: string }
+    | { type: 'quote'; blocks: MarkdownBlock[] };
 
 const FENCE = /^```(\S*)\s*$/;
 const HEADING = /^(#{1,6})\s+(.+?)\s*$/;
 const BULLET = /^\s*[-*+]\s+(.+)$/;
 const NUMBERED = /^\s*\d+\.\s+(.+)$/;
+const QUOTE = /^\s*>\s?(.*)$/;
 
 /**
  * A line-based markdown parser scoped to what a plan body actually uses: headings, paragraphs,
- * bullet and numbered lists (including line-wrapped continuation lines), and fenced code blocks.
+ * bullet and numbered lists (including line-wrapped continuation lines), fenced code blocks and
+ * blockquotes.
  *
  * Not a CommonMark implementation — the plan contract (PROJECT.md, Board format) is prose written
  * by a human or a planning agent, not markdown that exercises tables, nested lists or footnotes.
@@ -45,6 +48,20 @@ export const parseMarkdown = (body: string): MarkdownBlock[] => {
             continue;
         }
 
+        if (QUOTE.test(line)) {
+            const quoted: string[] = [];
+            while (i < lines.length) {
+                const stripped = QUOTE.exec(lines[i]!);
+                if (!stripped) break;
+                quoted.push(stripped[1]!);
+                i++;
+            }
+            // Parsed recursively so a quote carrying headings, lists or code renders as those rather
+            // than as one flat paragraph. Each level strips one marker, so the recursion terminates.
+            blocks.push({ type: 'quote', blocks: parseMarkdown(quoted.join('\n')) });
+            continue;
+        }
+
         const heading = HEADING.exec(line);
         if (heading) {
             blocks.push({ type: 'heading', level: heading[1]!.length, text: heading[2]! });
@@ -75,7 +92,15 @@ export const parseMarkdown = (body: string): MarkdownBlock[] => {
         }
 
         const paragraphLines: string[] = [];
-        while (i < lines.length && lines[i]!.trim().length > 0 && !FENCE.test(lines[i]!) && !HEADING.test(lines[i]!) && !BULLET.test(lines[i]!) && !NUMBERED.test(lines[i]!)) {
+        while (
+            i < lines.length &&
+            lines[i]!.trim().length > 0 &&
+            !FENCE.test(lines[i]!) &&
+            !HEADING.test(lines[i]!) &&
+            !BULLET.test(lines[i]!) &&
+            !NUMBERED.test(lines[i]!) &&
+            !QUOTE.test(lines[i]!)
+        ) {
             paragraphLines.push(lines[i]!.trim());
             i++;
         }

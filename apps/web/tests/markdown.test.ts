@@ -61,3 +61,34 @@ describe('parseMarkdown', () => {
         ]);
     });
 });
+
+describe('blockquotes', () => {
+    it('parses a quote as its own block', () => {
+        expect(parseMarkdown('> quoted text')).toEqual([{ type: 'quote', blocks: [{ type: 'paragraph', text: 'quoted text' }] }]);
+    });
+
+    it('keeps the structure inside a quote rather than flattening it', () => {
+        const [block] = parseMarkdown('> **Note.** First paragraph\n> wrapped onto two lines.\n>\n> - a listed point\n> - another');
+        expect(block).toEqual({
+            type: 'quote',
+            blocks: [
+                { type: 'paragraph', text: '**Note.** First paragraph wrapped onto two lines.' },
+                { type: 'list', ordered: false, items: ['a listed point', 'another'] },
+            ],
+        });
+    });
+
+    it('ends the quote at the first unquoted line', () => {
+        expect(parseMarkdown('> quoted\n\nnot quoted')).toEqual([
+            { type: 'quote', blocks: [{ type: 'paragraph', text: 'quoted' }] },
+            { type: 'paragraph', text: 'not quoted' },
+        ]);
+    });
+
+    it('does not swallow a following paragraph into a preceding one', () => {
+        expect(parseMarkdown('a paragraph\n> a quote')).toEqual([
+            { type: 'paragraph', text: 'a paragraph' },
+            { type: 'quote', blocks: [{ type: 'paragraph', text: 'a quote' }] },
+        ]);
+    });
+});

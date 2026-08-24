@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
-import { Anchor, Code, List, Stack, Text, Title } from '@mantine/core';
-import { parseMarkdown } from '#src/lib/markdown.js';
+import { Anchor, Box, Code, List, Stack, Text, Title } from '@mantine/core';
+import { parseMarkdown, type MarkdownBlock } from '#src/lib/markdown.js';
 
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/g;
 
@@ -46,13 +46,20 @@ function inline(text: string): ReactNode[] {
 /**
  * Renders a plan body as markdown, not as `<pre>` text.
  *
- * Scoped to `parseMarkdown`'s subset — headings, paragraphs, lists and fenced code — which is what
+ * Scoped to `parseMarkdown`'s subset — headings, paragraphs, lists, fenced code and blockquotes —
+ * which is what
  * the plan contract (PROJECT.md, Board format) actually uses. See `lib/markdown.ts` for why that
  * bound is deliberate rather than a shortcut.
  */
 export function Markdown({ body }: { body: string }) {
-    const blocks = parseMarkdown(body);
+    return <Blocks blocks={parseMarkdown(body)} />;
+}
 
+/**
+ * One level of parsed blocks. Split out from `Markdown` so a blockquote can render its own contents
+ * through the same path rather than flattening them into quoted text.
+ */
+function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
     return (
         <Stack gap="sm">
             {blocks.map((block, index) => {
@@ -77,6 +84,13 @@ export function Markdown({ body }: { body: string }) {
                                 <List.Item key={itemIndex}>{inline(item)}</List.Item>
                             ))}
                         </List>
+                    );
+                }
+                if (block.type === 'quote') {
+                    return (
+                        <Box key={index} pl="md" style={{ borderLeft: '3px solid var(--mantine-color-gray-4)' }}>
+                            <Blocks blocks={block.blocks} />
+                        </Box>
                     );
                 }
                 return (
