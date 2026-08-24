@@ -14,7 +14,7 @@ const _ZodJson: z.ZodType<_JsonValue> = z.lazy(() =>
  * No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
  * it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
  * from every response. It comes back when parking-lot ordering is actually built, with a value.
- * generated from [CardSummary](file://./../../../../contracts/board.ck#L11)
+ * generated from [CardSummary](file://./../../data/contracts/board.ck#L11)
  */
 export const CardSummary = z.strictObject({
     id: z.string(),
@@ -26,7 +26,7 @@ export const CardSummary = z.strictObject({
 export type CardSummary = z.infer<typeof CardSummary>;
 
 /**
- * generated from [CardEvent](file://./../../../../contracts/board.ck#L24)
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L24)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -38,7 +38,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../../../contracts/board.ck#L32)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L32)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -50,7 +50,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../contracts/board.ck#L40)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L40)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),
@@ -58,7 +58,7 @@ export const ListQuery = z.strictObject({
 export type ListQuery = z.infer<typeof ListQuery>;
 
 /**
- * generated from [CardDetail](file://./../../../../contracts/board.ck#L19)
+ * generated from [CardDetail](file://./../../data/contracts/board.ck#L19)
  */
 export const CardDetail = CardSummary.extend({
     body: z.string(),

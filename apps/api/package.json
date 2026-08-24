@@ -9,7 +9,7 @@
     "scripts": {
         "build": "tsc",
         "build:datatypes": "kysely-codegen",
-        "codegen": "cd ../.. && contractkit",
+        "codegen": "contractkit",
         "dev": "node --watch --import @swc-node/register/esm-register ./src/index.ts",
         "start": "node --import @swc-node/register/esm-register ./src/index.ts",
         "migrate:up": "dbmate -d ./data/migrations --no-dump-schema up",
