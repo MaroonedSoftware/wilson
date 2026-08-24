@@ -100,4 +100,60 @@ describe('whyNotDispatchable', () => {
         expect(result).toBeDefined();
         expect(result?.reason).toContain('finished');
     });
+
+    // Card 0054: the guards learn about the flag. A card can be flagged for a human while it sits in
+    // any stage at all, including a perfectly normal agent stage, so the refusal has to name the flag
+    // rather than describe the stage as if that were the problem.
+    describe('needsHuman', () => {
+        const flagged = (stage: string, reason?: string): Card => ({
+            frontmatter: {
+                id: '0001',
+                title: 'a card',
+                stage,
+                dependsOn: [],
+                retries: {},
+                needsHuman: true,
+                needsHumanReason: reason,
+            } as CardFrontmatter,
+            sections: {},
+            body: '',
+        });
+
+        it('refuses a card flagged for a human sitting in an otherwise-dispatchable agent stage', () => {
+            const result = whyNotDispatchable(flagged('implementing'), stages([makeStage({ name: 'implementing', mode: 'agent' })]));
+
+            expect(result).toBeDefined();
+            expect(result?.reason).toContain('human');
+        });
+
+        it('includes the operator-given reason in the refusal', () => {
+            const result = whyNotDispatchable(
+                flagged('implementing', 'balance is wrong, needs a look'),
+                stages([makeStage({ name: 'implementing', mode: 'agent' })]),
+            );
+
+            expect(result?.reason).toContain('balance is wrong, needs a look');
+        });
+
+        it('checks the flag before terminal status, so a flagged card in a terminal stage still names the flag, not the stage', () => {
+            const result = whyNotDispatchable(flagged('merged'), stages([]));
+
+            expect(result).toBeDefined();
+            expect(result?.reason).toContain('human');
+            expect(result?.reason).not.toContain('finished');
+        });
+
+        it('checks the flag before parking-lot', () => {
+            const result = whyNotDispatchable(flagged('parking-lot'), stages([]));
+
+            expect(result?.reason).toContain('human');
+            expect(result?.reason).not.toContain('parked');
+        });
+
+        it('does not refuse an unflagged card in the same agent stage', () => {
+            const result = whyNotDispatchable(card('implementing'), stages([makeStage({ name: 'implementing', mode: 'agent' })]));
+
+            expect(result).toBeUndefined();
+        });
+    });
 });

@@ -14,6 +14,19 @@ const card = (id: string, stage: string, dependsOn: string[] = []): Card => ({
     body: '',
 });
 
+const flaggedCard = (id: string, stage: string, dependsOn: string[] = []): Card => ({
+    frontmatter: {
+        id,
+        title: `Card ${id}`,
+        stage,
+        dependsOn,
+        retries: {},
+        needsHuman: true,
+    } as CardFrontmatter,
+    sections: {},
+    body: '',
+});
+
 describe('nextCard', () => {
     it('returns no candidate and no blocked cards for an empty board', () => {
         expect(nextCard([])).toEqual({ next: undefined, blocked: [], flagged: [] });
@@ -110,6 +123,55 @@ describe('nextCard', () => {
         const cards = [card('0001', 'merged'), card('0002', 'parking-lot')];
 
         expect(nextCard(cards)).toEqual({ next: undefined, blocked: [], flagged: [] });
+    });
+
+    // Card 0054: the guards learn about the flag. `nextCard` grows a third bucket so a flagged card
+    // can never be `next` and never show up in `blocked` — the runner's "what next" answer must not
+    // be a card waiting on a person.
+    describe('flagged', () => {
+        it('puts a flagged card in flagged, not in next, even when it is the only eligible card', () => {
+            const cards = [flaggedCard('0001', 'implementing')];
+
+            const { next, blocked, flagged } = nextCard(cards);
+
+            expect(next).toBeUndefined();
+            expect(blocked).toEqual([]);
+            expect(flagged.map(c => c.frontmatter.id)).toEqual(['0001']);
+        });
+
+        it('picks the lowest-id unflagged candidate as next when a lower-id flagged card exists', () => {
+            const cards = [flaggedCard('0001', 'implementing'), card('0002', 'implementing')];
+
+            const { next, flagged } = nextCard(cards);
+
+            expect(next?.frontmatter.id).toBe('0002');
+            expect(flagged.map(c => c.frontmatter.id)).toEqual(['0001']);
+        });
+
+        it('puts a flagged card with unsatisfied dependencies in flagged, never in blocked', () => {
+            const dangling = flaggedCard('0002', 'planning', ['9999']);
+
+            const { blocked, flagged } = nextCard([dangling]);
+
+            expect(blocked).toEqual([]);
+            expect(flagged).toEqual([dangling]);
+        });
+
+        it('sorts flagged cards by id, lowest first, independent of input order', () => {
+            const cards = [flaggedCard('0005', 'implementing'), flaggedCard('0001', 'implementing'), flaggedCard('0003', 'implementing')];
+
+            const { flagged } = nextCard(cards);
+
+            expect(flagged.map(c => c.frontmatter.id)).toEqual(['0001', '0003', '0005']);
+        });
+
+        it('still excludes a flagged card sitting in a non-stage state, the same as any other card there', () => {
+            const cards = [flaggedCard('0001', 'merged')];
+
+            const { flagged } = nextCard(cards);
+
+            expect(flagged).toEqual([]);
+        });
     });
 });
 

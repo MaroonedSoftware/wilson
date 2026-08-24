@@ -175,6 +175,39 @@ describe('CardStageJob', () => {
         expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing');
     });
 
+    /**
+     * Card 0054. `StageOutcome` does not carry `needsHuman` yet — the next card adds it — so the job
+     * reads it defensively off whatever the dispatcher actually returned. This is the guard against
+     * the spend loop the card's plan describes: once a later card lets an exhausted stage land the
+     * card back on a configured agent stage instead of routing it to `needs-human`, this flag is the
+     * only thing standing between that and re-enqueuing forever.
+     */
+    it('stops the chain, rather than enqueuing the next job, when the outcome carries needsHuman', async () => {
+        dispatcher.run.mockResolvedValue({ ...outcome({ transitionedTo: 'testing' }), needsHuman: true });
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(cardJobs.record).not.toHaveBeenCalled();
+        expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: '0001',
+                stage: 'implementing',
+                type: 'chain.stopped',
+                payload: { target: 'testing', reason: expect.stringContaining('human') },
+            }),
+        );
+    });
+
+    it('enqueues normally when the outcome does not carry needsHuman, landing on the same target stage', async () => {
+        dispatcher.run.mockResolvedValue({ ...outcome({ transitionedTo: 'testing' }), needsHuman: false });
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing' });
+    });
+
     describe('permanent failures', () => {
         // pg-boss retries a thrown job. That is right for a timeout and pure waste for an exhausted
         // balance, which this project watched burn three retry cycles — each one cutting a worktree
