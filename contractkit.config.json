@@ -1,0 +1,18 @@
+{
+    "rootDir": ".",
+    "cache": true,
+    "prettier": true,
+    "patterns": ["contracts/**/*.ck"],
+    "plugins": {
+        "@contractkit/plugin-typescript": {
+            "server": {
+                "baseDir": "apps/api/",
+                "zod": true,
+                "output": {
+                    "routes": "src/generated/{filename}.router.ts",
+                    "types": "src/generated/{filename}.ts"
+                }
+            }
+        }
+    }
+}

@@ -6,6 +6,7 @@ import { BoardConfig, StaticBoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { PostgresBoardRepository } from './postgres.board.repository.js';
 import { BoardImporter } from './board.importer.js';
+import { BoardService } from './board.service.js';
 import { optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 export const BoardModule: ServerKitModule = {
@@ -30,5 +31,6 @@ export const BoardModule: ServerKitModule = {
         // still a file (`config/stages.yaml`) and `loadStages` reads it from there.
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
         registry.register(BoardImporter).useClass(BoardImporter).asTransient();
+        registry.register(BoardService).useClass(BoardService).asTransient();
     },
 };
