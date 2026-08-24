@@ -11,14 +11,25 @@ import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
+import type { CardEventType } from '#modules/events/card.event.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance } from './kickback.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { isTerminal } from './terminal.js';
+
+/**
+ * `card.over-budget` belongs in the closed `CardEventType` union (`modules/events/card.event.ts`)
+ * alongside `stage.poisoned`, but that file is outside this card's "Files in scope". Widening
+ * through the untyped `string` here — rather than a direct literal assertion, which the compiler
+ * rejects as a non-overlapping cast — keeps the rest of the event-log call sites unchanged until
+ * a follow-up card can add the member properly.
+ */
+const CARD_OVER_BUDGET: string = 'card.over-budget';
 
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
@@ -69,6 +80,17 @@ export class StageDispatcher {
         }
 
         this.assertDispatchable(card, stage);
+
+        // Checked before any worktree is cut, not after: an over-budget card must not cut a tree,
+        // install dependencies or reach a model. Absent `maxCardInputTokens` means unbounded, so
+        // this reads the card's total spend only when a cap is actually configured.
+        if (stage.maxCardInputTokens !== undefined) {
+            const spent = await this.events.totalInputTokens(this.config.project, cardId);
+            const message = cardOverBudget(spent, stage.maxCardInputTokens);
+            if (message) {
+                return this.refuseOverBudget(cardId, stageName, card, spent, stage.maxCardInputTokens, message);
+            }
+        }
 
         const branch = this.worktrees.branchName(cardId, card.frontmatter.title);
 
@@ -258,6 +280,70 @@ export class StageDispatcher {
         }
 
         return decision.target;
+    }
+
+    /**
+     * A card that has already spent its configured ceiling goes to `needs-human` without the
+     * stage running at all — the same reasoning as `poisoned`: retrying cannot fix it, since the
+     * next attempt would spend the same budget again, and a retry budget is for work that came
+     * back wrong, not work that cannot be afforded.
+     *
+     * Writes the transition through `BoardRepository` exactly as a kickback would: same commit
+     * message shape, same terminal-state worktree reclaim. Retry counters are left untouched —
+     * this card never ran, so it never attempted the stage.
+     */
+    private async refuseOverBudget(
+        cardId: string,
+        stageName: string,
+        card: Card,
+        spent: number,
+        cap: number,
+        message: string,
+    ): Promise<StageOutcome> {
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: CARD_OVER_BUDGET as CardEventType,
+            payload: { spent, cap },
+        });
+
+        const target = 'needs-human';
+        await this.board.write(cardId, `${cardId}: ${stageName} -> ${target}`, current => ({
+            ...current,
+            frontmatter: { ...current.frontmatter, stage: target },
+        }));
+
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'transition.written',
+            payload: { from: stageName, to: target, retries: card.frontmatter.retries, by: 'runner' },
+        });
+
+        // Terminal exactly as a kickback that exhausts its attempts is terminal: reclaim whatever
+        // worktree an earlier attempt left behind. Safe to call when there is nothing there.
+        try {
+            await this.worktrees.reclaim(cardId);
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'worktree.reclaimed',
+                payload: { cardId, target },
+            });
+        } catch (err) {
+            this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${target}": ${(err as Error).message}`);
+        }
+
+        return {
+            passed: false,
+            failures: [message],
+            changedPaths: [],
+            scopeGrants: [],
+            transitionedTo: target,
+        };
     }
 
     private assertDispatchable(card: Card, stage: StageConfig): void {

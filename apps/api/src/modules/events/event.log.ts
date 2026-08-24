@@ -1,5 +1,5 @@
 import { Injectable } from 'injectkit';
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
 import type { CardEvent, CardEventType } from './card.event.js';
@@ -59,5 +59,23 @@ export class EventLog {
             payload: (row.payload ?? {}) as Record<string, unknown>,
             createdAt: row.createdAt,
         }));
+    }
+
+    /**
+     * What a card has spent in total, across every stage and every attempt.
+     *
+     * Every stage already records `usage.inputTokens` in its `stage.passed` / `stage.failed`
+     * payload, so this reads that history rather than tracking a separate running counter. Nulls —
+     * a card with no usage recorded — coalesce to zero rather than surfacing as null.
+     */
+    async totalInputTokens(project: string, cardId: string): Promise<number> {
+        const row = await this.db
+            .selectFrom('runner.cardEvents')
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .select(sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('total'))
+            .executeTakeFirstOrThrow();
+
+        return Number(row.total);
     }
 }
