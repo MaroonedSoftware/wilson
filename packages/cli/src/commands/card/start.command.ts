@@ -23,9 +23,10 @@ const command: CommandModule = {
 
         // Refuse before enqueuing rather than let pg-boss dispatch a job nothing can run — a card
         // sitting in `needs-human` or `manual` produced exactly that job, thrown on and retried by
-        // pg-boss until it dead-lettered, with no possible outcome.
+        // pg-boss until it dead-lettered, with no possible outcome. Also refuses a card flagged for a
+        // human wherever it sits.
         const stages = await loadStages(boardConfig.boardRoot);
-        const notDispatchable = whyNotDispatchable(stageName, stages);
+        const notDispatchable = whyNotDispatchable(card, stages);
         if (notDispatchable) {
             ctx.logger.error(`cannot enqueue ${cardId}: ${notDispatchable.reason}`);
             ctx.logger.error(`move it to a dispatchable stage first: wilson card move ${cardId} <stage>`);

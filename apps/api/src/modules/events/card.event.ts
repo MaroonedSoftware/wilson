@@ -23,7 +23,9 @@ export type CardEventType =
     | 'transition.written'
     | 'transition.failed'
     | 'external.transition'
-    | 'chain.stopped';
+    | 'chain.stopped'
+    | 'card.flagged'
+    | 'card.acked';
 
 export interface CardEvent {
     project: string;

@@ -73,4 +73,47 @@ describe('decideChain', () => {
 
         expect(decision).toEqual({ continue: true });
     });
+
+    // Card 0054: the guards learn about the flag. This is the check that prevents the spend loop the
+    // next card would otherwise open: once an exhausted stage can leave a card in place instead of
+    // routing it to `needs-human`, `target` is the same configured agent stage the card was already
+    // failing in, and without this check first, the chain would re-enqueue it forever.
+    describe('needsHuman', () => {
+        it('stops the chain when needsHuman is true, even though the target is a perfectly valid, configured agent stage', () => {
+            const decision = decideChain('implementing', stages([makeStage({ name: 'implementing', mode: 'agent' })]), { needsHuman: true });
+
+            expect(decision.continue).toBe(false);
+            expect(decision.reason).toContain('human');
+        });
+
+        it('checks needsHuman before the terminal-state check, so a flagged terminal target still names the flag', () => {
+            const decision = decideChain('merged', stages([]), { needsHuman: true });
+
+            expect(decision.continue).toBe(false);
+            expect(decision.reason).toContain('human');
+            expect(decision.reason).not.toContain('terminal state');
+        });
+
+        it('checks needsHuman before the stage-lookup check, so a flagged nonexistent target still names the flag', () => {
+            const decision = decideChain('nonexistent', stages([makeStage({ name: 'testing' })]), { needsHuman: true });
+
+            expect(decision.continue).toBe(false);
+            expect(decision.reason).toContain('human');
+            expect(decision.reason).not.toContain('configured stage');
+        });
+
+        it('behaves exactly as it does with no options, for an empty options object', () => {
+            const withEmpty = decideChain('testing', stages([makeStage({ name: 'testing', mode: 'agent' })]), {});
+            const withNone = decideChain('testing', stages([makeStage({ name: 'testing', mode: 'agent' })]));
+
+            expect(withEmpty).toEqual({ continue: true });
+            expect(withNone).toEqual({ continue: true });
+        });
+
+        it('does not stop the chain when needsHuman is explicitly false', () => {
+            const decision = decideChain('testing', stages([makeStage({ name: 'testing', mode: 'agent' })]), { needsHuman: false });
+
+            expect(decision).toEqual({ continue: true });
+        });
+    });
 });
