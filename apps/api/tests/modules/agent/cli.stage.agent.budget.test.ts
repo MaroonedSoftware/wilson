@@ -77,14 +77,20 @@ describe('CliStageAgent budget wiring', () => {
         queryMock.mockReset();
     });
 
-    it('passes the stage’s maxSteps through as the engine’s own maxTurns', async () => {
+    /**
+     * Card 0038 changed what `maxTurns` means here. It used to be the budget; it is now a backstop,
+     * because refused calls must not spend steps and the engine cannot be told to raise its own
+     * ceiling once `query()` has been called. The real budget is enforced in the adapter and moves
+     * with the denial count, so this only checks the engine is left enough room for it to bind first.
+     */
+    it('gives the engine a ceiling above the stage’s budget, leaving room for uncharged refusals', async () => {
         queryMock.mockReturnValue(streamOf([]));
         const agent = new CliStageAgent(silentLogger as never);
 
         await agent.run(runInput(makeStage({ maxSteps: 17 })) as never);
 
         const call = queryMock.mock.calls[0]?.[0] as { options: Record<string, unknown> };
-        expect(call.options.maxTurns).toBe(17);
+        expect(call.options.maxTurns).toBeGreaterThan(17);
     });
 
     it('passes maxBudgetUsd through to the engine when the stage sets one', async () => {

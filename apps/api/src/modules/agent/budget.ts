@@ -43,3 +43,13 @@ export const overBudget = (used: number | undefined, cap: number): string | unde
  * reporting it as one sends an operator to raise the wrong number.
  */
 export const wallClockExceeded = (capMs: number): string => `wall-clock budget exceeded: cap ${capMs}ms`;
+
+/**
+ * A run cut off by the step budget, naming what it actually spent.
+ *
+ * The denial count is part of the message on purpose: a stage that exhausted its steps having been
+ * refused fifty times has a different problem from one that simply had too much to do, and the
+ * operator cannot tell them apart from "used all its steps" alone.
+ */
+export const stepsExceeded = (cap: number, denied: number): string =>
+    denied > 0 ? `step budget exceeded: ${cap} steps, with ${denied} refused calls not charged against it` : `step budget exceeded: ${cap} steps`;

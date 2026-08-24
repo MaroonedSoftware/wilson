@@ -2,7 +2,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { overBudget, wallClockExceeded } from './budget.js';
+import { overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { requestScope } from './tools/scope.tool.js';
@@ -119,6 +119,15 @@ export class CliStageAgent extends StageAgent {
         // an AbortController it does accept. A plain timer rather than `AbortSignal.timeout` because
         // this one has to be cancellable: a stage that finishes in ten seconds should not leave a
         // thirty-minute timer holding its controller alive. Unref'd so it never keeps the process up.
+        // Refused calls do not spend the budget. A denial produces no work, and charging it the same
+        // as progress is what turns friction into failure: 62% of this board's 518 denials were the
+        // agent reaching for a shell that does not exist, and card 0032's first attempt died on its
+        // step limit with a dozen steps spent that way. The ceiling grows by one per refusal, so a
+        // run keeps its full allowance of productive steps.
+        let denied = 0;
+        let turns = 0;
+        let stepsExhausted = false;
+
         const abortController = new AbortController();
         const wallClock = setTimeout(() => abortController.abort(), stage.maxWallClockMs);
         wallClock.unref();
@@ -150,12 +159,15 @@ export class CliStageAgent extends StageAgent {
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
-                canUseTool: createToolGuard(context, stage.worktree),
+                canUseTool: createToolGuard(context, stage.worktree, () => {
+                    denied += 1;
+                }),
                 env: subscriptionEnv(),
                 mcpServers: { [REPORT_SERVER]: reportServer },
-                // The engine enforces its own bounds; `maxSteps` and the wall clock are ours to
-                // configure here rather than reimplement.
-                maxTurns: stage.maxSteps,
+                // A backstop, not the budget. The real ceiling is enforced below and moves with the
+                // denial count, which `maxTurns` cannot do once `query()` has been called. This one
+                // exists so a run still terminates if that local accounting is ever wrong.
+                maxTurns: stage.maxSteps * 2 + 5,
                 ...(stage.maxBudgetUsd !== undefined ? { maxBudgetUsd: stage.maxBudgetUsd } : {}),
                 abortController,
             },
@@ -169,6 +181,18 @@ export class CliStageAgent extends StageAgent {
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                     if (text.trim()) summary = text.trim();
+
+                    turns += 1;
+                    // The credit a denial buys is capped at the budget itself. Uncapped, a run that
+                    // is refused on every turn raises its own ceiling as fast as it consumes it and
+                    // never stops — so the rule that stops refusals costing progress would instead
+                    // remove the limit. Capped, the worst case is twice the budget, which is what
+                    // the engine's own backstop is set to.
+                    if (turns >= stage.maxSteps + Math.min(denied, stage.maxSteps)) {
+                        stepsExhausted = true;
+                        this.logger.warn(`cli stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
+                        abortController.abort();
+                    }
                 }
                 if (message.type === 'result') {
                     usage = { inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens };
@@ -196,6 +220,17 @@ export class CliStageAgent extends StageAgent {
             }
         } catch (err) {
             if ((err as { name?: string }).name === 'AbortError') {
+                // Both causes abort the same controller, so the reason has to come from which one
+                // fired. "Ran out of steps" and "ran out of time" are different diagnoses, and the
+                // result reports them separately.
+                if (stepsExhausted) {
+                    return {
+                        result: reported ?? (summary ? { summary } : undefined),
+                        usage,
+                        truncated: true,
+                        budgetFailure: stepsExceeded(stage.maxSteps, denied),
+                    };
+                }
                 this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -229,8 +264,11 @@ export class CliStageAgent extends StageAgent {
  * command allowlist — the same three decisions the `api` adapter's tools make, at the only point
  * the engine offers for making them. Exported rather than private because it is the whole of this
  * adapter's enforcement, and a live model declining to misbehave is not evidence that a guard works.
+ *
+ * `onDeny` fires for every refusal. It is the one choke point every denial passes through, which is
+ * what makes refused calls cheap to exclude from the step budget.
  */
-export const createToolGuard = (context: ToolContext, writable: string): CanUseTool => {
+export const createToolGuard = (context: ToolContext, writable: string, onDeny?: () => void): CanUseTool => {
     return async (toolName, input): Promise<PermissionResult> => {
         const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
             await context.events.append({
@@ -240,6 +278,7 @@ export const createToolGuard = (context: ToolContext, writable: string): CanUseT
                 type: 'tool.denied',
                 payload: { tool: toolName, reason, ...detail },
             });
+            onDeny?.();
             return { behavior: 'deny', message: reason };
         };
 
