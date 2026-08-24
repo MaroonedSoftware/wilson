@@ -1,10 +1,11 @@
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { overBudget, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
+import { requestScope } from './tools/scope.tool.js';
 import type { ToolContext } from './tools/index.js';
 
 /**
@@ -24,13 +25,15 @@ const subscriptionEnv = (): NodeJS.ProcessEnv => {
 };
 
 /**
- * The in-process MCP server carrying this adapter's report tool, and the name the engine exposes it
- * under. MCP tools are addressed as `mcp__<server>__<tool>`, which is what the model must call and
- * what `canUseTool` sees.
+ * The in-process MCP server carrying this adapter's report and scope-request tools, and the names
+ * the engine exposes them under. MCP tools are addressed as `mcp__<server>__<tool>`, which is what
+ * the model must call and what `canUseTool` sees.
  */
 const REPORT_SERVER = 'wilson';
 const REPORT_TOOL = 'report_result';
+const REQUEST_SCOPE_TOOL = 'request_scope';
 const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
+const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUEST_SCOPE_TOOL}`;
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
@@ -68,6 +71,12 @@ export class CliStageAgent extends StageAgent {
         // on a missing `verdict` and was kicked back to implementing for a defect no amount of
         // re-implementing could fix.
         let reported: unknown;
+        // The api adapter's buildTools only exposes request_scope when worktreeMode === 'rw' — a
+        // readonly or none stage can never write, so granting it the tool would let it log
+        // scope.requested/granted events (or trip ScopeKickbackError under the kickback policy) for a
+        // widening it could never use. This adapter honours the same condition rather than exposing
+        // the tool unconditionally.
+        const canWrite = stage.worktree === 'rw';
         const reportServer = createSdkMcpServer({
             name: REPORT_SERVER,
             tools: [
@@ -80,6 +89,28 @@ export class CliStageAgent extends StageAgent {
                         return { content: [{ type: 'text' as const, text: 'reported' }] };
                     },
                 ),
+                // The engine has no equivalent of the api adapter's request_scope tool either, so it
+                // is supplied the same way — carried on this stage's own MCP server rather than
+                // duplicated, so a stage that genuinely needs a file its plan omitted has the same
+                // escape hatch here as on the api adapter (card 0004). `requestScope` is shared with
+                // `scopeTool` so the two adapters cannot drift in what a grant means. Only present for
+                // an `rw` stage, matching the api adapter's `buildTools`.
+                ...(canWrite
+                    ? [
+                          tool(
+                              REQUEST_SCOPE_TOOL,
+                              'Request permission to write a file outside the plan’s files in scope. Explain why the plan did not anticipate it. Use sparingly.',
+                              z.object({
+                                  path: z.string().describe('Path relative to the worktree root.'),
+                                  reason: z.string().describe('Why this file is genuinely part of this card.'),
+                              }).shape,
+                              async ({ path, reason }: { path: string; reason: string }) => {
+                                  const message = await requestScope(context, path, reason);
+                                  return { content: [{ type: 'text' as const, text: message }] };
+                              },
+                          ),
+                      ]
+                    : []),
             ],
             alwaysLoad: true,
         });
@@ -100,6 +131,13 @@ export class CliStageAgent extends StageAgent {
                 '',
                 stage.instructions,
                 '',
+                ...(canWrite
+                    ? [
+                          `If the plan's "Files in scope" does not cover a file the work genuinely needs, call`,
+                          `${qualifiedRequestScopeTool()} with the path and why, rather than working around the gap.`,
+                          '',
+                      ]
+                    : []),
                 `When the work is done and the build passes, call ${qualifiedReportTool()} with your result.`,
                 'Work first, report last: that call ends the stage, and a result describing work you did',
                 'not do fails it, because the runner checks the diff and not your summary.',
@@ -215,6 +253,16 @@ export const createToolGuard = (context: ToolContext, writable: string): CanUseT
         // enforced by the stage's verifier rather than here.
         if (toolName === qualifiedReportTool()) {
             return { behavior: 'allow' };
+        }
+
+        // Likewise this adapter's own request_scope tool, but only for an `rw` stage — the same
+        // condition that keeps it off the MCP server in the first place. A readonly or none stage can
+        // never write, so it must not be able to request a widening it could never use either. When
+        // present, it is allowed unconditionally: it writes nothing itself, and the widen/kickback
+        // decision is `requestScope`'s to make, not the guard's — the same split the api adapter's
+        // tool set makes between this tool and ScopeGuard.
+        if (toolName === qualifiedRequestScopeTool()) {
+            return writable === 'rw' ? { behavior: 'allow' } : deny(`this stage is ${writable}: it may not write`, { tool: toolName });
         }
 
         return deny(`${toolName} is not available to this stage`, {});
