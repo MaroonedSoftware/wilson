@@ -9,6 +9,8 @@
     "scripts": {
         "build": "tsc",
         "build:datatypes": "kysely-codegen",
+        "dev": "node --watch --import @swc-node/register/esm-register ./src/index.ts",
+        "start": "node --import @swc-node/register/esm-register ./src/index.ts",
         "migrate:up": "dbmate -d ./data/migrations --no-dump-schema up",
         "migrate:down": "dbmate -d ./data/migrations --no-dump-schema down",
         "migrate:down:all": "./scripts/rollbackall.sh",
@@ -44,6 +46,7 @@
         "@repo/config-typescript": "workspace:*",
         "@maroonedsoftware/johnny5": "^8.0.8",
         "@swc-node/register": "^1.12.1",
+        "@types/koa": "^3.0.3",
         "@types/luxon": "^3.7.2",
         "@types/pg": "^8.20.0",
         "@types/picomatch": "^4.0.2",
