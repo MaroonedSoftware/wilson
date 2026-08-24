@@ -201,6 +201,114 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
 });
 
 /**
+ * Card 0016: a transition that lands a card on a terminal state must reclaim its worktree, and a
+ * transition that does not must leave it alone — a parked or merely-kicked-back card still has work
+ * resuming from it. `writeTransition` is exercised the same way as above, but this time `worktrees`
+ * is a spy rather than `{}`, so the reclaim call (or its absence) is an observable result rather than
+ * something inferred from the try/catch swallowing an error either way.
+ */
+describe('StageDispatcher writeTransition reclaims the worktree on a terminal transition', () => {
+    let board: BoardRepository;
+    let boardRoot: string;
+    let events: { append: ReturnType<typeof vi.fn> };
+    let worktrees: { reclaim: ReturnType<typeof vi.fn> };
+    let dispatcher: StageDispatcher;
+
+    beforeEach(async () => {
+        const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-terminal-'));
+        boardRoot = join(base, 'board');
+        await mkdir(join(boardRoot, 'cards'), { recursive: true });
+        await exec('git', ['init', '-q', '-b', 'main'], { cwd: boardRoot });
+        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: boardRoot });
+        await exec('git', ['config', 'user.name', 'Test'], { cwd: boardRoot });
+
+        const config = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new BoardRepository(config, silentLogger as never);
+        await board.create(baseCard, 'initial');
+
+        events = { append: vi.fn(async () => {}) };
+        worktrees = { reclaim: vi.fn(async () => {}) };
+
+        dispatcher = new StageDispatcher(
+            config as BoardConfig,
+            board,
+            worktrees as unknown as WorktreeManager,
+            {} as ModelRegistry,
+            {} as StageVerifierMap,
+            {} as StageResultSchemaMap,
+            events as unknown as EventLog,
+            silentLogger as never,
+        );
+    });
+
+    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
+        (
+            dispatcher as unknown as {
+                writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string>;
+            }
+        ).writeTransition('0001', 'testing', stage, card, result);
+
+    it('reclaims the card’s worktree and records worktree.reclaimed when the target is merged', async () => {
+        const stage = makeStage({ onPass: 'merged' });
+
+        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+
+        expect(target).toBe('merged');
+        expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
+        expect(worktrees.reclaim).toHaveBeenCalledWith('0001');
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: '0001',
+                stage: 'testing',
+                type: 'worktree.reclaimed',
+                payload: { cardId: '0001', target: 'merged' },
+            }),
+        );
+    });
+
+    it('reclaims when a stage exhausts its retries and lands the card on needs-human', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+
+        expect(target).toBe('needs-human');
+        expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
+        expect(worktrees.reclaim).toHaveBeenCalledWith('0001');
+    });
+
+    it('does not reclaim when the card advances to an ordinary, non-terminal stage', async () => {
+        const stage = makeStage({ onPass: 'review' });
+
+        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+
+        expect(target).toBe('review');
+        expect(worktrees.reclaim).not.toHaveBeenCalled();
+        expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
+    });
+
+    it('does not reclaim when a kickback still has retries left, leaving the branch resumable', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
+
+        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+
+        expect(target).toBe('implementing');
+        expect(worktrees.reclaim).not.toHaveBeenCalled();
+    });
+
+    it('lets the transition stand and does not append worktree.reclaimed when reclaim itself fails', async () => {
+        worktrees.reclaim.mockRejectedValueOnce(new Error('boom: directory busy'));
+        const stage = makeStage({ onPass: 'dropped' });
+
+        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+
+        expect(target).toBe('dropped');
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.stage).toBe('dropped');
+        expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
+    });
+});
+
+/**
  * Card 0015: both adapters compute a `budgetFailure` string when a run's input tokens meet the
  * stage's cap, but that value only matters if the dispatcher actually reads it. A review of this
  * card's own implementation caught exactly that gap — `run.budgetFailure` was returned by the
