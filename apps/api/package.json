@@ -30,6 +30,7 @@
         "@maroonedsoftware/koa": "^3.0.8",
         "@maroonedsoftware/kysely": "^0.7.8",
         "@maroonedsoftware/logger": "^1.1.8",
+        "@maroonedsoftware/serverfeed": "^0.1.5",
         "@maroonedsoftware/utilities": "^1.11.5",
         "@maroonedsoftware/zod": "^0.5.5",
         "ai": "^7.0.77",

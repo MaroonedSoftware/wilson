@@ -2,6 +2,8 @@ import type { Server } from 'node:http';
 import { Settings } from 'luxon';
 import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftware/koa';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
+import { KyselyPool } from '@maroonedsoftware/kysely';
+import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { buildConfig, modules } from '../cli-bootstrap.js';
 import { routers } from '../routes/routes.setup.js';
@@ -25,7 +27,11 @@ export const setupServer = async (): Promise<Server> => {
     // Taken at boot, before anything can serve a request: read later it would report the repo's
     // current HEAD rather than the commit this process is running.
     await captureBuildHead(requireConfigString(config, 'PROJECT_CODE_ROOT'));
-    await serverBuilder.setup(config, new ConsoleLogger(), modules);
+    const logger = new ConsoleLogger();
+    const container = await serverBuilder.setup(config, logger, modules);
+    // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
+    // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
+    await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);
     serverBuilder.setupMiddleware(setupMiddleware).setupRoutes(routers as ServerKitRouterType[]);
     return await serverBuilder.start(configNumber(config, 'PORT', 13100));
 };
