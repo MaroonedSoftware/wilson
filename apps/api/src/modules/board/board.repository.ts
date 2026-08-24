@@ -1,6 +1,14 @@
 import { Injectable } from 'injectkit';
+import type { DateTime } from 'luxon';
 import type { AppendableCardEvent } from '#modules/events/event.log.js';
 import type { Card } from './card.js';
+
+/** One row of a card's version history — what `git log` on the board repo used to answer. */
+export interface CardVersionSummary {
+    id: string;
+    message: string;
+    createdAt: DateTime;
+}
 
 /**
  * The board.
@@ -29,6 +37,9 @@ export abstract class BoardRepository {
 
     /** The most recent version of this card, or undefined if it has none. */
     abstract currentVersion(id: string): Promise<string | undefined>;
+
+    /** This card's version history, newest first, capped at `limit` rows. */
+    abstract versions(id: string, limit: number): Promise<CardVersionSummary[]>;
 
     /**
      * Apply a change to one card and record it.

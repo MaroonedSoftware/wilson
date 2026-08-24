@@ -16,6 +16,7 @@ import cardNextCommand from './commands/card/next.command.js';
 import cardRunCommand from './commands/card/run.command.js';
 import cardShowCommand from './commands/card/show.command.js';
 import cardStartCommand from './commands/card/start.command.js';
+import cardVersionsCommand from './commands/card/versions.command.js';
 import runCommand from './commands/run.command.js';
 
 import { boardReady } from './checks/board.ready.js';
@@ -52,6 +53,7 @@ const app = await createCliApp({
         reg(['card', 'next'], cardNextCommand),
         reg(['card', 'run'], cardRunCommand),
         reg(['card', 'start'], cardStartCommand),
+        reg(['card', 'versions'], cardVersionsCommand),
         reg(['run'], runCommand),
     ],
     checks: [
