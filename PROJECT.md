@@ -719,14 +719,21 @@ because everything built afterward assumes it:
 Everything additive. Deferred at step 0, and now mostly built — kept because the
 reasoning is what matters, not the checklist:
 
-| Deferred                        | Human does instead             |
-| ------------------------------- | ------------------------------ |
-| planning and plan-review stages | writes the plan file by hand   |
-| testing and review stages       | runs the tests, reads the diff |
-| queue and daemon                | runs the CLI                   |
-| API and web app                 | reads the board in an editor   |
-| notifications                   | is sitting right there         |
-| multi-project, plugins, compose | one project, local node        |
+| Deferred                        | Human does instead              |
+| ------------------------------- | ------------------------------- |
+| planning and plan-review stages | writes the plan file by hand    |
+| testing and review stages       | runs the tests, reads the diff  |
+| queue and daemon                | runs the CLI                    |
+| API and web app                 | reads the board through the CLI |
+| notifications                   | is sitting right there          |
+| multi-project, plugins, compose | one project, local node         |
+
+One of those rows has since gone stale in a way worth naming, because the reasoning
+is the point. Deferring the API and web app was cheap when the board was markdown:
+the human read it in an editor and lost nothing. Moving the board into Postgres took
+that fallback away — `wilson card show` and psql are what is left — so this deferral
+became materially more expensive than it was when it was made, without anyone
+deciding to make it so. A read-only board is no longer merely additive.
 
 Hand-writing the first plans is not a compromise, it is the point. Decision 4 already
 guarantees a hand-written plan is indistinguishable from a generated one downstream,
