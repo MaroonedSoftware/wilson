@@ -2,7 +2,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { requestScope } from './tools/scope.tool.js';
@@ -129,8 +129,46 @@ export class CliStageAgent extends StageAgent {
         let stepsExhausted = false;
 
         const abortController = new AbortController();
-        const wallClock = setTimeout(() => abortController.abort(), stage.maxWallClockMs);
+
+        // Racing the read rather than signalling into it, because signalling does not work. Card
+        // 0052's engine exited mid-run; `abortController.abort()` fired at the wall clock and the
+        // stream never noticed — no `AbortError`, no return, nothing in the log. An iterator parked
+        // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
+        // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
+        // hear it, but nothing depends on it any more.
+        let stoppedBecause: 'wall-clock' | 'silent' | undefined;
+        let stop!: () => void;
+        const stopped = new Promise<typeof STOPPED>(resolve => {
+            stop = () => resolve(STOPPED);
+        });
+
+        const wallClock = setTimeout(() => {
+            stoppedBecause ??= 'wall-clock';
+            abortController.abort();
+            stop();
+        }, stage.maxWallClockMs);
         wallClock.unref();
+
+        // Reset on every sign of life. Two of them: a message off the stream, and a tool call
+        // starting — the engine goes quiet for the whole of a tool call, so without the second the
+        // window would have to cover the tool *plus* the model turnaround that follows it.
+        // Nothing to arm when the idle window is not shorter than the wall clock — the resolved
+        // default clamps to `maxWallClockMs` for a stage with a tight time budget, and a guard that
+        // can only fire at the same instant as the wall clock adds no detection, just a tie to
+        // break and a worse attribution when it wins one.
+        const idleGuards = stage.maxIdleMs < stage.maxWallClockMs;
+        let idle: NodeJS.Timeout | undefined;
+        const beat = (): void => {
+            if (!idleGuards) return;
+            clearTimeout(idle);
+            idle = setTimeout(() => {
+                stoppedBecause ??= 'silent';
+                abortController.abort();
+                stop();
+            }, stage.maxIdleMs);
+            idle.unref();
+        };
+        beat();
 
         const stream = query({
             prompt: [
@@ -159,9 +197,14 @@ export class CliStageAgent extends StageAgent {
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
-                canUseTool: createToolGuard(context, stage.worktree, () => {
-                    denied += 1;
-                }),
+                canUseTool: createToolGuard(
+                    context,
+                    stage.worktree,
+                    () => {
+                        denied += 1;
+                    },
+                    beat,
+                ),
                 env: subscriptionEnv(),
                 mcpServers: { [REPORT_SERVER]: reportServer },
                 // A backstop, not the budget. The real ceiling is enforced below and moves with the
@@ -177,7 +220,25 @@ export class CliStageAgent extends StageAgent {
         let usage: AgentRunOutput['usage'];
 
         try {
-            for await (const message of stream) {
+            const messages = stream[Symbol.asyncIterator]();
+            for (;;) {
+                const next = await Promise.race([messages.next(), stopped]);
+                // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
+                // that will never deliver, which is precisely the state being escaped.
+                if (next === STOPPED) {
+                    return {
+                        result: reported ?? (summary ? { summary } : undefined),
+                        usage,
+                        truncated: true,
+                        ...(stoppedBecause === 'silent'
+                            ? { engineFailure: engineSilent(stage.maxIdleMs) }
+                            : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
+                    };
+                }
+                if (next.done) break;
+                beat();
+                const message = next.value;
+
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                     if (text.trim()) summary = text.trim();
@@ -242,6 +303,7 @@ export class CliStageAgent extends StageAgent {
             throw err;
         } finally {
             clearTimeout(wallClock);
+            clearTimeout(idle);
             // Every exit from this method abandons the stream, including the successful one. Abort so
             // the engine is torn down explicitly rather than left to whatever cleanup breaking out of
             // a `for await` happens to trigger — that assumption is what leaves orphaned processes
@@ -268,8 +330,21 @@ export class CliStageAgent extends StageAgent {
  * `onDeny` fires for every refusal. It is the one choke point every denial passes through, which is
  * what makes refused calls cheap to exclude from the step budget.
  */
-export const createToolGuard = (context: ToolContext, writable: string, onDeny?: () => void): CanUseTool => {
+/**
+ * What the read loses to when a timer fires first.
+ *
+ * A unique object rather than a string or `undefined`, so the race result can be told apart from a
+ * legitimate stream message by identity alone.
+ */
+const STOPPED = Symbol('stopped');
+
+export const createToolGuard = (context: ToolContext, writable: string, onDeny?: () => void, onActivity?: () => void): CanUseTool => {
     return async (toolName, input): Promise<PermissionResult> => {
+        // Every tool call is a sign of life, refused or not. The engine emits nothing on the stream
+        // for the duration of a tool call, so this is the only evidence the adapter gets that a long
+        // `pnpm test` is a working stage rather than a dead one.
+        onActivity?.();
+
         const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
             await context.events.append({
                 project: context.project,

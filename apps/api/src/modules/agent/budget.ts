@@ -51,5 +51,16 @@ export const wallClockExceeded = (capMs: number): string => `wall-clock budget e
  * refused fifty times has a different problem from one that simply had too much to do, and the
  * operator cannot tell them apart from "used all its steps" alone.
  */
+/**
+ * A run abandoned because the engine stopped producing anything.
+ *
+ * Deliberately not a budget failure. A budget failure means the stage asked for more than it was
+ * allowed; this means the engine died or wedged, which is an infrastructure fault the operator
+ * should read as such. Reporting one as the other is the same misattribution that made a card burn
+ * three retry cycles against an exhausted credit balance before anyone could see why.
+ */
+export const engineSilent = (capMs: number): string =>
+    `the engine produced nothing for ${capMs}ms and was abandoned — it exited or wedged rather than running out of budget`;
+
 export const stepsExceeded = (cap: number, denied: number): string =>
     denied > 0 ? `step budget exceeded: ${cap} steps, with ${denied} refused calls not charged against it` : `step budget exceeded: ${cap} steps`;

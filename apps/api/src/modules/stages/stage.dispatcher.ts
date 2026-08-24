@@ -524,7 +524,7 @@ export class StageDispatcher {
         // Only when no more specific cause is known: a wall-clock or token-budget cutoff can land
         // with `truncated: true` well before the step count is exhausted, and naming the step cap
         // there would be false — `run.budgetFailure`, pushed below, already names the real cause.
-        if (run.truncated && !run.budgetFailure) {
+        if (run.truncated && !run.budgetFailure && !run.engineFailure) {
             failures.unshift(
                 `the stage used all ${stage.maxSteps} of its steps and was cut off mid-run — its work is partial whatever the diff shows`,
             );
@@ -532,6 +532,13 @@ export class StageDispatcher {
 
         if (run.budgetFailure) {
             failures.unshift(run.budgetFailure);
+        }
+
+        // Ahead of everything else: when the engine stopped responding, nothing downstream of it —
+        // an empty diff, a missing result, a build that never ran — describes a decision the stage
+        // made. Leading with the cause stops the operator reading the symptoms as the problem.
+        if (run.engineFailure) {
+            failures.unshift(run.engineFailure);
         }
 
         return {
