@@ -19,6 +19,8 @@ export interface AgentRunOutput {
     usage?: { inputTokens?: number; outputTokens?: number };
     /** True when the loop was cut off rather than ending because the agent finished. */
     truncated: boolean;
+    /** Set when the run's input tokens met the stage's `maxInputTokens`, naming the cap and the actual figure. */
+    budgetFailure?: string;
 }
 
 /**

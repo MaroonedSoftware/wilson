@@ -53,10 +53,7 @@ export class ApiStageAgent extends StageAgent {
             });
 
             const inputTokens = run.usage?.inputTokens;
-            // Not typed as a literal `AgentRunOutput` so `budgetFailure` can ride along without an
-            // excess-property error — `stage.agent.ts` is outside this card's scope, so the field
-            // cannot yet be declared on `AgentRunOutput` itself for the dispatcher to read.
-            const output = {
+            const output: AgentRunOutput = {
                 result: reportedResult(run.steps),
                 usage: { inputTokens, outputTokens: run.usage?.outputTokens },
                 truncated: run.steps.length >= stage.maxSteps,

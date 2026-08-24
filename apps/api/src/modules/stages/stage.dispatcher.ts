@@ -335,6 +335,10 @@ export class StageDispatcher {
             );
         }
 
+        if (run.budgetFailure) {
+            failures.unshift(run.budgetFailure);
+        }
+
         return {
             passed: failures.length === 0,
             failures,
