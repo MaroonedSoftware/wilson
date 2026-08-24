@@ -50,6 +50,10 @@ describe('routers', () => {
         expect(HealthRouter.match('/api/health', 'GET').route).toBe(true);
     });
 
+    it('routes GET /api/feed to the feed router', () => {
+        expect(FeedRouter.match('/api/feed', 'GET').route).toBe(true);
+    });
+
     it('does not route a write method to any board path — the board surface is read-only', () => {
         expect(BoardRouter.match('/api/cards', 'POST').route).toBe(false);
         expect(BoardRouter.match('/api/cards/0001', 'DELETE').route).toBe(false);
