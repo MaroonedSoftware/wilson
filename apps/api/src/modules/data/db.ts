@@ -22,6 +22,53 @@ export interface CardEvents {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+export interface Cards {
+    project: string;
+    id: string;
+    title: string;
+    stage: string;
+    branch: string | null;
+    /** Current plan text; `CardVersions.body` holds the snapshots. */
+    body: string;
+    /** Kickback counters keyed by the stage that kicked back. */
+    retries: unknown;
+    /** External source refs, e.g. `{ linear: 'ENG-123' }`. */
+    external: unknown;
+    sourceClosed: boolean | null;
+    /** Orders the parking lot; null elsewhere. */
+    position: number | null;
+    /** The version downstream stages read. Null until the plan is approved. */
+    pinnedVersionId: ColumnType<string | null, string | null | undefined, string | null>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+    updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string | undefined>;
+}
+
+/**
+ * Append-only card history — the replacement for `git log` on the board repo.
+ *
+ * A version snapshots the whole card, frontmatter and body, because `readAt` used to be
+ * `git show <sha>:<path>` and the dispatcher reads frontmatter from the pinned card.
+ */
+export interface CardVersions {
+    id: Generated<string>;
+    project: string;
+    cardId: string;
+    frontmatter: unknown;
+    body: string;
+    /** What the git commit message used to be. */
+    message: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+export interface CardDeps {
+    project: string;
+    cardId: string;
+    dependsOnId: string;
+}
+
 export interface DB {
+    'runner.cards': Cards;
+    'runner.cardVersions': CardVersions;
+    'runner.cardDeps': CardDeps;
     'runner.cardEvents': CardEvents;
 }

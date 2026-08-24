@@ -7,14 +7,16 @@
             "outputs": ["dist/**"]
         },
         "lint": {
-            "dependsOn": ["^lint"]
+            "dependsOn": ["^lint"],
+            "env": ["VISUAL", "EDITOR"]
         },
         "dev": {
             "cache": false,
             "persistent": true
         },
         "test": {
-            "dependsOn": ["^build"]
+            "dependsOn": ["^build"],
+            "env": ["TEST_DATABASE_HOST", "TEST_DATABASE_PORT", "TEST_DATABASE_USER", "TEST_DATABASE_PASSWORD", "TEST_DATABASE_NAME"]
         },
         "build:datatypes": {
             "dependsOn": ["migrate:up"],

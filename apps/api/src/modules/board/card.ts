@@ -31,11 +31,11 @@ export interface CardFrontmatter {
     /** Kickback counters, keyed by the stage that kicked back. */
     retries: Record<string, number>;
     /**
-     * The board-repo commit of this card at plan approval. Downstream stages read the card at this
-     * sha, not at HEAD, so an edit made while a stage is running cannot retroactively change the
+     * The card version approved at plan approval. Downstream stages read the card at this version,
+     * not the newest one, so an edit made while a stage is running cannot retroactively change the
      * contract the running agent is working to.
      */
-    planSha?: string;
+    planVersionId?: string;
     /** External source refs, e.g. `{ linear: 'ENG-123' }`. Durable here so it survives losing Postgres. */
     external?: Record<string, string>;
     /** Set by a card source when its ticket is closed upstream. Never moves the card by itself. */
@@ -49,6 +49,39 @@ export interface Card {
     /** The raw body, preserved verbatim so a round-trip through the parser changes nothing. */
     body: string;
 }
+
+/**
+ * Split a card body on the plan-contract headings.
+ *
+ * Only the known headings start a section; any other `##` is left inside whichever section it falls
+ * in, so a plan is free to use sub-structure without confusing the parser. Body-only and pure, so
+ * it belongs beside `filesInScope` rather than in the frontmatter parser — a card reconstructed
+ * from a stored body needs it just as much as one read from a file.
+ */
+export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> => {
+    const sections: Partial<Record<PlanSection, string>> = {};
+    const lines = body.split('\n');
+    let current: PlanSection | undefined;
+    let buffer: string[] = [];
+
+    const flush = () => {
+        if (current) sections[current] = buffer.join('\n').trim();
+        buffer = [];
+    };
+
+    for (const line of lines) {
+        const heading = /^##\s+(.+?)\s*$/.exec(line);
+        const matched = heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
+        if (matched) {
+            flush();
+            current = matched;
+            continue;
+        }
+        if (current) buffer.push(line);
+    }
+    flush();
+    return sections;
+};
 
 /**
  * The globs a stage may write to, read from the `Files in scope` section.

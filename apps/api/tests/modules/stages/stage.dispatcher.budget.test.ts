@@ -1,11 +1,11 @@
-import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
+import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { StageVerifierMap } from '#modules/stages/stage.verifier.js';
@@ -13,9 +13,20 @@ import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import type { Kysely } from 'kysely';
+import type { DB } from '#modules/data/db.js';
 
-const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+
+// A real board in the test database; isolation is a unique project per set-up. `boardRoot` survives
+// because stage config is still a file — `loadStages` reads `config/stages.yaml` from there.
+let db: Kysely<DB>;
+beforeAll(() => {
+    db = testDb();
+});
+afterAll(async () => {
+    await db.destroy();
+});
 
 /**
  * A worktree layer that fails loudly the moment anything touches it. The over-budget path must
@@ -81,7 +92,7 @@ stages:
 `;
 
 /**
- * Sets up a real, git-backed board (as `stage.dispatcher.test.ts` already does for
+ * Sets up a real board in the test database (as `stage.dispatcher.test.ts` already does for
  * `writeTransition`) with the given `stages.yaml`, and a `StageDispatcher` wired to an
  * `EventLog.totalInputTokens` stubbed to `spend` and a worktree layer that throws on first touch.
  */
@@ -91,15 +102,10 @@ const setUp = async (stagesYaml: string, spend: number) => {
     await mkdir(join(boardRoot, 'cards'), { recursive: true });
     await mkdir(join(boardRoot, 'config'), { recursive: true });
     await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
-    await exec('git', ['init', '-q', '-b', 'main'], { cwd: boardRoot });
-    await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: boardRoot });
-    await exec('git', ['config', 'user.name', 'Test'], { cwd: boardRoot });
-
-    const config = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-    const board = new BoardRepository(config, silentLogger as never);
-    await board.create(baseCard, 'initial');
-
+    const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
     const events = { append: vi.fn(async () => {}), totalInputTokens: vi.fn(async () => spend) };
+    const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+    await board.create(baseCard, 'initial');
     const worktrees = untouchableWorktrees();
 
     const dispatcher = new StageDispatcher(
@@ -113,7 +119,7 @@ const setUp = async (stagesYaml: string, spend: number) => {
         silentLogger as never,
     );
 
-    return { dispatcher, board, boardRoot, events, worktrees };
+    return { dispatcher, board, boardRoot, events, worktrees, project: config.project };
 };
 
 /**
@@ -122,7 +128,7 @@ const setUp = async (stagesYaml: string, spend: number) => {
  */
 describe('StageDispatcher.run refuses an over-budget card before touching the worktree', () => {
     it('refuses to dispatch once spend has reached the cap, and touches no worktree method at all', async () => {
-        const { dispatcher, events, worktrees } = await setUp(stagesYamlWithCap, 1_000_000);
+        const { dispatcher, events, worktrees, project } = await setUp(stagesYamlWithCap, 1_000_000);
 
         const result = await dispatcher.run('0001', 'testing');
 
@@ -136,7 +142,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(worktrees.create).not.toHaveBeenCalled();
         expect(worktrees.resume).not.toHaveBeenCalled();
 
-        expect(events.totalInputTokens).toHaveBeenCalledWith('test', '0001');
+        expect(events.totalInputTokens).toHaveBeenCalledWith(project, '0001');
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({
                 cardId: '0001',
@@ -157,7 +163,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
     });
 
     it('writes the transition to needs-human through the board, exactly as an exhausted kickback would', async () => {
-        const { dispatcher, board, boardRoot } = await setUp(stagesYamlWithCap, 5_000_000);
+        const { dispatcher, board } = await setUp(stagesYamlWithCap, 5_000_000);
 
         await dispatcher.run('0001', 'testing');
 
@@ -166,8 +172,9 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         // Retries are for work that came back wrong; this card never ran the stage at all.
         expect(stored.frontmatter.retries).toEqual({});
 
-        const { stdout } = await exec('git', ['log', '-1', '--pretty=%s'], { cwd: boardRoot });
-        expect(stdout.trim()).toBe('0001: testing -> needs-human');
+        const version = await board.currentVersion('0001');
+        const row = await db.selectFrom('runner.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        expect(row.message).toBe('0001: testing -> needs-human');
     });
 
     it('reclaims whatever worktree an earlier attempt left behind, since needs-human is terminal', async () => {
@@ -190,10 +197,10 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
     });
 
     it('does not refuse the card, and proceeds toward the worktree, when spend sits below the cap', async () => {
-        const { dispatcher, events } = await setUp(stagesYamlWithCap, 500);
+        const { dispatcher, events, project } = await setUp(stagesYamlWithCap, 500);
 
         await expect(dispatcher.run('0001', 'testing')).rejects.toThrow('MARKER: worktree touched');
-        expect(events.totalInputTokens).toHaveBeenCalledWith('test', '0001');
+        expect(events.totalInputTokens).toHaveBeenCalledWith(project, '0001');
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'card.over-budget' }));
     });
 });
