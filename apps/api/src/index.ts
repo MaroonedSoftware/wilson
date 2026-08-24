@@ -1,9 +1,11 @@
 import 'reflect-metadata';
+import { setupServer } from './server/setup.server.js';
 
 /**
- * Step 0 has no server: the CLI is the only entrypoint (PROJECT.md, Bootstrapping).
+ * The HTTP server entrypoint.
  *
- * This file exists so the app has the shape it will need at step 6, when `setupServer()` joins the
- * same modules — and so `reflect-metadata` has one obvious home.
+ * `reflect-metadata` has its one obvious home here, imported before anything that uses
+ * decorators. `setupServer()` wires the same modules the CLI boots (`cli-bootstrap.ts`), plus the
+ * HTTP layer on top.
  */
-throw new Error('The HTTP server lands at step 6. Until then, drive the runner through the CLI: `pnpm wizard card run <id>`.');
+await setupServer();
