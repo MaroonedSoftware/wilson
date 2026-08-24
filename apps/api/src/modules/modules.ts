@@ -1,6 +1,7 @@
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
 import { BoardModule } from './board/board.module.js';
+import { HealthModule } from './health/health.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
@@ -16,4 +17,13 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * to start (after Stages, what `CardStageJob` dispatches into) and first to shut down (before
  * anything it might still be running against tears down underneath it).
  */
-export const modules: ServerKitModule[] = [DataModule, EventsModule, BoardModule, WorktreeModule, AgentModule, StagesModule, JobsModule];
+export const modules: ServerKitModule[] = [
+    DataModule,
+    EventsModule,
+    BoardModule,
+    HealthModule,
+    WorktreeModule,
+    AgentModule,
+    StagesModule,
+    JobsModule,
+];
