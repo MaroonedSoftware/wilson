@@ -116,9 +116,12 @@ export class CliStageAgent extends StageAgent {
         });
 
         // The engine has no direct "abort after this signal" option, so the timeout is wired through
-        // an AbortController it does accept.
+        // an AbortController it does accept. A plain timer rather than `AbortSignal.timeout` because
+        // this one has to be cancellable: a stage that finishes in ten seconds should not leave a
+        // thirty-minute timer holding its controller alive. Unref'd so it never keeps the process up.
         const abortController = new AbortController();
-        AbortSignal.timeout(stage.maxWallClockMs).addEventListener('abort', () => abortController.abort());
+        const wallClock = setTimeout(() => abortController.abort(), stage.maxWallClockMs);
+        wallClock.unref();
 
         const stream = query({
             prompt: [
@@ -181,6 +184,14 @@ export class CliStageAgent extends StageAgent {
                         };
                         return output;
                     }
+                    // The result *is* the completion signal, so act on it rather than iterating on in
+                    // the hope the stream closes by itself. Claude Code under `-p
+                    // --output-format=stream-json` does not exit when it finishes — it stays alive
+                    // waiting for more input — and a supervisor that waits for the process instead of
+                    // reading the result it already has waits forever. Reported at
+                    // BloopAI/vibe-kanban#2495, where sessions sat in `running` indefinitely and idle
+                    // engine processes accumulated at 200MB each.
+                    return { result: reported, usage, truncated: false, budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens) };
                 }
             }
         } catch (err) {
@@ -194,6 +205,13 @@ export class CliStageAgent extends StageAgent {
                 };
             }
             throw err;
+        } finally {
+            clearTimeout(wallClock);
+            // Every exit from this method abandons the stream, including the successful one. Abort so
+            // the engine is torn down explicitly rather than left to whatever cleanup breaking out of
+            // a `for await` happens to trigger — that assumption is what leaves orphaned processes
+            // behind. Inert when the run already ended on its own.
+            abortController.abort();
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher

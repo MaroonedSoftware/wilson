@@ -614,7 +614,7 @@ statically from it, and Postgres.
 Steps 1–4 and the queue are built and merged; what follows them is not. Progress is
 tracked on the board, not here — this list survives as the intended shape.
 
-**Built:** the walking skeleton, board format, runner core, human gates, the
+**Built:** the walking skeleton, board schema, runner core, human gates, the
 implementing, testing and review stages with their verifiers, transitions written by
 the runner, the pg-boss queue with stage chaining, and the daemon that drains it. A
 card is enqueued once and runs to the `ready` gate unattended.
@@ -634,7 +634,9 @@ card is enqueued once and runs to the `ready` gate unattended.
 3. **The poller**, so cards start themselves rather than needing `card start`. It needs
    to know what is already in flight before it can enqueue safely. Deliberately after
    the safety rails: autonomy last.
-4. Multi-project registry, filesystem reconciliation, port allocation, dry-run toggle.
+4. Multi-project registry, port allocation, dry-run toggle. Filesystem reconciliation
+   was on this list and is not coming: with the board in Postgres there is no file to
+   reconcile against.
 5. Planning and `plan-review` stages; the interactive planning surface.
 6. ContractKit contract, the API, and the web board.
 7. Plugins: card sources and context providers.
