@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository, JobBroker, PgBoss } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, JobBroker, PgBoss, loadStages, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
 
 /**
  * Enqueue a card's current stage on the job queue.
@@ -14,11 +14,23 @@ const command: CommandModule = {
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
     run: requireContainer(async (_opts, ctx, args) => {
         const cardId = String(args[0]);
+        const boardConfig = ctx.container.get(BoardConfig);
         const board = ctx.container.get(BoardRepository);
         const broker = ctx.container.get(JobBroker);
 
         const card = await board.read(cardId);
         const stageName = card.frontmatter.stage;
+
+        // Refuse before enqueuing rather than let pg-boss dispatch a job nothing can run — a card
+        // sitting in `needs-human` or `manual` produced exactly that job, thrown on and retried by
+        // pg-boss until it dead-lettered, with no possible outcome.
+        const stages = await loadStages(boardConfig.boardRoot);
+        const notDispatchable = whyNotDispatchable(stageName, stages);
+        if (notDispatchable) {
+            ctx.logger.error(`cannot enqueue ${cardId}: ${notDispatchable.reason}`);
+            ctx.logger.error(`move it to a dispatchable stage first: wilson card move ${cardId} <stage>`);
+            return 1;
+        }
 
         // pg-boss refuses to send on an unopened connection, and nothing has opened one: johnny5's
         // CLI bootstrap runs every module's `setup` but never its `start`, so JobsModule.start()

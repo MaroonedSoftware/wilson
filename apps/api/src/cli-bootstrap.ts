@@ -30,6 +30,7 @@ export { BoardConfig } from '#modules/board/board.config.js';
 export { EventLog } from '#modules/events/event.log.js';
 export { timeInCurrentStage } from '#modules/events/time.in.stage.js';
 export { loadStages, findStage, validTargets, NON_STAGE_STATES } from '#modules/stages/stage.config.js';
+export { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 export { filesInScope } from '#modules/board/card.js';
 export type { Card } from '#modules/board/card.js';
 export { nextCard } from '#modules/board/next.card.js';
