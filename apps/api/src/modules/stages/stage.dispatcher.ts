@@ -23,6 +23,39 @@ import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './s
 import { StageVerifierMap } from './stage.verifier.js';
 import { isTerminal } from './terminal.js';
 
+/**
+ * Which of `assertDispatchable`'s three conditions fired, carried on the error it throws.
+ *
+ * All three are deterministic against a fixed card — retrying changes nothing — but they are not
+ * all the same kind of "never". Wrong stage and empty scope require a human to change the card
+ * before any attempt can succeed. An unsatisfied dependency is "not now", not "never": the
+ * dependency landing makes the card dispatchable again with no change to the card itself.
+ * `CardStageJob` branches on this discriminant, not the message text, to route each case correctly.
+ */
+export type NotDispatchableReason =
+    | { readonly kind: 'wrong-stage' }
+    | { readonly kind: 'empty-scope' }
+    | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] };
+
+/**
+ * Thrown by `assertDispatchable` in place of a bare `Error`.
+ *
+ * None of its three conditions is a provider hiccup or a dropped connection, so retrying is a
+ * slower route to the same answer. `isPermanentFailure`'s message-text matching exists because the
+ * SDK and the provider give it nothing better; that reasoning does not extend to an error this
+ * codebase throws itself, so this carries a typed `reason` instead of adding a pattern. The message
+ * text is unchanged from the errors this replaces — it is what an operator reads.
+ */
+export class NotDispatchableError extends Error {
+    constructor(
+        public readonly reason: NotDispatchableReason,
+        message: string,
+    ) {
+        super(message);
+        this.name = 'NotDispatchableError';
+    }
+}
+
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
     const summary = (result as { summary?: string } | undefined)?.summary;
@@ -393,16 +426,25 @@ export class StageDispatcher {
 
     private assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void {
         if (card.frontmatter.stage !== stage.name) {
-            throw new Error(`card ${card.frontmatter.id} is in stage "${card.frontmatter.stage}", not "${stage.name}"`);
+            throw new NotDispatchableError(
+                { kind: 'wrong-stage' },
+                `card ${card.frontmatter.id} is in stage "${card.frontmatter.stage}", not "${stage.name}"`,
+            );
         }
         // A hard block: file-based coordination cannot carry an in-flight API contract between two
         // running agents (PROJECT.md, dependency blocking).
         const outstanding = unsatisfiedDependencies(card, cards);
         if (outstanding.length > 0) {
-            throw new Error(`card ${card.frontmatter.id} is waiting on ${outstanding.join(', ')}`);
+            throw new NotDispatchableError(
+                { kind: 'unsatisfied-dependency', outstanding },
+                `card ${card.frontmatter.id} is waiting on ${outstanding.join(', ')}`,
+            );
         }
         if (filesInScope(card).length === 0) {
-            throw new Error(`card ${card.frontmatter.id} has an empty "Files in scope"; nothing would be writable`);
+            throw new NotDispatchableError(
+                { kind: 'empty-scope' },
+                `card ${card.frontmatter.id} has an empty "Files in scope"; nothing would be writable`,
+            );
         }
     }
 

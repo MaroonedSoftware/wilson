@@ -28,9 +28,22 @@ export const CARD_STAGE_EXPIRES_IN = Duration.fromMillis(MAX_STAGE_WALL_CLOCK_MS
  * Retry policy for `card.stage`: a couple of quick retries for a transient failure (a dropped
  * connection, a flaky provider call), then dead-letter rather than retry forever — a stage that
  * keeps failing needs a human, not an infinite queue.
+ *
+ * `retryLimit` is 3, not 2: pg-boss's own expiry sweep (`failJobsByTimeout`, and the identical path
+ * a job stuck `active` past `expiresIn` takes when its worker is killed mid-run — "pg-boss shut down
+ * while active") re-inserts through the same `retry_count < retry_limit` check as a thrown error, so
+ * an expiry or an orphaned-then-redelivered job spends this budget exactly like an ordinary failure
+ * (pg-boss `plans.js`, `failJobsBody`; `manager.js`, `reinsertFailedJobs`). That is the right thing
+ * for it to do — a worker dying mid-run is the "dropped connection" case this policy is for — but it
+ * means one slot can be spent before the stage's own logic ever runs again. Card 0035's real attempt
+ * had none left when this happened, because its first two attempts were deterministic refusals that
+ * should never have spent a retry at all; that is fixed by `assertDispatchable` throwing
+ * `NotDispatchableError` and `CardStageJob` routing it to `poison`/`dispatch.deferred` instead of
+ * throwing for pg-boss to retry. The extra retry here is headroom for the case that fix does not
+ * touch: an expiry or redelivery consuming a slot before a stage gets to run its own logic at all.
  */
 export const CARD_STAGE_POLICY: JobQueuePolicy = {
-    retryLimit: 2,
+    retryLimit: 3,
     retryDelay: Duration.fromObject({ seconds: 30 }),
     retryBackoff: true,
     expiresIn: CARD_STAGE_EXPIRES_IN,
