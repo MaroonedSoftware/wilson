@@ -19,9 +19,7 @@ export const queueReachable: Check = {
 
         try {
             await client.connect();
-            const result = await client.query<{ exists: number }>(
-                "select 1 as exists from information_schema.schemata where schema_name = 'pgboss'",
-            );
+            const result = await client.query<{ exists: number }>("select 1 as exists from information_schema.schemata where schema_name = 'pgboss'");
             if (result.rows.length > 0) {
                 return { ok: true, message: 'queue is installed' };
             }

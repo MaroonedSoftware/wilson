@@ -16,6 +16,7 @@ import cardStartCommand from './commands/card/start.command.js';
 import runCommand from './commands/run.command.js';
 
 import { boardRepoReady } from './checks/board.repo.js';
+import { daemonCurrent } from './checks/daemon.current.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
 import { providerKeySet } from './checks/provider.key.js';
@@ -56,6 +57,7 @@ const app = await createCliApp({
         providerKeySet,
         codeRepoReady,
         boardRepoReady,
+        daemonCurrent,
     ],
 });
 

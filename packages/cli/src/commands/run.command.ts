@@ -13,7 +13,7 @@ import { BoardConfig, JobRunner } from '@wilson/api/cli-bootstrap';
 const command: CommandModule = {
     description:
         "Run the job daemon: drains jobs already on the queue and blocks until stopped. Doesn't enqueue " +
-        "anything itself — use `wilson card start <id>` to feed it.",
+        'anything itself — use `wilson card start <id>` to feed it.',
     run: requireContainer(async (_opts, ctx) => {
         const runner = ctx.container.get(JobRunner);
         const board = ctx.container.get(BoardConfig);
@@ -22,7 +22,7 @@ const command: CommandModule = {
         ctx.logger.info(`daemon up — draining jobs for ${board.project}`);
 
         let stopping = false;
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
             const onSignal = () => {
                 if (stopping) {
                     ctx.logger.info('shutdown already in progress — exiting now');
