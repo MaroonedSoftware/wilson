@@ -22,6 +22,9 @@
             "dependsOn": ["migrate:up"],
             "cache": false
         },
+        "codegen": {
+            "cache": false
+        },
         "migrate:up": {
             "cache": false
         },
