@@ -3,7 +3,7 @@ import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
 import { BoardConfig } from './board.config.js';
-import { BoardRepository } from './board.repository.js';
+import { BoardRepository, type CardVersionSummary } from './board.repository.js';
 import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
 
 /** Either the pool or an open transaction; every read and write takes one so they can be composed. */
@@ -85,6 +85,18 @@ export class PostgresBoardRepository extends BoardRepository {
             .limit(1)
             .executeTakeFirst();
         return row?.id;
+    }
+
+    async versions(id: string, limit: number): Promise<CardVersionSummary[]> {
+        const rows = await this.db
+            .selectFrom('runner.cardVersions')
+            .select(['id', 'message', 'createdAt'])
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', id)
+            .orderBy('id', 'desc')
+            .limit(limit)
+            .execute();
+        return rows.map(row => ({ id: row.id, message: row.message, createdAt: row.createdAt }));
     }
 
     async write(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>): Promise<string> {
