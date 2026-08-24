@@ -4,6 +4,7 @@ import { ServerKitModule } from '@maroonedsoftware/koa';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { StageDispatcher } from './stage.dispatcher.js';
+import { StagesService } from './stages.service.js';
 import { ImplementingResultSchema, ReviewResultSchema, StageResultSchemaMap } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { TestingVerifier } from './testing.verifier.js';
@@ -35,5 +36,6 @@ export const StagesModule: ServerKitModule = {
             })
             .asSingleton();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
+        registry.register(StagesService).useClass(StagesService).asTransient();
     },
 };

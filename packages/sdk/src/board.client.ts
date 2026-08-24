@@ -1,4 +1,4 @@
-import type { CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from './types/board.js';
+import type { BoardColumns, CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from './types/board.js';
 import type { SdkFetch } from './sdk-options.js';
 import { parseJson, buildQueryString } from './sdk-options.js';
 
@@ -36,5 +36,11 @@ export class BoardClient {
             method: 'GET',
         });
         return await parseJson<CardVersion[]>(result);
+    }
+
+    /** @name List board columns */
+    async listBoardColumns(): Promise<BoardColumns> {
+        const result = await this.fetch(`/api/stages`, { method: 'GET' });
+        return await parseJson<BoardColumns>(result);
     }
 }

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { ServerKitRouter } from '@maroonedsoftware/koa';
 import { BoardService } from '#modules/board/board.service.js';
-import { CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from '../generated/board.js';
+import { StagesService } from '#modules/stages/stages.service.js';
+import { BoardColumns, CardDetail, CardEvent, CardSummary, CardVersion, ListQuery } from '../generated/board.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -10,7 +11,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const BoardRouter = ServerKitRouter();
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L45)
+ * from [board.ck](file://./../../data/contracts/board.ck#L54)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards', async ctx => {
@@ -23,7 +24,7 @@ BoardRouter.get('/api/cards', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L60)
+ * from [board.ck](file://./../../data/contracts/board.ck#L69)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id', async ctx => {
@@ -43,7 +44,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L76)
+ * from [board.ck](file://./../../data/contracts/board.ck#L85)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/events', async ctx => {
@@ -65,7 +66,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L92)
+ * from [board.ck](file://./../../data/contracts/board.ck#L101)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/versions', async ctx => {
@@ -80,6 +81,19 @@ BoardRouter.get('/api/cards/:id/versions', async ctx => {
 
     const service = ctx.container.get(BoardService);
     const result: CardVersion[] = await service.versions(id, query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L114)
+ * anonymous access, no security required
+ */
+BoardRouter.get('/api/stages', async ctx => {
+    const service = ctx.container.get(StagesService);
+    const result: BoardColumns = await service.columns();
 
     ctx.status = 200;
     ctx.type = 'application/json';

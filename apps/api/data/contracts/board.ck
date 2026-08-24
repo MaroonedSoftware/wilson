@@ -1,8 +1,17 @@
 options {
     services: {
         BoardService: "#modules/board/board.service.js"
+        StagesService: "#modules/stages/stages.service.js"
     }
     security: none
+}
+
+# The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
+# read — and a board that hard-codes its columns lies the first time a stage is added, which is
+# cheap to do precisely because stages are config.
+contract BoardColumns: {
+    stages: array(string)      # configured stages, in the order they run
+    nonStages: array(string)   # parking-lot and the terminal states
 }
 
 # No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
@@ -96,6 +105,18 @@ operation /api/cards/{id}/versions: {
         response: {
             200: {
                 application/json: array(CardVersion)
+            }
+        }
+    }
+}
+
+operation /api/stages: {
+    get: {
+        name: List board columns
+        service: StagesService.columns
+        response: {
+            200: {
+                application/json: BoardColumns
             }
         }
     }
