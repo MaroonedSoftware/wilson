@@ -15,7 +15,8 @@ const command: CommandModule = {
         for (const card of cards) {
             const outstanding = unsatisfiedDependencies(card, cards);
             const blocked = outstanding.length > 0 ? ` (blocked on ${outstanding.join(', ')})` : '';
-            ctx.logger.info(`${card.frontmatter.id}  ${card.frontmatter.stage.padEnd(width)}  ${card.frontmatter.title}${blocked}`);
+            const flag = card.frontmatter.needsHuman ? ' [needs human]' : '';
+            ctx.logger.info(`${card.frontmatter.id}  ${card.frontmatter.stage.padEnd(width)}  ${card.frontmatter.title}${blocked}${flag}`);
         }
         return 0;
     }),

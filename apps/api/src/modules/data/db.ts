@@ -35,6 +35,8 @@ export interface Cards {
     /** External source refs, e.g. `{ linear: 'ENG-123' }`. */
     external: unknown;
     sourceClosed: boolean | null;
+    needsHuman: boolean;
+    needsHumanReason: string | null;
     /** Orders the parking lot; null elsewhere. */
     position: number | null;
     /** The version downstream stages read. Null until the plan is approved. */

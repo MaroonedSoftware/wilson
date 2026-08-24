@@ -128,6 +128,8 @@ export class PostgresBoardRepository extends BoardRepository {
                     retries: JSON.stringify(fm.retries ?? {}),
                     external: fm.external ? JSON.stringify(fm.external) : null,
                     sourceClosed: fm.sourceClosed ?? null,
+                    needsHuman: fm.needsHuman ?? false,
+                    needsHumanReason: fm.needsHumanReason ?? null,
                 })
                 .execute();
             await this.syncDeps(trx, fm.id, [], fm.dependsOn);
@@ -188,6 +190,8 @@ export class PostgresBoardRepository extends BoardRepository {
                 retries: JSON.stringify(fm.retries ?? {}),
                 external: fm.external ? JSON.stringify(fm.external) : null,
                 sourceClosed: fm.sourceClosed ?? null,
+                needsHuman: fm.needsHuman ?? false,
+                needsHumanReason: fm.needsHumanReason ?? null,
                 pinnedVersionId: fm.planVersionId ?? null,
                 updatedAt: new Date().toISOString(),
             })
@@ -257,6 +261,8 @@ const toCard = (
         retries: unknown;
         external: unknown;
         sourceClosed: boolean | null;
+        needsHuman: boolean;
+        needsHumanReason: string | null;
         pinnedVersionId: string | null;
     },
     dependsOn: string[],
@@ -271,6 +277,8 @@ const toCard = (
         planVersionId: row.pinnedVersionId ?? undefined,
         external: (row.external as Record<string, string> | null) ?? undefined,
         sourceClosed: row.sourceClosed ?? undefined,
+        needsHuman: row.needsHuman,
+        needsHumanReason: row.needsHumanReason ?? undefined,
     };
     return { frontmatter, sections: sectionsOf(row.body), body: row.body };
 };

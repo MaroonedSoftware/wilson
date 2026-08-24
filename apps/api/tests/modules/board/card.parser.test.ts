@@ -54,6 +54,28 @@ describe('parseCard', () => {
         expect(card.frontmatter.retries).toEqual({});
     });
 
+    it('reads needsHuman and its reason when present', () => {
+        const card = parseCard(
+            '---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: true\nneedsHumanReason: waiting on a design decision\n---\n\n## Goal\n\nx\n',
+        );
+        expect(card.frontmatter.needsHuman).toBe(true);
+        expect(card.frontmatter.needsHumanReason).toBe('waiting on a design decision');
+    });
+
+    it('leaves needsHuman and its reason undefined when the card has neither, rather than defaulting them', () => {
+        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n');
+        expect(card.frontmatter.needsHuman).toBeUndefined();
+        expect(card.frontmatter.needsHumanReason).toBeUndefined();
+    });
+
+    it('ignores needsHuman and its reason when they are the wrong type, rather than trusting them', () => {
+        // Same idiom as sourceClosed: a malformed value becomes undefined, not a thrown error and
+        // not a coerced true/false — a card the runner cannot trust should not silently route.
+        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: "yes"\nneedsHumanReason: 42\n---\n\n## Goal\n\nx\n');
+        expect(card.frontmatter.needsHuman).toBeUndefined();
+        expect(card.frontmatter.needsHumanReason).toBeUndefined();
+    });
+
     it.each([
         ['no frontmatter', '## Goal\n\nx\n'],
         ['a missing stage', '---\nid: "1"\ntitle: t\n---\n\n## Goal\n'],
@@ -96,5 +118,24 @@ describe('serializeCard', () => {
         const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n');
         expect(serializeCard(card)).not.toContain('planSha');
         expect(serializeCard(card)).not.toContain('branch');
+        expect(serializeCard(card)).not.toContain('needsHuman');
+    });
+
+    it('keeps a card with no flag deep-equal after a round trip, with no needsHuman key written', () => {
+        const card = parseCard(CARD);
+        const serialized = serializeCard(card);
+        expect(serialized).not.toContain('needsHuman');
+        expect(parseCard(serialized).frontmatter).toEqual(card.frontmatter);
+    });
+
+    it('round-trips needsHuman and its reason', () => {
+        const raw = '---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: true\nneedsHumanReason: blocked on legal\n---\n\n## Goal\n\nx\n';
+        const card = parseCard(raw);
+
+        const reparsed = parseCard(serializeCard(card));
+
+        expect(reparsed.frontmatter).toEqual(card.frontmatter);
+        expect(reparsed.frontmatter.needsHuman).toBe(true);
+        expect(reparsed.frontmatter.needsHumanReason).toBe('blocked on legal');
     });
 });

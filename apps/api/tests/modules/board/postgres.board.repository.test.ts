@@ -125,6 +125,36 @@ describe('PostgresBoardRepository', () => {
         expect(await board.currentVersion('0001')).toBe(written);
     });
 
+    it('writes needsHuman and its reason through create, and reads both back intact', async () => {
+        await board.create(card('0001', { needsHuman: true, needsHumanReason: 'waiting on the customer' }), 'create');
+
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.needsHuman).toBe(true);
+        expect(stored.frontmatter.needsHumanReason).toBe('waiting on the customer');
+    });
+
+    it('defaults an absent flag to false and reads a null reason back as undefined, never null', async () => {
+        await board.create(card('0001'), 'create');
+
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.needsHuman).toBe(false);
+        expect(stored.frontmatter.needsHumanReason).toBeUndefined();
+        expect(stored.frontmatter.needsHumanReason).not.toBeNull();
+    });
+
+    it('carries needsHuman and its reason through a write, the same as create', async () => {
+        await board.create(card('0001'), 'create');
+
+        await board.write('0001', 'flag it', c => ({
+            ...c,
+            frontmatter: { ...c.frontmatter, needsHuman: true, needsHumanReason: 'blocked on a design call' },
+        }));
+
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.needsHuman).toBe(true);
+        expect(stored.frontmatter.needsHumanReason).toBe('blocked on a design call');
+    });
+
     it('refuses a dependency on a card that does not exist', async () => {
         await expect(board.create(card('0002', { dependsOn: ['9999'] }), 'create')).rejects.toThrow();
     });

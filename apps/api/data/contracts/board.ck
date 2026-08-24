@@ -23,6 +23,10 @@ contract CardSummary: {
     stage: string
     branch?: string
     dependsOn: array(string)
+    # Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
+    # `?? false` — every card has an answer to "does this need a human", even if that answer is no.
+    needsHuman: boolean
+    needsHumanReason?: string
 }
 
 contract CardDetail: CardSummary & {

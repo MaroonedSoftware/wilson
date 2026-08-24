@@ -46,6 +46,8 @@ export const parseCard = (raw: string): Card => {
         planVersionId: typeof fm.planSha === 'string' ? fm.planSha : undefined,
         external: isRecordOfStrings(fm.external) ? fm.external : undefined,
         sourceClosed: typeof fm.sourceClosed === 'boolean' ? fm.sourceClosed : undefined,
+        needsHuman: typeof fm.needsHuman === 'boolean' ? fm.needsHuman : undefined,
+        needsHumanReason: typeof fm.needsHumanReason === 'string' ? fm.needsHumanReason : undefined,
     };
 
     const body = raw.slice(match[0].length);
@@ -71,6 +73,8 @@ export const serializeCard = (card: Card): string => {
     if (card.frontmatter.planVersionId) fm.planSha = card.frontmatter.planVersionId;
     if (card.frontmatter.external) fm.external = card.frontmatter.external;
     if (card.frontmatter.sourceClosed !== undefined) fm.sourceClosed = card.frontmatter.sourceClosed;
+    if (card.frontmatter.needsHuman !== undefined) fm.needsHuman = card.frontmatter.needsHuman;
+    if (card.frontmatter.needsHumanReason !== undefined) fm.needsHumanReason = card.frontmatter.needsHumanReason;
 
     return `---\n${stringifyYaml(fm).trimEnd()}\n---\n${card.body}`;
 };
