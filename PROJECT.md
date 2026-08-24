@@ -56,34 +56,34 @@ These are settled. Challenge them only if you find a concrete blocker.
 
 ## Architecture
 
-| Piece | Built with |
-|---|---|
-| API + daemon | ServerKit (`koa`, `appconfig`, `kysely`, `logger`, `permissions`) on InjectKit |
-| API surface | ContractKit `.ck` contracts → Koa router + Zod + typed SDK |
-| Queue, leases, retries | `@maroonedsoftware/jobbroker` (pg-boss) |
-| Live updates | `@maroonedsoftware/serverfeed` → SSE via `@maroonedsoftware/koa/serverfeed` |
-| Agent invocation | AI SDK `ToolLoopAgent` with our own worktree-scoped tools |
-| Operator CLI | `@maroonedsoftware/johnny5` (commands + `doctor`) |
-| Typed agent access | `@maroonedsoftware/mcp`, exposing the same board operations |
-| Web app | React + Mantine + TanStack Query over the generated ContractKit SDK |
-| Plugins | `ServerKitModule` registrations; `cache` `IdempotencyStore` for webhook dedupe |
+| Piece                  | Built with                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| API + daemon           | ServerKit (`koa`, `appconfig`, `kysely`, `logger`, `permissions`) on InjectKit |
+| API surface            | ContractKit `.ck` contracts → Koa router + Zod + typed SDK                     |
+| Queue, leases, retries | `@maroonedsoftware/jobbroker` (pg-boss)                                        |
+| Live updates           | `@maroonedsoftware/serverfeed` → SSE via `@maroonedsoftware/koa/serverfeed`    |
+| Agent invocation       | AI SDK `ToolLoopAgent` with our own worktree-scoped tools                      |
+| Operator CLI           | `@maroonedsoftware/johnny5` (commands + `doctor`)                              |
+| Typed agent access     | `@maroonedsoftware/mcp`, exposing the same board operations                    |
+| Web app                | React + Mantine + TanStack Query over the generated ContractKit SDK            |
+| Plugins                | `ServerKitModule` registrations; `cache` `IdempotencyStore` for webhook dedupe |
 
 One ContractKit contract generates the Koa router, the Zod validators, and the SDK
 the web app's query hooks wrap, so the API cannot drift from its client.
 
 The web app does not do optimistic transitions. Moving a card in the UI is a
-*request*; the runner is sole writer (decision 5) and may reject it for a dependency
+_request_; the runner is sole writer (decision 5) and may reject it for a dependency
 block or an in-flight job, so rendering the new column before it is real renders a
 lie. Transitions arrive over SSE and invalidate the relevant TanStack query. The
 UI-initiated transitions are human-gate approvals, which are rare enough that a round
-trip is imperceptible. Drag feedback is animation, not state — optimistic *ordering*
+trip is imperceptible. Drag feedback is animation, not state — optimistic _ordering_
 within the parking lot is fine, because ordering is not runner state.
 
 ### The daemon is not a poller
 
 `jobbroker` replaces the hand-rolled lease loop. pg-boss already provides
-visibility timeouts, retry limits with backoff, cancellation of queued *and
-running* jobs, and dead-letter capture. The mapping:
+visibility timeouts, retry limits with backoff, cancellation of queued _and
+running_ jobs, and dead-letter capture. The mapping:
 
 - claim with lease → job fetch with visibility timeout
 - expired lease requeue → pg-boss redelivery
@@ -95,39 +95,80 @@ the worktree and port when a job dies. On redelivery the runner discards any
 artifacts from the interrupted attempt and re-dispatches from a clean worktree;
 partial output is never verified.
 
-### Why ToolLoopAgent and not HarnessAgent
+### Two adapters, chosen per stage
 
-AI SDK's `HarnessAgent` wraps existing harnesses, but the Claude Code and Codex
-adapters are bridge-backed and require a network sandbox with an exposed port
-(`@ai-sdk/sandbox-vercel`). Only host-runtime harnesses run under the local
-`@ai-sdk/sandbox-just-bash`. This deploys self-hosted against mounted repos, so a
-cloud sandbox is the wrong direction and the worktree design exists precisely to
-give agents local filesystem access.
+A stage names its engine in config: `adapter: api | cli`.
 
-`ToolLoopAgent` gives the rest: one interface across Anthropic, OpenAI, and xAI,
-`Output.object({schema})` for machine-readable stage results, `stopWhen` and
-`prepareStep` for loop control and budget enforcement, and streams that feed
-`toUIMessageStream` / `useChat` for the planning UI.
-
+**`api`** drives the AI SDK's `ToolLoopAgent` against a provider key. One interface
+across Anthropic, OpenAI and xAI, so per-column model routing is a config value.
 We own the tool set — read, write, edit, glob, grep, bash — scoped to the card's
-worktree. That is where decisions 6 and 9 are enforced: a write outside the plan's
-files in scope, or into board paths or `.runner/`, fails at the tool, not in a
-post-hoc diff check.
+worktree, and that is where decisions 6 and 9 are enforced: a write outside the
+plan's files in scope, or into board paths or `.runner/`, fails at the tool rather
+than in a post-hoc diff check. The result comes back through a `report_result`
+tool, and `stopWhen` ends the loop when the agent calls it.
 
-Escape hatch: a `cli` stage adapter that execs a vendor CLI (`claude -p`,
-`codex exec`) for stages that want a full vendor harness. Stage config selects it.
+**`cli`** drives the Claude Code engine through `@anthropic-ai/claude-agent-sdk`,
+authenticating from the operator's own credentials — no API key and no per-token
+billing. AI SDK's `HarnessAgent` was the obvious route and is not usable here: its
+Claude Code and Codex adapters are bridge-backed and require a network sandbox with
+an exposed port, which is the opposite of a self-hosted deploy against mounted
+repos.
+
+The two fail independently, and that is the point rather than a side effect. An
+exhausted API balance stops every `api` stage and leaves `cli` untouched; a
+logged-out workstation does the reverse. This was not foresight — the `cli` adapter
+was built the day the API credits ran out mid-card.
+
+#### What the cli adapter costs
+
+The engine brings its own loop and its own tools, so `ScopeGuard` and
+`CommandAllowlist` are not the tools themselves. They are put back through
+`canUseTool`, which every Write, Edit and Bash passes before it runs.
+
+**`allowedTools` must not be set.** Listing a tool there marks it _pre-approved_ and
+the engine never consults `canUseTool` for it — so naming Write and Bash as allowed,
+which reads like granting exactly the intended permissions, silently disables every
+check meant to constrain them. Measured, not reasoned about: with Write allowed, a
+probe wrote a file outside the declared scope and the guard was never called once.
+Permission comes solely from the callback, whose final branch denies any tool it does
+not recognise.
+
+The `report_result` tool is supplied to this adapter as an in-process MCP server
+carrying the stage's own result schema. Without it a stage can only return prose,
+which the review verifier rightly refuses, and the runner cannot tell an adapter
+defect from bad work — it kicks the card back to implementing for something no amount
+of re-implementing can fix.
 
 ## Stage model
 
-Each stage declares: input, mode, provider, model, prompt, allowed tools, worktree
-requirement, exit condition, on-pass target, on-fail target, max kickbacks, budget.
+Each stage declares: input, mode, adapter, provider, model, prompt, allowed tools,
+worktree requirement, where its worktree comes from, extra scope, exit condition,
+on-pass target, on-fail target, max kickbacks, budget.
 
 `worktree` is one of `none`, `readonly`, or `rw`. Stages that only read a document
 and emit a verdict never get a worktree, which keeps worktree churn proportional to
 work actually done in a repo.
 
-| Stage | Mode | Worktree | Exit condition | On pass |
-|---|---|---|---|---|
+`worktreeFrom` is `base` or `branch`. `base` cuts fresh from HEAD _when there is
+nothing to resume_; a branch already carrying work is always resumed, because only a
+passing stage commits, so such a branch is by construction the last state that
+satisfied an exit condition. `branch` requires the resume. A card kicked back from
+review carries findings citing file:line on its own branch — rebuilding from scratch
+would throw away the work those findings are about.
+
+A resumed branch is **rebased onto HEAD before the stage runs**. A card that outlives
+a few merges is otherwise implementing against a world that has moved: card 0014 sat
+six commits behind while its own plan described an adapter that had landed on main
+meanwhile, and the review searched the tree and correctly reported it missing.
+Nothing in the pipeline could distinguish "this does not exist" from "this does not
+exist _here_", because every exit condition and every reviewer only ever sees the
+branch. A conflict aborts cleanly and is treated as permanent — it will not resolve
+on a retry.
+
+`extraScope` is globs a stage may write on top of the card's own `Files in scope`. A
+card's scope is written for the stage that implements it; the testing stage's whole
+job is to add files nobody could have declared in advance.
+
 | parking lot | — | none | never dispatched | promote (human only) |
 | planning | agent | readonly | plan file written and parseable | plan-review |
 | plan-review | agent | none | verdict schema valid | plan-approval |
@@ -169,8 +210,20 @@ blockers. There is no field for a revised plan: a reviewer that can rewrite is n
 adversarial, it is a second planner. It names problems, planning fixes them.
 
 Terminal states: `merged` (done), `needs-human` (retries exhausted; the plan is
-probably wrong, not the code), `poisoned` (dead-lettered — infrastructure failure,
-not a quality one).
+probably wrong, not the code), `poisoned` (an infrastructure failure, not a quality
+one), `dropped` (a card source closed its ticket while nothing was running).
+
+A card reaches `poisoned` when a stage throws an error that retrying cannot fix:
+billing, credentials, a malformed request, a rebase conflict. Such a failure must not
+be a kickback. A card's retry budget is for work that came back wrong, and spending it
+on an exhausted balance both wastes the budget and misreports the cause — this project
+watched a card burn three retry cycles against "credit balance is too low", each one
+cutting a worktree and installing dependencies before failing at the first model call.
+The job returns normally after poisoning so the queue does not retry it either.
+
+Classification is by message text, because neither the SDK nor the provider surfaces a
+stable machine-readable class. It is deliberately conservative: a miss costs a few
+retries, a false positive strands a card that would have recovered.
 
 Three modes for a stage, borrowed from AO (github.com/launchapp-dev/ao):
 `agent` (spawns a model), `command` (runs a shell command), `manual` (human gate).
@@ -202,6 +255,25 @@ credentials are per-deployment, not per-project.
 
 The adversarial reviewer reads the plan cold, with no access to the planning
 conversation, and emits `{verdict, findings[]}`.
+
+### Whose work a stage is judged on
+
+Two different questions, and conflating them strands cards.
+
+`changedPaths` measures from the fork point, so it describes **the card**: everything
+it has changed across every stage. That is the right basis for a review's finding
+provenance, which is a claim about the card's diff.
+
+`uncommittedPaths` describes **this stage's own work**. Since a stage only commits on
+pass, at verification time what it wrote is exactly what is uncommitted. That is the
+right basis for scope enforcement.
+
+Checking the card's whole diff against the current stage's scope holds a stage
+responsible for files a later one is supposed to add, and the card cannot escape:
+every retry fails identically on inherited work. Card 0014 kicked back from testing
+to implementing and then failed three times on test files the testing stage had every
+right to write, escalating to `needs-human` over a rule rather than over the work. The
+escalation was correct; the rule was wrong.
 
 ### Why the exit conditions are shaped this way
 
@@ -261,14 +333,14 @@ a worktree of the code repo, which simply contains no board files — so there i
 stale board copy on a card branch, no way for a merge to resurrect old board state,
 and the write tool's deny rule becomes a backstop rather than the only line of
 defense. It also keeps transition commits, which are frequent and noisy, out of the
-code history. It is still markdown in git; it is just not the *same* git.
+code history. It is still markdown in git; it is just not the _same_ git.
 
 Consequence for dispatch: the plan does not live in the worktree. At dispatch the
 runner materializes the card at `plan_sha` to a path outside the worktree —
 `/run/cards/<id>/plan.md` — and passes that absolute path to the agent. Outside, so
 it cannot be accidentally committed to the card branch.
 
-The card file *is* the plan file. Frontmatter carries state; the body carries the
+The card file _is_ the plan file. Frontmatter carries state; the body carries the
 plan contract under fixed headings:
 
 ```markdown
@@ -283,10 +355,15 @@ plan_sha: 8f2c1ab
 ---
 
 ## Goal
+
 ## Constraints
+
 ## Files in scope
+
 ## Tasks
+
 ## Acceptance criteria
+
 ## Out of scope
 ```
 
@@ -310,7 +387,7 @@ When an agent genuinely needs a file outside scope, it cannot write it. It calls
 `scope_violation` policy decides:
 
 - `widen` — the request is granted for this run and appended to the card's event
-  log. The exit condition then evaluates against the original scope *plus* granted
+  log. The exit condition then evaluates against the original scope _plus_ granted
   widenings, and the review stage sees the widenings as facts about the run. An
   auditable bypass, not a silent one.
 - `kickback` — the stage fails and returns to planning with the requested path
@@ -395,7 +472,7 @@ source runs either as a jobbroker scheduled poll or behind a webhook route, and
 writes through the API like everything else (decision 3) — never straight to disk.
 
 - **Inbound authority only.** The source may create cards and update descriptive
-  fields. `stage`, `branch`, and `retries` stay ours (decision 5) and flow *outward*
+  fields. `stage`, `branch`, and `retries` stay ours (decision 5) and flow _outward_
   to the external system as a status mirror. Two systems of record is the failure
   mode here, and one-way authority with two-way data is what avoids it. This is the
   same rule as human filesystem edits, applied to a different writer.
@@ -540,27 +617,34 @@ statically from it, and Postgres.
 
 ## Build order
 
-Step 0 is the walking skeleton in Bootstrapping below; everything after it is a card
-on the board. Rough order, subject to what dogfooding actually makes painful:
+Steps 1–4 and the queue are built and merged; what follows them is not. Progress is
+tracked on the board, not here — this list survives as the intended shape.
 
-1. Walking skeleton — hand-run implementing stage. See Bootstrapping.
-2. Testing stage.
-3. Runner core: jobbroker dispatch, retry policy, worktree reclamation.
-4. Human gates and notification. Gates are where an unattended pipeline stalls, and
-   it stalls silently, so notification lands with the first `manual` stage rather
-   than after the loop is built around it.
-5. Planning and `plan-review` stages; stage config loader and per-stage provider
-   routing.
-6. ContractKit contract and the API, then the web board — read-only first, then
-   transitions.
-7. Interactive planning: sessions, streaming, quote-anchored comments, approval and
-   `plan_sha` pinning.
-8. Kickback loop and retry limits; the review stage.
-9. Multi-project registry, parking lot, filesystem reconciliation, worktree GC, port
-   allocation, budget caps, dry-run toggle.
-10. Plugins: the card-source and context-provider seams, then a Linear source and a
-    Slack context provider.
-11. Compose stack.
+**Built:** the walking skeleton, board format, runner core, human gates, the
+implementing, testing and review stages with their verifiers, transitions written by
+the runner, the pg-boss queue with stage chaining, and the daemon that drains it. A
+card is enqueued once and runs to the `ready` gate unattended.
+
+**Next, in order:**
+
+1. **Budget caps.** The pipeline self-chains unattended and nothing bounds input
+   tokens or wall-clock. `maxSteps` bounds the loop and `maxOutputTokens` bounds a
+   single response; one stage consumed 6.3M input tokens while its output cap held it
+   to 50k. Retry limits bound the loop count, not the cost. The `cli` adapter needs
+   this too, and differently: the engine has native `maxTurns`, `maxBudgetUsd` and
+   `abortController`, so a cap built only as an AI SDK `stopWhen` bounds the adapter
+   nobody is using.
+2. **Worktree GC.** Nothing reclaims a card's worktree on completion, and the baseline
+   check cuts a second one per testing run. This reached 3.5 GB across 15 worktrees
+   before anyone looked.
+3. **The poller**, so cards start themselves rather than needing `card start`. It needs
+   to know what is already in flight before it can enqueue safely. Deliberately after
+   the safety rails: autonomy last.
+4. Multi-project registry, filesystem reconciliation, port allocation, dry-run toggle.
+5. Planning and `plan-review` stages; the interactive planning surface.
+6. ContractKit contract, the API, and the web board.
+7. Plugins: card sources and context providers.
+8. Compose stack.
 
 ## Bootstrapping
 
@@ -571,20 +655,35 @@ only work on the critical path is work a human cannot stand in for.
 ### Do not saw off the branch you are sitting on
 
 Self-hosting makes decision 9 ambiguous, and the ambiguity is dangerous. When the
-project *is* the runner, almost all of the runner's source is legitimately in scope
+project _is_ the runner, almost all of the runner's source is legitimately in scope
 for cards — so "agents cannot modify the machinery" has to mean the **running
 deployment**, not the source tree.
 
 - The daemon runs from an installed build, never from the worktree it is editing.
 - A card edits source. Rebuilding and redeploying is a deliberate human act between
   cards, never a side effect of one.
-- The deployed version is pinned. Upgrade after a clean supervised pass, not on
-  every merge.
+- The deployed version is pinned. Upgrade after a clean supervised pass, not on every
+  merge.
 - The CLI path stays working forever. It is the recovery tool when a card breaks the
   dispatcher, and the only way to run a stage when the daemon will not start.
 
 A card that breaks the runner must not be able to prevent the next card from fixing
 it.
+
+**This rule is easy to state and easy to violate.** Node loads its modules once, so a
+daemon started before a fix carries on running the code from before it. Card 0014
+failed three times against a scope bug that had been fixed on disk half an hour
+earlier — the same error, on the same files, from a build nobody could see, and the
+failures were indistinguishable from the bug still being there. `wilson doctor` now
+fails when the running daemon predates HEAD, because requiring a thing and noticing
+when it is violated are different.
+
+**Editing the runner while a card runs through it is its own hazard.** Card 0014's
+branch ended up conflicting irreconcilably with main: the card was adding budget caps
+to the same files the runner was being repaired in. The rebase check caught it, the
+conflict was classified permanent, and the card was poisoned rather than looping —
+which is the machinery working, and also a reason to keep cards away from files under
+active repair.
 
 ### Step 0: the walking skeleton
 
@@ -614,21 +713,22 @@ because everything built afterward assumes it:
   the CLI; the agent runner returns a `StageResult` regardless of mode. Writing the
   seam costs an hour. Retrofitting it is the rewrite.
 - **Bash is an allowlist from day one.** Stage config names the commands a stage may
-  run (`pnpm build`, `pnpm test`). This is *less* work than a general bash tool, and
+  run (`pnpm build`, `pnpm test`). This is _less_ work than a general bash tool, and
   it is the sandbox the design wants anyway.
 
 ### What to defer without guilt
 
-Everything additive. The human covers it meanwhile:
+Everything additive. Deferred at step 0, and now mostly built — kept because the
+reasoning is what matters, not the checklist:
 
-| Deferred | Human does instead |
-|---|---|
-| planning and plan-review stages | writes the plan file by hand |
-| testing and review stages | runs the tests, reads the diff |
-| queue and daemon | runs the CLI |
-| API and web app | reads the board in an editor |
-| notifications | is sitting right there |
-| multi-project, plugins, compose | one project, local node |
+| Deferred                        | Human does instead             |
+| ------------------------------- | ------------------------------ |
+| planning and plan-review stages | writes the plan file by hand   |
+| testing and review stages       | runs the tests, reads the diff |
+| queue and daemon                | runs the CLI                   |
+| API and web app                 | reads the board in an editor   |
+| notifications                   | is sitting right there         |
+| multi-project, plugins, compose | one project, local node        |
 
 Hand-writing the first plans is not a compromise, it is the point. Decision 4 already
 guarantees a hand-written plan is indistinguishable from a generated one downstream,
