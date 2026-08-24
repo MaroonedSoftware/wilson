@@ -96,6 +96,26 @@ describe('PostgresBoardRepository', () => {
         expect((await board.read('0001')).frontmatter.retries).toEqual({ review: 3 });
     });
 
+    /**
+     * `card_versions.id` is `BIGSERIAL` and the driver returns a `BigInt`, while `DB` declares the
+     * column as `string`. Hand-written database types cannot be checked against the database, so
+     * nothing catches the difference until `JSON.stringify` refuses the value — which is how
+     * `/api/cards/{id}/versions` returned a 500 having passed implementing, testing and review.
+     * Asserting the type directly is the only check that fails before an HTTP response does.
+     */
+    it('returns version ids as strings, so they survive being serialized', async () => {
+        await board.create(card('0001'), 'create');
+        await board.write('0001', 'edit', c => ({ ...c, body: 'changed\n' }));
+
+        const versions = await board.versions('0001', 10);
+        expect(versions).toHaveLength(2);
+        for (const version of versions) expect(typeof version.id).toBe('string');
+        expect(() => JSON.stringify(versions)).not.toThrow();
+
+        expect(typeof (await board.currentVersion('0001'))).toBe('string');
+        expect(typeof (await board.create(card('0002'), 'create'))).toBe('string');
+    });
+
     it('reports the newest version, and every write adds one', async () => {
         const created = await board.create(card('0001'), 'create');
         expect(await board.currentVersion('0001')).toBe(created);

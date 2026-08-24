@@ -84,7 +84,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .orderBy('id', 'desc')
             .limit(1)
             .executeTakeFirst();
-        return row?.id;
+        return row === undefined ? undefined : versionId(row.id);
     }
 
     async versions(id: string, limit: number): Promise<CardVersionSummary[]> {
@@ -96,7 +96,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .orderBy('id', 'desc')
             .limit(limit)
             .execute();
-        return rows.map(row => ({ id: row.id, message: row.message, createdAt: row.createdAt }));
+        return rows.map(row => ({ id: versionId(row.id), message: row.message, createdAt: row.createdAt }));
     }
 
     async write(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>): Promise<string> {
@@ -212,7 +212,7 @@ export class PostgresBoardRepository extends BoardRepository {
             })
             .returning('id')
             .executeTakeFirstOrThrow();
-        return row.id;
+        return versionId(row.id);
     }
 
     private async syncDeps(trx: Transaction<DB>, cardId: string, before: string[], after: string[]): Promise<void> {
@@ -234,6 +234,18 @@ export class PostgresBoardRepository extends BoardRepository {
         }
     }
 }
+
+/**
+ * A version id as a string.
+ *
+ * `runner.card_versions.id` is `BIGSERIAL` and the driver hands back a JavaScript `BigInt`. `DB`
+ * declares the column as `string` — hand-written database types cannot be checked against the
+ * database, so TypeScript sees a string here and every caller believed one. The value survives being
+ * logged, compared and stored, and then `JSON.stringify` throws `Do not know how to serialize a
+ * BigInt` the first time it reaches an HTTP response, which is where `/api/cards/{id}/versions`
+ * found it. `EventLog.tail` already did this conversion for the same reason; this is the rest of it.
+ */
+const versionId = (id: string): string => String(id);
 
 const toCard = (
     row: {
