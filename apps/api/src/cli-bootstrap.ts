@@ -37,3 +37,4 @@ export { filesInScope } from '#modules/board/card.js';
 export type { Card } from '#modules/board/card.js';
 export { nextCard } from '#modules/board/next.card.js';
 export type { NextCard, Blocked } from '#modules/board/next.card.js';
+export { CardJobs } from '#modules/jobs/card.jobs.js';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { StageConfigSchema } from '#modules/stages/stage.config.js';
+import { StageConfigSchema, MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
+import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
  * Card 0015 added budget caps to the stage schema: `maxInputTokens`, `maxWallClockMs` and
@@ -46,6 +47,26 @@ describe('StageConfigSchema budget fields', () => {
 
     it('rejects a maxWallClockMs below the 1000 floor', () => {
         expect(() => StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: 500 })).toThrow();
+    });
+
+    /**
+     * Card 0030. A stage that can outlive the job carrying it gets that job expired and redelivered
+     * while the first attempt is still running — two agents, one worktree, one branch. Config load is
+     * the only place that can be caught before it happens, so the ceiling is a schema rule rather
+     * than a convention.
+     */
+    it('rejects a maxWallClockMs that could outlive the job carrying the stage', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: MAX_STAGE_WALL_CLOCK_MS + 1 })).toThrow();
+    });
+
+    it('accepts a maxWallClockMs sitting exactly on the ceiling', () => {
+        expect(StageConfigSchema.parse({ ...minimalStage, maxWallClockMs: MAX_STAGE_WALL_CLOCK_MS }).maxWallClockMs).toBe(MAX_STAGE_WALL_CLOCK_MS);
+    });
+
+    it('leaves the queue expiry with headroom over the longest stage a config can ask for', () => {
+        // The job covers more than the run: the worktree, the install, verification and the
+        // transition all happen inside it. Equal values would leave none of that room.
+        expect(CARD_STAGE_EXPIRES_IN.toMillis()).toBeGreaterThan(MAX_STAGE_WALL_CLOCK_MS);
     });
 
     it('rejects a maxBudgetUsd of zero, since it must be strictly positive', () => {

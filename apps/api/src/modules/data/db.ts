@@ -60,6 +60,17 @@ export interface CardVersions {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * Which job is carrying a card, if any. Operational state: a claim the broker's view of the job id
+ * either confirms or retires.
+ */
+export interface CardJobs {
+    project: string;
+    cardId: string;
+    jobId: string;
+    enqueuedAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface CardDeps {
     project: string;
     cardId: string;
@@ -70,5 +81,6 @@ export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
     'runner.cardDeps': CardDeps;
+    'runner.cardJobs': CardJobs;
     'runner.cardEvents': CardEvents;
 }
