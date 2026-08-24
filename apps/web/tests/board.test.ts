@@ -5,7 +5,7 @@ import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/
 const card = (id: string, stage: string, dependsOn: string[] = []): CardSummary => ({ id, title: `card ${id}`, stage, dependsOn });
 
 const columns: BoardColumns = {
-    stages: ['implementing', 'testing', 'review', 'ready'],
+    stages: ['planning', 'backlog', 'implementing', 'testing', 'review', 'ready'],
     nonStages: ['parking-lot', 'merged', 'needs-human', 'poisoned', 'dropped'],
 };
 
@@ -13,6 +13,8 @@ describe('columnOrder', () => {
     it('puts the parking lot first, then the stages, then the terminal states', () => {
         expect(columnOrder(columns, [])).toEqual([
             'parking-lot',
+            'planning',
+            'backlog',
             'implementing',
             'testing',
             'review',
@@ -25,7 +27,7 @@ describe('columnOrder', () => {
     });
 
     it('appends a stage the config does not name rather than hiding its cards', () => {
-        expect(columnOrder(columns, [card('0001', 'planning')])).toContain('planning');
+        expect(columnOrder(columns, [card('0001', 'some-made-up-stage')])).toContain('some-made-up-stage');
     });
 });
 
