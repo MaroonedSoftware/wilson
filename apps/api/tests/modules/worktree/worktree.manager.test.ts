@@ -253,4 +253,53 @@ describe('WorktreeManager', () => {
             expect(manager.branchName('0042', '!!!')).toBe('card/0042');
         });
     });
+
+    describe('rebaseOntoHead', () => {
+        // Card 0014 sat six commits behind while its own plan described an adapter that had landed
+        // on main meanwhile. The stage could not see it and the review, searching the tree, quite
+        // correctly reported it missing — nothing could tell "does not exist" from "not here".
+        it('replays the branch onto a moved HEAD and reports the new base', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // main moves on with an unrelated file.
+            await writeFile(join(codeRoot, 'src', 'landed.ts'), 'export const landed = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'landed on main'], { cwd: codeRoot });
+            const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+            const result = await manager.rebaseOntoHead(resumed);
+
+            expect(result).toMatchObject({ ok: true, baseSha: head });
+            // The card keeps its own work and now sees what landed on main.
+            expect(existsSync(join(resumed.path, 'src', 'card.ts'))).toBe(true);
+            expect(existsSync(join(resumed.path, 'src', 'landed.ts'))).toBe(true);
+        });
+
+        it('is a no-op when the branch is already current', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await expect(manager.rebaseOntoHead(worktree)).resolves.toMatchObject({ ok: true, baseSha: worktree.baseSha });
+        });
+
+        it('aborts a conflicting rebase rather than leaving the worktree half-replayed', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 100;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // main edits the same line differently.
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 999;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'conflicting change'], { cwd: codeRoot });
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+            const result = await manager.rebaseOntoHead(resumed);
+
+            expect(result).toMatchObject({ ok: false });
+            // No rebase left in progress for the next stage to trip over.
+            const { stdout } = await exec('git', ['status', '--porcelain=v2', '--branch'], { cwd: resumed.path });
+            expect(stdout).not.toContain('rebase');
+        });
+    });
 });

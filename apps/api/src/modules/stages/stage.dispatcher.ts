@@ -77,7 +77,18 @@ export class StageDispatcher {
         // already wrote. Since only a passing stage commits, a branch carrying work is by
         // construction the last state that satisfied an exit condition, so resuming is always safe.
         const resumable = stage.worktreeFrom === 'branch' || (await this.worktrees.hasWork(branch));
-        const worktree = resumable ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
+        let worktree = resumable ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
+
+        // A resumed branch may be many merges behind. Left alone the stage implements against a tree
+        // that no longer matches main, and neither its exit condition nor the review can distinguish
+        // "this does not exist" from "this does not exist here".
+        if (resumable) {
+            const rebased = await this.worktrees.rebaseOntoHead(worktree);
+            if (!rebased.ok) {
+                throw new Error(`card ${cardId} cannot be brought up to date: ${rebased.reason}`);
+            }
+            worktree = { ...worktree, baseSha: rebased.baseSha };
+        }
         await this.events.append({
             project: this.config.project,
             cardId,

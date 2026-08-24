@@ -138,6 +138,40 @@ export class WorktreeManager {
     }
 
     /**
+     * Bring the card's branch up to date with the code repo's HEAD.
+     *
+     * A card that outlives a few merges is otherwise implementing against a world that has moved on.
+     * Card 0014 sat six commits behind while its own plan described an adapter that had landed on
+     * main in the meantime: the stage could not see it, the review searched the tree and correctly
+     * reported it missing, and nothing in the pipeline could tell "this does not exist" apart from
+     * "this does not exist *here*".
+     *
+     * A conflict is not something a retry fixes, so the rebase is aborted and the reason returned
+     * rather than leaving a half-rebased worktree behind for the next stage to trip over.
+     */
+    async rebaseOntoHead(worktree: Worktree): Promise<{ ok: true; baseSha: string } | { ok: false; reason: string }> {
+        const head = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+        if (head === worktree.baseSha) {
+            return { ok: true, baseSha: head };
+        }
+
+        const behind = (await git(this.config.codeRoot, ['rev-list', '--count', `${worktree.branch}..HEAD`])).stdout.trim();
+        this.logger.info(`${worktree.branch} is ${behind} commit(s) behind; rebasing onto ${head.slice(0, 8)}`);
+
+        try {
+            await git(worktree.path, ['rebase', head]);
+        } catch (err) {
+            await git(worktree.path, ['rebase', '--abort']).catch(() => undefined);
+            return {
+                ok: false,
+                reason: `rebase conflict: ${worktree.branch} cannot be replayed onto ${head.slice(0, 8)} without a human — ${(err as Error).message}`,
+            };
+        }
+
+        return { ok: true, baseSha: head };
+    }
+
+    /**
      * Paths this stage has touched but not committed, relative to the worktree root.
      *
      * Distinct from `changedPaths`, which measures from the fork point and therefore describes the

@@ -13,6 +13,8 @@ const PERMANENT = [
     /authentication[_ ]error/i,
     /permission[_ ]error/i,
     /\b401\b|\b403\b/,
+    // A rebase that cannot be replayed will not replay on the next attempt either.
+    /rebase conflict/i,
 ];
 
 /**
