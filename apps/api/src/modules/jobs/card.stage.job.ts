@@ -5,7 +5,7 @@ import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
-import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { NotDispatchableError, StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
 
@@ -41,6 +41,18 @@ export class CardStageJob extends Job<CardStagePayload> {
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
         } catch (error) {
+            // Checked before isPermanentFailure, which stays message-based for provider errors:
+            // assertDispatchable's refusals are typed, so they are routed on their discriminant
+            // rather than falling through to pattern matching.
+            if (error instanceof NotDispatchableError) {
+                if (error.reason.kind === 'unsatisfied-dependency') {
+                    await this.defer(cardId, stageName, error.reason.outstanding, error.message);
+                } else {
+                    await this.poison(cardId, stageName, error);
+                }
+                await this.cardJobs.clear(cardId);
+                return;
+            }
             if (!isPermanentFailure(error)) {
                 // Transient: let it throw so the queue retries under its policy.
                 throw error;
@@ -79,6 +91,26 @@ export class CardStageJob extends Job<CardStagePayload> {
             stage: stageName,
             type: 'chain.stopped',
             payload: { target: outcome.transitionedTo, reason: decision.reason },
+        });
+    }
+
+    /**
+     * Leave a dependency-blocked card exactly where it is.
+     *
+     * "Not now", not "never" (unlike `poison`): the outstanding cards may simply not have merged
+     * yet, and poisoning here is precisely the false positive `permanent.failure.ts` warns against —
+     * a card that would have recovered gets stranded. So this writes nothing to the board: the
+     * card's stage and retries are untouched, and the same dispatch that failed today succeeds
+     * unchanged once something enqueues it again. Recorded so an operator can see why the chain did
+     * not move without reconstructing it from the board.
+     */
+    private async defer(cardId: string, stageName: string, outstanding: string[], reason: string): Promise<void> {
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'dispatch.deferred',
+            payload: { outstanding, reason },
         });
     }
 
