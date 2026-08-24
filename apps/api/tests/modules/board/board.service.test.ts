@@ -118,7 +118,7 @@ describe('BoardService', () => {
             expect(seenLimit).toBe(200);
         });
 
-        it('reads the tail of this board\'s project and this card, not some other one', async () => {
+        it("reads the tail of this board's project and this card, not some other one", async () => {
             let seenArgs: [string, string] | undefined;
             const eventLog = {
                 tail: async (project: string, id: string) => {

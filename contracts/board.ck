@@ -5,13 +5,15 @@ options {
     security: none
 }
 
+# No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
+# it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
+# from every response. It comes back when parking-lot ordering is actually built, with a value.
 contract CardSummary: {
     id: string
     title: string
     stage: string
     branch?: string
     dependsOn: array(string)
-    position?: int
 }
 
 contract CardDetail: CardSummary & {

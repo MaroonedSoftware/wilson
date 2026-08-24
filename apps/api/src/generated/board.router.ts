@@ -10,7 +10,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const BoardRouter = ServerKitRouter();
 
 /**
- * from [board.ck](file://./../../../../contracts/board.ck#L43)
+ * from [board.ck](file://./../../../../contracts/board.ck#L45)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards', async ctx => {
@@ -23,7 +23,7 @@ BoardRouter.get('/api/cards', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../../../contracts/board.ck#L58)
+ * from [board.ck](file://./../../../../contracts/board.ck#L60)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id', async ctx => {
@@ -43,7 +43,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../../../contracts/board.ck#L74)
+ * from [board.ck](file://./../../../../contracts/board.ck#L76)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/events', async ctx => {
@@ -65,7 +65,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../../../contracts/board.ck#L90)
+ * from [board.ck](file://./../../../../contracts/board.ck#L92)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/versions', async ctx => {
