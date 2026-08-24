@@ -40,6 +40,10 @@ export interface CardFrontmatter {
     external?: Record<string, string>;
     /** Set by a card source when its ticket is closed upstream. Never moves the card by itself. */
     sourceClosed?: boolean;
+    /** A person has to look at this card before it runs again. Never moves the card by itself. */
+    needsHuman?: boolean;
+    /** What the runner or the operator said when they set `needsHuman`. */
+    needsHumanReason?: string;
 }
 
 export interface Card {

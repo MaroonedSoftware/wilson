@@ -34,11 +34,17 @@ export const CardSummary = z.strictObject({
     stage: z.string(),
     branch: z.string().optional(),
     dependsOn: z.array(z.string()),
+    needsHuman: z
+        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+        .describe(
+            'Required, unlike the frontmatter\'s optional `needsHuman?`, so the web never has to write\n`?? false` — every card has an answer to "does this need a human", even if that answer is no.',
+        ),
+    needsHumanReason: z.string().optional(),
 });
 export type CardSummary = z.infer<typeof CardSummary>;
 
 /**
- * generated from [CardEvent](file://./../../data/contracts/board.ck#L33)
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L37)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -50,7 +56,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../data/contracts/board.ck#L41)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L45)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -62,7 +68,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../data/contracts/board.ck#L49)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L53)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),
@@ -70,7 +76,7 @@ export const ListQuery = z.strictObject({
 export type ListQuery = z.infer<typeof ListQuery>;
 
 /**
- * generated from [CardDetail](file://./../../data/contracts/board.ck#L28)
+ * generated from [CardDetail](file://./../../data/contracts/board.ck#L32)
  */
 export const CardDetail = CardSummary.extend({
     body: z.string(),

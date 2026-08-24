@@ -25,10 +25,16 @@ export interface CardSummary {
     stage: string;
     branch?: string;
     dependsOn: string[];
+    /**
+     * Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
+     * `?? false` — every card has an answer to "does this need a human", even if that answer is no.
+     */
+    needsHuman: boolean;
+    needsHumanReason?: string;
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L33)
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L37)
  */
 export interface CardEvent {
     id: string;
@@ -39,7 +45,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L41)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L45)
  */
 export interface CardVersion {
     id: string;
@@ -50,14 +56,14 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L49)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L53)
  */
 export interface ListQuery {
     limit?: number;
 }
 
 /**
- * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L28)
+ * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L32)
  */
 export interface CardDetail extends CardSummary {
     body: string;

@@ -21,6 +21,8 @@ const toCardSummary = (card: Card): CardSummary => ({
     stage: card.frontmatter.stage,
     branch: card.frontmatter.branch,
     dependsOn: card.frontmatter.dependsOn,
+    needsHuman: card.frontmatter.needsHuman ?? false,
+    needsHumanReason: card.frontmatter.needsHumanReason,
 });
 
 const toCardDetail = (card: Card): CardDetail => ({

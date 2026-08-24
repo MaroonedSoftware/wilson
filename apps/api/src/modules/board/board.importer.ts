@@ -79,6 +79,8 @@ export class BoardImporter {
                         retries: JSON.stringify(fm.retries ?? {}),
                         external: fm.external ? JSON.stringify(fm.external) : null,
                         sourceClosed: fm.sourceClosed ?? null,
+                        needsHuman: fm.needsHuman ?? false,
+                        needsHumanReason: fm.needsHumanReason ?? null,
                     })
                     .execute();
 

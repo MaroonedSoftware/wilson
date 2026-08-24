@@ -32,6 +32,9 @@ const command: CommandModule<ShowOpts> = {
                         dependsOn: fm.dependsOn,
                         filesInScope: scope,
                         secondsInStage: timeInStage ? timeInStage.as('seconds') : null,
+                        needsHuman: fm.needsHuman ?? false,
+                        needsHumanReason: fm.needsHumanReason ?? null,
+                        retries: fm.retries,
                     },
                     null,
                     2,
@@ -46,6 +49,9 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`branch:   ${fm.branch ?? '—'}`);
         ctx.logger.info(`planVersion: ${fm.planVersionId ?? '— (not approved; stages run against current state)'}`);
         if (fm.dependsOn.length > 0) ctx.logger.info(`blocked:  ${fm.dependsOn.join(', ')}`);
+        if (fm.needsHuman) ctx.logger.info(`needs human: ${fm.needsHumanReason ?? '(no reason given)'}`);
+        const retries = Object.entries(fm.retries);
+        ctx.logger.info(`retries:  ${retries.length > 0 ? retries.map(([stage, count]) => `${stage}=${count}`).join(', ') : '—'}`);
 
         const scope = filesInScope(card);
         ctx.logger.info(`\nfiles in scope (${scope.length}):`);
