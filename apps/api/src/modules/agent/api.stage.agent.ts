@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import type { z } from 'zod';
+import { overBudget, tokenBudgetExceeded } from './budget.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
@@ -25,32 +26,49 @@ export class ApiStageAgent extends StageAgent {
             instructions: stage.instructions,
             tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree),
             ...(stage.tools ? { activeTools: stage.tools as never } : {}),
-            // The loop ends when the agent says it is finished, or when it runs out of steps.
-            stopWhen: [hasToolCall(REPORT_TOOL), stepCountIs(stage.maxSteps)],
+            // The loop ends when the agent says it is finished, when it runs out of steps, or when it
+            // exceeds its input token budget.
+            stopWhen: [hasToolCall(REPORT_TOOL), stepCountIs(stage.maxSteps), tokenBudgetExceeded(stage.maxInputTokens)],
             maxOutputTokens: stage.maxOutputTokens,
             // Without this the conversation grows until the provider refuses it outright.
             prepareStep: ({ messages }) => ({ messages: compactMessages(messages) }),
         });
 
-        const run = await agent.generate({
-            prompt: [
-                `Card: ${title}`,
-                '',
-                `Your plan is at ${planPath}. Read it with the read tool before doing anything else — pass that`,
-                `path exactly as written. It is the contract for this card: its "Files in scope" is what you may`,
-                `change, and its "Out of scope" is binding even where you could technically make the change.`,
-                '',
-                `You are working in a git worktree at ${context.worktreeRoot}. Every other tool path is relative to it.`,
-                '',
-                'Implement the plan, then return the structured result.',
-            ].join('\n'),
-        });
+        // A wall-clock abort throws rather than resolving, and it must fail the stage through the
+        // normal exit-condition path rather than as an unhandled error the job runner has to catch.
+        try {
+            const run = await agent.generate({
+                prompt: [
+                    `Card: ${title}`,
+                    '',
+                    `Your plan is at ${planPath}. Read it with the read tool before doing anything else — pass that`,
+                    `path exactly as written. It is the contract for this card: its "Files in scope" is what you may`,
+                    `change, and its "Out of scope" is binding even where you could technically make the change.`,
+                    '',
+                    `You are working in a git worktree at ${context.worktreeRoot}. Every other tool path is relative to it.`,
+                    '',
+                    'Implement the plan, then return the structured result.',
+                ].join('\n'),
+                abortSignal: AbortSignal.timeout(stage.maxWallClockMs),
+            });
 
-        return {
-            result: reportedResult(run.steps),
-            usage: { inputTokens: run.usage?.inputTokens, outputTokens: run.usage?.outputTokens },
-            truncated: run.steps.length >= stage.maxSteps,
-        };
+            const inputTokens = run.usage?.inputTokens;
+            // Not typed as a literal `AgentRunOutput` so `budgetFailure` can ride along without an
+            // excess-property error — `stage.agent.ts` is outside this card's scope, so the field
+            // cannot yet be declared on `AgentRunOutput` itself for the dispatcher to read.
+            const output = {
+                result: reportedResult(run.steps),
+                usage: { inputTokens, outputTokens: run.usage?.outputTokens },
+                truncated: run.steps.length >= stage.maxSteps,
+                budgetFailure: overBudget(inputTokens, stage.maxInputTokens),
+            };
+            return output;
+        } catch (err) {
+            if ((err as { name?: string }).name === 'AbortError') {
+                return { truncated: true };
+            }
+            throw err;
+        }
     }
 }
 

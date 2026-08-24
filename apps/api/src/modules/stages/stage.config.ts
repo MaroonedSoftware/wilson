@@ -70,6 +70,12 @@ export const StageConfigSchema = z.object({
     verifier: z.string().optional(),
     maxSteps: z.number().int().min(1).default(60),
     maxOutputTokens: z.number().int().min(1024).default(16000),
+    /** Cumulative input tokens a single run may consume before it is cut off as a budget failure. */
+    maxInputTokens: z.number().int().min(1000).default(2_000_000),
+    /** Wall-clock a single run may take before it is aborted as a budget failure. */
+    maxWallClockMs: z.number().int().min(1000).default(1_800_000),
+    /** Dollar ceiling passed to the `cli` engine, which tracks cost itself. Unset means no ceiling. */
+    maxBudgetUsd: z.number().positive().optional(),
     onPass: z.string(),
     onFail: z.string(),
     maxKickbacks: z.number().int().min(0).default(3),
