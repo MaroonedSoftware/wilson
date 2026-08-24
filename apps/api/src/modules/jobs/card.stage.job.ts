@@ -7,6 +7,7 @@ import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { decideChain } from './chain.decision.js';
+import { CardJobs } from './card.jobs.js';
 
 export interface CardStagePayload {
     cardId: string;
@@ -30,6 +31,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         private readonly board: BoardConfig,
         private readonly boardRepo: BoardRepository,
         private readonly events: EventLog,
+        private readonly cardJobs: CardJobs,
     ) {
         super();
     }
@@ -44,12 +46,14 @@ export class CardStageJob extends Job<CardStagePayload> {
                 throw error;
             }
             await this.poison(cardId, stageName, error);
+            await this.cardJobs.clear(cardId);
             return;
         }
 
         // Unset means the stage just run was a `manual` gate the dispatcher left alone — nothing
         // for the chain to do until a human moves the card.
         if (!outcome.transitionedTo) {
+            await this.cardJobs.clear(cardId);
             return;
         }
 
@@ -57,9 +61,15 @@ export class CardStageJob extends Job<CardStagePayload> {
         const decision = decideChain(outcome.transitionedTo, stages);
 
         if (decision.continue) {
-            await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
+            // Hand the claim straight to the next job rather than clearing and re-recording: the card
+            // is continuously in flight across a chain, and a gap between the two is a window a
+            // poller would enqueue into.
+            const jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
+            await this.cardJobs.record(cardId, jobId);
             return;
         }
+
+        await this.cardJobs.clear(cardId);
 
         // Recorded rather than silently dropped: an operator watching the card's history needs to
         // know the chain stopped here, and why, without having to reconstruct it from stage config.

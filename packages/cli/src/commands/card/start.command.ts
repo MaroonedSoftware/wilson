@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, BoardRepository, JobBroker, PgBoss, loadStages, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, CardJobs, JobBroker, PgBoss, loadStages, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
 
 /**
  * Enqueue a card's current stage on the job queue.
@@ -39,7 +39,18 @@ const command: CommandModule = {
         const pgBoss = ctx.container.get(PgBoss);
         await pgBoss.start();
         try {
+            // Refuse a card something is already carrying. Two jobs for one card means two agents in
+            // one worktree on one branch, which is the failure this check exists to make impossible —
+            // and the same check a poller will make on every tick.
+            const cardJobs = ctx.container.get(CardJobs);
+            const running = await cardJobs.inFlight(cardId);
+            if (running) {
+                ctx.logger.error(`cannot enqueue ${cardId}: job ${running} is already carrying it`);
+                return 1;
+            }
+
             const jobId = await broker.send('card.stage', { cardId, stageName });
+            await cardJobs.record(cardId, jobId);
             ctx.logger.info(`enqueued ${cardId} · ${stageName} (job ${jobId})`);
         } finally {
             await pgBoss.stop();

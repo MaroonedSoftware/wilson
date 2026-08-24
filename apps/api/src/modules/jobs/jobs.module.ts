@@ -7,7 +7,22 @@ import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBoss
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
+import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { CardStageJob } from './card.stage.job.js';
+import { CardJobs } from './card.jobs.js';
+
+/**
+ * How long a `card.stage` job may run before the queue calls it stuck and hands it to another
+ * worker.
+ *
+ * Left unset, this was pg-boss's default of fifteen minutes while a stage's own wall clock defaulted
+ * to thirty — so a stage that legitimately ran past fifteen minutes had its job redelivered while
+ * the first attempt was still going, putting two agents in one worktree on one branch. The stage cap
+ * is `MAX_STAGE_WALL_CLOCK_MS` and the schema enforces it; the difference is headroom for everything
+ * a job does around the run itself: cutting the worktree, installing dependencies, verifying, and
+ * writing the transition.
+ */
+export const CARD_STAGE_EXPIRES_IN = Duration.fromMillis(MAX_STAGE_WALL_CLOCK_MS).plus({ minutes: 10 });
 
 /**
  * Retry policy for `card.stage`: a couple of quick retries for a transient failure (a dropped
@@ -18,6 +33,7 @@ export const CARD_STAGE_POLICY: JobQueuePolicy = {
     retryLimit: 2,
     retryDelay: Duration.fromObject({ seconds: 30 }),
     retryBackoff: true,
+    expiresIn: CARD_STAGE_EXPIRES_IN,
     deadLetter: 'card.stage.dead',
 };
 
@@ -54,6 +70,7 @@ export const JobsModule: ServerKitModule = {
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
+        registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 
         // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding

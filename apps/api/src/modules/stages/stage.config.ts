@@ -5,6 +5,17 @@ import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
 
 /**
+ * The longest a single stage run may be configured to take.
+ *
+ * A job carries far more than the agent: cutting the worktree, `pnpm install`, the run itself,
+ * verification and the transition all happen inside one `card.stage` job. The queue expires a job
+ * that outlives `CARD_STAGE_EXPIRES_IN` and hands it to another worker, so a stage whose wall clock
+ * approaches that figure produces a second agent on the same branch. This cap leaves the difference
+ * as headroom for everything around the run.
+ */
+export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
+
+/**
  * Stages are config, not code (PROJECT.md decision 8).
  *
  * Only `implementing` is configured today, but the shape is the full one — mode, worktree
@@ -72,8 +83,14 @@ export const StageConfigSchema = z.object({
     maxOutputTokens: z.number().int().min(1024).default(16000),
     /** Cumulative input tokens a single run may consume before it is cut off as a budget failure. */
     maxInputTokens: z.number().int().min(1000).default(2_000_000),
-    /** Wall-clock a single run may take before it is aborted as a budget failure. */
-    maxWallClockMs: z.number().int().min(1000).default(1_800_000),
+    /**
+     * Wall-clock a single run may take before it is aborted as a budget failure.
+     *
+     * Capped at `MAX_STAGE_WALL_CLOCK_MS`, because a stage that can outlive the job carrying it gets
+     * that job redelivered while the first attempt is still running — two agents in one worktree, on
+     " one branch. Rejecting the config is the only place that can be caught before it happens.
+     */
+    maxWallClockMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).default(1_800_000),
     /** Dollar ceiling passed to the `cli` engine, which tracks cost itself. Unset means no ceiling. */
     maxBudgetUsd: z.number().positive().optional(),
     /**

@@ -8,6 +8,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
+import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 
@@ -47,6 +48,7 @@ describe('CardStageJob', () => {
     let broker: { send: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn> };
     let boardRepo: { write: ReturnType<typeof vi.fn> };
+    let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
     let job: CardStageJob;
 
     beforeEach(async () => {
@@ -57,9 +59,12 @@ describe('CardStageJob', () => {
 
         board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
-        broker = { send: vi.fn(async () => {}) };
+        broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
         boardRepo = { write: vi.fn(async () => 'sha') };
+        // Card 0030: the job now hands its claim to the next job in a chain, and releases it when the
+        // chain stops, so a card is never briefly un-carried in a way a poller could enqueue into.
+        cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
 
         job = new CardStageJob(
             dispatcher as unknown as StageDispatcher,
@@ -67,6 +72,7 @@ describe('CardStageJob', () => {
             board,
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
         );
     });
 
@@ -86,6 +92,37 @@ describe('CardStageJob', () => {
 
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing' });
         expect(events.append).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Card 0030. A chaining card is continuously in flight: the claim passes from this job to the
+     * next one, never lapsing in between. A clear-then-record would leave a gap, and a poller ticking
+     * inside it would enqueue a second job for a card already being carried.
+     */
+    it('hands its claim to the next job when the chain continues, without releasing it first', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
+        expect(cardJobs.clear).not.toHaveBeenCalled();
+    });
+
+    it('releases the claim when the chain stops, so the card is enqueueable again', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'merged' }));
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        expect(cardJobs.record).not.toHaveBeenCalled();
+    });
+
+    it('releases the claim at a manual gate, where the card waits on a human rather than a worker', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: undefined }));
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(cardJobs.clear).toHaveBeenCalledWith('0001');
     });
 
     it('re-enqueues on a kickback to an earlier agent stage rather than treating it as terminal', async () => {
@@ -168,6 +205,16 @@ describe('CardStageJob', () => {
 
             await job.run({ cardId: '0001', stageName: 'implementing' });
             expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('releases the claim, so a poisoned card is not left claiming a job that will never run', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new Error('Not logged in · Please run /login');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
         });
     });
 });
