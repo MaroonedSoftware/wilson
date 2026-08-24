@@ -27,13 +27,6 @@ export const git = async (cwd: string, args: string[]): Promise<GitResult> => {
     }
 };
 
-/** The current commit sha of `path` (a file), or undefined if it has never been committed. */
-export const lastCommitSha = async (cwd: string, path: string): Promise<string | undefined> => {
-    const { stdout } = await git(cwd, ['log', '-1', '--format=%H', '--', path]);
-    const sha = stdout.trim();
-    return sha.length > 0 ? sha : undefined;
-};
-
 /** True when the working tree has no uncommitted changes. */
 export const isClean = async (cwd: string): Promise<boolean> => {
     const { stdout } = await git(cwd, ['status', '--porcelain']);

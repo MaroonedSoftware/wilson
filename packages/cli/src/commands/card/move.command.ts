@@ -1,13 +1,13 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, BoardRepository, EventLog, loadStages, validTargets } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, loadStages, validTargets } from '@wilson/api/cli-bootstrap';
 
 /**
  * Move a card to another stage.
  *
  * In step 0 the human decides every transition, but the write still goes through the board library
- * rather than an editor (PROJECT.md decision 3). Hand-editing frontmatter is what the typed layer
- * exists to prevent, and a transition nobody recorded is a gap in the card's history.
+ * rather than an editor (PROJECT.md decision 3). There is no longer a file to hand-edit, and a
+ * transition nobody recorded is a gap in the card's history.
  *
  * When the queue lands at step 3 the runner writes transitions itself, on the same path.
  */
@@ -37,18 +37,25 @@ const command: CommandModule = {
             return 0;
         }
 
-        const sha = await board.write(cardId, `Move ${cardId} to ${target}`, card => ({
-            ...card,
-            frontmatter: { ...card.frontmatter, stage: target },
-        }));
-
-        await ctx.container.get(EventLog).append({
-            project: config.project,
+        // The move and the event recording it commit together. The payload no longer carries the
+        // version id: it cannot, because the event is written inside the same transaction that
+        // mints it — and it no longer needs to, because a version row for this move is in that
+        // transaction too.
+        await board.writeWithEvent(
             cardId,
-            stage: target,
-            type: 'transition.written',
-            payload: { from: before.frontmatter.stage, to: target, by: 'human', sha },
-        });
+            `Move ${cardId} to ${target}`,
+            card => ({
+                ...card,
+                frontmatter: { ...card.frontmatter, stage: target },
+            }),
+            {
+                project: config.project,
+                cardId,
+                stage: target,
+                type: 'transition.written',
+                payload: { from: before.frontmatter.stage, to: target, by: 'human' },
+            },
+        );
 
         ctx.logger.info(`${cardId}: ${before.frontmatter.stage} → ${target}`);
         return 0;

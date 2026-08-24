@@ -1,12 +1,12 @@
 # PROJECT.md
 
-Kickoff brief for a stage-based agent runner over a markdown-in-repo task board,
-with an HTTP API, a web board, and interactive planning.
+Kickoff brief for a stage-based agent runner over a task board, with an HTTP API,
+a web board, and interactive planning.
 Read this before planning. Ask about anything left open here before writing code.
 
 ## What we are building
 
-A daemon that watches markdown task boards across several project repos, picks up
+A daemon that tracks task boards for several project repos, picks up
 cards that are ready for their next stage, runs a headless coding agent against
 that card in an isolated git worktree, verifies the result against a
 machine-checkable exit condition, and advances or kicks back the card accordingly.
@@ -22,37 +22,49 @@ Everything between those two points runs unattended.
 
 These are settled. Challenge them only if you find a concrete blocker.
 
-1. **The repo is the system of record; Postgres is operational state.** Card
-   content, plan files, and stage transitions are markdown committed to each
-   project repo. Postgres holds only what the runner needs to operate: job queue,
-   leases, event log, planning sessions, comment anchors, budget accounting. Losing
-   the database loses history and in-flight work, never the board.
-2. **We own the board format.** Backlog.md was evaluated for the CLI, MCP server,
+1. **Postgres is the system of record for the board; git is the system of record
+   for code.** Cards, card versions, transitions, events, planning sessions, comment
+   anchors and budget accounting are rows. The code repo holds code and nothing else.
+   Durability is the database's problem — backups and point-in-time recovery — not a
+   property the architecture provides by keeping a second copy in another store.
+   Previously the board was markdown in a sibling git repo, which made every
+   transition a two-phase write: commit the card file, then append the event, with no
+   way to reconcile a partial failure. A transition and its event now share a
+   transaction.
+2. **We own the board schema.** Backlog.md was evaluated for the CLI, MCP server,
    and web Kanban it provides; we are building our own API and UI, which was most
-   of its value, and its schema could not be assumed to carry the plan contract.
-   A simple frontmatter format instead, in a board repo beside each project.
-3. **Board mutations go through a typed layer**, never freehand file edits. The API
-   owns every write; agents and the UI both call it. Hand-editing YAML frontmatter
-   breaks every parser downstream.
+   of its value, and its schema could not be assumed to carry the plan contract. Its
+   markdown substrate is the other reason: a board with more than one writer wants
+   transactions, and a directory of files cannot provide them.
+3. **Board mutations go through the API.** There is no second path — no file to
+   hand-edit, no parser to break, no out-of-band writer to reconcile. Agents, the CLI
+   and the web app all call the same typed layer. The operator's escape hatch is
+   `wilson card edit`, which opens `$EDITOR` and submits the result.
 4. **The plan file is the contract.** Downstream stages read the plan and the repo.
    They never inherit the planning conversation. Comments and chat are planning-time
    scaffolding; only text that lands in the plan file binds anything.
 5. **Agents do not move their own cards.** They produce artifacts and exit. The
    runner verifies the exit condition and writes the transition. Sole writer.
-6. **Board state lands on main. Code lands on branches.** One worktree and one
-   branch per card. A card branch must never touch board paths; enforced in the
-   agent's write tool, not checked after the fact. Corollary: the board is not
-   readable state for an agent. The plan file is its only input.
-7. **State is per-card and append-only.** No shared index file that every agent
-   touches, so parallel commits merge clean.
-8. **Stages are config, not code.** Adding a stage, re-routing models, or changing
+6. **The board is not in the code repo. Code lands on branches.** One worktree and
+   one branch per card. Board state is unreachable from a worktree by construction
+   rather than by a deny rule, so the corollary holds absolutely: the board is not
+   readable state for an agent, and the plan is its only input. The write tool's deny
+   list still covers `.runner/` for decision 8.
+7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
    a provider is a config edit.
-9. **Agents cannot modify the machinery.** Stage config, stage prompts, and
+8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
    everything under `.runner/` are human-write-only, enforced in the write tool.
    This system is meant to build itself under review; an agent that can rewrite its
    own exit condition passes every time.
-10. **One project is one folder is one board.** Everything below is per project:
-    board directory, stage config, worktree root, port range, git credentials.
+9. **One project is one board.** Everything below is per project: board rows, stage
+   config, worktree root, port range, git credentials. A project is a row, not a
+   directory — which is what makes twenty projects twenty rows rather than twenty git
+   clones the daemon must hold open and keep current.
+
+A retired decision, recorded because its absence is load-bearing: _"state is per-card
+and append-only; no shared index file that every agent touches, so parallel commits
+merge clean."_ That was a constraint imposed by git's merge semantics. Rows do not
+merge, and nothing downstream depended on it except the board format.
 
 ## Architecture
 
@@ -102,7 +114,7 @@ A stage names its engine in config: `adapter: api | cli`.
 **`api`** drives the AI SDK's `ToolLoopAgent` against a provider key. One interface
 across Anthropic, OpenAI and xAI, so per-column model routing is a config value.
 We own the tool set — read, write, edit, glob, grep, bash — scoped to the card's
-worktree, and that is where decisions 6 and 9 are enforced: a write outside the
+worktree, and that is where decisions 6 and 8 are enforced: a write outside the
 plan's files in scope, or into board paths or `.runner/`, fails at the tool rather
 than in a post-hoc diff check. The result comes back through a `report_result`
 tool, and `stopWhen` ends the loop when the agent calls it.
@@ -306,79 +318,66 @@ plan beside a chat panel and streams the agent's output as it writes.
   to the agent as anchored instructions. The agent revises the plan and marks each
   addressed. Per decision 4, only the resulting plan text binds downstream stages —
   the thread is not carried into implementation.
-- **Approval is explicit and versioned.** Approving commits the card file and
-  records the resulting commit as `plan_sha`. That version, not the live document,
-  is what every downstream stage reads.
+- **Approval is explicit and versioned.** Approving writes a card version and pins the
+  card to it. That version, not the live document, is what every downstream stage reads.
 
-## Board format
+## Board schema
 
-One file per card. Not a file per column: a column file is a shared index that
-every card move rewrites, which is exactly the contention decision 7 exists to
-avoid. Column membership is a frontmatter field, so a transition is one atomic
-single-file write.
-
-The board is its own git repo, a sibling of the code repo rather than a directory
-inside it:
+A card is a row. Column membership is a column, so a transition is one `UPDATE` inside
+the same transaction that writes its event — the property the old two-store split could
+not provide.
 
 ```
-myproject/          # code repo — worktrees are cut from this
-myproject.board/    # board repo — the daemon holds one clone and writes serially
-  cards/0042-port-allocator.md
-  config/stages.yaml
-  context/0042/
+projects        id, name, code_root, worktree_root, port_range, ...
+runner.cards    (project, id) PK, title, stage, branch, body, retries,
+                external, source_closed, position, pinned_version_id, created_at
+runner.card_deps       (project, card_id, depends_on_id) — FK both ways
+runner.card_versions   id, project, card_id, frontmatter, body, message, created_at
+runner.card_events     append-only; every claim, denial, grant and transition
 ```
 
-Separating them makes decision 6 structural instead of enforced. A card worktree is
-a worktree of the code repo, which simply contains no board files — so there is no
-stale board copy on a card branch, no way for a merge to resurrect old board state,
-and the write tool's deny rule becomes a backstop rather than the only line of
-defense. It also keeps transition commits, which are frequent and noisy, out of the
-code history. It is still markdown in git; it is just not the _same_ git.
+`runner.cards` is current state — what `card list` and dispatch read. `runner.card_versions`
+is append-only history: the replacement for `git log` on the board repo, carrying the
+message that used to be the commit message (`0018: implementing -> testing`).
 
-Consequence for dispatch: the plan does not live in the worktree. At dispatch the
-runner materializes the card at `plan_sha` to a path outside the worktree —
-`/run/cards/<id>/plan.md` — and passes that absolute path to the agent. Outside, so
-it cannot be accidentally committed to the card branch.
+**Card ids stay sequential and human-readable.** `0042` is typed into CLI commands,
+appears in branch names (`card/0042-port-allocator`) and is read in `dependsOn`. The
+primary key makes a duplicate an error rather than a casualty — the file-backed board
+used `writeFile`, which overwrites, and a real card was destroyed that way. Hash ids are
+the right answer when writers are separated by git remotes; they are unnecessary when
+writers are separated by a transaction.
 
-The card file _is_ the plan file. Frontmatter carries state; the body carries the
-plan contract under fixed headings:
+**A version snapshots the whole card, not just the plan body.** `readAt` replaces
+`git show <sha>:<path>`, and the dispatcher reads frontmatter from the pinned card —
+`assertDispatchable` checks its stage and `dependsOn`, and the branch name comes from its
+title. Storing only the body would silently change dispatch semantics.
 
-```markdown
----
-id: 0042
-title: Port allocator
-stage: implementing
-branch: card/0042-port-allocator
-depends_on: [0039]
-retries: { review: 1 }
-plan_sha: 8f2c1ab
----
+**The plan is a version, not a file.** `cards.pinned_version_id` points at the version
+approved at plan-approval, and every downstream stage reads that version rather than the
+newest one. This is exactly what `plan_sha` bought, and it preserves decision 4 unchanged:
+"the plan file is the contract" becomes "the approved plan version is the contract", still
+a specific immutable version, now without git in the read path.
 
-## Goal
+**Dispatch materializes the plan to a file.** Unchanged in effect: at dispatch the runner
+writes the approved version to `/run/cards/<id>/plan.md`, outside the worktree, and passes
+that absolute path to the agent. Outside, so it cannot be committed to the card branch; a
+file, because that is what the agent reads.
 
-## Constraints
+**Ordering is a column.** `cards.position` orders the parking lot. With the shared-index
+constraint retired there is nothing clever to do here — no fractional ranks, no merge
+semantics. A reorder is one `UPDATE` per moved card in one transaction.
 
-## Files in scope
-
-## Tasks
-
-## Acceptance criteria
-
-## Out of scope
-```
-
-`plan_sha` is the commit of this file at the moment of plan approval. Downstream
-stages read the card **at that sha**, not at HEAD. So a human editing a card while
-implementing is running cannot retroactively change the contract under a working
-agent, and "the plan file is the contract" (decision 4) means a specific immutable
-version of it.
+**Stage config is still a file**, at `config/stages.yaml` under the project's board
+directory. It is machinery, not board state: human-write-only (decision 8), reviewed like
+code, and deliberately not reachable through any API an agent could call.
 
 ## Scope enforcement
 
 `Files in scope` holds globs, not paths — `src/runner/**`, `test/runner/**` — so a
 plan does not have to predict every file it will create. The write tool allows a
 path when it matches a scope glob and no deny glob. The deny list always contains
-`.runner/**`, stage config, and any board path (decisions 6 and 9). Each project's
+`.runner/**` and stage config (decisions 6 and 8) — board paths no longer exist in a
+worktree to deny. Each project's
 config adds an `always_allowed` list for generated and machine-owned files that no
 plan should have to mention — `pnpm-lock.yaml`, `src/generated/**`.
 
@@ -396,23 +395,20 @@ When an agent genuinely needs a file outside scope, it cannot write it. It calls
 Start on `widen` while plans are still unreliable; tighten to `kickback` once they
 are not.
 
-## Reconciliation with human edits
+## The operator's escape hatch
 
-The API owns board writes, but a human will edit a card in an editor. Since the
-repo is the system of record (decision 1), the file has to win — refusing external
-edits would only make the file and the database disagree silently. The daemon
-watches each board repo and reconciles:
+There is no out-of-band edit path to reconcile, which removes the filesystem watcher, the
+re-parse, the `external_transition` event, and the lost-update race between the daemon and
+a text editor.
 
-- **Body or descriptive frontmatter changed** — accept, re-parse, emit a feed
-  event. Someone improved the plan text; nothing else to do.
-- **`stage`, `branch`, or `retries` changed** — these are fields the runner owns as
-  sole writer (decision 5), so an external change is an operator override, not a
-  normal transition. Accept it, record it in the event log as `external_transition`,
-  and cancel any in-flight job for that card, since its premise just moved.
+What it does not remove is the need to fix a wedged card by hand. `wilson card edit <id>`
+opens the plan body in `$EDITOR` and saves it as a new version; `wilson card move <id>
+<stage>` remains the operator override, recorded as a `transition.written` event with
+`by: human` and cancelling any in-flight job for that card — the same semantics the
+reconciler gave state-field edits, now explicit rather than inferred from a file change.
 
-A card being edited while a stage runs is not a conflict: the card file lives on
-main, the running work lives on a branch, and the running stage is pinned to
-`plan_sha` regardless.
+Frontmatter is deliberately not editable through `card edit`: stage, branch and retries are
+runner state (decision 5), and `card move` is the recorded way to override one.
 
 ## Notification
 
@@ -476,8 +472,8 @@ writes through the API like everything else (decision 3) — never straight to d
   to the external system as a status mirror. Two systems of record is the failure
   mode here, and one-way authority with two-way data is what avoids it. This is the
   same rule as human filesystem edits, applied to a different writer.
-- **The external ref lives in frontmatter** — `external: { linear: ENG-123 }` — so
-  the mapping is durable in the repo and survives losing Postgres.
+- **The external ref is a column** — `cards.external` as `{ linear: 'ENG-123' }` — so
+  the mapping is queryable and indexed, and a source's inbound updates hit one row.
 - **Import is opt-in, not firehose.** A source config names a label, view, or query.
   Mirroring an entire Linear workspace onto the board floods it with cards that will
   never be planned.
@@ -504,29 +500,26 @@ Fetch a document and attach it to a card as planning input: a Slack thread, a Li
 comment chain, a Notion page, a URL.
 
 **Snapshot at attach time; never fetch live during planning.** The provider pulls
-the content once, stores it under `context/<card-id>/` in the board repo, and the planning
-agent reads the snapshot. A live fetch would make planning unreproducible — the
+the content once, stores it against the card, and the planning agent reads the snapshot. A live fetch would make planning unreproducible — the
 thread keeps moving, and a re-run after a kickback sees different input than the run
-that produced the plan. This is the same instinct as `plan_sha`: pin the input, then
+that produced the plan. This is the same instinct as pinning the plan version: pin the input, then
 reason about it. It also means context survives the thread being deleted.
 
 Attach is a human action in the web app, or a card source can attach automatically
 (the Linear ticket that created the card brings its own description and comments).
 
-Snapshots are committed to the **board** repo, not the code repo — which is most of
-what makes this comfortable, since the board repo is operator-private by
-construction while the code repo is the one that gets shared. Committing is the
-default because reproducibility is the entire reason for snapshotting: the plan's
-input pinned beside the plan. Two limits on that:
+Snapshots are rows, not files in the code repo — which is most of what makes this
+comfortable, since the database is operator-private by construction while the code repo is
+the one that gets shared. Retention is the default because reproducibility is the entire
+reason for snapshotting: the plan's input pinned beside the plan. Two limits on that:
 
 - Store only what planning needs — message text, author display name, timestamp —
   behind a manifest recording source URL, fetched-at, and who fetched it. Not
   emails, not account ids, not attachments.
-- A per-project `context.retain: commit | ephemeral` toggle. Under `ephemeral` the
-  snapshot lives in Postgres under a TTL and the card records only the source URL and
-  a content hash, accepting that a re-run after expiry cannot reproduce its input.
-  For a project where even trimmed third-party text should not land in git, losing
-  reproducibility is the right trade.
+- A per-project `context.retain: keep | ephemeral` toggle. Under `ephemeral` the snapshot
+  expires on a TTL and the card keeps only the source URL and a content hash, accepting
+  that a re-run after expiry cannot reproduce its input. For a project where even trimmed
+  third-party text should not be retained, losing reproducibility is the right trade.
 
 ### Notification channels
 
@@ -591,8 +584,9 @@ input the operator did not write.
 Single `docker compose` stack: API + daemon in one image, the web app served
 statically from it, and Postgres.
 
-- **Repos are mounted volumes.** Projects live on the host; worktrees are created
-  inside the mount so the host can inspect them and open them in an editor.
+- **Code repos are mounted volumes.** Projects live on the host; worktrees are created
+  inside the mount so the host can inspect them and open them in an editor. The board is
+  not a mount — it is in Postgres, which is already in the stack.
 - **Project builds run in the daemon container.** Build and test commands execute
   directly, so the image carries each project's toolchain (Node, pnpm, and whatever
   else a registered project needs). This is the constraint of dropping Docker from
@@ -654,7 +648,7 @@ only work on the critical path is work a human cannot stand in for.
 
 ### Do not saw off the branch you are sitting on
 
-Self-hosting makes decision 9 ambiguous, and the ambiguity is dangerous. When the
+Self-hosting makes decision 8 ambiguous, and the ambiguity is dangerous. When the
 project _is_ the runner, almost all of the runner's source is legitimately in scope
 for cards — so "agents cannot modify the machinery" has to mean the **running
 deployment**, not the source tree.
@@ -689,7 +683,7 @@ active repair.
 
 Hand-run, no queue, no API, no UI. One project — this one.
 
-- board library: parse and write card files, serial writer against the board repo
+- board repository over Postgres, with the card write and its event in one transaction
 - scope matcher: allow globs, deny list, `request_scope`
 - worktree manager: create, branch, destroy, reclaim
 - agent runner: `ToolLoopAgent`, the six tools, `Output.object`, budget via `stopWhen`
@@ -706,7 +700,9 @@ because everything built afterward assumes it:
 
 - **Scope enforcement in the write tool.** Retrofitted, safety becomes opt-in.
 - **Structured output.** Parsing prose later is a tar pit.
-- **`plan_sha` pinning.** Immutability added afterward means touching every stage.
+- **Plan version pinning.** Immutability added afterward means touching every stage.
+- **Board writes and their events share a transaction.** Retrofitted, every transition is
+  a two-phase write with no way to reconcile a partial failure.
 - **Sole-writer transitions.** Once writes are scattered, they never come back.
 - **Seams, even with one implementation.** Stage dispatch takes a stage config object
   though only one stage exists; the board layer is a library that knows nothing about
@@ -744,7 +740,7 @@ Sequenced by human toil removed per unit of work:
    moment you can walk away, dogfooding starts compounding.
 3. **planning and plan-review stages** — deliberately third. Write plans by hand
    until you know what a good one looks like.
-4. **API and the read-only web board** — stops you reading markdown in an editor.
+4. **API and the read-only web board** — stops you reading the board through psql.
 5. Everything else, as cards.
 
 ## Non-goals
@@ -759,22 +755,21 @@ Sequenced by human toil removed per unit of work:
 
 ## Resolved during review
 
-- **Board layer:** own the format; Backlog.md dropped. See decision 2.
-- **Source of truth:** repo authoritative, Postgres operational. See decision 1.
+- **Board layer:** own the schema; Backlog.md dropped. See decision 2.
+- **Source of truth:** Postgres for the board, git for code. See decision 1.
 - **Agent invocation:** AI SDK `ToolLoopAgent`, not `HarnessAgent`, with a `cli`
   adapter as an escape hatch. See the architecture section.
 - **How a stage prompt receives the plan:** an absolute file path outside the card's
-  worktree, materialized at `plan_sha`. Prompt injection burns context and does not
+  worktree, materialized at its approved version. Prompt injection burns context and does not
   survive a retry; stdin does not survive a re-dispatch.
-- **Where per-card event state lives:** append-only in Postgres, projected into the
-  card's markdown on transition. The repo keeps the durable record; the database
-  keeps the operational one.
-- **Board file format:** one file per card; the card file is the plan file. See
-  Board format.
+- **Where per-card event state lives:** append-only in Postgres, in the same transaction
+  as the transition it describes.
+- **Board schema:** a card is a row; `card_versions` carries its history. See Board
+  schema.
 - **Files in scope:** globs plus a deny list, enforced in the write tool, with
   `request_scope` as an auditable escape valve. See Scope enforcement.
-- **Out-of-band edits:** watched and reconciled, with state-field edits treated as
-  operator overrides that cancel in-flight work. See Reconciliation.
+- **Out-of-band edits:** there is no out-of-band path; the operator edits through the CLI
+  or the web app. See The operator's escape hatch.
 - **Reaching a human:** ServerKit `comms`, four triggers, dispatched as jobs. See
   Notification.
 - **Adversarial plan review:** its own stage, no worktree, not a gate inside
@@ -785,8 +780,6 @@ Sequenced by human toil removed per unit of work:
 - **Plugins:** three narrow seams — card source, context provider, notification
   channel — as in-process `ServerKitModule` registrations, not an ecosystem. See
   Plugins.
-- **Board location:** its own repo beside the code repo, making decision 6
-  structural. See Board format.
 - **Plan-review verdict schema:** four fields, section enum, blocker-implies-revise,
   no revised-plan field. See Stage model.
 - **Image toolchains:** declared per project and doctor-checked at boot; exotic
@@ -795,8 +788,8 @@ Sequenced by human toil removed per unit of work:
   See Architecture.
 - **Externally closed tickets:** drop if idle, finish the running stage then
   `needs-human`, never auto-merge. See Plugins.
-- **Context retention:** committed to the board repo, trimmed, with an `ephemeral`
-  escape for projects that cannot hold third-party text in git. See Plugins.
+- **Context retention:** stored against the card, trimmed, with an `ephemeral` TTL escape
+  for projects that cannot retain third-party text. See Plugins.
 
 ## Open questions to resolve in planning
 

@@ -4,6 +4,8 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { BoardConfig, StaticBoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
+import { PostgresBoardRepository } from './postgres.board.repository.js';
+import { BoardImporter } from './board.importer.js';
 import { optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 export const BoardModule: ServerKitModule = {
@@ -24,6 +26,9 @@ export const BoardModule: ServerKitModule = {
             ),
         );
 
-        registry.register(BoardRepository).useClass(BoardRepository).asTransient();
+        // The board lives in Postgres. `boardRoot` is still resolved above because stage config is
+        // still a file (`config/stages.yaml`) and `loadStages` reads it from there.
+        registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
+        registry.register(BoardImporter).useClass(BoardImporter).asTransient();
     },
 };

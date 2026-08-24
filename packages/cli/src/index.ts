@@ -7,7 +7,10 @@ import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
 import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
 
 import boardInitCommand from './commands/board/init.command.js';
+import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
+import cardCreateCommand from './commands/card/create.command.js';
+import cardEditCommand from './commands/card/edit.command.js';
 import cardMoveCommand from './commands/card/move.command.js';
 import cardNextCommand from './commands/card/next.command.js';
 import cardRunCommand from './commands/card/run.command.js';
@@ -15,7 +18,7 @@ import cardShowCommand from './commands/card/show.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import runCommand from './commands/run.command.js';
 
-import { boardRepoReady } from './checks/board.repo.js';
+import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
@@ -40,7 +43,10 @@ const app = await createCliApp({
     modules: modules as unknown as Parameters<typeof createCliApp>[0]['modules'],
     commands: [
         reg(['board', 'init'], boardInitCommand),
+        reg(['board', 'import'], boardImportCommand),
         reg(['card', 'list'], cardListCommand),
+        reg(['card', 'create'], cardCreateCommand),
+        reg(['card', 'edit'], cardEditCommand),
         reg(['card', 'show'], cardShowCommand),
         reg(['card', 'move'], cardMoveCommand),
         reg(['card', 'next'], cardNextCommand),
@@ -56,7 +62,7 @@ const app = await createCliApp({
         queueReachable,
         providerKeySet,
         codeRepoReady,
-        boardRepoReady,
+        boardReady,
         daemonCurrent,
     ],
 });

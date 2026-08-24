@@ -1,11 +1,11 @@
-import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
+import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
@@ -18,9 +18,21 @@ import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { ModelRegistry } from '#modules/agent/model.registry.js';
+import type { Kysely } from 'kysely';
+import type { DB } from '#modules/data/db.js';
 
-const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+
+// The board is Postgres now, so these exercise a real database rather than a real git repo. One
+// connection per file; isolation comes from a unique project per test, since cards are keyed by
+// (project, id).
+let db: Kysely<DB>;
+beforeAll(() => {
+    db = testDb();
+});
+afterAll(async () => {
+    await db.destroy();
+});
 
 const baseCard: Card = {
     frontmatter: {
@@ -76,16 +88,11 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-'));
         boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await exec('git', ['init', '-q', '-b', 'main'], { cwd: boardRoot });
-        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: boardRoot });
-        await exec('git', ['config', 'user.name', 'Test'], { cwd: boardRoot });
-
-        const config = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        board = new BoardRepository(config, silentLogger as never);
-        await board.create(baseCard, 'initial');
 
         events = { append: vi.fn(async () => {}) };
+        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+        await board.create(baseCard, 'initial');
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
@@ -170,6 +177,8 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
 
         await writeTransition(stage, baseCard, outcome({ passed: true }));
 
+        // The second argument is the open transaction the card was moved in. Its presence is the
+        // point: the event and the move commit together, so neither can survive without the other.
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({
                 cardId: '0001',
@@ -177,16 +186,20 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
                 type: 'transition.written',
                 payload: { from: 'testing', to: 'review', retries: {}, by: 'runner' },
             }),
+            expect.anything(),
         );
     });
 
-    it('commits the transition to the board repo, not just the working tree', async () => {
+    it('records a version for the transition, not just the card\u2019s current state', async () => {
         const stage = makeStage({ onPass: 'review' });
 
         await writeTransition(stage, baseCard, outcome({ passed: true }));
 
-        const { stdout } = await exec('git', ['log', '-1', '--pretty=%s'], { cwd: boardRoot });
-        expect(stdout.trim()).toBe('0001: testing -> review');
+        // The append-only half of the board: `runner.cards` says where the card is now, and this
+        // says how it got there — what `git log` on the board repo used to answer.
+        const version = await board.currentVersion('0001');
+        const row = await db.selectFrom('runner.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        expect(row.message).toBe('0001: testing -> review');
     });
 
     it('routes to needs-human once a kicked-back card exhausts its retries', async () => {
@@ -217,17 +230,12 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-terminal-'));
         boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await exec('git', ['init', '-q', '-b', 'main'], { cwd: boardRoot });
-        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: boardRoot });
-        await exec('git', ['config', 'user.name', 'Test'], { cwd: boardRoot });
-
-        const config = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        board = new BoardRepository(config, silentLogger as never);
-        await board.create(baseCard, 'initial');
 
         events = { append: vi.fn(async () => {}) };
         worktrees = { reclaim: vi.fn(async () => {}) };
+        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+        await board.create(baseCard, 'initial');
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,

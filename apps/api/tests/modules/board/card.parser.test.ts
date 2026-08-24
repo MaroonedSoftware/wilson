@@ -38,7 +38,7 @@ describe('parseCard', () => {
             branch: 'card/0042-port-allocator',
             dependsOn: ['0039'],
             retries: { review: 1 },
-            planSha: '8f2c1ab',
+            planVersionId: '8f2c1ab',
         });
     });
 

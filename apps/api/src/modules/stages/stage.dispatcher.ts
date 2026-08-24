@@ -60,13 +60,13 @@ export class StageDispatcher {
         const stages = await loadStages(this.config.boardRoot);
         const stage = findStage(stages, stageName);
 
-        // Read the card at its approved sha, not at HEAD: an edit landing on the board while this
+        // Read the card at its approved version, not the newest one: an edit landing on the board while this
         // stage runs must not change the contract underneath it.
         const head = await this.board.read(cardId);
-        const pinnedSha = head.frontmatter.planSha;
+        const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
         if (!pinnedSha) {
-            this.logger.warn(`card ${cardId} has no planSha; running against the working copy of the plan`);
+            this.logger.warn(`card ${cardId} has no approved plan version; running against current state`);
         }
 
         this.assertDispatchable(card, stage);
@@ -226,10 +226,11 @@ export class StageDispatcher {
     /**
      * Move the card: forward on a pass, back on a kickback, and record why either way.
      *
-     * The runner is the sole writer of card state (PROJECT.md decision 5) — this always goes through
-     * `BoardRepository.write`, never a direct edit of the file. A failure here is not swallowed: the
-     * stage's own `stage.passed`/`stage.failed` event is already recorded, but a transition that did
-     * not happen must surface, so this throws rather than catching.
+     * The runner is the sole writer of card state (PROJECT.md decision 5). The move and the
+     * `transition.written` event that records it go through `writeWithEvent`, so they commit
+     * together — a card cannot end up moved with no event, or an event describing a move that did
+     * not happen. A failure here is not swallowed: the stage's own `stage.passed`/`stage.failed`
+     * event is already recorded, but a transition that did not happen must surface, so this throws.
      */
     private async writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string> {
         const decision = shouldAdvance(outcome.passed, outcome.result)
@@ -237,19 +238,22 @@ export class StageDispatcher {
             : kickback(stage, card.frontmatter.retries);
         const findings = findingsFrom(outcome.result);
 
-        await this.board.write(cardId, `${cardId}: ${stageName} -> ${decision.target}`, current => ({
-            ...current,
-            frontmatter: { ...current.frontmatter, stage: decision.target, retries: decision.retries },
-            body: findings ? withFindings(current.body, findings) : current.body,
-        }));
-
-        await this.events.append({
-            project: this.config.project,
+        await this.board.writeWithEvent(
             cardId,
-            stage: stageName,
-            type: 'transition.written',
-            payload: { from: stageName, to: decision.target, retries: decision.retries, by: 'runner' },
-        });
+            `${cardId}: ${stageName} -> ${decision.target}`,
+            current => ({
+                ...current,
+                frontmatter: { ...current.frontmatter, stage: decision.target, retries: decision.retries },
+                body: findings ? withFindings(current.body, findings) : current.body,
+            }),
+            {
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'transition.written',
+                payload: { from: stageName, to: decision.target, retries: decision.retries, by: 'runner' },
+            },
+        );
 
         if (isTerminal(decision.target)) {
             // The card's life has ended; the transition above already stands. A worktree left behind
@@ -278,7 +282,7 @@ export class StageDispatcher {
      * next attempt would spend the same budget again, and a retry budget is for work that came
      * back wrong, not work that cannot be afforded.
      *
-     * Writes the transition through `BoardRepository` exactly as a kickback would: same commit
+     * Writes the transition through `BoardRepository` exactly as a kickback would: same version
      * message shape, same terminal-state worktree reclaim. Retry counters are left untouched —
      * this card never ran, so it never attempted the stage.
      */
@@ -299,18 +303,21 @@ export class StageDispatcher {
         });
 
         const target = 'needs-human';
-        await this.board.write(cardId, `${cardId}: ${stageName} -> ${target}`, current => ({
-            ...current,
-            frontmatter: { ...current.frontmatter, stage: target },
-        }));
-
-        await this.events.append({
-            project: this.config.project,
+        await this.board.writeWithEvent(
             cardId,
-            stage: stageName,
-            type: 'transition.written',
-            payload: { from: stageName, to: target, retries: card.frontmatter.retries, by: 'runner' },
-        });
+            `${cardId}: ${stageName} -> ${target}`,
+            current => ({
+                ...current,
+                frontmatter: { ...current.frontmatter, stage: target },
+            }),
+            {
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'transition.written',
+                payload: { from: stageName, to: target, retries: card.frontmatter.retries, by: 'runner' },
+            },
+        );
 
         // Terminal exactly as a kickback that exhausts its attempts is terminal: reclaim whatever
         // worktree an earlier attempt left behind. Safe to call when there is nothing there.

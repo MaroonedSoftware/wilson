@@ -1,101 +1,54 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { Injectable } from 'injectkit';
-import { Logger } from '@maroonedsoftware/logger';
-import { parseCard, serializeCard } from './card.parser.js';
-import { git, lastCommitSha } from './git.js';
-import { Mutex } from './mutex.js';
+import type { AppendableCardEvent } from '#modules/events/event.log.js';
 import type { Card } from './card.js';
-import { BoardConfig } from './board.config.js';
-
-const CARDS_DIR = 'cards';
 
 /**
- * The board repo.
+ * The board.
  *
- * Knows nothing about the CLI. It is a library the CLI drives today and the API drives from step 6,
- * which is the seam that keeps step 6 from being a rewrite.
+ * An abstract class rather than an interface so it can be a DI token, and a seam even though one
+ * implementation exists (PROJECT.md, "seams, even with one implementation"). Knows nothing about the
+ * CLI: a library the CLI drives and the API drives, which is what kept step 6 from being a rewrite.
  *
- * Every mutation goes through `write`, which holds the mutex, writes one file, and commits. The
- * runner is the sole writer of card state (PROJECT.md decision 5); a human editing a card file
- * directly is reconciled, not prevented, but that path is not this class.
+ * Every mutation goes through `write` or `create`, which snapshot the card into an append-only
+ * version and return that version's id. The runner is the sole writer of card state (decision 5).
  */
 @Injectable()
-export class BoardRepository {
-    private readonly mutex = new Mutex();
+export abstract class BoardRepository {
+    abstract list(): Promise<Card[]>;
 
-    constructor(
-        private readonly config: BoardConfig,
-        private readonly logger: Logger,
-    ) {}
-
-    private cardPath(id: string): string {
-        return join(CARDS_DIR, `${id}.md`);
-    }
-
-    async list(): Promise<Card[]> {
-        const dir = join(this.config.boardRoot, CARDS_DIR);
-        const entries = await readdir(dir).catch(() => [] as string[]);
-        const cards: Card[] = [];
-        for (const entry of entries.filter(e => e.endsWith('.md')).sort()) {
-            try {
-                cards.push(parseCard(await readFile(join(dir, entry), 'utf8')));
-            } catch (err) {
-                // One malformed card must not blind the operator to every other card; surface it and
-                // keep going. `card show` on that id will still throw with the parse error.
-                this.logger.warn(`skipping unparseable card ${entry}: ${(err as Error).message}`);
-            }
-        }
-        return cards;
-    }
-
-    async read(id: string): Promise<Card> {
-        return parseCard(await readFile(join(this.config.boardRoot, this.cardPath(id)), 'utf8'));
-    }
+    abstract read(id: string): Promise<Card>;
 
     /**
-     * Read a card as it stood at a specific commit.
+     * Read a card as it stood at a specific version.
      *
-     * This is how a running stage sees its plan: pinned to `planSha`, so an edit landing on the
-     * board while the stage runs cannot change the contract underneath it.
+     * This is how a running stage sees its plan: pinned to `planVersion`, so an edit landing while
+     * the stage runs cannot change the contract underneath it. A version snapshots frontmatter and
+     * body together, because the dispatcher reads both from the pinned card.
      */
-    async readAt(id: string, sha: string): Promise<Card> {
-        const { stdout } = await git(this.config.boardRoot, ['show', `${sha}:${this.cardPath(id)}`]);
-        return parseCard(stdout);
-    }
+    abstract readAt(id: string, version: string): Promise<Card>;
 
-    /** The commit that last touched this card's file. */
-    async currentSha(id: string): Promise<string | undefined> {
-        return lastCommitSha(this.config.boardRoot, this.cardPath(id));
-    }
+    /** The most recent version of this card, or undefined if it has none. */
+    abstract currentVersion(id: string): Promise<string | undefined>;
 
     /**
-     * Apply a change to one card and commit it.
+     * Apply a change to one card and record it.
      *
-     * Read-modify-write under the mutex: the mutate callback receives the card as it is on disk
-     * right now, not a copy the caller read earlier and may have been holding while something else
-     * wrote. Returns the new commit sha.
+     * Read-modify-write: the mutate callback receives the card as it is right now, not a copy the
+     * caller read earlier and may have been holding while something else wrote. Returns the new
+     * version id.
      */
-    async write(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>): Promise<string> {
-        return this.mutex.run(async () => {
-            const relative = this.cardPath(id);
-            const absolute = join(this.config.boardRoot, relative);
-            const updated = await mutate(parseCard(await readFile(absolute, 'utf8')));
-            await writeFile(absolute, serializeCard(updated), 'utf8');
-            await git(this.config.boardRoot, ['add', '--', relative]);
-            await git(this.config.boardRoot, ['commit', '-m', message, '--', relative]);
-            return (await lastCommitSha(this.config.boardRoot, relative)) ?? '';
-        });
-    }
+    abstract write(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>): Promise<string>;
 
-    /** Create a card file that does not exist yet, and commit it. */
-    async create(card: Card, message: string): Promise<string> {
-        return this.mutex.run(async () => {
-            const relative = this.cardPath(card.frontmatter.id);
-            await writeFile(join(this.config.boardRoot, relative), serializeCard(card), 'utf8');
-            await git(this.config.boardRoot, ['add', '--', relative]);
-            await git(this.config.boardRoot, ['commit', '-m', message, '--', relative]);
-            return (await lastCommitSha(this.config.boardRoot, relative)) ?? '';
-        });
-    }
+    /**
+     * Write a transition and the event describing it as one operation.
+     *
+     * This is the reason the board is in Postgres. Previously a transition committed the card file
+     * to git and then appended the event here — two stores, sequentially, with no way to reconcile a
+     * partial failure. Exposing the pair as a single method rather than a transaction handle the
+     * caller must remember to pass makes the invariant structural instead of conventional.
+     */
+    abstract writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string>;
+
+    /** Create a card that does not exist yet. Fails if the id is taken. */
+    abstract create(card: Card, message: string): Promise<string>;
 }

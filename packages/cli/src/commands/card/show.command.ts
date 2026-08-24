@@ -28,7 +28,7 @@ const command: CommandModule<ShowOpts> = {
                         title: fm.title,
                         stage: fm.stage,
                         branch: fm.branch ?? null,
-                        planSha: fm.planSha ?? null,
+                        planVersionId: fm.planVersionId ?? null,
                         dependsOn: fm.dependsOn,
                         filesInScope: scope,
                         secondsInStage: timeInStage ? timeInStage.as('seconds') : null,
@@ -44,7 +44,7 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`stage:    ${fm.stage}`);
         if (timeInStage) ctx.logger.info(`for:      ${timeInStage.shiftTo('days', 'hours', 'minutes').toHuman()}`);
         ctx.logger.info(`branch:   ${fm.branch ?? '—'}`);
-        ctx.logger.info(`planSha:  ${fm.planSha ?? '— (not approved; stages run against the working copy)'}`);
+        ctx.logger.info(`planVersion: ${fm.planVersionId ?? '— (not approved; stages run against current state)'}`);
         if (fm.dependsOn.length > 0) ctx.logger.info(`blocked:  ${fm.dependsOn.join(', ')}`);
 
         const scope = filesInScope(card);

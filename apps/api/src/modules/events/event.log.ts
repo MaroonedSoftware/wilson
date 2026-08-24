@@ -1,5 +1,5 @@
 import { Injectable } from 'injectkit';
-import { Kysely, sql } from 'kysely';
+import { Kysely, sql, type Transaction } from 'kysely';
 import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
 import type { CardEvent, CardEventType } from './card.event.js';
@@ -29,16 +29,23 @@ export type AppendableCardEvent = Omit<CardEvent, 'type'> & { type: AppendableCa
 /**
  * The operational record: append-only, never updated, never deleted.
  *
- * The card file in the board repo is the durable record of *what a card is*; this is the record of
- * *what happened to it*. Losing this table loses history and in-flight recovery, never the board
- * (PROJECT.md decision 1).
+ * `runner.cards` records *what a card is*; this records *what happened to it*. Both are now in the
+ * same database, which is what lets a transition and its event share a transaction — previously the
+ * card was committed to git and the event appended here, with no way to reconcile a partial failure.
  */
 @Injectable()
 export class EventLog {
     constructor(private readonly db: Kysely<DB>) {}
 
-    async append(event: AppendableCardEvent): Promise<void> {
-        await this.db
+    /**
+     * Append one event.
+     *
+     * `executor` lets a caller pass an open transaction so a transition and the event describing it
+     * commit together — see `BoardRepository.writeWithEvent`. Defaults to the pool, which is right
+     * for the standalone events (worktree created, stage started) that describe no state change.
+     */
+    async append(event: AppendableCardEvent, executor: Kysely<DB> | Transaction<DB> = this.db): Promise<void> {
+        await executor
             .insertInto('runner.cardEvents')
             .values({
                 project: event.project,
