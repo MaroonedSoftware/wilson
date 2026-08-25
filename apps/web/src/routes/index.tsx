@@ -8,9 +8,9 @@ import { wilson } from '#src/lib/sdk.js';
 /**
  * The board.
  *
- * Refresh is a button, not a poll and not a subscription. The feed exists (card 0034) and the board
- * will subscribe to it, but until it does, a refetch the operator asked for beats an interval
- * nobody chose.
+ * The feed (card 0034, wired up in `#src/lib/feed.js`) keeps the cards query fresh on its own, so
+ * this button exists for when the feed is down or an operator wants a refetch right now — a manual
+ * fallback, not the only way the board updates.
  */
 function Index() {
     const columns = useQuery({ queryKey: ['columns'], queryFn: () => wilson.board.listBoardColumns() });
