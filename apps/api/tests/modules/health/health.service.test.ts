@@ -33,4 +33,20 @@ describe('HealthService', () => {
 
         expect(second.toMillis()).toBe(first.toMillis());
     });
+
+    it('serializes startedAt to an ISO string over the wire, the shape daemonCurrent parses back', () => {
+        // `health.router.ts` hands this result straight to koa as `ctx.body`, which JSON-serializes
+        // it for the actual HTTP response — the router never runs it back through the generated zod
+        // schema on the way out. `packages/cli/src/checks/daemon.current.ts` then reads the response
+        // with `DateTime.fromISO(health.startedAt)`, so what actually crosses the wire has to be a
+        // plain ISO string, not the `DateTime` instance this service returns in-process.
+        const result = new HealthService(buildConfig()).get();
+
+        const overTheWire = JSON.parse(JSON.stringify(result));
+
+        expect(typeof overTheWire.startedAt).toBe('string');
+        const roundTripped = DateTime.fromISO(overTheWire.startedAt);
+        expect(roundTripped.isValid).toBe(true);
+        expect(roundTripped.toMillis()).toBe((result.startedAt as DateTime).toMillis());
+    });
 });
