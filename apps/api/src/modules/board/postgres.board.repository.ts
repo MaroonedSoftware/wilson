@@ -274,7 +274,13 @@ const toCard = (
         branch: row.branch ?? undefined,
         dependsOn,
         retries: (row.retries as Record<string, number> | null) ?? {},
-        planVersionId: row.pinnedVersionId ?? undefined,
+        // `pinnedVersionId` is `runner.cards.pinned_version_id`, a BIGINT — the pg driver parses
+        // BIGINT as a JS `BigInt`, same as `runner.card_versions.id` (see `versionId` below, and
+        // `currentVersion`/`versions`, which already wrap it). This column went unconverted because
+        // it was always null before card 0059 gave it a real value for the first time; left raw, the
+        // very next `JSON.stringify(card.frontmatter)` — the next write to the card, in `snapshot` —
+        // throws `Do not know how to serialize a BigInt`.
+        planVersionId: row.pinnedVersionId ? versionId(row.pinnedVersionId) : undefined,
         external: (row.external as Record<string, string> | null) ?? undefined,
         sourceClosed: row.sourceClosed ?? undefined,
         needsHuman: row.needsHuman,
