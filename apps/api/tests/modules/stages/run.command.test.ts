@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { PASSED_THROUGH, runConfiguredCommand, scrubbedEnv } from '#modules/stages/run.command.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PASSED_THROUGH, pnpmStoreLock, runConfiguredCommand, scrubbedEnv } from '#modules/stages/run.command.js';
 
 /**
  * Card 0045: `runConfiguredCommand` used to call `execFile` with no `env`, so a `setupCommand`,
@@ -80,5 +80,72 @@ describe('runConfiguredCommand environment', () => {
 
         const failure = await runConfiguredCommand(tmpdir(), `node ${scriptPath}`);
         expect(failure).toBeUndefined();
+    });
+});
+
+/**
+ * Card 0081 (second pass): `PnpmStoreLock.run` gained an optional fourth argument, `onWaited`, fired
+ * once with the number of milliseconds a *contended* caller queued behind another — the same figure
+ * its `log` callback's second message already names — so a caller that keeps a durable record of
+ * what happened (`StageDispatcher`'s `worktree.prepared` event, specifically) can capture the wait
+ * rather than only logging it. It must never fire for a caller that got the lock uncontended: the
+ * common case, and the only case when just one stage is running (the card's own "nothing changes
+ * when only one stage is running" acceptance criterion).
+ */
+describe('pnpmStoreLock onWaited callback', () => {
+    it('fires once, only for the caller that had to queue, and never for the one already holding the lock', async () => {
+        let releaseFirst!: () => void;
+        const firstMayFinish = new Promise<void>(resolve => {
+            releaseFirst = resolve;
+        });
+        let firstRunning = false;
+
+        const firstOnWaited = vi.fn();
+        const secondOnWaited = vi.fn();
+
+        const first = pnpmStoreLock.run(
+            'card-0081-first',
+            () => {},
+            async () => {
+                firstRunning = true;
+                await firstMayFinish;
+                return 'first-done';
+            },
+            firstOnWaited,
+        );
+
+        // Poll rather than sleep a fixed amount: `firstRunning` only flips true once `run` has
+        // actually set `this.holder`, so once this loop exits the second call below is guaranteed to
+        // see a contended lock rather than racing to find out.
+        while (!firstRunning) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+        }
+
+        const second = pnpmStoreLock.run('card-0081-second', () => {}, async () => 'second-done', secondOnWaited);
+
+        // Give `second` a moment to actually queue behind `first` before releasing it — otherwise
+        // "never called yet" would just mean "hasn't run yet", not "was never contended".
+        await new Promise(resolve => setTimeout(resolve, 50));
+        expect(secondOnWaited).not.toHaveBeenCalled();
+
+        releaseFirst();
+        const [firstResult, secondResult] = await Promise.all([first, second]);
+
+        expect(firstResult).toBe('first-done');
+        expect(secondResult).toBe('second-done');
+
+        expect(firstOnWaited).not.toHaveBeenCalled();
+        expect(secondOnWaited).toHaveBeenCalledTimes(1);
+        expect(secondOnWaited).toHaveBeenCalledWith(expect.any(Number));
+        expect(secondOnWaited.mock.calls[0][0]).toBeGreaterThanOrEqual(0);
+    });
+
+    it('never fires when nothing else is contending for the lock', async () => {
+        const onWaited = vi.fn();
+
+        const result = await pnpmStoreLock.run('card-0081-solo', () => {}, async () => 'solo-done', onWaited);
+
+        expect(result).toBe('solo-done');
+        expect(onWaited).not.toHaveBeenCalled();
     });
 });

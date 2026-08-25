@@ -87,8 +87,13 @@ class PnpmStoreLock {
      * after the fact, and tell that apart from the agent being stuck on something else entirely. An
      * uncontended acquire (the common case, and the only case when just one stage is running) logs
      * nothing at all.
+     *
+     * `onWaited`, when given, fires once with the same figure `log`'s second message names, only on a
+     * contended acquire — so a caller that keeps a durable record of what happened (an event, not
+     * just a log line) can put the wait there too. Optional and appended last so the two callers that
+     * only pass `log` (the bash tool, the testing baseline) do not have to change.
      */
-    async run<T>(label: string, log: (message: string) => void, fn: () => Promise<T>): Promise<T> {
+    async run<T>(label: string, log: (message: string) => void, fn: () => Promise<T>, onWaited?: (waitedMs: number) => void): Promise<T> {
         const contendedWith = this.holder;
         if (contendedWith) {
             log(`${label} waiting for the pnpm store lock, held by ${contendedWith}`);
@@ -104,7 +109,9 @@ class PnpmStoreLock {
         await previous;
         this.holder = label;
         if (contendedWith) {
-            log(`${label} acquired the pnpm store lock after waiting ${Date.now() - waitStart}ms`);
+            const waitedMs = Date.now() - waitStart;
+            log(`${label} acquired the pnpm store lock after waiting ${waitedMs}ms`);
+            onWaited?.(waitedMs);
         }
 
         try {

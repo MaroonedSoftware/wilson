@@ -184,17 +184,30 @@ export class StageDispatcher {
         // a stage queued behind another card's install is not charged for a queue it did not choose.
         if (stage.setupCommand) {
             const setupCommand = stage.setupCommand;
+            // Captured alongside the log line `pnpmStoreLock` already emits, so a wait shows up in
+            // the durable event trail too, not only in the log an operator has to be watching live —
+            // the same reasoning `withCollateralCaveats` above applies to `scope.collateral`: a log
+            // entry nobody reads before the review runs is not the same as recorded.
+            let installWaitedMs: number | undefined;
             const failure = await pnpmStoreLock.run(
                 `${cardId} ${stageName} setup`,
                 message => this.logger.info(message),
                 () => runConfiguredCommand(worktree.path, setupCommand),
+                waitedMs => {
+                    installWaitedMs = waitedMs;
+                },
             );
             await this.events.append({
                 project: this.config.project,
                 cardId,
                 stage: stageName,
                 type: 'worktree.prepared',
-                payload: { command: setupCommand, ok: !failure, ...(failure ? { reason: failure.reason } : {}) },
+                payload: {
+                    command: setupCommand,
+                    ok: !failure,
+                    ...(failure ? { reason: failure.reason } : {}),
+                    ...(installWaitedMs !== undefined ? { installWaitedMs } : {}),
+                },
             });
             if (failure) {
                 // Not retried: the race that used to produce this exact failure is gone now that the
