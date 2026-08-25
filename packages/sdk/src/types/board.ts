@@ -4,7 +4,7 @@ import type { JsonValue } from '../sdk-options.js';
  * The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
  * read — and a board that hard-codes its columns lies the first time a stage is added, which is
  * cheap to do precisely because stages are config.
- * generated from [BoardColumns](file://./../../../../apps/api/data/contracts/board.ck#L20)
+ * generated from [BoardColumns](file://./../../../../apps/api/data/contracts/board.ck#L21)
  */
 export interface BoardColumns {
     /** configured stages, in the order they run */
@@ -17,7 +17,7 @@ export interface BoardColumns {
  * No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
  * it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
  * from every response. It comes back when parking-lot ordering is actually built, with a value.
- * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L28)
+ * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L29)
  */
 export interface CardSummary {
     id: string;
@@ -41,7 +41,7 @@ export interface CardSummary {
  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
  * it: the next sequential id over the current board. A client cannot pick one.
- * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L52)
+ * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L53)
  */
 export interface CreateCardRequest {
     title: string;
@@ -56,7 +56,7 @@ export interface CreateCardRequest {
 }
 
 /**
- * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L62)
+ * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L63)
  */
 export interface MoveCardRequest {
     /**
@@ -68,14 +68,14 @@ export interface MoveCardRequest {
 }
 
 /**
- * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L69)
+ * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L70)
  */
 export interface EditCardRequest {
     body: string;
 }
 
 /**
- * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L73)
+ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L74)
  */
 export interface DependCardRequest {
     dependsOnId: string;
@@ -87,7 +87,7 @@ export interface DependCardRequest {
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L80)
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L81)
  */
 export interface CardEvent {
     id: string;
@@ -98,7 +98,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L88)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L89)
  */
 export interface CardVersion {
     id: string;
@@ -109,14 +109,43 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L96)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L97)
  */
 export interface ListQuery {
     limit?: number;
 }
 
 /**
- * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L40)
+ * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
+ * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
+ * here is not a remote write-anywhere-on-disk primitive (card 0076).
+ * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L104)
+ */
+export interface ImportBoardRequest {
+    /**
+     * Report what would happen without writing anything — the one affordance that makes a one-shot,
+     * irreversible import safe to attempt. Absent (the default) writes.
+     */
+    dryRun?: boolean;
+}
+
+/**
+ * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L110)
+ */
+export interface ImportReport {
+    cards: number;
+    dependencies: number;
+    /**
+     * Ids whose legacy `planSha` could not map to a version in the imported history, and were
+     * re-pinned to the version this import created instead.
+     */
+    unpinned: string[];
+    /** True for a dry run: nothing above was written, this is a preview. */
+    skipped: boolean;
+}
+
+/**
+ * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L41)
  */
 export interface CardDetail extends CardSummary {
     body: string;
