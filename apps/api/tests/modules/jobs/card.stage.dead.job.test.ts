@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { vi } from 'vitest';
 import type { JobContext } from '@maroonedsoftware/jobbroker';
 import type { PgBoss } from 'pg-boss';
@@ -161,5 +161,87 @@ describe('CardStageDeadJob', () => {
 
             expect(cardJobs.clear).not.toHaveBeenCalled();
         });
+    });
+});
+
+/**
+ * Card 0050: `CardStageDeadJob` shares `poisonCard` with `CardStageJob.poison` — the notify
+ * behaviour of `poisonCard` itself is covered directly in `poison.card.notify.test.ts`. This checks
+ * only the wiring: that this job passes its own `board` through, so a poisoning it discovers (a
+ * `card.stage` job dead-lettered after exhausting pg-boss's retries) is one of the runner's three
+ * notified moments the same as any other poisoning, not a silent exception to it.
+ */
+describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
+    let board: BoardConfig;
+    let boardRepo: { read: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let cardJobs: { clear: ReturnType<typeof vi.fn> };
+    let pgboss: { getJobById: ReturnType<typeof vi.fn> };
+    let context: JobContext;
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        boardRepo = { read: vi.fn(async () => card('implementing')), write: vi.fn(async () => 'sha') };
+        events = { append: vi.fn(async () => {}) };
+        cardJobs = { clear: vi.fn(async () => {}) };
+        pgboss = { getJobById: vi.fn(async () => ({ output: { name: 'Error', message: 'exhausted retries', stack: 'stack' } })) };
+        context = { id: 'dead-job-1', name: 'card.stage.dead', signal: new AbortController().signal };
+        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('posts a "poisoned" notification when a webhook is configured', async () => {
+        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
+        const job = new CardStageDeadJob(
+            pgboss as unknown as PgBoss,
+            context,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body).toMatchObject({ moment: 'poisoned', cardId: '0001', stage: 'implementing', reason: 'exhausted retries' });
+    });
+
+    it('makes no HTTP call when no webhook is configured', async () => {
+        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run');
+        const job = new CardStageDeadJob(
+            pgboss as unknown as PgBoss,
+            context,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not notify when the row was already resolved, since nothing is poisoned', async () => {
+        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
+        boardRepo.read.mockResolvedValue(card('merged'));
+        const job = new CardStageDeadJob(
+            pgboss as unknown as PgBoss,
+            context,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 });

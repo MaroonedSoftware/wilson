@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
@@ -241,6 +241,159 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(latest.frontmatter.stage).toBe('testing');
         expect(latest.frontmatter.needsHuman).toBe(true);
         expect(latest.frontmatter.needsHumanReason).toContain('testing');
+    });
+});
+
+/**
+ * Card 0050: an exhausted kickback is one of the three moments PROJECT.md's Notification section
+ * names — `needsHuman` set for the first time. `fetch` is stubbed rather than `Notifier`, so what
+ * is asserted is the observable HTTP call a real webhook would receive; the board write itself is
+ * real (the same `PostgresBoardRepository` as `writeTransition` above), so the "fire after the
+ * write, never inside it" constraint is checked by reading the board back from inside the stubbed
+ * `fetch` call, not by asserting on call order against a mock.
+ */
+describe('StageDispatcher writeTransition notifies on an exhausted kickback (card 0050)', () => {
+    let events: { append: ReturnType<typeof vi.fn> };
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    const buildDispatcher = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
+        const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-notify-'));
+        const boardRoot = join(base, 'board');
+
+        events = { append: vi.fn(async () => {}) };
+        const config = new StaticBoardConfig(
+            uniqueProject(),
+            boardRoot,
+            join(base, 'code'),
+            join(base, 'worktrees'),
+            join(base, 'run'),
+            notifyWebhookUrl,
+            notifyBaseUrl,
+        );
+        const boardRepo = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+        await boardRepo.create(baseCard, 'initial');
+
+        const dispatcher = new StageDispatcher(
+            config as BoardConfig,
+            boardRepo,
+            {} as WorktreeManager,
+            {} as ModelRegistry,
+            {} as StageVerifierMap,
+            {} as StageResultSchemaMap,
+            events as unknown as EventLog,
+            silentLogger as never,
+        );
+        return { dispatcher, boardRepo, project: config.project };
+    };
+
+    const writeTransition = (dispatcher: StageDispatcher, stage: StageConfig, card: Card, result: StageOutcome) =>
+        (
+            dispatcher as unknown as {
+                writeTransition(
+                    cardId: string,
+                    stageName: string,
+                    stage: StageConfig,
+                    card: Card,
+                    outcome: StageOutcome,
+                ): Promise<{ target: string; needsHuman: boolean }>;
+            }
+        ).writeTransition('0001', 'testing', stage, card, result);
+
+    beforeEach(() => {
+        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('posts a "needs-human" notification, with the reason and a deep link, once a kickback exhausts its retries', async () => {
+        const { dispatcher, project } = await buildDispatcher('https://hooks.example/notify', 'https://board.example');
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body).toMatchObject({
+            moment: 'needs-human',
+            project,
+            cardId: '0001',
+            title: 'do the thing',
+            stage: 'testing',
+            url: 'https://board.example/cards/0001',
+        });
+        expect(body.reason).toContain('testing');
+    });
+
+    it('has already committed the flag to the board by the time the webhook is called', async () => {
+        let sawFlagAtNotifyTime = false;
+        const { dispatcher, boardRepo } = await buildDispatcher('https://hooks.example/notify');
+        fetchMock.mockImplementation(async () => {
+            const stored = await boardRepo.read('0001');
+            sawFlagAtNotifyTime = stored.frontmatter.needsHuman === true;
+            return new Response(null, { status: 200 });
+        });
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(sawFlagAtNotifyTime).toBe(true);
+    });
+
+    it('makes no HTTP call when no webhook URL is configured', async () => {
+        const { dispatcher } = await buildDispatcher(undefined);
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not notify an ordinary kickback that still has retries left', async () => {
+        const { dispatcher } = await buildDispatcher('https://hooks.example/notify');
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not notify a passing transition', async () => {
+        const { dispatcher } = await buildDispatcher('https://hooks.example/notify');
+        const stage = makeStage({ onPass: 'review' });
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: true }));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    // Do not send twice for one event: a card already flagged going into this run (a retried or
+    // redelivered job reaching the same exhausted-kickback outcome again) has nothing new to report.
+    it('does not re-notify a card that already carried needsHuman before this transition', async () => {
+        const { dispatcher } = await buildDispatcher('https://hooks.example/notify');
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+        const alreadyFlagged: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, needsHuman: true, needsHumanReason: 'already flagged' } };
+
+        await writeTransition(dispatcher, stage, alreadyFlagged, outcome({ passed: false }));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fail the transition when the webhook itself fails', async () => {
+        const { dispatcher, boardRepo } = await buildDispatcher('https://hooks.example/notify');
+        fetchMock.mockImplementation(async () => {
+            throw new Error('ECONNREFUSED');
+        });
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        const { target } = await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
+
+        expect(target).toBe('testing');
+        const stored = await boardRepo.read('0001');
+        expect(stored.frontmatter.needsHuman).toBe(true);
     });
 });
 
