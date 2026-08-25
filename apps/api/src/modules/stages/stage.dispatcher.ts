@@ -21,7 +21,6 @@ import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
-import { isTerminal } from './terminal.js';
 
 /**
  * Which of `assertDispatchable`'s three conditions fired, carried on the error it throws.
@@ -357,22 +356,20 @@ export class StageDispatcher {
             },
         );
 
-        if (isTerminal(decision.target)) {
-            // The card's life has ended; the transition above already stands. A worktree left behind
-            // is a tidiness problem, not a correctness one, so a failure here is logged and swallowed
-            // rather than allowed to unwind a transition that already happened.
-            try {
-                await this.worktrees.reclaim(cardId);
-                await this.events.append({
-                    project: this.config.project,
-                    cardId,
-                    stage: stageName,
-                    type: 'worktree.reclaimed',
-                    payload: { cardId, target: decision.target },
-                });
-            } catch (err) {
-                this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${decision.target}": ${(err as Error).message}`);
-            }
+        // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the
+        // one place "the card is done" turns into "the worktree goes away" — shared with a human's
+        // `wilson card move` so the two paths cannot drift into two definitions of done. It already
+        // checks `isTerminal` and never reclaims a flagged card's tree (card 0055); a failure here is
+        // logged and swallowed rather than allowed to unwind a transition that already happened.
+        const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            target: decision.target,
+            flagged: Boolean(card.frontmatter.needsHuman) || Boolean(needsHuman),
+        });
+        if (reclaimed.error) {
+            this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${decision.target}": ${reclaimed.error}`);
         }
 
         return { target: decision.target, needsHuman: needsHuman !== undefined };
