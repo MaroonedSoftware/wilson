@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
@@ -8,7 +9,7 @@ import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
-import { CardStageJob } from './card.stage.job.js';
+import { CardStageJob, RunningCards } from './card.stage.job.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs } from './card.jobs.js';
 
@@ -65,6 +66,107 @@ export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
 };
 
 /**
+ * Backstop for `JobRunner.stop()` itself never returning.
+ *
+ * pg-boss's own graceful `stop()` already bounds itself (a 30s default): it waits that long for a
+ * job to finish, and if one is still active when the window closes, gives up on it and returns
+ * anyway — it does not wait for the handler's promise, only for its own internal bookkeeping. That
+ * is short enough that `stop()` normally settles well inside this deadline; this exists only for the
+ * rarer case where `stop()` itself hangs beyond its own bound — its cleanup stuck on the database,
+ * say — so shutdown still proceeds rather than blocking forever on a promise that may never resolve.
+ */
+export const SHUTDOWN_DEADLINE_MS = 35_000;
+
+/**
+ * A card this process was still mid-run on when shutdown gave up waiting.
+ */
+export interface AbandonedCardJob {
+    cardId: string;
+    jobId: string;
+}
+
+export interface ShutdownReport {
+    /** Cards this process was still mid-run on once shutdown gave up. Empty is a clean stop. */
+    abandoned: AbandonedCardJob[];
+}
+
+/**
+ * Stop accepting new `card.stage` work and report on whatever was still running once shutdown gave
+ * up waiting for it.
+ *
+ * The trap this closes: pg-boss's own `stop()` stops fetching new work as its first act, waits for
+ * the job actually running to settle, but — per the comment on `SHUTDOWN_DEADLINE_MS` — gives up and
+ * *returns anyway* once its own internal timeout elapses, whether or not the handler ever finished. A
+ * wedged handler therefore does not make `stop()` hang; it makes `stop()` resolve normally while the
+ * handler keeps running in the background, which is exactly how a daemon can log a clean `stopped`
+ * while a job sits `active` (the defect this card fixes). So "did `stop()`'s promise settle" is not
+ * the question to ask; "is `RunningCards` still holding a card `stop()` claimed to be done with" is.
+ * `SHUTDOWN_DEADLINE_MS` only guards the separate, rarer case of `stop()` not returning at all.
+ *
+ * Each card `RunningCards` still shows is confirmed live via `CardJobs.inFlight` before being
+ * reported, since the tracker can be a beat stale — a card it still shows can have already settled
+ * between `stop()` returning and this check running.
+ */
+export const stopCardStageJobs = async (runner: JobRunner, running: RunningCards, cardJobs: CardJobs): Promise<ShutdownReport> => {
+    await Promise.race([runner.stop(), delay(SHUTDOWN_DEADLINE_MS)]);
+
+    const abandoned: AbandonedCardJob[] = [];
+    for (const cardId of running.snapshot()) {
+        const jobId = await cardJobs.inFlight(cardId);
+        if (jobId) abandoned.push({ cardId, jobId });
+    }
+    return { abandoned };
+};
+
+/**
+ * Thrown by `BoundedCardStageJobRunner.stop()` when a card was still running once shutdown gave up
+ * waiting for it, so a caller that already does nothing but `await runner.stop()` — `run.command.ts`
+ * included — finds out its stop was not clean without needing a new dependency of its own; it just
+ * has to look at what `stop()` did. The full, truthful accounting is on `abandoned`; `message` is
+ * already the human-readable form so a bare `error.message` is enough for a caller that just wants
+ * to log and move on.
+ */
+export class AbandonedCardJobsError extends Error {
+    readonly abandoned: AbandonedCardJob[];
+
+    constructor(abandoned: AbandonedCardJob[]) {
+        const names = abandoned.map(({ cardId, jobId }) => `${cardId} (job ${jobId})`).join(', ');
+        super(`${abandoned.length} card.stage job(s) still in flight, abandoned and will be redelivered: ${names}`);
+        this.name = 'AbandonedCardJobsError';
+        this.abandoned = abandoned;
+    }
+}
+
+/**
+ * The `JobRunner` every consumer actually resolves from the container: `start()` passes straight
+ * through, and `stop()` is `stopCardStageJobs` wearing the plain `JobRunner` interface so a caller
+ * doesn't need to know `RunningCards` or `CardJobs` exist to benefit from what they make possible. A
+ * clean stop resolves exactly as `PgBossJobRunner.stop()` always has; a stop with something abandoned
+ * rejects with `AbandonedCardJobsError` instead of silently resolving, so "the promise settled" can
+ * no longer be mistaken for "everything finished" — which is the whole defect this card fixes.
+ */
+class BoundedCardStageJobRunner extends JobRunner {
+    constructor(
+        private readonly inner: JobRunner,
+        private readonly running: RunningCards,
+        private readonly cardJobs: CardJobs,
+    ) {
+        super();
+    }
+
+    start(): Promise<void> {
+        return this.inner.start();
+    }
+
+    async stop(): Promise<void> {
+        const report = await stopCardStageJobs(this.inner, this.running, this.cardJobs);
+        if (report.abandoned.length > 0) {
+            throw new AbandonedCardJobsError(report.abandoned);
+        }
+    }
+}
+
+/**
  * The job queue.
  *
  * pg-boss on the same Postgres database as everything else — no separate broker to run or operate.
@@ -93,6 +195,9 @@ export const JobsModule: ServerKitModule = {
             })
             .asSingleton();
 
+        // Singleton, not transient like CardStageJob itself: shutdown needs one registry shared
+        // across every job execution this process runs, not a fresh one per scoped container.
+        registry.register(RunningCards).useClass(RunningCards).asSingleton();
         registry.register(CardStageJob).useClass(CardStageJob).asTransient();
         // CardStageDeadJob reads which job is currently running it (JobContext.id) to look its own
         // dead-letter row back up for the failed attempt's output — register the token so that
@@ -114,9 +219,15 @@ export const JobsModule: ServerKitModule = {
         registry.register(JobBroker).useClass(PgBossJobBroker).asSingleton();
         registry
             .register(JobRunner)
-            .useFactory(
-                container => new PgBossJobRunner(container, container.get(PgBossJobRegistryMap), container.get(PgBoss), container.get(Logger)),
-            )
+            .useFactory(container => {
+                const pgBossRunner = new PgBossJobRunner(
+                    container,
+                    container.get(PgBossJobRegistryMap),
+                    container.get(PgBoss),
+                    container.get(Logger),
+                );
+                return new BoundedCardStageJobRunner(pgBossRunner, container.get(RunningCards), container.get(CardJobs));
+            })
             .asSingleton();
     },
     // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
@@ -124,9 +235,17 @@ export const JobsModule: ServerKitModule = {
     start: async (container: Container) => {
         await container.get(JobRunner).start();
     },
-    // Stops accepting new jobs and waits for in-flight ones to finish before Data tears down the
-    // pool underneath them.
+    // Stops accepting new jobs and waits, bounded, for in-flight ones to finish before Data tears
+    // down the pool underneath them. `JobRunner.stop()` (see BoundedCardStageJobRunner above) is what
+    // actually does the bounding and reporting, surfacing a card still abandoned past the deadline as
+    // a rejection; this logs it and swallows it, so abandonment does not stop the rest of shutdown
+    // (Data's pool teardown among it) from running.
     shutdown: async (container: Container) => {
-        await container.get(JobRunner).stop();
+        try {
+            await container.get(JobRunner).stop();
+        } catch (error) {
+            if (!(error instanceof AbandonedCardJobsError)) throw error;
+            container.get(Logger).error(error.message);
+        }
     },
 };

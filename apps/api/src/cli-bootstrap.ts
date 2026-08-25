@@ -38,6 +38,7 @@ export type { Card } from '#modules/board/card.js';
 export { nextCard, unsatisfiedDependencies } from '#modules/board/next.card.js';
 export type { NextCard, Blocked } from '#modules/board/next.card.js';
 export { CardJobs } from '#modules/jobs/card.jobs.js';
+export { AbandonedCardJobsError } from '#modules/jobs/jobs.module.js';
 export { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 export { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 export { git } from '#modules/board/git.js';

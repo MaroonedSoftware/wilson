@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, JobRunner } from '@wilson/api/cli-bootstrap';
+import { AbandonedCardJobsError, BoardConfig, JobRunner } from '@wilson/api/cli-bootstrap';
 
 /**
  * The daemon: start the `JobRunner` and block until told to stop.
@@ -9,6 +9,12 @@ import { BoardConfig, JobRunner } from '@wilson/api/cli-bootstrap';
  * container is built — so `JobRunner.start()` has never fired until this command calls it
  * explicitly. This command drains whatever is already queued; nothing here enqueues cards on
  * its own. Use `wilson card start <id>` to feed it.
+ *
+ * `runner.stop()` already does the work of bounding the wait and reporting the truth (see
+ * `BoundedCardStageJobRunner` in `jobs.module.ts`) — it resolves on a clean stop and rejects with
+ * `AbandonedCardJobsError` when a job was still in flight past the deadline, so this command only has
+ * to translate that into what an operator watching the daemon needs: a distinct log line and a
+ * non-zero exit rather than the same "stopped" either way.
  */
 const command: CommandModule = {
     description:
@@ -36,7 +42,14 @@ const command: CommandModule = {
         });
 
         ctx.logger.info('stopping…');
-        await runner.stop();
+        try {
+            await runner.stop();
+        } catch (error) {
+            if (!(error instanceof AbandonedCardJobsError)) throw error;
+            ctx.logger.error(`stopped — ${error.message}`);
+            return 1;
+        }
+
         ctx.logger.info('stopped');
         return 0;
     }),
