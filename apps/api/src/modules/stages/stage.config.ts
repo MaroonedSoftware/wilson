@@ -130,7 +130,30 @@ export const StageConfigSchema = z.object({
      * once across its stages. Optional: absent means unbounded, exactly as today.
      */
     maxCardInputTokens: z.number().int().min(1000).optional(),
+    /** Where a passing run sends the card. */
     onPass: z.string(),
+    /**
+     * Where a failing run sends the card.
+     *
+     * The target is the stage that can fix the failure — not automatically the stage before this
+     * one. `review.onFail: implementing` is correct: a review blocker is a statement about the
+     * code, so the code is what changes. Routing every failure to the previous stage assumes that
+     * is always true, and it is not: when `testing` fails its own exit condition — it wrote no
+     * tests, or its report predates the run it was supposed to come from — `implementing` has
+     * nothing left to redo.
+     *
+     * Card 0060 hit this the expensive way: `testing.onFail: implementing` sent a passing,
+     * already-committed implementation to a stage with an empty diff to produce; the implementing
+     * verifier correctly rejected that, `implementing.onFail: implementing` sent it back to itself,
+     * and it burned its remaining `maxKickbacks` rediscovering that it had already finished — three
+     * worktrees and three agent runs to arrive at `needsHuman` on a card whose work was correct the
+     * whole time.
+     *
+     * A self-targeting `onFail` (`testing.onFail: testing`) is not a special case here. It retries
+     * bounded by the stage's own `maxKickbacks`, exactly like a kickback to any other stage — the
+     * difference is only that the stage still has real work left to do (write the missing tests),
+     * so a retry can actually change the outcome instead of reproducing the same empty diff.
+     */
     onFail: z.string(),
     maxKickbacks: z.number().int().min(0).default(3),
 })
