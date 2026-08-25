@@ -19,12 +19,19 @@
  * stack can override it short of bypassing `PgBossJobRunner` or jobbroker growing a `WorkOptions`
  * hook — neither of which this card does.
  *
- * The value is 2, measured rather than read: a sweep over `stage.dispatched`/`stage.passed` pairs
- * in `runner.card_events` puts the maximum at two simultaneous stages (0053 and 0054 both in
- * `implementing` at 23:40:29 on 2026-08-24, and 0058/0059 the same at 23:59). Card 0063 originally
- * recorded 1 from reading pg-boss's documented default, which the runner's own history contradicts —
- * so whatever produces the second slot is not the documented default, and the reasoning above about
- * *why* nothing here can configure it stands while the number it inferred did not.
+ * The value is 1, and it was briefly and wrongly recorded as 2. A sweep over
+ * `stage.dispatched`/`stage.passed` pairs in `runner.card_events` appeared to show two simultaneous
+ * stages, but that overlap was two *daemons* running at once — a `wilson run` process and an API
+ * server, which is the very confusion card 0079 exists to remove — not one daemon carrying two jobs.
+ * Card 0063 read the code and got this right; the "measurement" that overrode it measured the wrong
+ * thing. Observed directly afterwards: two cards enqueued a second apart, and the second sat in
+ * `created` until the first finished.
+ *
+ * A fix in serverkit to make this properly configurable is underway; when it lands, this constant is
+ * where the real value belongs. Until then one stage runs at a time — which also means the concurrent
+ * `pnpm install` that card 0081's store lock guards against cannot currently happen from two stages
+ * at all. That lock stays: it is correct, it covers the agent's own installs too, and it is exactly
+ * what will be needed the moment concurrency is real.
  *
  * This constant names that inherited default rather than changing it, and is what `JobsModule`
  * logs at startup so the ceiling is visible without reading pg-boss's source. Each concurrent stage
@@ -39,7 +46,7 @@
  * process too, unless a later change makes `card.stage` span multiple daemon processes — at which
  * point the store lock would need to move with it.
  */
-export const CARD_STAGE_CONCURRENCY = 2;
+export const CARD_STAGE_CONCURRENCY = 1;
 
 /**
  * How often the poller (`poller.ts`) checks the board for a card to enqueue.
