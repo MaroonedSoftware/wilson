@@ -100,6 +100,54 @@ describe('kickback', () => {
     });
 });
 
+// Card 0082: `kickback`'s third parameter carries what `stage.dispatcher.ts` learns from the run's
+// own outcome — whether the failure was a judgment of the code, or the stage never finishing long
+// enough to produce one. `onFail` still decides the target for a judged failure; `unjudged` overrides
+// it, sending the retry back to the stage that failed instead of wherever `onFail` points.
+describe('kickback — unjudged overrides onFail', () => {
+    it('routes to the stage itself when unjudged is true, even though onFail points elsewhere', () => {
+        const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 3 });
+
+        const decision = kickback(stage, {}, true);
+
+        expect(decision.target).toBe('review');
+        expect(decision.retries.review).toBe(1);
+        expect(decision.needsHuman).toBeUndefined();
+    });
+
+    it('still routes to onFail when unjudged is false, exactly as before this card', () => {
+        const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 3 });
+
+        const decision = kickback(stage, {}, false);
+
+        expect(decision.target).toBe('implementing');
+    });
+
+    it('keeps counting and flags needsHuman at maxKickbacks for a self-routed unjudged failure, same as any other kickback', () => {
+        const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 2 });
+
+        const first = kickback(stage, {}, true);
+        expect(first.target).toBe('review');
+        expect(first.needsHuman).toBeUndefined();
+
+        const second = kickback(stage, first.retries, true);
+        expect(second.target).toBe('review');
+        expect(second.retries.review).toBe(2);
+        expect(second.needsHuman?.reason).toContain('review');
+        expect(second.needsHuman?.reason).toContain('2');
+    });
+
+    it('makes no difference for a stage whose onFail already targets itself', () => {
+        const stage = makeStage({ name: 'testing', onFail: 'testing', maxKickbacks: 3 });
+
+        const judged = kickback(stage, {}, false);
+        const unjudged = kickback(stage, {}, true);
+
+        expect(judged.target).toBe('testing');
+        expect(unjudged.target).toBe('testing');
+    });
+});
+
 describe('shouldAdvance', () => {
     it('never advances a failed stage, no matter what the result carries', () => {
         expect(shouldAdvance(false, undefined)).toBe(false);
