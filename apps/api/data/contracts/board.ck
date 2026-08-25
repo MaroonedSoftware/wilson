@@ -4,6 +4,7 @@ options {
         BoardWriteService: "#modules/board/board.write.service.js"
         BoardBootstrapService: "#modules/board/board.bootstrap.service.js"
         StagesService: "#modules/stages/stages.service.js"
+        PlanService: "#modules/plan/plan.service.js"
     }
     security: none
 }
@@ -115,6 +116,42 @@ contract ImportReport: {
     unpinned: array(string)
     # True for a dry run: nothing above was written, this is a preview.
     skipped: boolean
+}
+
+# Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
+# conversation itself, which needs the operator's own terminal — and the half that does not: cutting
+# the throwaway worktree, loading the `planning` stage's model and instructions, validating the
+# finished draft, writing it as a new card version, and tearing the worktree down. This contract is
+# the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
+# `claude` with the operator's stdio against what this returns.
+contract PlanSession: {
+    # Identifies this session for the `save`/`close` calls that follow. Deterministically the card's
+    # own id, not an opaque token from a session table: the worktree and its branch are always cut
+    # as `plan-<id>` / a branch keyed off `<id>` (never the card's real path or branch — card 0058's
+    # guard), so there is exactly one live planning session per card, and opening a new one for the
+    # same id is what recovers a session whose CLI died mid-conversation. Carried as its own field
+    # regardless, so this response names what it is rather than leaving a caller to assume it equals
+    # the path param.
+    sessionId: string
+    # Absolute path to the throwaway worktree the spawned agent should be pointed at.
+    worktreePath: string
+    # Where the finished plan must be written, and the one file writes to it are allowed against.
+    # Already seeded: the card's existing body if it has sections, the six-heading skeleton
+    # otherwise — same seed `wilson card plan` writes today.
+    draftPath: string
+    # The `planning` stage's own model, from `stages.yaml` — never a string this contract pins.
+    model: string
+    # The `planning` stage's own instructions, plus the one fact only this session knows: where the
+    # draft lives. Meant to travel as the spawned agent's appended system prompt, with the same
+    # weight as its base instructions, not as a user turn it might treat as negotiable.
+    instructions: string
+}
+
+contract SaveDraftRequest: {
+    # The finished draft's full body, six headings included. There is no terminal on the other end
+    # of an HTTP call for a confirmation prompt — "approval is explicit and versioned" is enforced by
+    # the caller showing a diff and asking before this is ever sent, not by this contract.
+    body: string
 }
 
 operation /api/cards: {
@@ -300,6 +337,68 @@ operation /api/cards/{id}/release: {
             # two refusals `wilson card release` makes before cancelling.
             400:
             404:
+        }
+    }
+}
+
+# Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
+# refuses one whose real branch already has work (re-planning a card with code on it is a different,
+# more dangerous operation). Cuts nothing on a refusal.
+operation /api/cards/{id}/plan/open: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Open a planning session
+        service: PlanService.open
+        response: {
+            200: {
+                application/json: PlanSession
+            }
+            400:
+            404:
+        }
+    }
+}
+
+# Validates the six `PLAN_SECTIONS` headings and a non-empty "Files in scope" server-side — the same
+# refusal `wilson card plan` makes before writing today, and it must not become something a client
+# can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
+# (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
+# unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
+operation /api/cards/{id}/plan/save: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Save a plan draft
+        service: PlanService.save
+        request: {
+            application/json: SaveDraftRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # An empty or missing section, or an empty "Files in scope" — named in `details`.
+            400:
+            404:
+        }
+    }
+}
+
+# Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
+# and safe to call for a session that opened but was never saved — because that is exactly what a CLI
+# dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
+operation /api/cards/{id}/plan/close: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Close a planning session
+        service: PlanService.close
+        response: {
+            204:
         }
     }
 }

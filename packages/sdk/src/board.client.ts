@@ -11,6 +11,8 @@ import type {
     ImportReport,
     ListQuery,
     MoveCardRequest,
+    PlanSession,
+    SaveDraftRequest,
 } from './types/board.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
@@ -113,6 +115,44 @@ export class BoardClient {
     async releaseCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
         return await parseJson<CardDetail>(result);
+    }
+
+    /**
+     * @name Open a planning session
+     * @description Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
+     * refuses one whose real branch already has work (re-planning a card with code on it is a different,
+     * more dangerous operation). Cuts nothing on a refusal.
+     */
+    async openAPlanningSession(id: string): Promise<PlanSession> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/open`, { method: 'POST' });
+        return await parseJson<PlanSession>(result);
+    }
+
+    /**
+     * @name Save a plan draft
+     * @description Validates the six `PLAN_SECTIONS` headings and a non-empty "Files in scope" server-side — the same
+     * refusal `wilson card plan` makes before writing today, and it must not become something a client
+     * can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
+     * (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
+     * unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
+     */
+    async saveAPlanDraft(id: string, body: SaveDraftRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /**
+     * @name Close a planning session
+     * @description Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
+     * and safe to call for a session that opened but was never saved — because that is exactly what a CLI
+     * dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
+     */
+    async closeAPlanningSession(id: string): Promise<void> {
+        await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/close`, { method: 'POST' });
     }
 
     /** @name List card events */

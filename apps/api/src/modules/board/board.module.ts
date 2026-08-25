@@ -9,6 +9,7 @@ import { BoardImporter } from './board.importer.js';
 import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
 import { BoardWriteService } from './board.write.service.js';
+import { PlanService } from '#modules/plan/plan.service.js';
 import { optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 export const BoardModule: ServerKitModule = {
@@ -40,5 +41,10 @@ export const BoardModule: ServerKitModule = {
         registry.register(BoardBootstrapService).useClass(BoardBootstrapService).asTransient();
         registry.register(BoardService).useClass(BoardService).asTransient();
         registry.register(BoardWriteService).useClass(BoardWriteService).asTransient();
+        // Registered here rather than its own module: `modules.ts` is the module list, and adding a
+        // one-line entry there for a single service is out of scope for card 0077 (see its plan).
+        // `WorktreeModule` registers `WorktreeManager` this service depends on — order doesn't matter
+        // here, `setup` only registers tokens, it does not resolve them.
+        registry.register(PlanService).useClass(PlanService).asTransient();
     },
 };

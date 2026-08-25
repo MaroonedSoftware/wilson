@@ -14,7 +14,7 @@ const _ZodJson: z.ZodType<_JsonValue> = z.lazy(() =>
  * The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
  * read — and a board that hard-codes its columns lies the first time a stage is added, which is
  * cheap to do precisely because stages are config.
- * generated from [BoardColumns](file://./../../data/contracts/board.ck#L21)
+ * generated from [BoardColumns](file://./../../data/contracts/board.ck#L22)
  */
 export const BoardColumns = z.strictObject({
     stages: z.array(z.string()).describe('configured stages, in the order they run'),
@@ -26,7 +26,7 @@ export type BoardColumns = z.infer<typeof BoardColumns>;
  * No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
  * it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
  * from every response. It comes back when parking-lot ordering is actually built, with a value.
- * generated from [CardSummary](file://./../../data/contracts/board.ck#L29)
+ * generated from [CardSummary](file://./../../data/contracts/board.ck#L30)
  */
 export const CardSummary = z.strictObject({
     id: z.string(),
@@ -51,7 +51,7 @@ export type CardSummary = z.infer<typeof CardSummary>;
  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
  * it: the next sequential id over the current board. A client cannot pick one.
- * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L53)
+ * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L54)
  */
 export const CreateCardRequest = z.strictObject({
     title: z.string(),
@@ -65,7 +65,7 @@ export const CreateCardRequest = z.strictObject({
 export type CreateCardRequest = z.infer<typeof CreateCardRequest>;
 
 /**
- * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L63)
+ * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L64)
  */
 export const MoveCardRequest = z.strictObject({
     stage: z
@@ -77,7 +77,7 @@ export const MoveCardRequest = z.strictObject({
 export type MoveCardRequest = z.infer<typeof MoveCardRequest>;
 
 /**
- * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L70)
+ * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L71)
  */
 export const EditCardRequest = z.strictObject({
     body: z.string(),
@@ -85,7 +85,7 @@ export const EditCardRequest = z.strictObject({
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
 
 /**
- * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L74)
+ * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L75)
  */
 export const DependCardRequest = z.strictObject({
     dependsOnId: z.string(),
@@ -97,7 +97,7 @@ export const DependCardRequest = z.strictObject({
 export type DependCardRequest = z.infer<typeof DependCardRequest>;
 
 /**
- * generated from [CardEvent](file://./../../data/contracts/board.ck#L81)
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L82)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -109,7 +109,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../data/contracts/board.ck#L89)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L90)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -121,7 +121,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../data/contracts/board.ck#L97)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L98)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),
@@ -132,7 +132,7 @@ export type ListQuery = z.infer<typeof ListQuery>;
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L104)
+ * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L105)
  */
 export const ImportBoardRequest = z.strictObject({
     dryRun: z
@@ -145,7 +145,7 @@ export const ImportBoardRequest = z.strictObject({
 export type ImportBoardRequest = z.infer<typeof ImportBoardRequest>;
 
 /**
- * generated from [ImportReport](file://./../../data/contracts/board.ck#L110)
+ * generated from [ImportReport](file://./../../data/contracts/board.ck#L111)
  */
 export const ImportReport = z.strictObject({
     cards: z.coerce.number().int(),
@@ -162,7 +162,49 @@ export const ImportReport = z.strictObject({
 export type ImportReport = z.infer<typeof ImportReport>;
 
 /**
- * generated from [CardDetail](file://./../../data/contracts/board.ck#L41)
+ * Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
+ * conversation itself, which needs the operator's own terminal — and the half that does not: cutting
+ * the throwaway worktree, loading the `planning` stage's model and instructions, validating the
+ * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
+ * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
+ * `claude` with the operator's stdio against what this returns.
+ * generated from [PlanSession](file://./../../data/contracts/board.ck#L127)
+ */
+export const PlanSession = z.strictObject({
+    sessionId: z
+        .string()
+        .describe(
+            "Identifies this session for the `save`/`close` calls that follow. Deterministically the card's\nown id, not an opaque token from a session table: the worktree and its branch are always cut\nas `plan-<id>` / a branch keyed off `<id>` (never the card's real path or branch — card 0058's\nguard), so there is exactly one live planning session per card, and opening a new one for the\nsame id is what recovers a session whose CLI died mid-conversation. Carried as its own field\nregardless, so this response names what it is rather than leaving a caller to assume it equals\nthe path param.",
+        ),
+    worktreePath: z.string().describe('Absolute path to the throwaway worktree the spawned agent should be pointed at.'),
+    draftPath: z
+        .string()
+        .describe(
+            "Where the finished plan must be written, and the one file writes to it are allowed against.\nAlready seeded: the card's existing body if it has sections, the six-heading skeleton\notherwise — same seed `wilson card plan` writes today.",
+        ),
+    model: z.string().describe("The `planning` stage's own model, from `stages.yaml` — never a string this contract pins."),
+    instructions: z
+        .string()
+        .describe(
+            "The `planning` stage's own instructions, plus the one fact only this session knows: where the\ndraft lives. Meant to travel as the spawned agent's appended system prompt, with the same\nweight as its base instructions, not as a user turn it might treat as negotiable.",
+        ),
+});
+export type PlanSession = z.infer<typeof PlanSession>;
+
+/**
+ * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L150)
+ */
+export const SaveDraftRequest = z.strictObject({
+    body: z
+        .string()
+        .describe(
+            'The finished draft\'s full body, six headings included. There is no terminal on the other end\nof an HTTP call for a confirmation prompt — "approval is explicit and versioned" is enforced by\nthe caller showing a diff and asking before this is ever sent, not by this contract.',
+        ),
+});
+export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
+
+/**
+ * generated from [CardDetail](file://./../../data/contracts/board.ck#L42)
  */
 export const CardDetail = CardSummary.extend({
     body: z.string(),
