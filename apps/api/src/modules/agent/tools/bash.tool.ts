@@ -42,6 +42,16 @@ export const bashTool = (ctx: ToolContext) =>
                 return `error: ${decision.reason}`;
             }
 
+            // Recorded once the command is allowed and about to run, not gated on its exit code: a
+            // failing command still ran, and knowing it ran is the point (see `card.event.ts`).
+            await ctx.events.append({
+                project: ctx.project,
+                cardId: ctx.cardId,
+                stage: ctx.stage,
+                type: 'tool.executed',
+                payload: { tool: 'bash', command },
+            });
+
             const [file, ...args] = decision.argv;
             const runOnce = () =>
                 exec(file!, args, {

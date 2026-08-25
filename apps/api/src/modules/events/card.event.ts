@@ -15,6 +15,16 @@ export type CardEventType =
     | 'dispatch.deferred'
     | 'engine.failed'
     | 'tool.denied'
+    // The counterpart to `tool.denied`: a mutation or command that was allowed and actually ran,
+    // carrying the same `tool` key plus `path` or `command` so the two read as one stream. One type
+    // with a `tool` field, not one type per tool — the same choice `tool.denied` already made, and
+    // splitting it would just make a reader switch on two fields instead of one.
+    //
+    // Deliberately does NOT cover `read`/`grep`/`glob`/search tools: those run hundreds of times per
+    // stage, and an event each would swamp `card_events`, which backs `wilson card show` and the web
+    // board, for rows nobody asks "what did this stage do" about. Do not "complete" this type by
+    // wiring reads up to it.
+    | 'tool.executed'
     | 'scope.requested'
     | 'scope.granted'
     | 'scope.refused'

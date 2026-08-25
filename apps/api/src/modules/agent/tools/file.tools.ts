@@ -13,7 +13,8 @@ const MAX_READ_LINES = 800;
  *
  * Reads are containment-checked; writes go through the full scope check. A denied write is recorded
  * to the event log and returned to the model as an error string rather than thrown, so the agent can
- * adapt (or call `request_scope`) instead of the whole stage dying on a single bad path.
+ * adapt (or call `request_scope`) instead of the whole stage dying on a single bad path. A write or
+ * edit that goes through is recorded too (`tool.executed`) — reads are not, see `card.event.ts`.
  */
 export const fileTools = (ctx: ToolContext) => ({
     read: tool({
@@ -67,6 +68,13 @@ export const fileTools = (ctx: ToolContext) => ({
             const absolute = join(ctx.worktreeRoot, decision.path);
             await mkdir(dirname(absolute), { recursive: true });
             await writeFile(absolute, content, 'utf8');
+            await ctx.events.append({
+                project: ctx.project,
+                cardId: ctx.cardId,
+                stage: ctx.stage,
+                type: 'tool.executed',
+                payload: { tool: 'write', path: decision.path },
+            });
             return `wrote ${decision.path} (${content.length} bytes)`;
         },
     }),
@@ -106,6 +114,13 @@ export const fileTools = (ctx: ToolContext) => ({
 
             const updated = replace_all ? current.split(old_string).join(new_string) : current.replace(old_string, new_string);
             await writeFile(absolute, updated, 'utf8');
+            await ctx.events.append({
+                project: ctx.project,
+                cardId: ctx.cardId,
+                stage: ctx.stage,
+                type: 'tool.executed',
+                payload: { tool: 'edit', path: decision.path },
+            });
             return `edited ${decision.path} (${occurrences} replacement${occurrences === 1 ? '' : 's'})`;
         },
     }),
