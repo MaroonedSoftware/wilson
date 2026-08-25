@@ -16,12 +16,8 @@ import type { ToolContext } from './tools/index.js';
  * silently routes this adapter back through per-token API billing, which is the exact thing it
  * exists to avoid: the first run of it failed on "Credit balance is too low" while a perfectly good
  * subscription sat unused.
- *
- * Exported so `wilson card plan` can scrub the environment of a `claude` binary it spawns directly,
- * the same way this adapter scrubs the one it hands to `query()` — one helper, not two ways for a
- * visible API key to silently reroute billing.
  */
-export const subscriptionEnv = (): NodeJS.ProcessEnv => {
+const subscriptionEnv = (): NodeJS.ProcessEnv => {
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;

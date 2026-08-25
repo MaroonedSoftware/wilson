@@ -12,10 +12,24 @@ import {
     findStage,
     loadStages,
     sectionsOf,
-    subscriptionEnv,
     type Card,
 } from '@wilson/api/cli-bootstrap';
 import { runInteractive } from './editor.js';
+
+/**
+ * The environment `claude` runs with, minus any provider API key.
+ *
+ * Duplicated from `CliStageAgent`'s own `subscriptionEnv` rather than exported from it — that file
+ * is not in this card's files in scope, and the scrub is three lines: a visible `ANTHROPIC_API_KEY`
+ * or `ANTHROPIC_AUTH_TOKEN` makes `claude` prefer per-token billing over the operator's own
+ * subscription, which is the exact failure both copies exist to avoid.
+ */
+const subscriptionEnv = (): NodeJS.ProcessEnv => {
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    return env;
+};
 
 /**
  * Plan a card: an interactive conversation with an agent that can read the repo, ending in a plan a
