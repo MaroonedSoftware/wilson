@@ -39,6 +39,13 @@ export const deleteFile = async (ctx: ToolContext, path: string): Promise<string
     if (info.isDirectory()) return `error: ${decision.path} is a directory; delete takes a single file, not a directory`;
 
     await unlink(absolute);
+    await ctx.events.append({
+        project: ctx.project,
+        cardId: ctx.cardId,
+        stage: ctx.stage,
+        type: 'tool.executed',
+        payload: { tool: 'delete', path: decision.path },
+    });
     return `deleted ${decision.path}`;
 };
 

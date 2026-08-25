@@ -43,7 +43,7 @@ describe('deleteFile', () => {
     };
 
     it('deletes a file inside the plan’s files in scope, and it is actually gone from disk', async () => {
-        const { context } = buildContext();
+        const { context, events } = buildContext();
         await writeFile(join(root, 'src', 'runner', 'gone.ts'), 'x', 'utf8');
 
         const message = await deleteFile(context, 'src/runner/gone.ts');
@@ -51,6 +51,9 @@ describe('deleteFile', () => {
         expect(message).toContain('deleted');
         expect(message).toContain('src/runner/gone.ts');
         await expect(stat(join(root, 'src', 'runner', 'gone.ts'))).rejects.toThrow();
+        // Card 0099: a successful delete is recorded too, not just a refused one — the counterpart
+        // to the denial event below, naming the same tool and path.
+        expect(events).toMatchObject([{ type: 'tool.executed', payload: { tool: 'delete', path: 'src/runner/gone.ts' } }]);
     });
 
     it('refuses a path outside the plan’s files in scope, with the same reason a write gets, and does not delete it', async () => {

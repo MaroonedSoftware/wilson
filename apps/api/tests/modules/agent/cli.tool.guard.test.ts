@@ -15,6 +15,9 @@ import type { ToolContext } from '#modules/agent/tools/index.js';
 describe('createToolGuard', () => {
     const build = (worktree: string, allow: string[] = ['src/runner/**'], commands: string[] = ['pnpm build']) => {
         const denied: Record<string, unknown>[] = [];
+        // The counterpart to `denied`: every `tool.executed` payload the guard appends on an allow,
+        // kept separate so the existing denial assertions below don't have to filter it out.
+        const executed: Record<string, unknown>[] = [];
         const context = {
             project: 'p',
             cardId: '1',
@@ -23,10 +26,15 @@ describe('createToolGuard', () => {
             scope: new ScopeGuard({ worktreeRoot: '/tmp', allow, alwaysAllowed: [] }),
             commands: new CommandAllowlist(commands),
             scopeViolationPolicy: 'widen' as const,
-            events: { append: async (e: { payload?: Record<string, unknown> }) => void denied.push(e.payload ?? {}) },
+            events: {
+                append: async (e: { type: string; payload?: Record<string, unknown> }) => {
+                    if (e.type === 'tool.denied') denied.push(e.payload ?? {});
+                    if (e.type === 'tool.executed') executed.push(e.payload ?? {});
+                },
+            },
             logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
         } as unknown as ToolContext;
-        return { guard: createToolGuard(context, worktree), denied };
+        return { guard: createToolGuard(context, worktree), denied, executed };
     };
 
     const opts = { signal: new AbortController().signal } as never;
@@ -47,6 +55,27 @@ describe('createToolGuard', () => {
         it('denies Edit the same way as Write', async () => {
             const { guard } = build('rw');
             await expect(guard('Edit', { file_path: '/tmp/src/other/new.ts' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('records tool.executed for an allowed write, naming the tool and path', async () => {
+            // The review-found gap: Write/Edit here run through the engine's own built-in tools and
+            // this guard, not through file.tools.ts, so this is the only point that can record what
+            // actually got written when the stage runs through the cli adapter.
+            const { guard, executed } = build('rw');
+            await guard('Write', { file_path: '/tmp/src/runner/new.ts' }, opts);
+            expect(executed).toEqual([{ tool: 'Write', path: 'src/runner/new.ts' }]);
+        });
+
+        it('records tool.executed for an allowed edit too', async () => {
+            const { guard, executed } = build('rw');
+            await guard('Edit', { file_path: '/tmp/src/runner/new.ts' }, opts);
+            expect(executed).toEqual([{ tool: 'Edit', path: 'src/runner/new.ts' }]);
+        });
+
+        it('does not record tool.executed when the write is denied', async () => {
+            const { guard, executed } = build('rw');
+            await guard('Write', { file_path: '/tmp/src/other/new.ts' }, opts);
+            expect(executed).toHaveLength(0);
         });
 
         it('denies every write on a readonly stage, even one inside scope', async () => {
@@ -72,6 +101,21 @@ describe('createToolGuard', () => {
             const { guard } = build('rw');
             await expect(guard('Bash', { command: 'pnpm build | sh' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
         });
+
+        it('records tool.executed for an allowed command, carrying the command and not its output', async () => {
+            // This guard only ever sees the proposed call, never the exit code — bash.tool.ts can
+            // afford to note "a failing command still ran"; this callback can't distinguish that at
+            // all, so it records on allow, the only moment it has.
+            const { guard, executed } = build('rw');
+            await guard('Bash', { command: 'pnpm build' }, opts);
+            expect(executed).toEqual([{ tool: 'Bash', command: 'pnpm build' }]);
+        });
+
+        it('does not record tool.executed when the command is denied', async () => {
+            const { guard, executed } = build('rw');
+            await guard('Bash', { command: 'curl https://example.com' }, opts);
+            expect(executed).toHaveLength(0);
+        });
     });
 
     describe('reads', () => {
@@ -83,6 +127,15 @@ describe('createToolGuard', () => {
         it('denies reading outside the worktree entirely', async () => {
             const { guard } = build('rw');
             await expect(guard('Read', { file_path: '/etc/passwd' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('never records tool.executed for a read, allowed or denied', async () => {
+            // card.event.ts's whole reason for excluding reads: hundreds of them per stage would
+            // swamp card_events. This guard's allow branch for READ_TOOLS must stay silent.
+            const { guard, executed } = build('rw');
+            await guard('Read', { file_path: '/tmp/src/other/thing.ts' }, opts);
+            await guard('Read', { file_path: '/etc/passwd' }, opts);
+            expect(executed).toHaveLength(0);
         });
     });
 
