@@ -329,6 +329,99 @@ describe('CardStageJob', () => {
             expect(cardJobs.record).not.toHaveBeenCalled();
         });
     });
+
+    /**
+     * Card 0084. Card 0066 was merged by a human while its `review` job was still queued; the job
+     * dispatched five seconds later, `assertDispatchable` threw `wrong-stage`, and card 0044's
+     * handler poisoned an already-finished card. It happened again on card 0082. The fix: a
+     * `wrong-stage` refusal whose `actualStage` is terminal is a stale job, not a bug, and must
+     * change nothing about the card.
+     */
+    describe('stale dispatch for a card that already finished (card 0084)', () => {
+        const wrongStage = (actualStage: string, message: string) => new NotDispatchableError({ kind: 'wrong-stage', actualStage }, message);
+
+        it.each([['merged'], ['dropped'], ['poisoned']])(
+            'records stage.stale, does not poison, and does not transition when the card is already "%s"',
+            async actualStage => {
+                dispatcher.run = vi.fn(async () => {
+                    throw wrongStage(actualStage, `card 0001 is in stage "${actualStage}", not "review"`);
+                });
+
+                await expect(job.run({ cardId: '0001', stageName: 'review' })).resolves.toBeUndefined();
+
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        project: 'test',
+                        cardId: '0001',
+                        stage: 'review',
+                        type: 'stage.stale',
+                        payload: { wantedStage: 'review', actualStage },
+                    }),
+                );
+                expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+                expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('transition.written');
+                expect(boardRepo.write).not.toHaveBeenCalled();
+            },
+        );
+
+        it('does not enqueue anything for a stale dispatch', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw wrongStage('merged', 'card 0001 is in stage "merged", not "review"');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'review' });
+
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('releases the claim on a stale dispatch, so the card is not left claiming a job that will never run', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw wrongStage('merged', 'card 0001 is in stage "merged", not "review"');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'review' });
+
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        });
+
+        it('does not throw for a stale dispatch, so the queue does not retry it', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw wrongStage('merged', 'card 0001 is in stage "merged", not "review"');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'review' })).resolves.toBeUndefined();
+        });
+
+        // A card genuinely in the wrong (non-terminal) stage is card 0044's bug, untouched by this
+        // card — it must still poison exactly as before, even though the refusal now carries
+        // `actualStage`.
+        it('still poisons a "wrong-stage" refusal whose actual stage is an ordinary, non-terminal stage', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw wrongStage('implementing', 'card 0001 is in stage "implementing", not "testing"');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.stale');
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        });
+
+        // `isTerminal` deliberately excludes `parking-lot`: a parked card is waiting to be promoted,
+        // not finished, so a stale-looking job that lands on one is still card 0044's bug.
+        it('still poisons a "wrong-stage" refusal when the card is in "parking-lot", which is not terminal', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw wrongStage('parking-lot', 'card 0001 is in stage "parking-lot", not "testing"');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.stale');
+        });
+    });
 });
 
 /**
