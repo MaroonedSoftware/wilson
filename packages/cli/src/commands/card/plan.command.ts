@@ -1,22 +1,28 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { PromptCancelledError, prompts, unwrap } from '@maroonedsoftware/johnny5';
-import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import {
-    BoardConfig,
-    BoardRepository,
-    PLAN_SECTIONS,
-    WorktreeManager,
-    filesInScope,
-    findStage,
-    git,
-    loadStages,
-    sectionsOf,
-    subscriptionEnv,
-    type Card,
-} from '@wilson/api/cli-bootstrap';
+import { withApi } from '../../api-client.js';
 import { runInteractive } from './editor.js';
+
+/**
+ * The environment the spawned `claude` runs with, minus any provider API key.
+ *
+ * `apps/api/.env` (or the operator's own shell) may set `ANTHROPIC_API_KEY`, and a spawned `claude`
+ * prefers a key over the operator's own subscription credentials when it sees one — silently
+ * rerouting to per-token billing, which is the exact thing this exists to avoid.
+ *
+ * Copied, not moved, from `subscriptionEnv` in `apps/api/src/modules/agent/cli.stage.agent.ts`: that
+ * copy still serves `CliStageAgent`, which this package cannot import any more (card 0085 drops
+ * `@wilson/api` from `packages/cli` entirely), and duplicating four lines is cheaper and safer than
+ * inventing a shared package for them.
+ */
+const subscriptionEnv = (): NodeJS.ProcessEnv => {
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    return env;
+};
 
 /**
  * Plan a card: an interactive conversation with an agent that can read the repo, ending in a plan a
@@ -39,78 +45,35 @@ import { runInteractive } from './editor.js';
  * a settings file read by a spawned process, not enforced by this process — but the worktree is
  * discarded regardless of what happened to it, so nothing written there survives either way.
  *
- * This command still builds its own container (`@wilson/api/cli-bootstrap`) rather than calling the
- * API like every other command in this package: card 0078 ports every command except this one, on
- * purpose — it is the one command that cannot simply call an endpoint, because it hands the
- * operator's terminal to an interactive process. Card 0085 takes it and drops the dependency.
+ * This command used to build its own container (`@wilson/api/cli-bootstrap`) rather than calling the
+ * API like every other command in this package — it was the one command that could not simply call
+ * an endpoint, because it hands the operator's terminal to an interactive process. Card 0077 split
+ * `PlanService` out of the old container-only logic so the server could own the half that does not
+ * need a terminal (cutting the throwaway worktree, validating and saving the finished draft, tearing
+ * the worktree down); card 0085 is what points this command at it, dropping `@wilson/api` from this
+ * package entirely. What is left here is exactly the half that must run locally: spawning `claude`
+ * with the operator's own stdio, and the confirmation prompt.
  */
 const command: CommandModule = {
     description: 'Plan a card in an interactive session with an agent that can read the repo, ending in a written plan',
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
-    run: requireContainer(async (_opts, ctx, args) => {
+    run: withApi(async (_opts, ctx, args, api) => {
         const cardId = String(args[0]);
-        const config = ctx.container.get(BoardConfig);
-        const board = ctx.container.get(BoardRepository);
-        const worktrees = ctx.container.get(WorktreeManager);
 
-        // Guard first. The lane is what says this card is being planned; a card with code already on
-        // its branch is a different and more dangerous thing to re-plan, so that is refused too,
-        // before anything is touched.
-        const card = await board.read(cardId);
-        if (card.frontmatter.stage !== 'planning') {
-            ctx.logger.error(
-                `${cardId} is in stage "${card.frontmatter.stage}", not "planning" — move it there first: wilson card move ${cardId} planning`,
-            );
-            return 1;
-        }
+        // The card's current title and body, for the initial prompt and the diff below. `open` below
+        // re-runs card 0058's guards server-side (`PlanService.open`) and is what actually refuses a
+        // card that is not in `planning` or already has work on its branch — this call exists only to
+        // read what `open`'s response does not carry.
+        const card = await api.board.getCard(cardId);
 
-        const cardBranch = worktrees.branchName(cardId, card.frontmatter.title);
-        if (await worktrees.hasWork(cardBranch)) {
-            ctx.logger.error(`${cardId} already has work on ${cardBranch} — re-planning a card with code is a different, more dangerous operation`);
-            return 1;
-        }
-
-        // Config, not a string in this file: the stage's model and its planning instructions live in
-        // stages.yaml like every other stage's do.
-        const stages = await loadStages(config.boardRoot);
-        const stage = findStage(stages, 'planning');
-
-        // A path that is not worktreeRoot/<cardId> and a branch that is not the card's — `create` and
-        // `reclaim` are keyed on whatever string is passed as the card id, so a synthetic one buys a
-        // wholly separate tree without touching the card's real worktree or branch at all.
-        const planId = `plan-${cardId}`;
-        const planBranch = `wilson-plan/${cardId}`;
-
-        // Seeded beside where a running stage's plan.md lands, per `materializePlan` — this is that
-        // same directory, before the plan exists.
-        const draftDir = join(config.runRoot, 'cards', cardId);
-        await mkdir(draftDir, { recursive: true });
-        const draftPath = join(draftDir, 'draft.md');
-
-        const hasSections = Object.keys(sectionsOf(card.body)).length > 0;
-        const seed = hasSections ? card.body : SKELETON;
-        await writeFile(draftPath, seed, 'utf8');
-
+        const session = await api.board.openAPlanningSession(cardId);
         try {
-            const worktree = await worktrees.create(planId, planBranch);
-
             const initialPrompt = [
-                `Card ${cardId}: ${card.frontmatter.title}`,
+                `Card ${cardId}: ${card.title}`,
                 '',
-                `You are in a fresh worktree of the code repo at ${worktree.path}, cut from HEAD for this`,
+                `You are in a fresh worktree of the code repo at ${session.worktreePath}, cut from HEAD for this`,
                 `planning session only — it is not the card's real branch, and nothing written here survives`,
                 `past this session. Read whatever you need here to write an informed plan.`,
-            ].join('\n');
-
-            // The stage's own instructions, plus the one fact only this command knows: where the
-            // draft lives. Both travel as one appended system prompt so the model sees them with the
-            // same weight it gives its base instructions, not as a user turn it might treat as
-            // negotiable.
-            const appendedPrompt = [
-                stage.instructions,
-                '',
-                `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
-                `delivered. It currently holds ${hasSections ? "this card's existing body" : 'an empty six-heading skeleton'}; read it before anything else.`,
             ].join('\n');
 
             // A settings deny list in a spawned process, not `ScopeGuard` — weaker, and dependent on
@@ -119,8 +82,8 @@ const command: CommandModule = {
             // matters, and the worktree is discarded either way.
             const settings = {
                 permissions: {
-                    deny: [`Edit(${worktree.path}/**)`],
-                    allow: [`Edit(${draftPath})`],
+                    deny: [`Edit(${session.worktreePath}/**)`],
+                    allow: [`Edit(${session.draftPath})`],
                 },
             };
 
@@ -129,11 +92,15 @@ const command: CommandModule = {
                 [
                     initialPrompt,
                     '--model',
-                    stage.model,
+                    session.model,
+                    // The stage's own instructions plus where the draft lives, already combined by
+                    // `PlanService.open` — appended as the system prompt so the model sees it with the
+                    // same weight as its base instructions, not as a user turn it might treat as
+                    // negotiable.
                     '--append-system-prompt',
-                    appendedPrompt,
+                    session.instructions,
                     '--add-dir',
-                    draftDir,
+                    dirname(session.draftPath),
                     '--settings',
                     JSON.stringify(settings),
                     // Never 'plan': plan mode blocks the very write this command depends on, and its
@@ -142,31 +109,24 @@ const command: CommandModule = {
                     '--permission-mode',
                     'default',
                 ],
-                { cwd: worktree.path, env: subscriptionEnv() },
+                { cwd: session.worktreePath, env: subscriptionEnv() },
             );
 
-            const draftBody = await readFile(draftPath, 'utf8');
-            const sections = sectionsOf(draftBody);
-            const draftCard: Card = { frontmatter: card.frontmatter, sections, body: draftBody };
+            const draftBody = await readFile(session.draftPath, 'utf8');
 
-            // Refuse an incomplete plan rather than write it — a plan missing a heading, or with an
-            // empty "Files in scope", fails at `assertDispatchable` much later with a worse error.
-            const missing = PLAN_SECTIONS.filter(section => !sections[section] || sections[section]!.trim().length === 0);
-            if (missing.length > 0) {
-                ctx.logger.error(`draft is incomplete — empty section(s): ${missing.join(', ')}. Nothing written.`);
-                return 1;
-            }
-            if (filesInScope(draftCard).length === 0) {
-                ctx.logger.error('draft has an empty "Files in scope". Nothing written.');
-                return 1;
-            }
-
+            // Checked here, before showing a diff or asking to confirm, rather than left to `save`:
+            // an unchanged draft has nothing to show or confirm, and `save` (`PlanService.save`) makes
+            // this same comparison itself — checking it early just skips the empty prompt. Section
+            // completeness and a non-empty "Files in scope" are deliberately *not* re-checked here:
+            // `save` validates both server-side and refuses naming what is missing, so a confirmed
+            // draft that turns out incomplete fails there, as a normal API refusal, rather than behind
+            // a second copy of the same validation.
             if (draftBody === card.body) {
                 ctx.logger.info('draft is unchanged. Nothing written.');
                 return 0;
             }
 
-            ctx.logger.info(`\n${cardId}: ${card.frontmatter.title}\n`);
+            ctx.logger.info(`\n${cardId}: ${card.title}\n`);
             for (const line of diffLines(card.body, draftBody)) ctx.logger.info(line);
             ctx.logger.info('');
 
@@ -183,24 +143,18 @@ const command: CommandModule = {
                 return 0;
             }
 
-            await board.write(cardId, `Plan ${cardId}: ${card.frontmatter.title}`, current => ({ ...current, body: draftBody }));
+            await api.board.saveAPlanDraft(cardId, { body: draftBody });
             ctx.logger.info(`${cardId} planned — new version written.`);
             return 0;
         } finally {
-            // Both the worktree and its throwaway branch removed on every exit, pass or fail — never
-            // the card's real worktree or branch, since `planId` and `planBranch` were never the
-            // card's own. `reclaim` only ever removes the worktree, deliberately leaving a card's real
-            // branch behind; the synthetic branch minted just so `create`'s `-B` had something to
-            // reset carries no history worth keeping, so it is deleted directly here rather than by a
-            // new WorktreeManager method.
-            await worktrees.reclaim(planId);
-            await git(config.codeRoot, ['branch', '-D', planBranch]).catch(() => undefined);
+            // Closed on every exit path, pass or fail — an unclosed session leaks the throwaway
+            // worktree `open` cut, the leak card 0064 stopped and card 0077 made recoverable by
+            // reopening. `close` (`PlanService.close`) is idempotent, so calling it after a declined
+            // confirmation or a `save` refusal is exactly as safe as calling it after a real write.
+            await api.board.closeAPlanningSession(cardId);
         }
     }),
 };
-
-/** The same six headings `card create` seeds, built from the shared constant so the two cannot drift. */
-const SKELETON = PLAN_SECTIONS.map(section => `## ${section}\n`).join('\n');
 
 /**
  * A minimal line-level diff, LCS-based, with no context lines — just what was added and removed.
