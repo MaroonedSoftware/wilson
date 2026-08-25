@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { pnpmStoreLock } from '#modules/stages/run.command.js';
+import { pnpmStoreLock, scrubbedEnv } from '#modules/stages/run.command.js';
 import type { ToolContext } from './tool.context.js';
 
 const exec = promisify(execFile);
@@ -80,23 +80,4 @@ const clamp = (output: string): string => {
     if (output.length <= MAX_RETURNED) return output;
     const half = Math.floor(MAX_RETURNED / 2);
     return `${output.slice(0, half)}\n\n… ${output.length - MAX_RETURNED} characters elided …\n\n${output.slice(-half)}`;
-};
-
-/**
- * The environment a stage command runs with.
- *
- * Allowlisted, not denylisted: a new secret added to the deployment's env should not silently become
- * visible to every build script because nobody remembered to add it to a deny list.
- */
-const PASSED_THROUGH = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_ENV'];
-
-const scrubbedEnv = (): NodeJS.ProcessEnv => {
-    const env: NodeJS.ProcessEnv = {};
-    for (const key of PASSED_THROUGH) {
-        const value = process.env[key];
-        if (value !== undefined) env[key] = value;
-    }
-    // Card-injected, so a dev server started by a stage does not collide with another card's.
-    env.CI = 'true';
-    return env;
 };
