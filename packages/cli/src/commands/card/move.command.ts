@@ -1,5 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { deadStages } from '../../board-view.js';
 
 /**
  * Move a card to another stage.
@@ -9,6 +10,11 @@ import { withApi } from '../../api-client.js';
  * (`BoardWriteService.move`, card 0080), which ports this command's own rules unchanged. This
  * command reads the card first only to phrase the operator-facing message (already-there vs moved
  * vs flag-cleared); the API is what actually decides and writes.
+ *
+ * It also warns — but never refuses — when the target is a dead stage (`dropped`, `poisoned`):
+ * anything depending on this card would otherwise be silently blocked forever (card 0090). The
+ * dependent search is a plain client-side filter over `listCards()`, not a new index — nothing on
+ * the server is indexed the other way round.
  */
 const command: CommandModule = {
     description: 'Move a card to another stage, recording the transition',
@@ -25,6 +31,22 @@ const command: CommandModule = {
         if (before.stage === target && !clearsFlag) {
             ctx.logger.info(`${cardId} is already in ${target}`);
             return 0;
+        }
+
+        const columns = await api.board.listBoardColumns();
+        if (deadStages(columns.nonStages).includes(target)) {
+            const cards = await api.board.listCards();
+            const dependents = cards.filter(c => c.dependsOn.includes(cardId));
+            if (dependents.length > 0) {
+                ctx.logger.info(
+                    `warning: ${cardId} will never reach merged from ${target} — this permanently blocks ` +
+                        `${dependents.map(c => c.id).join(', ')}, which depend on it. Clear each link, or ` +
+                        `leave it blocked on purpose:`,
+                );
+                for (const dependent of dependents) {
+                    ctx.logger.info(`  wilson card depend ${dependent.id} ${cardId} --remove`);
+                }
+            }
         }
 
         await api.board.moveCard(cardId, { stage: target });
