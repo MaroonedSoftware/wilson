@@ -34,6 +34,8 @@ export { timeInCurrentStage } from '#modules/events/time.in.stage.js';
 export { loadStages, findStage, validTargets, NON_STAGE_STATES } from '#modules/stages/stage.config.js';
 export { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 export { filesInScope, sectionsOf, PLAN_SECTIONS } from '#modules/board/card.js';
+export { scopeOverlap } from '#modules/board/scope.overlap.js';
+export type { OverlappingPatterns } from '#modules/board/scope.overlap.js';
 export type { Card } from '#modules/board/card.js';
 export { nextCard, unsatisfiedDependencies } from '#modules/board/next.card.js';
 export type { NextCard, Blocked } from '#modules/board/next.card.js';
