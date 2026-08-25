@@ -3,20 +3,41 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
+import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 
-const card = (id: string, overrides: Partial<Card['frontmatter']> = {}): Card => ({
+// `release`'s `runningDaemon` probe shells out to `pgrep` via `execFile` (promisified) exactly the
+// way `release.command.ts` does — see that CLI test for why the mock has to supply
+// `util.promisify.custom` rather than stub `execFile` itself: a plain `vi.fn()` would make
+// `promisify(execFile)` resolve to `undefined` no matter what the mock is told to return, and every
+// test would silently take the "no daemon" branch regardless of what it configured.
+const { execFileImpl } = vi.hoisted(() => ({ execFileImpl: vi.fn() }));
+vi.mock('node:child_process', async () => {
+    const { promisify } = await import('node:util');
+    const execFile = () => {
+        throw new Error('execFile: test double only supports the promisify(execFile) path');
+    };
+    Object.defineProperty(execFile, promisify.custom, { value: (...args: unknown[]) => execFileImpl(...args) });
+    return { execFile };
+});
+
+/** No `wilson run` process found — the real shape of a failed `pgrep -f` match. */
+const noDaemonRunning = () => execFileImpl.mockRejectedValue(Object.assign(new Error('pgrep: no matching process'), { code: 1 }));
+const daemonRunning = (pid = '4242') => execFileImpl.mockResolvedValue({ stdout: `${pid}\n`, stderr: '' });
+
+const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, body = 'body text'): Card => ({
     frontmatter: { id, title: `card ${id}`, stage: 'implementing', dependsOn: [], retries: {}, ...overrides },
     sections: {},
-    body: 'body text',
+    body,
 });
 
 const fakeLogger = (): Logger & { warn: ReturnType<typeof vi.fn> } =>
@@ -41,6 +62,15 @@ beforeAll(async () => {
         join(boardRoot, 'config', 'stages.yaml'),
         [
             'stages:',
+            // `onPass: testing` here, not `implementing` — `approve` reads this from config rather
+            // than hard-coding a target, and picking a value other than the more obvious
+            // `implementing` is what would catch a regression back to a literal.
+            '  - name: backlog',
+            '    mode: manual',
+            '    model: claude-opus',
+            '    instructions: read the plan',
+            '    onPass: testing',
+            '    onFail: backlog',
             '  - name: implementing',
             '    mode: agent',
             '    model: claude-opus',
@@ -69,13 +99,34 @@ afterAll(async () => {
  * ports its behaviour from, so a divergence between the two shows up as a divergence in behaviour,
  * not in how the two test files are wired up.
  */
-const freshBoard = (worktrees: { reclaim: ReturnType<typeof vi.fn> } = { reclaim: vi.fn(async () => {}) }) => {
+const freshBoard = (
+    worktrees: { reclaim: ReturnType<typeof vi.fn> } = { reclaim: vi.fn(async () => {}) },
+    brokerOverrides: Partial<{ send: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> }> = {},
+) => {
     const events = { append: vi.fn(async () => {}) };
     const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     const logger = fakeLogger();
-    const service = new BoardWriteService(board, config, worktrees as unknown as WorktreeManager, events as unknown as EventLog, logger);
-    return { board, config, events, worktrees, logger, service };
+    // `broker` is faked, but `CardJobs` is the real thing wired to the test db — `start`/`release`
+    // exercise `inFlight`/`record`/`clear` for real, the same idiom `card.jobs.test.ts` uses, rather
+    // than mocking the claim bookkeeping this card doesn't own.
+    const broker = {
+        send: vi.fn(async () => 'job-1'),
+        cancel: vi.fn(async () => {}),
+        getJob: vi.fn(async () => null),
+        ...brokerOverrides,
+    };
+    const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+    const service = new BoardWriteService(
+        board,
+        config,
+        worktrees as unknown as WorktreeManager,
+        events as unknown as EventLog,
+        logger,
+        cardJobs,
+        broker as unknown as JobBroker,
+    );
+    return { board, config, events, worktrees, logger, cardJobs, broker, service };
 };
 
 describe('BoardWriteService', () => {
@@ -289,6 +340,369 @@ describe('BoardWriteService', () => {
             const { service } = freshBoard();
 
             await expect(service.edit('missing', { body: 'x' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    describe('depend', () => {
+        it('refuses a card depending on itself with a 400, writing nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0030'), 'seed');
+            const versionBefore = await board.currentVersion('0030');
+
+            await expect(service.depend('0030', { dependsOnId: '0030' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('cannot depend on itself') },
+            });
+            expect(await board.currentVersion('0030')).toBe(versionBefore);
+        });
+
+        it('answers with a 404 when the target card does not exist, reading the target before the card itself', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0031'), 'seed');
+            const readSpy = vi.spyOn(board, 'read');
+
+            await expect(service.depend('0031', { dependsOnId: 'missing' })).rejects.toMatchObject({ statusCode: 404 });
+
+            // Same order the CLI reads in: a typo in the target reads as "that card does not exist"
+            // before the id being depended on is even looked at.
+            const readIds = readSpy.mock.calls.map(call => call[0]);
+            expect(readIds[0]).toBe('missing');
+        });
+
+        it('answers with a 404 when the depending card itself does not exist', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0032'), 'seed');
+
+            await expect(service.depend('missing', { dependsOnId: '0032' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('records a dependency, sorted, with the same version message the CLI records', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0033'), 'seed');
+            await board.create(card('0034'), 'seed');
+
+            const detail = await service.depend('0033', { dependsOnId: '0034' });
+
+            expect(detail.dependsOn).toEqual(['0034']);
+            const stored = await board.read('0033');
+            expect(stored.frontmatter.dependsOn).toEqual(['0034']);
+            const versions = await board.versions('0033', 10);
+            expect(versions[0].message).toBe('Add 0033 dependency on 0034');
+        });
+
+        it('is a no-op — no write — when adding a dependency already present', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0035'), 'seed');
+            await board.create(card('0036', { dependsOn: ['0035'] }), 'seed');
+            const versionBefore = await board.currentVersion('0036');
+
+            const detail = await service.depend('0036', { dependsOnId: '0035' });
+
+            expect(detail.dependsOn).toEqual(['0035']);
+            expect(await board.currentVersion('0036')).toBe(versionBefore);
+        });
+
+        it('drops an existing dependency when remove is true, recording "Drop" in the version message', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0037'), 'seed');
+            await board.create(card('0038', { dependsOn: ['0037'] }), 'seed');
+
+            const detail = await service.depend('0038', { dependsOnId: '0037', remove: true });
+
+            expect(detail.dependsOn).toEqual([]);
+            const versions = await board.versions('0038', 10);
+            expect(versions[0].message).toBe('Drop 0038 dependency on 0037');
+        });
+
+        it('is a no-op — no write — when removing a dependency that is not present', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0039'), 'seed');
+            await board.create(card('0040'), 'seed');
+            const versionBefore = await board.currentVersion('0040');
+
+            const detail = await service.depend('0040', { dependsOnId: '0039', remove: true });
+
+            expect(detail.dependsOn).toEqual([]);
+            expect(await board.currentVersion('0040')).toBe(versionBefore);
+        });
+    });
+
+    describe('ack', () => {
+        it('refuses a card that is not flagged with a 400, writing nothing and appending no event', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(card('0041', { stage: 'implementing' }), 'seed');
+            const versionBefore = await board.currentVersion('0041');
+
+            await expect(service.ack('0041')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('not flagged for a human') },
+            });
+            expect(await board.currentVersion('0041')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.ack('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('clears the flag and drops only the current stage retry key entirely — not zeroing it, and not touching other stages', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(
+                card('0042', {
+                    stage: 'implementing',
+                    needsHuman: true,
+                    needsHumanReason: 'stuck on the thing',
+                    retries: { implementing: 2, testing: 1 },
+                }),
+                'seed',
+            );
+
+            const detail = await service.ack('0042');
+
+            expect(detail.needsHuman).toBe(false);
+            expect(detail.needsHumanReason).toBeUndefined();
+
+            const stored = await board.read('0042');
+            expect(stored.frontmatter.needsHuman).toBe(false);
+            expect(stored.frontmatter.needsHumanReason).toBeUndefined();
+            // The key itself is gone, not present-and-zero — the two are different shapes for "never
+            // failed" and only the absent key is the one `ack` produces.
+            expect(Object.prototype.hasOwnProperty.call(stored.frontmatter.retries, 'implementing')).toBe(false);
+            // A different stage's retry count survives untouched.
+            expect(stored.frontmatter.retries.testing).toBe(1);
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0042',
+                    stage: 'implementing',
+                    type: 'card.acked',
+                    payload: { stage: 'implementing', reason: 'stuck on the thing', retries: 2, by: 'human' },
+                }),
+                expect.anything(),
+            );
+        });
+    });
+
+    describe('approve', () => {
+        const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') =>
+            card(id, { stage }, body);
+
+        it('refuses a card outside backlog with a 400, writing nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(withScope('0050', 'implementing'), 'seed');
+
+            await expect(service.approve('0050')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"implementing", not "backlog"') },
+            });
+            const stored = await board.read('0050');
+            expect(stored.frontmatter.stage).toBe('implementing');
+            expect(stored.frontmatter.planVersionId).toBeUndefined();
+        });
+
+        it('refuses a backlog card whose plan has an empty "Files in scope", writing nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(withScope('0051', 'backlog', '## Goal\n\nDo it.\n\n## Files in scope\n\n'), 'seed');
+
+            await expect(service.approve('0051')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('Files in scope') },
+            });
+            const stored = await board.read('0051');
+            expect(stored.frontmatter.stage).toBe('backlog');
+            expect(stored.frontmatter.planVersionId).toBeUndefined();
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.approve('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it("pins the version that held the plan a human just read — the one before this write, not the one this write creates — and moves to backlog's onPass target", async () => {
+            const { board, events, service } = freshBoard();
+            const approvedVersion = await board.create(withScope('0052', 'backlog'), 'seed');
+
+            const detail = await service.approve('0052');
+
+            // `stages.yaml` in this file routes backlog to "testing", not the more obvious
+            // "implementing" a hard-coded target would produce.
+            expect(detail.stage).toBe('testing');
+
+            const stored = await board.read('0052');
+            expect(stored.frontmatter.stage).toBe('testing');
+            expect(stored.frontmatter.planVersionId).toBe(approvedVersion);
+
+            const versionAfterApproval = await board.currentVersion('0052');
+            expect(versionAfterApproval).not.toBe(approvedVersion);
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0052',
+                    stage: 'testing',
+                    type: 'transition.written',
+                    payload: { from: 'backlog', to: 'testing', by: 'human', planVersionId: approvedVersion },
+                }),
+                expect.anything(),
+            );
+        });
+
+        it('pins the plan text as it stood at approval, so a later edit does not change what a pinned read sees', async () => {
+            const { board, service } = freshBoard();
+            const approvedBody = '## Goal\n\nApprove me.\n\n## Files in scope\n\n- src/a.ts\n';
+            await board.create(withScope('0053', 'backlog', approvedBody), 'seed');
+
+            await service.approve('0053');
+            const pinnedVersion = (await board.read('0053')).frontmatter.planVersionId!;
+
+            await board.write('0053', 'edit after approval', c => ({ ...c, body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n' }));
+
+            const pinned = await board.readAt('0053', pinnedVersion);
+            expect(pinned.body).toBe(approvedBody);
+        });
+    });
+
+    describe('start', () => {
+        it('refuses whatever whyNotDispatchable refuses, carrying its reason as a 400, and enqueues nothing', async () => {
+            const { board, broker, cardJobs, service } = freshBoard();
+            // "merged" is a terminal state — whyNotDispatchable refuses it before this ever reaches
+            // the job queue.
+            await board.create(card('0060', { stage: 'merged' }), 'seed');
+
+            await expect(service.start('0060')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('terminal state') },
+            });
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(await cardJobs.inFlight('0060')).toBeUndefined();
+        });
+
+        it('refuses a card flagged for a human, carrying whyNotDispatchable’s reason, even though its stage is otherwise dispatchable', async () => {
+            const { board, broker, service } = freshBoard();
+            await board.create(card('0061', { stage: 'implementing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');
+
+            await expect(service.start('0061')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('flagged for a human: stuck') },
+            });
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('refuses a card a job is already carrying, without sending a second job', async () => {
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-9', name: 'card.stage', state: 'active', data: {} })) },
+            );
+            await board.create(card('0062', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0062', 'job-9');
+
+            await expect(service.start('0062')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('job-9 is already carrying it') },
+            });
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.start('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('enqueues via broker.send and records the claim after, in that order, so the claim never precedes the job', async () => {
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                {
+                    send: vi.fn(async () => 'job-77'),
+                    getJob: vi.fn(async () => ({ id: 'job-77', name: 'card.stage', state: 'active', data: {} })),
+                },
+            );
+            await board.create(card('0063', { stage: 'implementing' }), 'seed');
+
+            const recordSpy = vi.spyOn(cardJobs, 'record');
+
+            const detail = await service.start('0063');
+
+            expect(detail.stage).toBe('implementing');
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0063', stageName: 'implementing' });
+            expect(recordSpy).toHaveBeenCalledWith('0063', 'job-77');
+
+            // `broker.send` resolves the job id `record` is called with — spying on `send`'s own
+            // invocation order proves it ran first, since `record`'s argument could not exist yet
+            // otherwise.
+            const sendOrder = broker.send.mock.invocationCallOrder[0];
+            const recordOrder = recordSpy.mock.invocationCallOrder[0];
+            expect(sendOrder).toBeLessThan(recordOrder);
+
+            expect(await cardJobs.inFlight('0063')).toBe('job-77');
+        });
+    });
+
+    describe('release', () => {
+        it('refuses a card holding no claim with a 400, touching neither the broker nor the daemon probe', async () => {
+            noDaemonRunning();
+            const { broker, service } = freshBoard();
+            execFileImpl.mockClear();
+
+            await expect(service.release('0070')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('holds no claim') },
+            });
+            expect(broker.cancel).not.toHaveBeenCalled();
+            // The daemon probe only ever disambiguates a card that does hold a live claim.
+            expect(execFileImpl).not.toHaveBeenCalled();
+        });
+
+        it('refuses to release while a wilson run daemon is active, cancelling and clearing nothing', async () => {
+            daemonRunning('9001');
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-42', name: 'card.stage', state: 'active', data: {} })) },
+            );
+            await board.create(card('0071', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0071', 'job-42');
+
+            await expect(service.release('0071')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('9001') },
+            });
+            expect(broker.cancel).not.toHaveBeenCalled();
+            expect(await cardJobs.inFlight('0071')).toBe('job-42');
+        });
+
+        it('cancels the job through the broker and clears the claim, without moving the card or dispatching anything', async () => {
+            noDaemonRunning();
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-55', name: 'card.stage', state: 'active', data: {} })) },
+            );
+            await board.create(card('0072', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0072', 'job-55');
+
+            const detail = await service.release('0072');
+
+            expect(detail.stage).toBe('implementing');
+            expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-55');
+            expect(await cardJobs.inFlight('0072')).toBeUndefined();
+        });
+
+        it('cancels strictly before clearing the claim, so a crash between the two leaves the claim pointing at an already-cancelled job rather than an orphaned live one', async () => {
+            noDaemonRunning();
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-88', name: 'card.stage', state: 'active', data: {} })) },
+            );
+            await board.create(card('0074', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0074', 'job-88');
+            const clearSpy = vi.spyOn(cardJobs, 'clear');
+
+            await service.release('0074');
+
+            const cancelOrder = broker.cancel.mock.invocationCallOrder[0];
+            const clearOrder = clearSpy.mock.invocationCallOrder[0];
+            expect(cancelOrder).toBeLessThan(clearOrder);
         });
     });
 });
