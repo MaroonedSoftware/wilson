@@ -140,6 +140,9 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         const stored = await board.read('0001');
         expect(stored.frontmatter.stage).toBe('implementing');
         expect(stored.frontmatter.retries).toEqual({ testing: 1 });
+        // A kickback with retries left behaves exactly as it does today: it routes to onFail,
+        // unflagged. Only the maxKickbacks-th failure sets needsHuman.
+        expect(stored.frontmatter.needsHuman).toBeFalsy();
     });
 
     it('sends a review that asks for revision backward even though the stage itself passed', async () => {
@@ -219,6 +222,25 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(stored.frontmatter.stage).toBe('testing');
         expect(stored.frontmatter.needsHuman).toBe(true);
         expect(stored.frontmatter.needsHumanReason).toContain('testing');
+    });
+
+    // The plan's constraint: "the flag and the transition commit together — both go into the same
+    // writeWithEvent mutate". A bug that wrote the stage move and the flag as two separate
+    // writeWithEvent calls would still converge to the same final board.read() above, but it would
+    // leave two new versions in the history instead of one, and a crash between the two writes would
+    // leave a card moved without ever being flagged — the exact failure the constraint rules out.
+    it('records exactly one new version for the exhausted kickback, carrying the move and the flag together', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+
+        await writeTransition(stage, baseCard, outcome({ passed: false }));
+
+        const history = await board.versions('0001', 10);
+        expect(history).toHaveLength(2); // card creation, then this one transition
+
+        const latest = await board.readAt('0001', history[0].id);
+        expect(latest.frontmatter.stage).toBe('testing');
+        expect(latest.frontmatter.needsHuman).toBe(true);
+        expect(latest.frontmatter.needsHumanReason).toContain('testing');
     });
 });
 

@@ -87,6 +87,16 @@ describe('assertRoutesResolve', () => {
     it('lists the valid targets so the fix is obvious', () => {
         expect(() => assertRoutesResolve(config(stage('a', 'nowhere', 'a')))).toThrow(/Valid targets:.*merged/);
     });
+
+    // Card 0055: `needs-human` used to be a terminal lane in `NON_STAGE_STATES`, so a route to it
+    // resolved. It is a flag on the card now, not a place anything moves to, so a `stages.yaml` that
+    // still names it as an `onFail`/`onPass` target must fail to load exactly like a route to any
+    // other nonexistent state.
+    it('rejects a route to needs-human, now that the flag replaces the lane rather than naming it', () => {
+        expect(() => assertRoutesResolve(config(stage('implementing', 'testing', 'needs-human')))).toThrow(
+            /implementing\.onFail → "needs-human"/,
+        );
+    });
 });
 
 describe('scope is judged on the stage’s own writes', () => {
