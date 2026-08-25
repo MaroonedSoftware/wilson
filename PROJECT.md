@@ -190,6 +190,33 @@ job is to add files nobody could have declared in advance.
 | review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum | ready |
 | ready | manual | none | human approval | merge, then `merged` |
 
+The table above shows only where a stage goes when it passes; a kickback target — a stage's
+`onFail` — is a separate decision and is not automatically the stage before the one that failed. It
+is the stage that can fix the failure. `review.onFail: implementing` is correct: a review blocker
+is a statement about the code, so the code is what changes. `testing.onFail: testing` is also
+correct, and looks wrong at first glance — testing failing is not implementing's problem, and
+implementing has nothing left to redo when testing fails its own exit condition (it wrote no tests,
+say). Card 0060 hit this the expensive way: `testing.onFail: implementing` sent a passing,
+already-committed implementation to a stage with an empty diff to produce; `implementing.onFail:
+implementing` then sent that failure back to itself, and the card burned its retries rediscovering
+it had already finished — three worktrees and three agent runs to land on `needs-human` with
+nothing wrong at any point. A stage whose `onFail` names itself is not a special case: it retries
+bounded by its own `maxKickbacks` exactly like a kickback to any other stage, the difference being
+that it still has real work left to do.
+
+That "real work left to do" holds when testing wrote no tests or its report is stale, but not when
+testing fails because the implementation cannot be tested as written — no seam for an assertion to
+attach to, a dependency nothing can fake. A self-loop retrying `testing` cannot fix that either; it
+still lands on `needs-human` once `maxKickbacks` is spent, same as any exhausted stage, with a reason
+string naming the testing stage and its failure. A human reading that alongside the worktree can tell
+the two apart — testing kept trying, or the implementation was the actual blocker — and route the
+latter to `implementing` by hand with `wilson card move`. That costs a round of testing attempts
+before a human sees it, not a wrong outcome: still strictly better than card 0060's shape, which spent
+its retries on an already-correct implementing stage instead. Telling the two failures apart
+automatically would need testing to report why it failed, not just that it did — a signal the
+runner does not carry today (`apps/api/src/modules/stages/kickback.ts`) — and is left for a later
+card.
+
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and
 folding it into planning would make planning a stage with two models and two
