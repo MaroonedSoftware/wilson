@@ -30,7 +30,7 @@ const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
 
 describe('decideChain', () => {
     it('stops the chain at every terminal state without consulting stage config', () => {
-        for (const target of ['parking-lot', 'merged', 'needs-human', 'poisoned', 'dropped']) {
+        for (const target of ['parking-lot', 'merged', 'poisoned', 'dropped']) {
             const decision = decideChain(target, stages([]));
             expect(decision.continue).toBe(false);
             expect(decision.reason).toContain('terminal state');

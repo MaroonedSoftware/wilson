@@ -35,7 +35,7 @@ export class ImplementingVerifier implements StageVerifier {
         // measures from the fork point, so on a resumed branch it carries every earlier stage's work
         // — and a later stage is entitled to files an earlier one's scope excludes. Card 0014 kicked
         // back from testing to implementing and then failed three times on test files the testing
-        // stage had every right to add, escalating to needs-human over a rule rather than the work.
+        // stage had every right to add, flagging the card for a human over a rule rather than the work.
         for (const path of written) {
             const decision = await scope.check(path);
             if (!decision.allowed) {

@@ -109,14 +109,20 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
     const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
         (
             dispatcher as unknown as {
-                writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string>;
+                writeTransition(
+                    cardId: string,
+                    stageName: string,
+                    stage: StageConfig,
+                    card: Card,
+                    outcome: StageOutcome,
+                ): Promise<{ target: string; needsHuman: boolean }>;
             }
         ).writeTransition('0001', 'testing', stage, card, result);
 
     it('advances a passing stage to onPass and leaves the body untouched', async () => {
         const stage = makeStage({ onPass: 'review' });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: true }));
 
         expect(target).toBe('review');
         const stored = await board.read('0001');
@@ -128,7 +134,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
     it('kicks a failing stage back to onFail and bumps its retry counter', async () => {
         const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: false }));
 
         expect(target).toBe('implementing');
         const stored = await board.read('0001');
@@ -140,7 +146,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
         const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
 
-        const target = await writeTransition(
+        const { target } = await writeTransition(
             stage,
             card,
             outcome({
@@ -164,7 +170,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing' });
         const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
 
-        const target = await writeTransition(stage, card, outcome({ passed: true, result: { verdict: 'pass', findings: [] } }));
+        const { target } = await writeTransition(stage, card, outcome({ passed: true, result: { verdict: 'pass', findings: [] } }));
 
         expect(target).toBe('merge');
         const stored = await board.read('0001');
@@ -202,14 +208,17 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(row.message).toBe('0001: testing -> review');
     });
 
-    it('routes to needs-human once a kicked-back card exhausts its retries', async () => {
+    it('stays on its own stage and flags the card once a kicked-back card exhausts its retries', async () => {
         const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }));
 
-        expect(target).toBe('needs-human');
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
         const stored = await board.read('0001');
-        expect(stored.frontmatter.stage).toBe('needs-human');
+        expect(stored.frontmatter.stage).toBe('testing');
+        expect(stored.frontmatter.needsHuman).toBe(true);
+        expect(stored.frontmatter.needsHumanReason).toContain('testing');
     });
 });
 
@@ -252,14 +261,20 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
     const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
         (
             dispatcher as unknown as {
-                writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string>;
+                writeTransition(
+                    cardId: string,
+                    stageName: string,
+                    stage: StageConfig,
+                    card: Card,
+                    outcome: StageOutcome,
+                ): Promise<{ target: string; needsHuman: boolean }>;
             }
         ).writeTransition('0001', 'testing', stage, card, result);
 
     it('reclaims the card’s worktree and records worktree.reclaimed when the target is merged', async () => {
         const stage = makeStage({ onPass: 'merged' });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: true }));
 
         expect(target).toBe('merged');
         expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
@@ -274,20 +289,20 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
         );
     });
 
-    it('reclaims when a stage exhausts its retries and lands the card on needs-human', async () => {
+    it('does not reclaim when a stage exhausts its retries and flags the card, since the target is no longer terminal', async () => {
         const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }));
 
-        expect(target).toBe('needs-human');
-        expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
-        expect(worktrees.reclaim).toHaveBeenCalledWith('0001');
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
+        expect(worktrees.reclaim).not.toHaveBeenCalled();
     });
 
     it('does not reclaim when the card advances to an ordinary, non-terminal stage', async () => {
         const stage = makeStage({ onPass: 'review' });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: true }));
 
         expect(target).toBe('review');
         expect(worktrees.reclaim).not.toHaveBeenCalled();
@@ -297,7 +312,7 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
     it('does not reclaim when a kickback still has retries left, leaving the branch resumable', async () => {
         const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: false }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: false }));
 
         expect(target).toBe('implementing');
         expect(worktrees.reclaim).not.toHaveBeenCalled();
@@ -307,7 +322,7 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
         worktrees.reclaim.mockRejectedValueOnce(new Error('boom: directory busy'));
         const stage = makeStage({ onPass: 'dropped' });
 
-        const target = await writeTransition(stage, baseCard, outcome({ passed: true }));
+        const { target } = await writeTransition(stage, baseCard, outcome({ passed: true }));
 
         expect(target).toBe('dropped');
         const stored = await board.read('0001');

@@ -41,14 +41,7 @@ describe('nextCard', () => {
     });
 
     it('ignores cards in every non-stage state, even when they would otherwise be the lowest id', () => {
-        const cards = [
-            card('0001', 'merged'),
-            card('0002', 'parking-lot'),
-            card('0003', 'needs-human'),
-            card('0004', 'poisoned'),
-            card('0005', 'dropped'),
-            card('0006', 'implementing'),
-        ];
+        const cards = [card('0001', 'merged'), card('0002', 'parking-lot'), card('0004', 'poisoned'), card('0005', 'dropped'), card('0006', 'implementing')];
 
         const { next, blocked } = nextCard(cards);
 

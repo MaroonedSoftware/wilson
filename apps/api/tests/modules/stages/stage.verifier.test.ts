@@ -73,7 +73,7 @@ describe('assertRoutesResolve', () => {
     });
 
     it('accepts a route to a terminal state', () => {
-        expect(() => assertRoutesResolve(config(stage('a', 'merged', 'needs-human')))).not.toThrow();
+        expect(() => assertRoutesResolve(config(stage('a', 'merged', 'dropped')))).not.toThrow();
     });
 
     it('rejects a route to a stage nobody built, naming it', () => {

@@ -43,7 +43,7 @@ const card = (stage: string): Card => ({
 
 describe('whyNotDispatchable', () => {
     it('refuses every terminal state, naming it and saying the card is finished', () => {
-        for (const target of ['merged', 'needs-human', 'poisoned', 'dropped']) {
+        for (const target of ['merged', 'poisoned', 'dropped']) {
             const result = whyNotDispatchable(card(target), stages([]));
 
             expect(result).toBeDefined();
@@ -95,7 +95,7 @@ describe('whyNotDispatchable', () => {
     });
 
     it('checks terminal status ahead of stage lookup, so a terminal name with no matching stage still gets the terminal-specific reason', () => {
-        const result = whyNotDispatchable(card('needs-human'), stages([makeStage({ name: 'implementing' })]));
+        const result = whyNotDispatchable(card('poisoned'), stages([makeStage({ name: 'implementing' })]));
 
         expect(result).toBeDefined();
         expect(result?.reason).toContain('finished');

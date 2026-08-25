@@ -221,9 +221,18 @@ model room to hedge; the runner rejects a result that claims `pass` while listin
 blockers. There is no field for a revised plan: a reviewer that can rewrite is not
 adversarial, it is a second planner. It names problems, planning fixes them.
 
-Terminal states: `merged` (done), `needs-human` (retries exhausted; the plan is
-probably wrong, not the code), `poisoned` (an infrastructure failure, not a quality
+Terminal states: `merged` (done), `poisoned` (an infrastructure failure, not a quality
 one), `dropped` (a card source closed its ticket while nothing was running).
+
+`needs-human` is not a terminal state, or a lane a card is routed to at all. It is a
+flag (`needsHuman` on the card, alongside a `needsHumanReason`) that a card carries
+while it stays exactly where it failed: retries exhausted, or the budget ceiling
+already spent. Routing a flagged card to a lane would throw away the one piece of
+information that matters — which stage it was failing in — and `needs-human` used to
+be terminal for a worse reason still: `writeTransition` reclaimed the worktree on the
+way in, deleting the tree a person would want to look at in the one case where a
+person has been asked to look. A flagged card now keeps its worktree, and nothing
+reclaims or garbage-collects it.
 
 A card reaches `poisoned` when a stage throws an error that retrying cannot fix:
 billing, credentials, a malformed request, a rebase conflict. Such a failure must not
