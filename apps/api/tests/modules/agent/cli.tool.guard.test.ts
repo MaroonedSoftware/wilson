@@ -105,4 +105,70 @@ describe('createToolGuard', () => {
         const { guard } = build('rw');
         await expect(guard('WebFetch', { url: 'https://example.com' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
     });
+
+    describe('repeat denials', () => {
+        // Card 0083: three real runs burned turns retrying `find` after an identical denial, because
+        // the message never changed on the retry. The guard now tracks how many times each denial
+        // *shape* has fired in the life of one guard and sharpens the message from the second refusal
+        // on, without altering the underlying reason it is built from.
+
+        it('leaves the first refusal of a shape exactly as the allowlist/scope reason phrased it', async () => {
+            const { guard } = build('rw');
+            const result = await guard('Bash', { command: 'find / -iname stages.yaml' }, opts);
+            expect(result).toMatchObject({ behavior: 'deny' });
+            expect((result as { message: string }).message).toBe(
+                'find is not available, and does not need to be — use the glob tool (pass include_ignored to reach node_modules).',
+            );
+        });
+
+        it('prefixes the second identical-shaped refusal with a repeat notice, and still names the tool', async () => {
+            const { guard } = build('rw');
+            await guard('Bash', { command: 'find / -iname stages.yaml' }, opts);
+            const second = await guard('Bash', { command: 'find . -iname stages.yaml' }, opts);
+
+            const message = (second as { message: string }).message;
+            expect(message).toContain('2nd time this has been refused in this run');
+            expect(message).toContain('repeating it will not produce a different answer');
+            // The original reason must still be present, appended after the notice — the agent loses
+            // nothing it had on the first denial.
+            expect(message).toContain('use the glob tool (pass include_ignored to reach node_modules)');
+        });
+
+        it('counts a third refusal as 3rd, not 2nd again', async () => {
+            const { guard } = build('rw');
+            await guard('Bash', { command: 'find / -name a' }, opts);
+            await guard('Bash', { command: 'find / -name b' }, opts);
+            const third = await guard('Bash', { command: 'find / -name c' }, opts);
+            expect((third as { message: string }).message).toContain('3rd time this has been refused in this run');
+        });
+
+        it('does not carry the repeat count over to a differently-shaped denial', async () => {
+            const { guard } = build('rw');
+            await guard('Bash', { command: 'find / -name stages.yaml' }, opts);
+            // Same tool, unrelated command — a fresh shape, so this is its own first offense.
+            const result = await guard('Bash', { command: 'curl https://example.com' }, opts);
+            const message = (result as { message: string }).message;
+            expect(message).not.toContain('time this has been refused');
+            expect(message).toBe("command is not in this stage's allowlist. Allowed: pnpm build.");
+        });
+
+        it('records the sharpened message on the event, not just the returned deny', async () => {
+            const { guard, denied } = build('rw');
+            await guard('Bash', { command: 'find / -name a' }, opts);
+            await guard('Bash', { command: 'find / -name b' }, opts);
+            expect(denied[1]?.reason).toContain('2nd time this has been refused in this run');
+        });
+
+        it('keeps repeat counts private to one guard instance', async () => {
+            // createToolGuard is called fresh per stage run; a second call (a different stage, or a
+            // retry of the same one) must not inherit another run's history.
+            const first = build('rw');
+            await first.guard('Bash', { command: 'find / -name a' }, opts);
+            await first.guard('Bash', { command: 'find / -name b' }, opts);
+
+            const second = build('rw');
+            const freshResult = await second.guard('Bash', { command: 'find / -name a' }, opts);
+            expect((freshResult as { message: string }).message).not.toContain('time this has been refused');
+        });
+    });
 });
