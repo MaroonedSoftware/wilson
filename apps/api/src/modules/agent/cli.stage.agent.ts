@@ -402,7 +402,48 @@ export class CliStageAgent extends StageAgent {
  */
 const STOPPED = Symbol('stopped');
 
+/** `2` -> `'2nd'`, `11` -> `'11th'`, `23` -> `'23rd'`. Used only to phrase the repeat count below. */
+const ordinal = (n: number): string => {
+    if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`;
+    switch (n % 10) {
+        case 1:
+            return `${n}st`;
+        case 2:
+            return `${n}nd`;
+        case 3:
+            return `${n}rd`;
+        default:
+            return `${n}th`;
+    }
+};
+
+/**
+ * The shape a repeated denial is grouped by: the command's leading token for Bash, the path for a
+ * scope denial, the bare tool name otherwise. Not a precise dedupe — `find /` and `find . -name x`
+ * share a shape on purpose, because a denial message that named the tool once already answered both.
+ */
+const denialShapeFor = (toolName: string, detail: Record<string, unknown>): string => {
+    if (typeof detail.command === 'string' && detail.command.trim()) {
+        return `${toolName}:${detail.command.trim().split(/\s+/)[0]?.toLowerCase()}`;
+    }
+    if (typeof detail.path === 'string' && detail.path) {
+        return `${toolName}:${detail.path}`;
+    }
+    return toolName;
+};
+
 export const createToolGuard = (context: ToolContext, writable: string, onDeny?: () => void, onActivity?: () => void): CanUseTool => {
+    // How many times each denial shape has fired in this run. Scoped to this call, which the
+    // dispatcher makes fresh per stage run, so it never sees a shape from a different stage or a
+    // different card. The denial message already names the right tool on the first refusal — card
+    // 0001 spent four calls on `find /` variants before it named `find` as unavailable at all. What
+    // it does not do is notice a *second* refusal of the same shape, so an agent that gets denied,
+    // reads the message, and tries again anyway — new flags, a pipe, a different quoting — gets the
+    // identical sentence back and nothing that says the retry itself was the mistake. This card
+    // measured three such runs burning turns exactly that way (card 0083); the fix is a message that
+    // differs on repeat, not just a message that is already correct the first time.
+    const repeats = new Map<string, number>();
+
     return async (toolName, input): Promise<PermissionResult> => {
         // Every tool call is a sign of life, refused or not. The engine emits nothing on the stream
         // for the duration of a tool call, so this is the only evidence the adapter gets that a long
@@ -410,15 +451,23 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         onActivity?.();
 
         const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
+            const shape = denialShapeFor(toolName, detail);
+            const count = (repeats.get(shape) ?? 0) + 1;
+            repeats.set(shape, count);
+            const message =
+                count === 1
+                    ? reason
+                    : `This is the ${ordinal(count)} time this has been refused in this run, in this shape — repeating it will not produce a different answer. ${reason}`;
+
             await context.events.append({
                 project: context.project,
                 cardId: context.cardId,
                 stage: context.stage,
                 type: 'tool.denied',
-                payload: { tool: toolName, reason, ...detail },
+                payload: { tool: toolName, reason: message, ...detail },
             });
             onDeny?.();
-            return { behavior: 'deny', message: reason };
+            return { behavior: 'deny', message };
         };
 
         if (WRITE_TOOLS.includes(toolName)) {
