@@ -10,29 +10,11 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
+import { RunningCards } from '#modules/jobs/card.stage.job.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
-
-// `release`'s `runningDaemon` probe shells out to `pgrep` via `execFile` (promisified) exactly the
-// way `release.command.ts` does — see that CLI test for why the mock has to supply
-// `util.promisify.custom` rather than stub `execFile` itself: a plain `vi.fn()` would make
-// `promisify(execFile)` resolve to `undefined` no matter what the mock is told to return, and every
-// test would silently take the "no daemon" branch regardless of what it configured.
-const { execFileImpl } = vi.hoisted(() => ({ execFileImpl: vi.fn() }));
-vi.mock('node:child_process', async () => {
-    const { promisify } = await import('node:util');
-    const execFile = () => {
-        throw new Error('execFile: test double only supports the promisify(execFile) path');
-    };
-    Object.defineProperty(execFile, promisify.custom, { value: (...args: unknown[]) => execFileImpl(...args) });
-    return { execFile };
-});
-
-/** No `wilson run` process found — the real shape of a failed `pgrep -f` match. */
-const noDaemonRunning = () => execFileImpl.mockRejectedValue(Object.assign(new Error('pgrep: no matching process'), { code: 1 }));
-const daemonRunning = (pid = '4242') => execFileImpl.mockResolvedValue({ stdout: `${pid}\n`, stderr: '' });
 
 const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, body = 'body text'): Card => ({
     frontmatter: { id, title: `card ${id}`, stage: 'implementing', dependsOn: [], retries: {}, ...overrides },
@@ -102,6 +84,12 @@ afterAll(async () => {
 const freshBoard = (
     worktrees: { reclaim: ReturnType<typeof vi.fn> } = { reclaim: vi.fn(async () => {}) },
     brokerOverrides: Partial<{ send: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> }> = {},
+    // Card 0079: `release`'s in-flight disambiguation used to shell out to `pgrep -f 'index.ts run'`;
+    // now that the API is the only daemon, it asks `RunningCards` — this process's own record of
+    // which cards its `CardStageJob` handler is mid-run on (see card.stage.job.ts). Real, not a
+    // double: it's a plain in-memory set, and using the real thing exercises the actual `.add`/
+    // `.snapshot` contract `release` depends on rather than a stand-in for it.
+    runningCards: RunningCards = new RunningCards(),
 ) => {
     const events = { append: vi.fn(async () => {}) };
     const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -125,8 +113,9 @@ const freshBoard = (
         logger,
         cardJobs,
         broker as unknown as JobBroker,
+        runningCards,
     );
-    return { board, config, events, worktrees, logger, cardJobs, broker, service };
+    return { board, config, events, worktrees, logger, cardJobs, broker, runningCards, service };
 };
 
 describe('BoardWriteService', () => {
@@ -641,45 +630,52 @@ describe('BoardWriteService', () => {
     });
 
     describe('release', () => {
-        it('refuses a card holding no claim with a 400, touching neither the broker nor the daemon probe', async () => {
-            noDaemonRunning();
-            const { broker, service } = freshBoard();
-            execFileImpl.mockClear();
+        it('refuses a card holding no claim with a 400, touching neither the broker nor RunningCards', async () => {
+            const { broker, runningCards, service } = freshBoard();
+            const snapshotSpy = vi.spyOn(runningCards, 'snapshot');
 
             await expect(service.release('0070')).rejects.toMatchObject({
                 statusCode: 400,
                 details: { reason: expect.stringContaining('holds no claim') },
             });
             expect(broker.cancel).not.toHaveBeenCalled();
-            // The daemon probe only ever disambiguates a card that does hold a live claim.
-            expect(execFileImpl).not.toHaveBeenCalled();
+            // The in-flight disambiguation only ever runs for a card that does hold a live claim.
+            expect(snapshotSpy).not.toHaveBeenCalled();
         });
 
-        it('refuses to release while a wilson run daemon is active, cancelling and clearing nothing', async () => {
-            daemonRunning('9001');
+        // Card 0079: this is the guard itself, not just the happy path — before this card, `release`
+        // asked `pgrep -f 'index.ts run'`, a pattern nothing has matched since `wilson run` was
+        // deleted, so the guard failed open and cancelled every claim regardless of whether this
+        // process was genuinely mid-run on it. A test that only asserted "release cancels" (below)
+        // would still pass against that bug; this one exists to catch it.
+        it('refuses to release while this process is running the card right now, naming the job it found', async () => {
+            const runningCards = new RunningCards();
             const { board, broker, cardJobs, service } = freshBoard(
                 { reclaim: vi.fn(async () => {}) },
                 { getJob: vi.fn(async () => ({ id: 'job-42', name: 'card.stage', state: 'active', data: {} })) },
+                runningCards,
             );
             await board.create(card('0071', { stage: 'implementing' }), 'seed');
             await cardJobs.record('0071', 'job-42');
+            runningCards.add('0071');
 
             await expect(service.release('0071')).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('9001') },
+                details: { reason: expect.stringContaining('job-42') },
             });
             expect(broker.cancel).not.toHaveBeenCalled();
             expect(await cardJobs.inFlight('0071')).toBe('job-42');
         });
 
         it('cancels the job through the broker and clears the claim, without moving the card or dispatching anything', async () => {
-            noDaemonRunning();
             const { board, broker, cardJobs, service } = freshBoard(
                 { reclaim: vi.fn(async () => {}) },
                 { getJob: vi.fn(async () => ({ id: 'job-55', name: 'card.stage', state: 'active', data: {} })) },
             );
             await board.create(card('0072', { stage: 'implementing' }), 'seed');
             await cardJobs.record('0072', 'job-55');
+            // No `RunningCards.add` for this card: this process is not mid-run on it, so the claim is
+            // one worth releasing.
 
             const detail = await service.release('0072');
 
@@ -689,7 +685,6 @@ describe('BoardWriteService', () => {
         });
 
         it('cancels strictly before clearing the claim, so a crash between the two leaves the claim pointing at an already-cancelled job rather than an orphaned live one', async () => {
-            noDaemonRunning();
             const { board, broker, cardJobs, service } = freshBoard(
                 { reclaim: vi.fn(async () => {}) },
                 { getJob: vi.fn(async () => ({ id: 'job-88', name: 'card.stage', state: 'active', data: {} })) },

@@ -62,7 +62,10 @@ describe('queueReachable', () => {
         const result = await run(buildCtx({}));
 
         expect(result.ok).toBe(true);
-        expect(result.message).toContain('has not been created yet');
+        // Card 0079: the queue is created by the API booting now, not by `wilson run`, which no
+        // longer exists.
+        expect(result.message).toBe('queue has not been created yet; it is created the first time the API starts');
+        expect(result.message).not.toContain('wilson run');
     });
 
     it('checks specifically for the pgboss schema', async () => {
