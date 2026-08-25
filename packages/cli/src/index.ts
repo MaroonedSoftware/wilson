@@ -4,14 +4,14 @@ import { createCliApp, type CommandModule, type CommandRegistration } from '@mar
 import { nodeVersion } from '@maroonedsoftware/johnny5/versions';
 import { envFile } from '@maroonedsoftware/johnny5/filesystem';
 import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
-// Two commands left still build a real container via `requireContainer`, rather than calling the
-// API: `wilson run` (the daemon, registered below) calls `JobRunner.start()`/`stop()` directly,
-// in-process — rearchitecting that is card 0079's job ("making the API the only daemon"), not this
-// one's, see run.command.ts — and `card plan` hands the operator's terminal to an interactive
-// process, which is card 0078's one deliberate exception (card 0085 ports it once nothing else needs
-// the container). Every other command in this file now talks to the API over HTTP (`../api-client.js`)
-// instead, but as long as those two need `requireContainer`, this import — and `@wilson/api` in
-// package.json — stays, scoped to them.
+// One command left still builds a real container via `requireContainer`: `card plan` hands the
+// operator's terminal to an interactive process, which is card 0078's one deliberate exception (card
+// 0085 ports it once nothing else needs the container). `wilson run` used to be the other one —
+// card 0079 retired it, now that the API server is the only daemon (`JobsModule.start` runs the
+// `JobRunner` whenever the server boots; nothing in this CLI needs to start it by hand). Every other
+// command in this file now talks to the API over HTTP (`../api-client.js`) instead, but as long as
+// `card plan` needs `requireContainer`, this import — and `@wilson/api` in package.json — stays,
+// scoped to it.
 import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
 
 import boardInitCommand from './commands/board/init.command.js';
@@ -29,7 +29,6 @@ import cardReleaseCommand from './commands/card/release.command.js';
 import cardShowCommand from './commands/card/show.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
-import runCommand from './commands/run.command.js';
 
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
@@ -70,7 +69,6 @@ const app = await createCliApp({
         reg(['card', 'release'], cardReleaseCommand),
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
-        reg(['run'], runCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

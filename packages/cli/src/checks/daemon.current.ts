@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Check } from '@maroonedsoftware/johnny5';
+import { DateTime } from 'luxon';
+import { apiClient } from '../api-client.js';
 
 const exec = promisify(execFile);
 
@@ -12,6 +14,12 @@ const exec = promisify(execFile);
  * hour earlier, and the failures were indistinguishable from the bug still being there — the same
  * error, on the same files, from a build nobody could see.
  *
+ * The API is the daemon (card 0079) — there is one process that can drain the queue, and it can
+ * report its own start time over `GET /api/health`. Asking it is both more accurate than a `pgrep`
+ * for a process's command line — which went blind the moment the API itself became a second
+ * entrypoint that could drain the queue — and it works from anywhere the API is reachable, not only
+ * on the box it happens to run on.
+ *
  * PROJECT.md's Bootstrapping section already required this: the daemon runs from an installed build,
  * and redeploying is a deliberate act between cards. This makes forgetting visible.
  */
@@ -21,27 +29,28 @@ export const daemonCurrent: Check = {
         const root = ctx.config.get('PROJECT_CODE_ROOT', '');
         if (!root) return { ok: true, message: 'PROJECT_CODE_ROOT not set; skipped' };
 
-        const running = await exec('pgrep', ['-f', 'index.ts run']).catch(() => undefined);
-        const pid = running?.stdout.trim().split('\n').filter(Boolean)[0];
-        if (!pid) return { ok: true, message: 'no daemon running' };
+        // Unreachable means no daemon — a legitimate, passing state, not this check's business to
+        // flag. Any other failure to answer is treated the same way: this check exists to catch a
+        // daemon running stale code, not to diagnose the API itself — other checks already do that.
+        const health = await apiClient(ctx)
+            .health.getHealth()
+            .catch(() => undefined);
+        if (!health) return { ok: true, message: 'no daemon running' };
 
-        const started = await exec('ps', ['-p', pid, '-o', 'lstart=']).catch(() => undefined);
-        if (!started) return { ok: true, message: `daemon ${pid} running; start time unavailable` };
-
-        const startedAt = new Date(started.stdout.trim());
+        const startedAt = DateTime.fromISO(health.startedAt);
         const head = await exec('git', ['log', '-1', '--format=%cI'], { cwd: root }).catch(() => undefined);
-        if (!head) return { ok: true, message: `daemon ${pid} running` };
+        if (!head) return { ok: true, message: `daemon running (${health.project}), started ${startedAt.toISO()}; HEAD unavailable` };
 
-        const headAt = new Date(head.stdout.trim());
+        const headAt = DateTime.fromISO(head.stdout.trim());
         if (headAt > startedAt) {
             return {
                 ok: false,
-                message: `daemon ${pid} started ${startedAt.toISOString()}, but HEAD landed ${headAt.toISOString()}`,
+                message: `daemon started ${startedAt.toISO()}, but HEAD landed ${headAt.toISO()}`,
                 fixHint:
                     'Restart it. A daemon started before the current HEAD is running code you cannot see, and its failures look exactly like the bugs you already fixed.',
             };
         }
 
-        return { ok: true, message: `daemon ${pid} is current` };
+        return { ok: true, message: `daemon is current (${health.project}), started ${startedAt.toISO()}` };
     },
 };
