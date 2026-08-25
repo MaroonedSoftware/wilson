@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, BoardRepository, CardJobs, JobBroker, PgBoss, loadStages, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, CardJobs, JobBroker, PgBoss, filesInScope, loadStages, scopeOverlap, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
 
 /**
  * Enqueue a card's current stage on the job queue.
@@ -48,6 +48,24 @@ const command: CommandModule = {
             if (running) {
                 ctx.logger.error(`cannot enqueue ${cardId}: job ${running} is already carrying it`);
                 return 1;
+            }
+
+            // Warn, don't refuse: the globs may intersect while the actual edits never touch, and
+            // this check has no way to tell those cases apart. Only a card genuinely in flight is
+            // competing for anything — one sitting in a stage with no live job is not, and
+            // `cardJobs.inFlight` is the one place that question is answered (PROJECT.md card 0069).
+            const scope = filesInScope(card);
+            const others = await board.list();
+            for (const other of others) {
+                if (other.frontmatter.id === cardId) continue;
+                const otherJob = await cardJobs.inFlight(other.frontmatter.id);
+                if (!otherJob) continue;
+
+                const overlaps = scopeOverlap(scope, filesInScope(other));
+                if (overlaps.length === 0) continue;
+
+                const patterns = [...new Set(overlaps.flatMap(o => [o.ours, o.theirs]))].sort();
+                ctx.logger.warn(`${other.frontmatter.id} is in flight and also touches: ${patterns.join(', ')}`);
             }
 
             const jobId = await broker.send('card.stage', { cardId, stageName });
