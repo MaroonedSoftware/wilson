@@ -13,9 +13,9 @@
         "lint": "eslint --fix"
     },
     "dependencies": {
-        "@wilson/api": "workspace:*",
-        "@maroonedsoftware/johnny5": "^8.0.8",
+        "@maroonedsoftware/johnny5": "^8.0.10",
         "@swc-node/register": "^1.12.1",
+        "@wilson/api": "workspace:*",
         "injectkit": "^1.7.0",
         "luxon": "^3.7.2",
         "pg": "^8.23.0",
