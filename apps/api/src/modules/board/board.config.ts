@@ -19,6 +19,17 @@ export abstract class BoardConfig {
     abstract readonly worktreeRoot: string;
     /** Absolute path under which a card's plan is materialized for a running stage. */
     abstract readonly runRoot: string;
+    /**
+     * Where to POST a notification when a card needs a human (card 0050). Undefined means
+     * notifications are off — no second channel, no webhook attempted, nothing logged.
+     */
+    abstract readonly notifyWebhookUrl: string | undefined;
+    /**
+     * Base URL of the web app, for building a deep link to the card in a notification. Beside
+     * `notifyWebhookUrl` rather than its own config, since a link with nothing to post it to is
+     * as useless as a webhook with no way to name the card it is about.
+     */
+    abstract readonly notifyBaseUrl: string | undefined;
 }
 
 export class StaticBoardConfig extends BoardConfig {
@@ -28,6 +39,8 @@ export class StaticBoardConfig extends BoardConfig {
         readonly codeRoot: string,
         readonly worktreeRoot: string,
         readonly runRoot: string,
+        readonly notifyWebhookUrl: string | undefined = undefined,
+        readonly notifyBaseUrl: string | undefined = undefined,
     ) {
         super();
     }

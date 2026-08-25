@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
@@ -96,13 +96,21 @@ stages:
  * `writeTransition`) with the given `stages.yaml`, and a `StageDispatcher` wired to an
  * `EventLog.totalInputTokens` stubbed to `spend` and a worktree layer that throws on first touch.
  */
-const setUp = async (stagesYaml: string, spend: number) => {
+const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-budget-'));
     const boardRoot = join(base, 'board');
     await mkdir(join(boardRoot, 'cards'), { recursive: true });
     await mkdir(join(boardRoot, 'config'), { recursive: true });
     await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+    const config = new StaticBoardConfig(
+        uniqueProject(),
+        boardRoot,
+        join(base, 'code'),
+        join(base, 'worktrees'),
+        join(base, 'run'),
+        notifyWebhookUrl,
+        notifyBaseUrl,
+    );
     const events = { append: vi.fn(async () => {}), totalInputTokens: vi.fn(async () => spend) };
     const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     await board.create(baseCard, 'initial');
@@ -221,5 +229,74 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         await expect(dispatcher.run('0001', 'testing')).rejects.toThrow('MARKER: worktree touched');
         expect(events.totalInputTokens).toHaveBeenCalledWith(project, '0001');
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'card.over-budget' }));
+    });
+});
+
+/**
+ * Card 0050: an over-budget refusal is the other route to the `needsHuman` moment (alongside an
+ * exhausted kickback in `stage.dispatcher.test.ts`) — flagged before the stage ever runs rather than
+ * after it fails. `fetch` is stubbed rather than `Notifier`, so the assertion is the HTTP call a
+ * real webhook would see.
+ */
+describe('StageDispatcher.run notifies when it refuses an over-budget card (card 0050)', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('posts a "needs-human" notification, with the over-budget reason and a deep link', async () => {
+        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        const { dispatcher, project } = await setUp(stagesYamlWithCap, 5_000_000, 'https://hooks.example/notify', 'https://board.example');
+
+        await dispatcher.run('0001', 'testing');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body).toMatchObject({
+            moment: 'needs-human',
+            project,
+            cardId: '0001',
+            title: 'do the thing',
+            stage: 'testing',
+            url: 'https://board.example/cards/0001',
+        });
+        expect(body.reason).toMatch(/spent its budget/);
+    });
+
+    it('makes no HTTP call when no webhook URL is configured', async () => {
+        fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const { dispatcher } = await setUp(stagesYamlWithCap, 5_000_000);
+
+        await dispatcher.run('0001', 'testing');
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not notify when spend sits below the cap and the card is not refused at all', async () => {
+        fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const { dispatcher } = await setUp(stagesYamlWithCap, 500, 'https://hooks.example/notify');
+
+        await expect(dispatcher.run('0001', 'testing')).rejects.toThrow('MARKER: worktree touched');
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fail the refusal when the webhook itself fails', async () => {
+        fetchMock = vi.fn(async () => {
+            throw new Error('ECONNREFUSED');
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const { dispatcher, board } = await setUp(stagesYamlWithCap, 5_000_000, 'https://hooks.example/notify');
+
+        const result = await dispatcher.run('0001', 'testing');
+
+        expect(result.passed).toBe(false);
+        expect(result.needsHuman).toBe(true);
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.needsHuman).toBe(true);
     });
 });

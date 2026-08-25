@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -328,5 +328,139 @@ describe('CardStageJob', () => {
             expect(cardJobs.clear).toHaveBeenCalledWith('0001');
             expect(cardJobs.record).not.toHaveBeenCalled();
         });
+    });
+});
+
+/**
+ * Card 0050: a `manual` gate reached normally is one of the three moments notified, and it is the
+ * one moment `CardStageJob` itself decides to notify on (the other two, `needsHuman` and
+ * `poisoned`, are notified where they are written — `StageDispatcher` and `poisonCard`). These stub
+ * `fetch` rather than the `Notifier` class, so what is asserted is the observable HTTP call a real
+ * webhook would see, not that some internal method was called.
+ */
+describe('CardStageJob notifies a manual gate (card 0050)', () => {
+    let dispatcher: { run: ReturnType<typeof vi.fn> };
+    let broker: { send: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn>; read: ReturnType<typeof vi.fn> };
+    let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
+        const base = await mkdtemp(join(tmpdir(), 'card-stage-job-notify-'));
+        const boardRoot = join(base, 'board');
+        await mkdir(join(boardRoot, 'config'), { recursive: true });
+        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
+
+        const board = new StaticBoardConfig(
+            'test',
+            boardRoot,
+            join(base, 'code'),
+            join(base, 'worktrees'),
+            join(base, 'run'),
+            notifyWebhookUrl,
+            notifyBaseUrl,
+        );
+
+        return new CardStageJob(
+            dispatcher as unknown as StageDispatcher,
+            broker as unknown as JobBroker,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+    };
+
+    beforeEach(() => {
+        dispatcher = { run: vi.fn(async () => outcome({ transitionedTo: 'review' })) };
+        broker = { send: vi.fn(async () => 'job-1') };
+        events = { append: vi.fn(async () => {}) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => ({
+                frontmatter: { id: '0001', title: 'a card waiting on review', stage: 'review', dependsOn: [], retries: {} },
+                sections: {},
+                body: '',
+            })),
+        };
+        cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
+        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('posts a "manual" notification carrying the card title, the stage landed on, and a deep link', async () => {
+        const job = await buildJob('https://hooks.example/notify', 'https://board.example');
+
+        await job.run({ cardId: '0001', stageName: 'testing' });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body).toMatchObject({
+            moment: 'manual',
+            project: 'test',
+            cardId: '0001',
+            title: 'a card waiting on review',
+            stage: 'review',
+            url: 'https://board.example/cards/0001',
+        });
+        expect('reason' in body).toBe(false);
+    });
+
+    it('makes no HTTP call, and never re-reads the card, when no webhook URL is configured', async () => {
+        const job = await buildJob(undefined);
+
+        await job.run({ cardId: '0001', stageName: 'testing' });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(boardRepo.read).not.toHaveBeenCalled();
+    });
+
+    // `decideChain` checks `needsHuman` before it ever looks at the target stage's mode, so a card
+    // that lands on a manual-mode stage carrying `needsHuman` is the needsHuman moment, already
+    // notified in `StageDispatcher` — not a second, manual-gate notification for the same event.
+    it('does not notify here when the outcome carries needsHuman, even though it lands on a manual stage', async () => {
+        dispatcher.run = vi.fn(async () => outcome({ transitionedTo: 'review', needsHuman: true }));
+        const job = await buildJob('https://hooks.example/notify');
+
+        await job.run({ cardId: '0001', stageName: 'testing' });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not notify when the chain instead advances to another agent stage', async () => {
+        dispatcher.run = vi.fn(async () => outcome({ transitionedTo: 'testing' }));
+        const job = await buildJob('https://hooks.example/notify');
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the card id as the title when re-reading the card fails', async () => {
+        boardRepo.read = vi.fn(async () => {
+            throw new Error('board unreachable');
+        });
+        const job = await buildJob('https://hooks.example/notify');
+
+        await job.run({ cardId: '0001', stageName: 'testing' });
+
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body.title).toBe('0001');
+    });
+
+    it('does not fail the run when the webhook itself fails', async () => {
+        fetchMock.mockImplementation(async () => {
+            throw new Error('ECONNREFUSED');
+        });
+        const job = await buildJob('https://hooks.example/notify');
+
+        await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
+        // The chain-stop bookkeeping still happened; the notification failure did not unwind it.
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'chain.stopped' }));
     });
 });

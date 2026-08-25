@@ -3,6 +3,7 @@ import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { Notifier } from '#modules/notify/notifier.js';
 import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, StageDispatcher } from '#modules/stages/stage.dispatcher.js';
@@ -24,9 +25,13 @@ export interface CardStagePayload {
  * Shared: `CardStageJob` calls this the moment a stage's own failure is classified permanent, and
  * `CardStageDeadJob` calls it once a `card.stage` job has exhausted pg-boss's retries instead —
  * same destination, same board write, same event shape, regardless of which noticed the failure.
+ *
+ * `deps.board` is optional only so a caller with no `BoardConfig` in hand still compiles; every
+ * real caller has one already injected, and without it a poisoning cannot notify (card 0050) since
+ * that is where `notifyWebhookUrl`/`notifyBaseUrl` live.
  */
 export async function poisonCard(
-    deps: { boardRepo: BoardRepository; events: EventLog },
+    deps: { boardRepo: BoardRepository; events: EventLog; board?: BoardConfig },
     args: { project: string; cardId: string; stageName: string; reason: string },
 ): Promise<void> {
     const { project, cardId, stageName, reason } = args;
@@ -39,10 +44,20 @@ export async function poisonCard(
         payload: { reason },
     });
 
-    await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => ({
-        ...card,
-        frontmatter: { ...card.frontmatter, stage: 'poisoned' },
-    }));
+    // Captured from the fresh row `write` reads inside its own transaction, rather than a separate
+    // read here: a notification needs something to call the card, and the id alone is not it. Also
+    // doubles as the redelivery guard below — a card already poisoned before this write started
+    // means some earlier attempt already reported this poisoning.
+    let title = cardId;
+    let alreadyPoisoned = false;
+    await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => {
+        title = card.frontmatter.title;
+        alreadyPoisoned = card.frontmatter.stage === 'poisoned';
+        return {
+            ...card,
+            frontmatter: { ...card.frontmatter, stage: 'poisoned' },
+        };
+    });
 
     await deps.events.append({
         project,
@@ -51,6 +66,19 @@ export async function poisonCard(
         type: 'transition.written',
         payload: { from: stageName, to: 'poisoned', by: 'runner', reason },
     });
+
+    // Do not send twice for one event: a retried or redelivered job that lands here after the card
+    // was already poisoned by an earlier attempt has nothing new to report.
+    if (deps.board && !alreadyPoisoned) {
+        await new Notifier(deps.board.notifyWebhookUrl, deps.board.notifyBaseUrl).notify({
+            project,
+            cardId,
+            title,
+            stage: stageName,
+            moment: 'poisoned',
+            reason,
+        });
+    }
 }
 
 /**
@@ -174,6 +202,36 @@ export class CardStageJob extends Job<CardStagePayload> {
             type: 'chain.stopped',
             payload: { target: outcome.transitionedTo, reason: decision.reason },
         });
+
+        // A manual gate reached normally is one of the three moments PROJECT.md's Notification
+        // section names (card 0050); the other two (needsHuman, poisoned) are notified where they
+        // are written, in StageDispatcher and poisonCard. `needsHuman` is excluded here because it
+        // is the other, already-notified reason the chain can stop on a perfectly ordinary agent
+        // stage — decideChain checks it first, before it ever looks at the target's mode.
+        if (!outcome.needsHuman) {
+            const landedOn = stages.stages.find(s => s.name === outcome.transitionedTo);
+            if (landedOn?.mode === 'manual') {
+                await this.notifyManualGate(cardId, outcome.transitionedTo);
+            }
+        }
+    }
+
+    /**
+     * Tell a person the card is waiting on them at a manual gate — one webhook call, off entirely
+     * when `NOTIFY_WEBHOOK_URL` is unset (card 0050). The card is re-read for its title only when a
+     * webhook is actually configured, so this costs nothing on the common, notification-off path.
+     */
+    private async notifyManualGate(cardId: string, stage: string): Promise<void> {
+        if (!this.board.notifyWebhookUrl) return;
+
+        const card = await this.boardRepo.read(cardId).catch(() => undefined);
+        await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
+            project: this.board.project,
+            cardId,
+            title: card?.frontmatter.title ?? cardId,
+            stage,
+            moment: 'manual',
+        });
     }
 
     /**
@@ -204,6 +262,9 @@ export class CardStageJob extends Job<CardStagePayload> {
      */
     private async poison(cardId: string, stageName: string, error: unknown): Promise<void> {
         const reason = error instanceof Error ? error.message : String(error);
-        await poisonCard({ boardRepo: this.boardRepo, events: this.events }, { project: this.board.project, cardId, stageName, reason });
+        await poisonCard(
+            { boardRepo: this.boardRepo, events: this.events, board: this.board },
+            { project: this.board.project, cardId, stageName, reason },
+        );
     }
 }
