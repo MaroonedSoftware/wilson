@@ -2,6 +2,7 @@ options {
     services: {
         BoardService: "#modules/board/board.service.js"
         BoardWriteService: "#modules/board/board.write.service.js"
+        BoardBootstrapService: "#modules/board/board.bootstrap.service.js"
         StagesService: "#modules/stages/stages.service.js"
     }
     security: none
@@ -95,6 +96,25 @@ contract CardVersion: {
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
     limit?: int
+}
+
+# Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
+# `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
+# here is not a remote write-anywhere-on-disk primitive (card 0076).
+contract ImportBoardRequest: {
+    # Report what would happen without writing anything — the one affordance that makes a one-shot,
+    # irreversible import safe to attempt. Absent (the default) writes.
+    dryRun?: boolean
+}
+
+contract ImportReport: {
+    cards: int
+    dependencies: int
+    # Ids whose legacy `planSha` could not map to a version in the imported history, and were
+    # re-pinned to the version this import created instead.
+    unpinned: array(string)
+    # True for a dry run: nothing above was written, this is a preview.
+    skipped: boolean
 }
 
 operation /api/cards: {
@@ -324,6 +344,49 @@ operation /api/stages: {
             200: {
                 application/json: BoardColumns
             }
+        }
+    }
+}
+
+# Scaffolds `BoardConfig.boardRoot`: cards/, config/, context/, a stages.yaml an operator can start a
+# card against immediately, and a git repo to commit it into. The API has to be running, with
+# PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
+# that circularity is real, and the 409 below is what makes it legible instead of a connection
+# refused with no explanation.
+operation /api/board/init: {
+    post: {
+        name: Initialise board
+        service: BoardBootstrapService.init
+        response: {
+            # The scaffolded stages, returned as proof the config just written is one `loadStages`
+            # actually accepts — not merely yaml that parses (card 0060).
+            201: {
+                application/json: BoardColumns
+            }
+            # A `stages.yaml` already exists at boardRoot. init scaffolds; it does not reset, so
+            # this writes nothing.
+            409:
+        }
+    }
+}
+
+# One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
+# already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
+# from the CLI.
+operation /api/board/import: {
+    post: {
+        name: Import legacy board
+        service: BoardBootstrapService.import
+        request: {
+            application/json: ImportBoardRequest
+        }
+        response: {
+            200: {
+                application/json: ImportReport
+            }
+            # No cards under boardRoot/cards, dangling dependencies in the legacy board, or a board
+            # that already has cards — carried via `details` as the card mutations above do.
+            400:
         }
     }
 }

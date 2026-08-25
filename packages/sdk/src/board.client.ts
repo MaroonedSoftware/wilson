@@ -7,6 +7,8 @@ import type {
     CreateCardRequest,
     DependCardRequest,
     EditCardRequest,
+    ImportBoardRequest,
+    ImportReport,
     ListQuery,
     MoveCardRequest,
 } from './types/board.js';
@@ -135,5 +137,33 @@ export class BoardClient {
     async listBoardColumns(): Promise<BoardColumns> {
         const result = await this.fetch(`/api/stages`, { method: 'GET' });
         return await parseJson<BoardColumns>(result);
+    }
+
+    /**
+     * @name Initialise board
+     * @description Scaffolds `BoardConfig.boardRoot`: cards/, config/, context/, a stages.yaml an operator can start a
+     * card against immediately, and a git repo to commit it into. The API has to be running, with
+     * PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
+     * that circularity is real, and the 409 below is what makes it legible instead of a connection
+     * refused with no explanation.
+     */
+    async initialiseBoard(): Promise<BoardColumns> {
+        const result = await this.fetch(`/api/board/init`, { method: 'POST' });
+        return await parseJson<BoardColumns>(result);
+    }
+
+    /**
+     * @name Import legacy board
+     * @description One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
+     * already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
+     * from the CLI.
+     */
+    async importLegacyBoard(body: ImportBoardRequest): Promise<ImportReport> {
+        const result = await this.fetch(`/api/board/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<ImportReport>(result);
     }
 }
