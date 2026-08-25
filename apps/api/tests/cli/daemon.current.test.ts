@@ -75,4 +75,17 @@ describe('daemonCurrent', () => {
         expect(result.message).toContain(DateTime.fromISO(startedAt).toISO());
         expect(result.fixHint).toContain('Restart it');
     });
+
+    it('still reports the daemon as running, passing, when HEAD cannot be read', async () => {
+        // A root that isn't a git repo at all: `git log` fails the way it would if
+        // `PROJECT_CODE_ROOT` pointed somewhere without a working tree.
+        const root = await mkdtemp(join(tmpdir(), 'daemon-current-no-git-'));
+        const startedAt = '2020-01-01T00:00:00.000Z';
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, project: 'wilson', head: 'abc123', startedAt }));
+
+        const result = await run(buildCtx({ PROJECT_CODE_ROOT: root }));
+
+        expect(result.ok).toBe(true);
+        expect(result.message).toBe(`daemon running (wilson), started ${DateTime.fromISO(startedAt).toISO()}; HEAD unavailable`);
+    });
 });
