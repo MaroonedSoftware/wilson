@@ -19,9 +19,16 @@
  * stack can override it short of bypassing `PgBossJobRunner` or jobbroker growing a `WorkOptions`
  * hook — neither of which this card does.
  *
+ * The value is 2, measured rather than read: a sweep over `stage.dispatched`/`stage.passed` pairs
+ * in `runner.card_events` puts the maximum at two simultaneous stages (0053 and 0054 both in
+ * `implementing` at 23:40:29 on 2026-08-24, and 0058/0059 the same at 23:59). Card 0063 originally
+ * recorded 1 from reading pg-boss's documented default, which the runner's own history contradicts —
+ * so whatever produces the second slot is not the documented default, and the reasoning above about
+ * *why* nothing here can configure it stands while the number it inferred did not.
+ *
  * This constant names that inherited default rather than changing it, and is what `JobsModule`
  * logs at startup so the ceiling is visible without reading pg-boss's source. Each concurrent stage
  * is a git worktree, a `pnpm install`, and an agent, so raising this trades disk and memory headroom
  * for throughput — a call that needs measuring the host it runs on, not this card.
  */
-export const CARD_STAGE_CONCURRENCY = 1;
+export const CARD_STAGE_CONCURRENCY = 2;
