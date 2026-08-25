@@ -1,7 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
-import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository } from '@wilson/api/cli-bootstrap';
-import { editBody, nextCardId } from './editor.js';
+import { withApi } from '../../api-client.js';
+import { editBody } from './editor.js';
 
 interface CreateOpts {
     stage?: string;
@@ -12,7 +11,10 @@ interface CreateOpts {
  *
  * The board has no files to write by hand any more, so this is how a card comes into existence
  * outside the web app. It opens `$EDITOR` on a plan skeleton for the same reason `git commit` does:
- * the body is prose, and prose does not belong on a command line.
+ * the body is prose, and prose does not belong on a command line. `$EDITOR` handling is the one part
+ * of this command that stays local — the editor is a terminal concern, and only the finished text
+ * crosses the wire; the id itself is assigned by the API (the next sequential one over the current
+ * board), not computed here.
  *
  * New cards land in `parking-lot` unless told otherwise — a stub with a title and a note, promoted
  * into planning by a human (PROJECT.md, Parking lot).
@@ -21,21 +23,19 @@ const command: CommandModule<CreateOpts> = {
     description: 'Create a card, opening $EDITOR for its body',
     args: [{ name: 'title', description: 'The card title', required: true }],
     options: [{ flags: '--stage <stage>', description: 'Stage to create it in (default: parking-lot)', type: 'string' }],
-    run: requireContainer<CreateOpts>(async (opts, ctx, args) => {
+    run: withApi<CreateOpts>(async (opts, ctx, args, api) => {
         const title = String(args[0]);
-        const board = ctx.container.get(BoardRepository);
         const stage = opts.stage ?? 'parking-lot';
 
-        const id = nextCardId(await board.list());
-        const body = await editBody(SKELETON, `wilson-card-${id}`);
+        const body = await editBody(SKELETON, 'wilson-card-new');
         if (body === undefined) {
             ctx.logger.info('empty body — card not created');
             return 1;
         }
 
-        await board.create({ frontmatter: { id, title, stage, dependsOn: [], retries: {} }, sections: {}, body }, `Create ${id}: ${title}`);
+        const card = await api.board.createCard({ title, stage, body });
 
-        ctx.logger.info(`${id} created in ${stage}`);
+        ctx.logger.info(`${card.id} created in ${stage}`);
         return 0;
     }),
 };

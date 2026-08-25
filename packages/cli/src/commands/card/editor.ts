@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Card } from '@wilson/api/cli-bootstrap';
 
 /**
  * Open `$EDITOR` on some text and return what came back, or undefined if it came back empty.
@@ -42,17 +41,4 @@ export const runInteractive = async (command: string, args: string[], options: {
         child.on('error', reject);
         child.on('exit', () => resolve());
     });
-};
-
-/**
- * The next id on the board.
- *
- * Sequential and zero-padded, because ids are typed into commands, read in `dependsOn` and carried
- * in branch names. Collision-free allocation is the database's job — `runner.cards` has a primary
- * key on `(project, id)`, so two creators racing produce an error rather than one silently
- * overwriting the other, which is exactly what the file-backed board did.
- */
-export const nextCardId = (cards: Card[]): string => {
-    const highest = cards.reduce((max, card) => Math.max(max, Number.parseInt(card.frontmatter.id, 10) || 0), 0);
-    return String(highest + 1).padStart(4, '0');
 };

@@ -1,12 +1,11 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
-import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository } from '@wilson/api/cli-bootstrap';
+import { withApi } from '../../api-client.js';
 import { editBody } from './editor.js';
 
 /**
  * Edit a card's body in `$EDITOR`.
  *
- * The operator's escape hatch. With the board in Postgres there is no file to open when a card is
+ * The operator's escape hatch. With the board behind the API there is no file to open when a card is
  * wedged and the web app is not up, and a runner you cannot unstick by hand is a runner that strands
  * work. Frontmatter is deliberately not editable here: stage, branch and retries are runner state
  * (decision 5), and `wilson card move` is the recorded way to override one.
@@ -16,11 +15,10 @@ import { editBody } from './editor.js';
 const command: CommandModule = {
     description: "Edit a card's plan body in $EDITOR",
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
-    run: requireContainer(async (_opts, ctx, args) => {
+    run: withApi(async (_opts, ctx, args, api) => {
         const cardId = String(args[0]);
-        const board = ctx.container.get(BoardRepository);
 
-        const before = await board.read(cardId);
+        const before = await api.board.getCard(cardId);
         const body = await editBody(before.body, `wilson-card-${cardId}`);
         if (body === undefined) {
             ctx.logger.info('empty body — nothing written');
@@ -31,7 +29,7 @@ const command: CommandModule = {
             return 0;
         }
 
-        await board.write(cardId, `Edit ${cardId} plan body`, card => ({ ...card, body }));
+        await api.board.editCardBody(cardId, { body });
         ctx.logger.info(`${cardId} updated`);
         return 0;
     }),
