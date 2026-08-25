@@ -39,19 +39,18 @@ const runningDaemon = async (): Promise<string | undefined> => {
  * orphaned and safe to cancel. With one alive, an `active` job might really be in flight, so this
  * command refuses outright rather than guess — the same failure mode this whole card exists to
  * prevent, reached a different way.
+ *
+ * The daemon check only ever disambiguates a card that actually holds a live claim. It runs after
+ * `inFlight`, not before: a card with no claim — or one whose job already settled — is "nothing to
+ * release" regardless of whether some daemon happens to be running elsewhere. Checking it first
+ * would make every card look like a maybe-in-flight job whenever any `wilson run` process is alive,
+ * which is exactly the state a wedged handler leaves the daemon in.
  */
 const command: CommandModule = {
     description: "Release a card's stuck job: cancel it through the broker and clear the claim",
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
     run: requireContainer(async (_opts, ctx, args) => {
         const cardId = String(args[0]);
-
-        const daemonPid = await runningDaemon();
-        if (daemonPid) {
-            ctx.logger.error(`daemon ${daemonPid} is running — a claimed job may genuinely be in flight`);
-            ctx.logger.error('stop the daemon before releasing, or wait for it to finish');
-            return 1;
-        }
 
         const pgBoss = ctx.container.get(PgBoss);
         await pgBoss.start();
@@ -65,6 +64,16 @@ const command: CommandModule = {
             const jobId = await cardJobs.inFlight(cardId);
             if (!jobId) {
                 ctx.logger.error(`${cardId} holds no claim — nothing to release`);
+                return 1;
+            }
+
+            // Only a card that does hold a live claim needs disambiguating: is that claim genuinely
+            // being worked right now, or just abandoned? See the module doc for why this comes after
+            // `inFlight` rather than before it.
+            const daemonPid = await runningDaemon();
+            if (daemonPid) {
+                ctx.logger.error(`${cardId}: job ${jobId} is claimed and daemon ${daemonPid} is running — it may genuinely be in flight`);
+                ctx.logger.error('stop the daemon before releasing, or wait for it to finish');
                 return 1;
             }
 
