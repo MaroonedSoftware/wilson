@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
 
-const card = (id: string, stage: string, dependsOn: string[] = []): CardSummary => ({ id, title: `card ${id}`, stage, dependsOn });
+const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = false): CardSummary => ({
+    id,
+    title: `card ${id}`,
+    stage,
+    dependsOn,
+    needsHuman,
+});
 
 const columns: BoardColumns = {
     stages: ['planning', 'backlog', 'implementing', 'testing', 'review', 'ready'],
@@ -36,6 +42,26 @@ describe('groupByStage', () => {
         const grouped = groupByStage([card('0002', 'review'), card('0001', 'review'), card('0003', 'ready')]);
         expect(grouped.get('review')?.map(c => c.id)).toEqual(['0001', '0002']);
         expect(grouped.get('ready')?.map(c => c.id)).toEqual(['0003']);
+    });
+
+    it('sorts a flagged card to the top of its column, ahead of lower ids', () => {
+        const grouped = groupByStage([
+            card('0001', 'review'),
+            card('0002', 'review'),
+            card('0003', 'review', [], true),
+        ]);
+        expect(grouped.get('review')?.map(c => c.id)).toEqual(['0003', '0001', '0002']);
+    });
+
+    it('does not let a flagged card jump to a different column — it only sorts within its own', () => {
+        const grouped = groupByStage([card('0001', 'review'), card('0002', 'ready', [], true)]);
+        expect(grouped.get('review')?.map(c => c.id)).toEqual(['0001']);
+        expect(grouped.get('ready')?.map(c => c.id)).toEqual(['0002']);
+    });
+
+    it('falls back to id order within a column with no flagged cards, exactly as before', () => {
+        const grouped = groupByStage([card('0003', 'review'), card('0001', 'review'), card('0002', 'review')]);
+        expect(grouped.get('review')?.map(c => c.id)).toEqual(['0001', '0002', '0003']);
     });
 });
 
