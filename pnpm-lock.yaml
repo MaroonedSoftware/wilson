@@ -217,9 +217,6 @@ importers:
       '@swc-node/register':
         specifier: ^1.12.1
         version: 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
-      '@wilson/api':
-        specifier: workspace:*
-        version: link:../../apps/api
       '@wilson/sdk':
         specifier: workspace:*
         version: link:../sdk

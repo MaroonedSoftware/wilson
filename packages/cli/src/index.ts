@@ -4,16 +4,12 @@ import { createCliApp, type CommandModule, type CommandRegistration } from '@mar
 import { nodeVersion } from '@maroonedsoftware/johnny5/versions';
 import { envFile } from '@maroonedsoftware/johnny5/filesystem';
 import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
-// One command left still builds a real container via `requireContainer`: `card plan` hands the
-// operator's terminal to an interactive process, which is card 0078's one deliberate exception (card
-// 0085 ports it once nothing else needs the container). `wilson run` used to be the other one —
-// card 0079 retired it, now that the API server is the only daemon (`JobsModule.start` runs the
-// `JobRunner` whenever the server boots; nothing in this CLI needs to start it by hand). Every other
-// command in this file now talks to the API over HTTP (`../api-client.js`) instead, but as long as
-// `card plan` needs `requireContainer`, this import — and `@wilson/api` in package.json — stays,
-// scoped to it.
-import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
-
+// `card plan` was the last command that built a real container via `requireContainer` — card 0085
+// ports it onto the planning-session API (`api.board.openAPlanningSession`/`saveAPlanDraft`/
+// `closeAPlanningSession`) the same way `wilson run`'s retirement (card 0079) and card 0078 ported
+// every other command. Nothing in this package builds a container any more, so `createCliApp` needs
+// no `config`/`modules` wiring and this file has no `@wilson/api` import left — `ctx.config` comes
+// from johnny5's own default (`buildContext`'s default `envFiles` already includes `apps/api/.env`).
 import boardInitCommand from './commands/board/init.command.js';
 import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
@@ -49,10 +45,6 @@ const app = await createCliApp({
     name: 'wilson',
     description: 'wilson runner — doctor, board and card commands',
     version: '0.0.1',
-    config: buildConfig,
-    // ServerKitModule's setup/start take a concrete Registry/Container; johnny5 types them as
-    // `unknown` to avoid forcing the injectkit import. The runtime contract matches.
-    modules: modules as unknown as Parameters<typeof createCliApp>[0]['modules'],
     commands: [
         reg(['board', 'init'], boardInitCommand),
         reg(['board', 'import'], boardImportCommand),

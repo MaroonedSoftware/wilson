@@ -2,15 +2,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardConfig, BoardRepository, PLAN_SECTIONS, WorktreeManager, type Card } from '@wilson/api/cli-bootstrap';
+import { buildCtx, connectionRefused, fetchMock, jsonResponse, methodOf, reasonResponse, urlOf, type Handler } from './sdk-fetch.helper.js';
 
-// `plan.command.ts` wraps its handler in johnny5's `requireContainer`, exactly like `run.command.ts`
-// does. Stubbed out for the same reason `run.command.test.ts` stubs it: this test is about the plan
-// command's own guard order, worktree lifecycle and draft validation, not johnny5's DI plumbing.
-vi.mock('@maroonedsoftware/johnny5/serverkit', () => ({
-    requireContainer: (handler: unknown) => handler,
-}));
-
+// Card 0085 ports `plan.command.ts` off its own container (`@wilson/api/cli-bootstrap`,
+// `requireContainer`, `WorktreeManager`) and onto the planning-session API
+// (`api.board.openAPlanningSession`/`saveAPlanDraft`/`closeAPlanningSession`), the same `withApi` +
+// stubbed-`fetch` shape every other card-0078-ported command already uses (see
+// `move.command.test.ts`). Everything about a fresh worktree, `stages.yaml`, and draft validation now
+// lives server-side in `PlanService` — this test is about what is left locally: spawning `claude`
+// with what the session response returns, showing the diff, the confirmation gate, and closing the
+// session on every exit path.
 const { confirmMock } = vi.hoisted(() => ({ confirmMock: vi.fn() }));
 // Only `prompts.confirm` is replaced — an interactive clack prompt would otherwise block on the
 // test's stdin. `PromptCancelledError` and `unwrap` stay real, so the command's own
@@ -29,112 +30,47 @@ vi.mock('../../../../packages/cli/src/commands/card/editor.js', () => ({
     runInteractive: runInteractiveMock,
 }));
 
-const { gitMock } = vi.hoisted(() => ({ gitMock: vi.fn() }));
-// The command deletes the throwaway plan branch with a raw `git` call rather than a `WorktreeManager`
-// method (that method would live outside this card's files in scope). Only `git` is replaced here —
-// everything else `@wilson/api/cli-bootstrap` exports stays real, the same way the johnny5 mock above
-// keeps everything but `prompts.confirm`.
-vi.mock('@wilson/api/cli-bootstrap', async importOriginal => {
-    const actual = await importOriginal<typeof import('@wilson/api/cli-bootstrap')>();
-    return { ...actual, git: gitMock };
-});
-
 // Imported after the mocks above are declared; vitest hoists `vi.mock` calls above imports, so by
 // the time this module (and transitively `plan.command.ts`) loads, both stubs are already in place.
 const { default: command } = await import('../../../../packages/cli/src/commands/card/plan.command.js');
 
-type Handler = (opts: unknown, ctx: unknown, args: unknown[]) => Promise<number | void>;
-const run = command.run as unknown as Handler;
+const run = (ctx: unknown, cardId: string) => (command.run as unknown as Handler)({}, ctx, [cardId]);
 
-type PlanSection = (typeof PLAN_SECTIONS)[number];
-
-const section = (name: string, body: string): string => `## ${name}\n\n${body}\n`;
-
-/** A complete, dispatchable plan body: every `PLAN_SECTIONS` heading present and non-empty. */
-const completeDraft = (overrides: Partial<Record<PlanSection, string>> = {}): string => {
-    const defaults: Record<PlanSection, string> = {
-        Goal: 'Do the thing.',
-        Constraints: 'Be careful.',
-        'Files in scope': '- `src/thing.ts`',
-        Tasks: '1. Do it.',
-        'Acceptance criteria': 'It works.',
-        'Out of scope': 'Nothing else.',
-    };
-    return PLAN_SECTIONS.map(s => section(s, overrides[s] ?? defaults[s])).join('\n');
-};
-
-const buildCard = (overrides: Partial<Card['frontmatter']> = {}, body = completeDraft()): Card => ({
-    frontmatter: { id: '0099', title: 'Plan a thing', stage: 'planning', dependsOn: [], retries: {}, ...overrides },
+const cardDetail = (overrides: Partial<{ title: string; body: string; stage: string }> = {}) => ({
+    id: '0099',
+    title: 'Plan a thing',
+    stage: 'planning',
+    dependsOn: [],
+    needsHuman: false,
+    body: 'old body',
     sections: {},
-    body,
+    ...overrides,
 });
 
-describe('card plan command', () => {
+const planSession = (overrides: Partial<{ sessionId: string; worktreePath: string; draftPath: string; model: string; instructions: string }> = {}) => ({
+    sessionId: '0099',
+    worktreePath: '/tmp/does-not-matter',
+    draftPath: '/tmp/does-not-matter/draft.md',
+    model: 'claude-test-model',
+    instructions: 'Write a complete plan.',
+    ...overrides,
+});
+
+describe('wilson card plan', () => {
     let base: string;
-    let boardRoot: string;
-    let runRoot: string;
     let worktreePath: string;
-    let config: BoardConfig;
-    let worktrees: {
-        branchName: ReturnType<typeof vi.fn>;
-        hasWork: ReturnType<typeof vi.fn>;
-        create: ReturnType<typeof vi.fn>;
-        reclaim: ReturnType<typeof vi.fn>;
-    };
-    let logger: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn>; debug: ReturnType<typeof vi.fn> };
-
-    const draftPathFor = (cardId: string) => join(runRoot, 'cards', cardId, 'draft.md');
-
-    const buildCtx = (board: { read: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> }) => ({
-        container: {
-            get: (token: unknown) => {
-                if (token === BoardConfig) return config;
-                if (token === BoardRepository) return board;
-                if (token === WorktreeManager) return worktrees;
-                throw new Error(`buildCtx: unexpected token ${String(token)}`);
-            },
-        },
-        logger,
-    });
+    let draftPath: string;
 
     beforeEach(async () => {
         base = await mkdtemp(join(tmpdir(), 'plan-cmd-'));
-        boardRoot = join(base, 'board');
-        runRoot = join(base, 'run');
         worktreePath = join(base, 'worktree');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
+        draftPath = join(base, 'run', 'cards', '0099', 'draft.md');
         await mkdir(worktreePath, { recursive: true });
-        await mkdir(runRoot, { recursive: true });
-        await writeFile(
-            join(boardRoot, 'config', 'stages.yaml'),
-            [
-                'stages:',
-                '  - name: planning',
-                '    mode: manual',
-                '    model: claude-test-model',
-                '    instructions: Read the repo and write a complete plan to the draft file.',
-                '    onPass: parking-lot',
-                '    onFail: planning',
-                '',
-            ].join('\n'),
-            'utf8',
-        );
-
-        config = { project: 'wilson', boardRoot, codeRoot: join(base, 'code'), worktreeRoot: join(base, 'worktrees'), runRoot } as unknown as BoardConfig;
-
-        worktrees = {
-            branchName: vi.fn((id: string, title: string) => `card/${id}-${title.toLowerCase().replace(/\s+/g, '-')}`),
-            hasWork: vi.fn().mockResolvedValue(false),
-            create: vi.fn().mockResolvedValue({ path: worktreePath, branch: 'wilson-plan/0099', baseSha: 'deadbeef' }),
-            reclaim: vi.fn().mockResolvedValue(undefined),
-        };
-        logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+        await mkdir(join(base, 'run', 'cards', '0099'), { recursive: true });
 
         runInteractiveMock.mockReset();
         confirmMock.mockReset();
         confirmMock.mockResolvedValue(true);
-        gitMock.mockReset();
-        gitMock.mockResolvedValue({ stdout: '', stderr: '' });
     });
 
     afterEach(async () => {
@@ -143,69 +79,55 @@ describe('card plan command', () => {
         delete process.env.WILSON_PLAN_TEST_MARKER;
     });
 
-    it('refuses when the card is not in the planning stage, before touching any worktree', async () => {
-        const card = buildCard({ stage: 'implementing' });
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
+    it('opens a session, drives claude with what the session returned, and on approval saves exactly once and closes', async () => {
+        const card = cardDetail({ body: 'old body' });
+        const session = planSession({ worktreePath, draftPath, model: 'claude-test-model' });
+        const newDraft = 'new body';
 
-        const result = await run({}, buildCtx(board), ['0099']);
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(jsonResponse(session)); // open
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...card, body: newDraft })); // save
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })); // close
 
-        expect(result).toBe(1);
-        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('implementing'));
-        expect(worktrees.create).not.toHaveBeenCalled();
-        expect(runInteractiveMock).not.toHaveBeenCalled();
-        expect(board.write).not.toHaveBeenCalled();
-    });
-
-    it('refuses when the card branch already has work, naming the branch', async () => {
-        const card = buildCard();
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        worktrees.hasWork.mockResolvedValue(true);
-
-        const result = await run({}, buildCtx(board), ['0099']);
-
-        expect(result).toBe(1);
-        const branch = worktrees.branchName.mock.results[0]!.value as string;
-        expect(worktrees.hasWork).toHaveBeenCalledWith(branch);
-        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining(branch));
-        expect(worktrees.create).not.toHaveBeenCalled();
-        expect(board.write).not.toHaveBeenCalled();
-    });
-
-    it('writes exactly one new version, cleans up the throwaway worktree, and scrubs the environment on a complete approved draft', async () => {
-        const card = buildCard({}, completeDraft({ Goal: 'Old goal.' }));
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn().mockResolvedValue('v2') };
-        const draft = completeDraft({ Goal: 'New goal.' });
         runInteractiveMock.mockImplementation(async () => {
-            await writeFile(draftPathFor('0099'), draft, 'utf8');
+            await writeFile(draftPath, newDraft, 'utf8');
         });
         confirmMock.mockResolvedValue(true);
         process.env.ANTHROPIC_API_KEY = 'secret-key';
         process.env.WILSON_PLAN_TEST_MARKER = 'still-here';
+        const { ctx, logger } = buildCtx();
 
-        const result = await run({}, buildCtx(board), ['0099']);
+        const result = await run(ctx, '0099');
 
         expect(result).toBe(0);
-        expect(worktrees.create).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
 
-        expect(board.write).toHaveBeenCalledTimes(1);
-        const [id, message, mutate] = board.write.mock.calls[0]!;
-        expect(id).toBe('0099');
-        expect(String(message)).toContain('0099');
-        const mutated = await (mutate as (c: Card) => Card | Promise<Card>)(card);
-        expect(mutated.body).toBe(draft);
+        // getCard, open, save, close — in that order, against the planning-session endpoints.
+        expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/cards/0099');
+        expect(urlOf(fetchMock.mock.calls[1]!)).toContain('/api/cards/0099/plan/open');
+        expect(methodOf(fetchMock.mock.calls[1]!)).toBe('POST');
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0099/plan/save');
+        expect(methodOf(fetchMock.mock.calls[2]!)).toBe('POST');
+        expect(JSON.parse((fetchMock.mock.calls[2]![1] as { body: string }).body)).toEqual({ body: newDraft });
+        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/cards/0099/plan/close');
+        expect(methodOf(fetchMock.mock.calls[3]!)).toBe('POST');
+        expect(fetchMock).toHaveBeenCalledTimes(4);
 
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('planned'));
+
+        // claude is spawned against exactly what the session response carried, not anything computed
+        // locally.
         expect(runInteractiveMock).toHaveBeenCalledTimes(1);
         const [bin, args, options] = runInteractiveMock.mock.calls[0]! as [string, string[], { cwd?: string; env?: NodeJS.ProcessEnv }];
         expect(bin).toBe('claude');
         expect(args[args.indexOf('--model') + 1]).toBe('claude-test-model');
+        expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(session.instructions);
+        expect(args[args.indexOf('--add-dir') + 1]).toBe(join(base, 'run', 'cards', '0099'));
         expect(args[args.indexOf('--permission-mode') + 1]).toBe('default');
-        expect(args[args.indexOf('--add-dir') + 1]).toBe(join(runRoot, 'cards', '0099'));
+        expect(args).not.toContain('plan');
 
         const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
         expect(settings.permissions.deny).toContain(`Edit(${worktreePath}/**)`);
-        expect(settings.permissions.allow).toContain(`Edit(${draftPathFor('0099')})`);
+        expect(settings.permissions.allow).toContain(`Edit(${draftPath})`);
 
         expect(options?.cwd).toBe(worktreePath);
         // The scrubbed environment: no visible API key (which would silently reroute `claude` to
@@ -214,131 +136,205 @@ describe('card plan command', () => {
         expect(options?.env?.WILSON_PLAN_TEST_MARKER).toBe('still-here');
     });
 
-    it('declines the confirmation and writes nothing, but still tears down the worktree', async () => {
-        const card = buildCard({}, completeDraft({ Goal: 'Old goal.' }));
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
+    it('declines the confirmation, writes nothing, but still closes the session', async () => {
+        const card = cardDetail({ body: 'old body' });
+        const session = planSession({ worktreePath, draftPath });
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(jsonResponse(session)); // open
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })); // close
+
         runInteractiveMock.mockImplementation(async () => {
-            await writeFile(draftPathFor('0099'), completeDraft({ Goal: 'New goal.' }), 'utf8');
+            await writeFile(draftPath, 'new body', 'utf8');
         });
         confirmMock.mockResolvedValue(false);
+        const { ctx, logger } = buildCtx();
 
-        const result = await run({}, buildCtx(board), ['0099']);
+        const result = await run(ctx, '0099');
 
         expect(result).toBe(0);
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('declined'));
-        expect(board.write).not.toHaveBeenCalled();
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0099/plan/close');
     });
 
-    it('writes nothing and never prompts when the draft comes back byte-for-byte unchanged', async () => {
-        const body = completeDraft();
-        const card = buildCard({}, body);
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        runInteractiveMock.mockImplementation(async () => {
-            await writeFile(draftPathFor('0099'), body, 'utf8');
-        });
+    it('writes nothing and never prompts when the draft comes back byte-for-byte unchanged, but still closes', async () => {
+        const body = 'same body';
+        const card = cardDetail({ body });
+        const session = planSession({ worktreePath, draftPath });
 
-        const result = await run({}, buildCtx(board), ['0099']);
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(jsonResponse(session)); // open
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })); // close
+
+        runInteractiveMock.mockImplementation(async () => {
+            await writeFile(draftPath, body, 'utf8');
+        });
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0099');
 
         expect(result).toBe(0);
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
-        expect(board.write).not.toHaveBeenCalled();
         expect(confirmMock).not.toHaveBeenCalled();
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0099/plan/close');
     });
 
-    it('refuses an incomplete draft missing a whole section, naming it, and writes nothing', async () => {
-        const card = buildCard({}, completeDraft());
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        const incomplete = PLAN_SECTIONS.filter(s => s !== 'Out of scope')
-            .map(s => section(s, 'content'))
-            .join('\n');
-        runInteractiveMock.mockImplementation(async () => {
-            await writeFile(draftPathFor('0099'), incomplete, 'utf8');
-        });
+    it('still closes the session when the interactive claude session itself throws, and reports the failure rather than a raw stack trace', async () => {
+        const card = cardDetail();
+        const session = planSession({ worktreePath, draftPath });
 
-        const result = await run({}, buildCtx(board), ['0099']);
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(jsonResponse(session)); // open
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })); // close
 
-        expect(result).toBe(1);
-        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Out of scope'));
-        expect(board.write).not.toHaveBeenCalled();
-        expect(confirmMock).not.toHaveBeenCalled();
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
-    });
-
-    it('refuses a draft whose "Files in scope" section has no actual entry once comments are stripped', async () => {
-        const card = buildCard({}, completeDraft());
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        // Non-empty text, so it clears the "is this section blank" check, but `filesInScope` strips
-        // HTML-comment lines and is left with nothing — the second, more specific guard this exists
-        // to catch (a plan that would otherwise die much later at `assertDispatchable`).
-        const draft = completeDraft({ 'Files in scope': '<!-- filled in during implementation -->' });
-        runInteractiveMock.mockImplementation(async () => {
-            await writeFile(draftPathFor('0099'), draft, 'utf8');
-        });
-
-        const result = await run({}, buildCtx(board), ['0099']);
-
-        expect(result).toBe(1);
-        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('empty "Files in scope"'));
-        expect(board.write).not.toHaveBeenCalled();
-    });
-
-    it('seeds the draft with the six-heading skeleton when the card body has no sections yet', async () => {
-        const card = buildCard({}, 'Just some free-form notes, no headings at all.');
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn().mockResolvedValue('v2') };
-        let seedSeenByAgent = '';
-        runInteractiveMock.mockImplementation(async () => {
-            seedSeenByAgent = await readFile(draftPathFor('0099'), 'utf8');
-            await writeFile(draftPathFor('0099'), completeDraft(), 'utf8');
-        });
-
-        const result = await run({}, buildCtx(board), ['0099']);
-
-        expect(result).toBe(0);
-        const expectedSkeleton = PLAN_SECTIONS.map(s => `## ${s}\n`).join('\n');
-        expect(seedSeenByAgent).toBe(expectedSkeleton);
-    });
-
-    it('seeds the draft with the card body verbatim when sections already exist', async () => {
-        const body = completeDraft({ Goal: 'A goal that already exists.' });
-        const card = buildCard({}, body);
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        let seedSeenByAgent = '';
-        runInteractiveMock.mockImplementation(async () => {
-            seedSeenByAgent = await readFile(draftPathFor('0099'), 'utf8');
-            // Leave it unchanged so the run resolves quickly.
-        });
-
-        await run({}, buildCtx(board), ['0099']);
-
-        expect(seedSeenByAgent).toBe(body);
-    });
-
-    it('still tears down the throwaway worktree and branch when the interactive session itself fails', async () => {
-        const card = buildCard();
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
         runInteractiveMock.mockRejectedValue(new Error('claude exited unexpectedly'));
+        const { ctx, logger } = buildCtx();
 
-        await expect(run({}, buildCtx(board), ['0099'])).rejects.toThrow('claude exited unexpectedly');
+        // `withApi` catches every handler error at the boundary — including one thrown from inside
+        // the `try`/`finally` around the session — so this resolves 1 rather than rejecting; what
+        // matters here is that the `finally`'s close still ran before that catch reported it.
+        const result = await run(ctx, '0099');
 
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
-        expect(board.write).not.toHaveBeenCalled();
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith('claude exited unexpectedly');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0099/plan/close');
+        expect(methodOf(fetchMock.mock.calls[2]!)).toBe('POST');
     });
 
-    it('still reclaims the throwaway id and deletes its branch even when cutting the worktree itself fails', async () => {
-        const card = buildCard();
-        const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
-        worktrees.create.mockRejectedValue(new Error('git worktree add failed'));
+    it('never opens a session when reading the card itself fails, and prints the API-supplied reason', async () => {
+        fetchMock.mockResolvedValueOnce(reasonResponse(404, '0099 does not exist'));
+        const { ctx, logger } = buildCtx();
 
-        await expect(run({}, buildCtx(board), ['0099'])).rejects.toThrow('git worktree add failed');
+        const result = await run(ctx, '0099');
 
-        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
-        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith('0099 does not exist');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(runInteractiveMock).not.toHaveBeenCalled();
+    });
+
+    it('prints the API-supplied reason and exits 1, never spawning claude, when open refuses the card', async () => {
+        const card = cardDetail({ stage: 'backlog' });
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(reasonResponse(400, '0099 is in stage "backlog", not "planning"'));
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0099');
+
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith('0099 is in stage "backlog", not "planning"');
+        expect(runInteractiveMock).not.toHaveBeenCalled();
+        // No close call either — a refused `open` never cut a session to close.
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('names the refused connection instead of throwing when the API is not running', async () => {
+        fetchMock.mockImplementationOnce(connectionRefused);
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0099');
+
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('is it running?'));
+        expect(runInteractiveMock).not.toHaveBeenCalled();
+    });
+
+    it('reads back the draft written by the interactive session rather than trusting anything cached locally', async () => {
+        const card = cardDetail({ body: 'old body' });
+        const session = planSession({ worktreePath, draftPath });
+        const draft = 'this is what the operator actually wrote';
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(card));
+        fetchMock.mockResolvedValueOnce(jsonResponse(session));
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...card, body: draft }));
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+        runInteractiveMock.mockImplementation(async () => {
+            // Write directly to the path the session handed back, as the real `claude` binary would.
+            await writeFile(draftPath, draft, 'utf8');
+        });
+        confirmMock.mockResolvedValue(true);
+        const { ctx } = buildCtx();
+
+        await run(ctx, '0099');
+
+        expect(JSON.parse((fetchMock.mock.calls[2]![1] as { body: string }).body)).toEqual({ body: draft });
+        await expect(readFile(draftPath, 'utf8')).resolves.toBe(draft);
+    });
+
+    it('shows an added/removed diff of the old and new body before asking to confirm', async () => {
+        const card = cardDetail({ title: 'Plan a thing', body: 'line one\nline two\n' });
+        const session = planSession({ worktreePath, draftPath });
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(card));
+        fetchMock.mockResolvedValueOnce(jsonResponse(session));
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...card, body: 'line one\nline three\n' }));
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+        runInteractiveMock.mockImplementation(async () => {
+            await writeFile(draftPath, 'line one\nline three\n', 'utf8');
+        });
+        confirmMock.mockResolvedValue(true);
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0099');
+
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('0099: Plan a thing'));
+        expect(logger.info).toHaveBeenCalledWith('- line two');
+        expect(logger.info).toHaveBeenCalledWith('+ line three');
+        // The diff is shown, and only then is the operator asked — never the other order.
+        const diffCallIndex = logger.info.mock.calls.findIndex(c => c[0] === '- line two');
+        expect(confirmMock).toHaveBeenCalledTimes(1);
+        expect(diffCallIndex).toBeGreaterThanOrEqual(0);
+    });
+
+    it('scrubs ANTHROPIC_AUTH_TOKEN as well as ANTHROPIC_API_KEY from the spawned environment', async () => {
+        const card = cardDetail({ body: 'same' });
+        const session = planSession({ worktreePath, draftPath });
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(card));
+        fetchMock.mockResolvedValueOnce(jsonResponse(session));
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+        runInteractiveMock.mockImplementation(async () => {
+            await writeFile(draftPath, 'same', 'utf8');
+        });
+        process.env.ANTHROPIC_AUTH_TOKEN = 'secret-token';
+        const { ctx } = buildCtx();
+
+        try {
+            await run(ctx, '0099');
+            const [, , options] = runInteractiveMock.mock.calls[0]! as [string, string[], { env?: NodeJS.ProcessEnv }];
+            expect(options?.env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+        } finally {
+            delete process.env.ANTHROPIC_AUTH_TOKEN;
+        }
+    });
+
+    it('still closes the session and reports the reason, not raw HTTP status text, when save itself refuses the draft', async () => {
+        const card = cardDetail({ body: 'old body' });
+        const session = planSession({ worktreePath, draftPath });
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(card)); // getCard
+        fetchMock.mockResolvedValueOnce(jsonResponse(session)); // open
+        fetchMock.mockResolvedValueOnce(reasonResponse(400, 'draft is incomplete — empty section(s): Tasks')); // save refuses
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })); // close
+
+        runInteractiveMock.mockImplementation(async () => {
+            await writeFile(draftPath, 'new body', 'utf8');
+        });
+        confirmMock.mockResolvedValue(true);
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0099');
+
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith('draft is incomplete — empty section(s): Tasks');
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/cards/0099/plan/close');
+        expect(methodOf(fetchMock.mock.calls[3]!)).toBe('POST');
     });
 });

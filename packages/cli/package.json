@@ -15,7 +15,6 @@
     "dependencies": {
         "@maroonedsoftware/johnny5": "^8.0.10",
         "@swc-node/register": "^1.12.1",
-        "@wilson/api": "workspace:*",
         "@wilson/sdk": "workspace:*",
         "injectkit": "^1.7.0",
         "luxon": "^3.7.2",
