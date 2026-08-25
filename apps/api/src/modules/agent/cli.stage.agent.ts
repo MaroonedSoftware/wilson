@@ -126,7 +126,13 @@ export class CliStageAgent extends StageAgent {
         // run keeps its full allowance of productive steps.
         let denied = 0;
         let turns = 0;
-        let stepsExhausted = false;
+
+        // The engine's own stderr, captured independent of how the run ends. The SDK keeps its own
+        // tail for the message it builds once a nonzero exit or signal reaches it, but only that
+        // far; capturing it directly here means it survives even when the process dies before the
+        // SDK produces that message, and it reaches the event log rather than being lost with it.
+        let stderrTail = '';
+        const STDERR_TAIL_CHARS = 4000;
 
         const abortController = new AbortController();
 
@@ -136,7 +142,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | undefined;
         let stop!: () => void;
         const stopped = new Promise<typeof STOPPED>(resolve => {
             stop = () => resolve(STOPPED);
@@ -206,6 +212,11 @@ export class CliStageAgent extends StageAgent {
                     beat,
                 ),
                 env: subscriptionEnv(),
+                // Captured independent of how the read loop ends — the only way to see what the
+                // engine wrote to stderr when it dies before producing a `result` message at all.
+                stderr: (data: string) => {
+                    stderrTail = (stderrTail + data).slice(-STDERR_TAIL_CHARS);
+                },
                 mcpServers: { [REPORT_SERVER]: reportServer },
                 // A backstop, not the budget. The real ceiling is enforced below and moves with the
                 // denial count, which `maxTurns` cannot do once `query()` has been called. This one
@@ -250,7 +261,7 @@ export class CliStageAgent extends StageAgent {
                     // remove the limit. Capped, the worst case is twice the budget, which is what
                     // the engine's own backstop is set to.
                     if (turns >= stage.maxSteps + Math.min(denied, stage.maxSteps)) {
-                        stepsExhausted = true;
+                        stoppedBecause ??= 'steps';
                         this.logger.warn(`cli stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
                         abortController.abort();
                     }
@@ -280,18 +291,21 @@ export class CliStageAgent extends StageAgent {
                 }
             }
         } catch (err) {
-            if ((err as { name?: string }).name === 'AbortError') {
-                // Both causes abort the same controller, so the reason has to come from which one
-                // fired. "Ran out of steps" and "ran out of time" are different diagnoses, and the
-                // result reports them separately.
-                if (stepsExhausted) {
-                    return {
-                        result: reported ?? (summary ? { summary } : undefined),
-                        usage,
-                        truncated: true,
-                        budgetFailure: stepsExceeded(stage.maxSteps, denied),
-                    };
-                }
+            // Attribution comes from what the runner itself knows it did, not from the shape of the
+            // error: the SDK's own abort error does not carry `name: 'AbortError'`, so matching on
+            // that let every one of these fall through to a bare rethrow with no budget or engine
+            // attribution at all — exactly how a run turned into `stage.failed {"error":"Claude Code
+            // process aborted by user"}` with nothing else to go on. `stoppedBecause` already knows
+            // which of the runner's own controls fired, if any, independent of what the error says.
+            if (stoppedBecause === 'steps') {
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    budgetFailure: stepsExceeded(stage.maxSteps, denied),
+                };
+            }
+            if (stoppedBecause === 'wall-clock') {
                 this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -300,7 +314,57 @@ export class CliStageAgent extends StageAgent {
                     budgetFailure: wallClockExceeded(stage.maxWallClockMs),
                 };
             }
-            throw err;
+            if (stoppedBecause === 'silent') {
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    engineFailure: engineSilent(stage.maxIdleMs),
+                };
+            }
+
+            // None of the runner's own controls fired, and the read still rejected. The engine's own
+            // process lifecycle tags every abnormal exit it produces — an abort, a nonzero exit, a
+            // signal, a spawn failure — with an `errorClass`, and often an `exitCode` or `signal`
+            // beside it. An error without that tag did not come from the engine's process at all (a
+            // `ScopeKickbackError` from a kicked-back scope request is exactly this shape) and must
+            // keep propagating as the bare error it is, not be reinterpreted as an engine fault.
+            const tagged = err as { message?: string; errorClass?: unknown; exitCode?: unknown; signal?: unknown };
+            if (typeof tagged.errorClass !== 'string') throw err;
+
+            const exitCode = typeof tagged.exitCode === 'number' ? tagged.exitCode : undefined;
+            const signal = typeof tagged.signal === 'string' ? tagged.signal : undefined;
+            const message = tagged.message ?? String(err);
+
+            await context.events.append({
+                project: context.project,
+                cardId: context.cardId,
+                stage: context.stage,
+                type: 'engine.failed',
+                payload: {
+                    message,
+                    errorClass: tagged.errorClass,
+                    ...(exitCode !== undefined ? { exitCode } : {}),
+                    ...(signal !== undefined ? { signal } : {}),
+                    ...(stderrTail ? { stderr: stderrTail } : {}),
+                },
+            });
+
+            const detail = [
+                message,
+                exitCode !== undefined ? `exit code ${exitCode}` : undefined,
+                signal !== undefined ? `signal ${signal}` : undefined,
+                stderrTail ? `stderr: ${stderrTail}` : undefined,
+            ]
+                .filter((part): part is string => Boolean(part))
+                .join(' — ');
+            this.logger.warn(`cli stage engine exited with none of the runner's controls firing: ${detail}`);
+            return {
+                result: reported ?? (summary ? { summary } : undefined),
+                usage,
+                truncated: true,
+                engineFailure: `the engine aborted or exited on its own — none of the runner's wall-clock, idle or step controls fired — ${detail}`,
+            };
         } finally {
             clearTimeout(wallClock);
             clearTimeout(idle);
