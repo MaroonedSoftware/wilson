@@ -15,7 +15,11 @@ const MAX_HISTORY_LIMIT = 200;
 
 const clampLimit = (limit: number | undefined): number => Math.min(limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
 
-const toCardSummary = (card: Card): CardSummary => ({
+/**
+ * Exported so `BoardWriteService` can shape a card the same way after a write as this service does
+ * after a read — one mapper describing a card on the wire, not two that can drift apart.
+ */
+export const toCardSummary = (card: Card): CardSummary => ({
     id: card.frontmatter.id,
     title: card.frontmatter.title,
     stage: card.frontmatter.stage,
@@ -25,7 +29,7 @@ const toCardSummary = (card: Card): CardSummary => ({
     needsHumanReason: card.frontmatter.needsHumanReason,
 });
 
-const toCardDetail = (card: Card): CardDetail => ({
+export const toCardDetail = (card: Card): CardDetail => ({
     ...toCardSummary(card),
     body: card.body,
     sections: Object.fromEntries(
