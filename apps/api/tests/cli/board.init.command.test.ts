@@ -1,70 +1,46 @@
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { BoardConfig, NON_STAGE_STATES, loadStages } from '@wilson/api/cli-bootstrap';
+import { describe, expect, it } from 'vitest';
+import { buildCtx, connectionRefused, fetchMock, jsonResponse, methodOf, reasonResponse, urlOf, type Handler } from './sdk-fetch.helper.js';
 
-// `init.command.ts` wraps its handler in johnny5's `requireContainer`, exactly like the other CLI
-// commands under test here — see `run.command.test.ts` for why the stub below is enough to make the
-// wrapped handler directly callable.
-vi.mock('@maroonedsoftware/johnny5/serverkit', () => ({
-    requireContainer: (handler: unknown) => handler,
-}));
-
+// Card 0078 ports `board init` off `container.get(...)` and onto `@wilson/sdk`. Scaffolding the board
+// root — cards/, config/, context/, a stages.yaml `loadStages` accepts unedited, the git repo itself —
+// is `BoardBootstrapService.init`'s job now (card 0076) and is tested there
+// (apps/api/tests/modules/board/board.bootstrap.service.test.ts) — this command just calls it and
+// reports the configured stages.
 const { default: command } = await import('../../../../packages/cli/src/commands/board/init.command.js');
 
-type Handler = (opts: unknown, ctx: unknown, args: unknown[]) => Promise<number | void>;
-const run = command.run as unknown as Handler;
-
-const buildCtx = (boardRoot: string) => {
-    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    const config = { boardRoot } as unknown as BoardConfig;
-    const container = {
-        get: (token: unknown) => {
-            if (token === BoardConfig) return config;
-            throw new Error(`buildCtx: unexpected token ${String(token)}`);
-        },
-    };
-    return { ctx: { container, logger }, logger };
-};
+const run = (ctx: unknown) => (command.run as unknown as Handler)({}, ctx, []);
 
 describe('wilson board init', () => {
-    it('scaffolds a stages.yaml that loadStages accepts unedited, with every route resolving', async () => {
-        const base = await mkdtemp(join(tmpdir(), 'board-init-'));
-        const boardRoot = join(base, 'board');
-        const { ctx } = buildCtx(boardRoot);
+    it('calls board init and reports the configured stages', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged'] }));
+        const { ctx, logger } = buildCtx();
 
-        const result = await run({}, ctx, []);
+        const result = await run(ctx);
 
         expect(result).toBe(0);
-
-        // This is the acceptance bar itself: `loadStages` must accept the exact file `board init`
-        // just wrote, with no hand-editing in between. On the old template (`onPass: testing`,
-        // `onFail: planning` — neither a configured stage nor a non-stage state) `loadStages` throws
-        // a `StageConfigError` from `assertRoutesResolve` right here, before any assertion below runs.
-        const stages = await loadStages(boardRoot);
-
-        expect(stages.stages.length).toBeGreaterThan(0);
-        const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
-        for (const stage of stages.stages) {
-            expect(known.has(stage.onPass)).toBe(true);
-            expect(known.has(stage.onFail)).toBe(true);
-        }
+        expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/board/init');
+        expect(methodOf(fetchMock.mock.calls[0]!)).toBe('POST');
+        expect(logger.info).toHaveBeenCalledWith('board initialised — stages: planning, implementing, testing');
+        expect(logger.info).toHaveBeenCalledWith('Write a card with `wilson card create <title>`, approve its plan, then `wilson card start <id>`.');
     });
 
-    it('leaves an already-initialised board untouched', async () => {
-        const base = await mkdtemp(join(tmpdir(), 'board-init-'));
-        const boardRoot = join(base, 'board');
-        const { ctx: first } = buildCtx(boardRoot);
-        await run({}, first, []);
-        const before = await loadStages(boardRoot);
+    it('prints the API-supplied reason and exits 1 for a board that is already initialised, rather than an HTTP status line', async () => {
+        fetchMock.mockResolvedValueOnce(reasonResponse(409, `${'/tmp/board'}/config/stages.yaml already initialised`));
+        const { ctx, logger } = buildCtx();
 
-        const { ctx: second, logger } = buildCtx(boardRoot);
-        const result = await run({}, second, []);
+        const result = await run(ctx);
 
-        expect(result).toBe(0);
-        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('already initialised'));
-        const after = await loadStages(boardRoot);
-        expect(after).toEqual(before);
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith('/tmp/board/config/stages.yaml already initialised');
+    });
+
+    it('names the refused connection instead of throwing when the API is not running', async () => {
+        fetchMock.mockImplementationOnce(connectionRefused);
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx);
+
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('is it running?'));
     });
 });

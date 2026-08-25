@@ -3,11 +3,12 @@ import type { CardEvent, CardSummary } from '@wilson/sdk';
 
 /**
  * A handful of pure, read-only functions the CLI used to get from `@wilson/api/cli-bootstrap`.
- * Duplicated here, deliberately: the CLI no longer depends on `@wilson/api` (card 0078), and these
- * are small enough — and stable enough — that copying them is cheaper and less risky than inventing
- * an endpoint for each. If any of these drift from their board-side originals
- * (`apps/api/src/modules/board/next.card.ts`, `.../card.js`, `apps/api/src/modules/events/time.in.stage.ts`),
- * fix both sides; there is no single source left to import from.
+ * Duplicated here, deliberately: the commands that use these no longer depend on `@wilson/api`
+ * (card 0078 ports them to `@wilson/sdk`), and these are small enough — and stable enough — that
+ * copying them is cheaper and less risky than inventing an endpoint for each. If any of these drift
+ * from their board-side originals (`apps/api/src/modules/board/next.card.ts`, `.../card.js`,
+ * `apps/api/src/modules/events/time.in.stage.ts`), fix both sides; there is no single source left to
+ * import from.
  */
 
 /**
@@ -102,17 +103,4 @@ export const timeInCurrentStage = (events: CardEvent[], now: DateTime): Duration
     const since = DateTime.fromISO((lastTransition ?? earliest).createdAt);
 
     return now.diff(since);
-};
-
-/**
- * Environment for a spawned `claude` process with the API's own provider key stripped, so an
- * interactive planning session authenticates with the operator's own `claude` subscription/login
- * rather than silently reusing the API's key. Mirrors `subscriptionEnv` in
- * `apps/api/src/modules/agent/cli.stage.agent.ts`.
- */
-export const subscriptionEnv = (): NodeJS.ProcessEnv => {
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
-    return env;
 };
