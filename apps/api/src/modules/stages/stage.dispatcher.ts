@@ -16,7 +16,7 @@ import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
-import { kickback, shouldAdvance } from './kickback.js';
+import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
@@ -276,8 +276,11 @@ export class StageDispatcher {
             // the catch would append a `stage.failed` event after a `stage.passed` one for the same
             // run, leaving the card's history contradicting itself about what the stage did.
             let transitionedTo: string | undefined;
+            let needsHuman = false;
             try {
-                transitionedTo = await this.writeTransition(cardId, stageName, stage, card, outcome);
+                const transition = await this.writeTransition(cardId, stageName, stage, card, outcome);
+                transitionedTo = transition.target;
+                needsHuman = transition.needsHuman;
             } catch (err) {
                 await this.events.append({
                     project: this.config.project,
@@ -290,7 +293,7 @@ export class StageDispatcher {
                 // silent failure here is how a card sits untouched forever.
                 throw err;
             }
-            return { ...outcome, transitionedTo };
+            return { ...outcome, transitionedTo, needsHuman };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             await this.events.append({
@@ -313,18 +316,30 @@ export class StageDispatcher {
      * not happen. A failure here is not swallowed: the stage's own `stage.passed`/`stage.failed`
      * event is already recorded, but a transition that did not happen must surface, so this throws.
      */
-    private async writeTransition(cardId: string, stageName: string, stage: StageConfig, card: Card, outcome: StageOutcome): Promise<string> {
-        const decision = shouldAdvance(outcome.passed, outcome.result)
+    private async writeTransition(
+        cardId: string,
+        stageName: string,
+        stage: StageConfig,
+        card: Card,
+        outcome: StageOutcome,
+    ): Promise<{ target: string; needsHuman: boolean }> {
+        const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: card.frontmatter.retries }
             : kickback(stage, card.frontmatter.retries);
         const findings = findingsFrom(outcome.result);
+        const needsHuman = decision.needsHuman;
 
         await this.board.writeWithEvent(
             cardId,
             `${cardId}: ${stageName} -> ${decision.target}`,
             current => ({
                 ...current,
-                frontmatter: { ...current.frontmatter, stage: decision.target, retries: decision.retries },
+                frontmatter: {
+                    ...current.frontmatter,
+                    stage: decision.target,
+                    retries: decision.retries,
+                    ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                },
                 body: findings ? withFindings(current.body, findings) : current.body,
             }),
             {
@@ -332,7 +347,13 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: decision.target, retries: decision.retries, by: 'runner' },
+                payload: {
+                    from: stageName,
+                    to: decision.target,
+                    retries: decision.retries,
+                    by: 'runner',
+                    ...(needsHuman ? { needsHuman: true } : {}),
+                },
             },
         );
 
@@ -354,18 +375,23 @@ export class StageDispatcher {
             }
         }
 
-        return decision.target;
+        return { target: decision.target, needsHuman: needsHuman !== undefined };
     }
 
     /**
-     * A card that has already spent its configured ceiling goes to `needs-human` without the
-     * stage running at all — the same reasoning as `poisoned`: retrying cannot fix it, since the
-     * next attempt would spend the same budget again, and a retry budget is for work that came
-     * back wrong, not work that cannot be afforded.
+     * A card that has already spent its configured ceiling is flagged for a human without the
+     * stage running at all — retrying cannot fix it, since the next attempt would spend the same
+     * budget again, and a retry budget is for work that came back wrong, not work that cannot be
+     * afforded. Unlike `poisoned`, this is not an infrastructure failure the queue should stop
+     * retrying forever: it is the same "stay where it failed, flagged" outcome an exhausted
+     * kickback reaches, just reached before the stage ever ran.
      *
-     * Writes the transition through `BoardRepository` exactly as a kickback would: same version
-     * message shape, same terminal-state worktree reclaim. Retry counters are left untouched —
-     * this card never ran, so it never attempted the stage.
+     * The flag is written through the same `writeWithEvent` mutate that a kickback exhaustion
+     * uses, so the flag and the record of why commit together. `stage` is left untouched — the
+     * card never ran, so it never attempted the stage — and so are retry counters. The worktree is
+     * left alone too: reclaiming it here was the old terminal-state behaviour, and flagged cards
+     * now keep their worktrees on purpose, so a person looking into the flag has something to look
+     * at. Nothing collects those trees; that is the deliberate cost of this design.
      */
     private async refuseOverBudget(
         cardId: string,
@@ -383,44 +409,29 @@ export class StageDispatcher {
             payload: { spent, cap },
         });
 
-        const target = 'needs-human';
         await this.board.writeWithEvent(
             cardId,
-            `${cardId}: ${stageName} -> ${target}`,
+            `${cardId}: ${stageName} flagged for a human (over budget)`,
             current => ({
                 ...current,
-                frontmatter: { ...current.frontmatter, stage: target },
+                frontmatter: { ...current.frontmatter, needsHuman: true, needsHumanReason: message },
             }),
             {
                 project: this.config.project,
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: target, retries: card.frontmatter.retries, by: 'runner' },
+                payload: { from: stageName, to: stageName, retries: card.frontmatter.retries, by: 'runner', needsHuman: true },
             },
         );
-
-        // Terminal exactly as a kickback that exhausts its attempts is terminal: reclaim whatever
-        // worktree an earlier attempt left behind. Safe to call when there is nothing there.
-        try {
-            await this.worktrees.reclaim(cardId);
-            await this.events.append({
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                type: 'worktree.reclaimed',
-                payload: { cardId, target },
-            });
-        } catch (err) {
-            this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${target}": ${(err as Error).message}`);
-        }
 
         return {
             passed: false,
             failures: [message],
             changedPaths: [],
             scopeGrants: [],
-            transitionedTo: target,
+            transitionedTo: stageName,
+            needsHuman: true,
         };
     }
 

@@ -70,10 +70,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         }
 
         const stages = await loadStages(this.board.boardRoot);
-        // StageOutcome does not carry `needsHuman` yet — the next card adds it — so this reads it
-        // defensively off whatever the dispatcher returned rather than widening the type here.
-        const needsHuman = (outcome as { needsHuman?: boolean }).needsHuman;
-        const decision = decideChain(outcome.transitionedTo, stages, { needsHuman });
+        const decision = decideChain(outcome.transitionedTo, stages, { needsHuman: outcome.needsHuman });
 
         if (decision.continue) {
             // Hand the claim straight to the next job rather than clearing and re-recording: the card

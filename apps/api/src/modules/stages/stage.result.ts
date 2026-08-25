@@ -74,4 +74,6 @@ export interface StageOutcome {
     usage?: { inputTokens?: number; outputTokens?: number };
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
+    /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */
+    needsHuman?: boolean;
 }

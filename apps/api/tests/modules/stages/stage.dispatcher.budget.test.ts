@@ -77,7 +77,7 @@ stages:
     model: claude-opus
     instructions: test it
     onPass: merged
-    onFail: needs-human
+    onFail: testing
     maxCardInputTokens: 1000000
 `;
 
@@ -88,7 +88,7 @@ stages:
     model: claude-opus
     instructions: test it
     onPass: merged
-    onFail: needs-human
+    onFail: testing
 `;
 
 /**
@@ -133,7 +133,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         const result = await dispatcher.run('0001', 'testing');
 
         expect(result.passed).toBe(false);
-        expect(result.transitionedTo).toBe('needs-human');
+        expect(result.transitionedTo).toBe('testing');
         expect(result.failures[0]).toMatch(/spent its budget/);
         expect(result.failures[0]).toMatch(/1000000/);
 
@@ -162,28 +162,47 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(worktrees.branchName).not.toHaveBeenCalled();
     });
 
-    it('writes the transition to needs-human through the board, exactly as an exhausted kickback would', async () => {
+    it('writes the flag through the board, exactly as an exhausted kickback would, without moving the stage', async () => {
         const { dispatcher, board } = await setUp(stagesYamlWithCap, 5_000_000);
 
         await dispatcher.run('0001', 'testing');
 
         const stored = await board.read('0001');
-        expect(stored.frontmatter.stage).toBe('needs-human');
+        expect(stored.frontmatter.stage).toBe('testing');
+        expect(stored.frontmatter.needsHuman).toBe(true);
+        expect(stored.frontmatter.needsHumanReason).toMatch(/spent its budget/);
         // Retries are for work that came back wrong; this card never ran the stage at all.
         expect(stored.frontmatter.retries).toEqual({});
 
         const version = await board.currentVersion('0001');
         const row = await db.selectFrom('runner.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
-        expect(row.message).toBe('0001: testing -> needs-human');
+        expect(row.message).toBe('0001: testing flagged for a human (over budget)');
     });
 
-    it('reclaims whatever worktree an earlier attempt left behind, since needs-human is terminal', async () => {
+    // Same atomicity constraint as the exhausted-kickback path: the flag is written through the
+    // same writeWithEvent mutate a kickback exhaustion uses, so it must land as a single new
+    // version, not a stage write followed by a separate flag write that could crash apart.
+    it('writes the flag as a single new version, not a separate write from card creation', async () => {
+        const { dispatcher, board } = await setUp(stagesYamlWithCap, 5_000_000);
+
+        await dispatcher.run('0001', 'testing');
+
+        const history = await board.versions('0001', 10);
+        expect(history).toHaveLength(2); // card creation, then this one refusal
+
+        const latest = await board.readAt('0001', history[0].id);
+        expect(latest.frontmatter.stage).toBe('testing');
+        expect(latest.frontmatter.needsHuman).toBe(true);
+        expect(latest.frontmatter.needsHumanReason).toMatch(/spent its budget/);
+    });
+
+    it('does not reclaim any worktree, since a flagged card now keeps its tree rather than being terminal', async () => {
         const { dispatcher, worktrees, events } = await setUp(stagesYamlWithCap, 5_000_000);
 
         await dispatcher.run('0001', 'testing');
 
-        expect(worktrees.reclaim).toHaveBeenCalledWith('0001');
-        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
+        expect(worktrees.reclaim).not.toHaveBeenCalled();
+        expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
     });
 
     it('does not consult spend at all, and proceeds toward the worktree, when no cap is configured', async () => {

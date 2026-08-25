@@ -37,7 +37,7 @@ stages:
     model: claude-opus
     instructions: test it
     onPass: merged
-    onFail: needs-human
+    onFail: testing
 `;
 
 const card: Card = {

@@ -7,6 +7,6 @@
  * separate from `NON_STAGE_STATES` rather than deriving it, so the two do not silently drift back
  * together.
  */
-const TERMINAL_STATES = new Set(['merged', 'dropped', 'poisoned', 'needs-human']);
+const TERMINAL_STATES = new Set(['merged', 'dropped', 'poisoned']);
 
 export const isTerminal = (stage: string): boolean => TERMINAL_STATES.has(stage);

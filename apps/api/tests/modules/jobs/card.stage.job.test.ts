@@ -20,7 +20,7 @@ stages:
     model: claude-opus
     instructions: implement it
     onPass: testing
-    onFail: needs-human
+    onFail: implementing
   - name: testing
     mode: agent
     model: claude-opus
@@ -176,14 +176,13 @@ describe('CardStageJob', () => {
     });
 
     /**
-     * Card 0054. `StageOutcome` does not carry `needsHuman` yet — the next card adds it — so the job
-     * reads it defensively off whatever the dispatcher actually returned. This is the guard against
-     * the spend loop the card's plan describes: once a later card lets an exhausted stage land the
-     * card back on a configured agent stage instead of routing it to `needs-human`, this flag is the
-     * only thing standing between that and re-enqueuing forever.
+     * Card 0055: a flagged card stays in the stage it failed in rather than moving to a
+     * `needs-human` lane, so `outcome.transitionedTo` names a perfectly ordinary, configured agent
+     * stage even when the card must not be re-enqueued. `needsHuman` is the only thing standing
+     * between that and dispatching the same failing stage forever.
      */
     it('stops the chain, rather than enqueuing the next job, when the outcome carries needsHuman', async () => {
-        dispatcher.run.mockResolvedValue({ ...outcome({ transitionedTo: 'testing' }), needsHuman: true });
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing', needsHuman: true }));
 
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
@@ -201,7 +200,7 @@ describe('CardStageJob', () => {
     });
 
     it('enqueues normally when the outcome does not carry needsHuman, landing on the same target stage', async () => {
-        dispatcher.run.mockResolvedValue({ ...outcome({ transitionedTo: 'testing' }), needsHuman: false });
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing', needsHuman: false }));
 
         await job.run({ cardId: '0001', stageName: 'implementing' });
 

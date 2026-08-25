@@ -41,13 +41,15 @@ describe('kickback', () => {
         expect(second.retries.testing).toBe(2);
     });
 
-    it('routes to needs-human on the maxKickbacks-th failure, not one beyond it', () => {
+    it('stays on the stage’s own name and flags needsHuman on the maxKickbacks-th failure, not one beyond it', () => {
         const stage = makeStage({ maxKickbacks: 3, onFail: 'implementing' });
 
         const third = kickback(stage, { testing: 2 });
 
         expect(third.retries.testing).toBe(3);
-        expect(third.target).toBe('needs-human');
+        expect(third.target).toBe('testing');
+        expect(third.needsHuman?.reason).toContain('testing');
+        expect(third.needsHuman?.reason).toContain('3');
     });
 
     it('does not route to needs-human before maxKickbacks failures', () => {
@@ -93,7 +95,8 @@ describe('kickback', () => {
         const decision = kickback(stage, {});
 
         expect(decision.retries.testing).toBe(1);
-        expect(decision.target).toBe('needs-human');
+        expect(decision.target).toBe('testing');
+        expect(decision.needsHuman).toBeDefined();
     });
 });
 
