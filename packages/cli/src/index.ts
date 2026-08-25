@@ -4,6 +4,14 @@ import { createCliApp, type CommandModule, type CommandRegistration } from '@mar
 import { nodeVersion } from '@maroonedsoftware/johnny5/versions';
 import { envFile } from '@maroonedsoftware/johnny5/filesystem';
 import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
+// Two commands left still build a real container via `requireContainer`, rather than calling the
+// API: `wilson run` (the daemon, registered below) calls `JobRunner.start()`/`stop()` directly,
+// in-process — rearchitecting that is card 0079's job ("making the API the only daemon"), not this
+// one's, see run.command.ts — and `card plan` hands the operator's terminal to an interactive
+// process, which is card 0078's one deliberate exception (card 0085 ports it once nothing else needs
+// the container). Every other command in this file now talks to the API over HTTP (`../api-client.js`)
+// instead, but as long as those two need `requireContainer`, this import — and `@wilson/api` in
+// package.json — stays, scoped to them.
 import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
 
 import boardInitCommand from './commands/board/init.command.js';
@@ -18,7 +26,6 @@ import cardMoveCommand from './commands/card/move.command.js';
 import cardNextCommand from './commands/card/next.command.js';
 import cardPlanCommand from './commands/card/plan.command.js';
 import cardReleaseCommand from './commands/card/release.command.js';
-import cardRunCommand from './commands/card/run.command.js';
 import cardShowCommand from './commands/card/show.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
@@ -61,7 +68,6 @@ const app = await createCliApp({
         reg(['card', 'next'], cardNextCommand),
         reg(['card', 'plan'], cardPlanCommand),
         reg(['card', 'release'], cardReleaseCommand),
-        reg(['card', 'run'], cardRunCommand),
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
         reg(['run'], runCommand),

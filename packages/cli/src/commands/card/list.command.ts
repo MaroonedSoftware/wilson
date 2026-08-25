@@ -1,22 +1,22 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
-import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository, unsatisfiedDependencies } from '@wilson/api/cli-bootstrap';
+import { withApi } from '../../api-client.js';
+import { unsatisfiedDependencies } from '../../board-view.js';
 
 const command: CommandModule = {
     description: 'List every card on the board with its stage',
-    run: requireContainer(async (_opts, ctx) => {
-        const cards = await ctx.container.get(BoardRepository).list();
+    run: withApi(async (_opts, ctx, _args, api) => {
+        const cards = await api.board.listCards();
         if (cards.length === 0) {
             ctx.logger.info('no cards yet — `wilson board init` scaffolds the board, then write one by hand');
             return 0;
         }
 
-        const width = Math.max(...cards.map(c => c.frontmatter.stage.length));
+        const width = Math.max(...cards.map(c => c.stage.length));
         for (const card of cards) {
             const outstanding = unsatisfiedDependencies(card, cards);
             const blocked = outstanding.length > 0 ? ` (blocked on ${outstanding.join(', ')})` : '';
-            const flag = card.frontmatter.needsHuman ? ' [needs human]' : '';
-            ctx.logger.info(`${card.frontmatter.id}  ${card.frontmatter.stage.padEnd(width)}  ${card.frontmatter.title}${blocked}${flag}`);
+            const flag = card.needsHuman ? ' [needs human]' : '';
+            ctx.logger.info(`${card.id}  ${card.stage.padEnd(width)}  ${card.title}${blocked}${flag}`);
         }
         return 0;
     }),

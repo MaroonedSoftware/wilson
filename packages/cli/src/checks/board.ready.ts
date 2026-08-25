@@ -1,23 +1,26 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import pg from 'pg';
 import type { Check } from '@maroonedsoftware/johnny5';
-import { loadStages } from '@wilson/api/cli-bootstrap';
+import { apiClient, describeApiError } from '../api-client.js';
 
 /**
  * The board must be queryable and its stage config must exist.
  *
- * Two halves because the board is split across two homes now. Cards, versions and transitions are
- * rows, so "is the board there" is a question about migrations having run — a failure mode that did
- * not exist when the board was files, and one whose natural error (`relation does not exist`, deep
- * inside a dispatch) says nothing useful about the fix.
+ * Two halves, and they now live on two different sides of the API: whether `PROJECT_BOARD_ROOT` is
+ * set and whether `stages.yaml` exists under it are filesystem facts this process can still read for
+ * itself, cheaply, without the API up. Whether the board actually has cards is a question about the
+ * database behind the API now (card 0078 dropped the CLI's own `pg` connection along with its direct
+ * container access), so that half is answered by calling the API the same way any other command
+ * does — which doubles as this check's proof that the API is reachable at all, with the same "is it
+ * running?" message every other command gives on a refused connection.
  *
- * Stage config is still a file under `PROJECT_BOARD_ROOT`. It is machinery rather than board state:
- * human-write-only (decision 9), reviewed like code, and deliberately not reachable through any API
- * an agent could call.
- *
- * The old requirement that the board repo be *clean* is gone with the files. The runner no longer
- * commits card state, so there is nothing left for a stray uncommitted file to be swept into.
+ * Deep validation of `stages.yaml` itself (does it parse, does every `onPass`/`onFail` target a real
+ * stage) is no longer done here either: that logic lives in `apps/api/src/modules/stages/stage.config.ts`,
+ * which this package cannot import any more, and duplicating a schema validator is a different order
+ * of risk than duplicating the small pure functions in `board-view.ts`. A broken config now surfaces
+ * as a generic API error the first time this check (or any command) calls in, rather than the
+ * specific parse error it used to report directly — a real loss of detail, accepted here because the
+ * config only becomes readable to this process through the API contract.
  */
 export const boardReady: Check = {
     name: 'board ready',
@@ -29,45 +32,23 @@ export const boardReady: Check = {
         if (!existsSync(join(root, 'config', 'stages.yaml'))) {
             return { ok: false, message: `no stage config at ${root}/config/stages.yaml`, fixHint: 'Run `wilson board init`.' };
         }
-        try {
-            await loadStages(root);
-        } catch (err) {
-            return {
-                ok: false,
-                message: `stage config at ${root}/config/stages.yaml is invalid: ${(err as Error).message}`,
-                fixHint: 'Fix the stage config by hand — it is human-write-only.',
-            };
-        }
-
-        const client = new pg.Client({
-            host: ctx.config.get('DATABASE_HOST', ''),
-            port: Number(ctx.config.get('DATABASE_PORT', '5432')),
-            user: ctx.config.get('DATABASE_USER', ''),
-            password: ctx.config.get('DATABASE_PASSWORD', ''),
-            database: ctx.config.get('DATABASE_NAME', ''),
-        });
 
         try {
-            await client.connect();
-            const project = ctx.config.get('PROJECT_NAME', 'wilson');
-            const result = await client.query<{ count: string }>('select count(*)::text as count from runner.cards where project = $1', [project]);
-            const count = Number(result.rows[0]?.count ?? '0');
-            if (count === 0) {
+            const cards = await apiClient(ctx).board.listCards();
+            if (cards.length === 0) {
                 return {
                     ok: false,
-                    message: `no cards for project "${project}"`,
+                    message: 'no cards on the board',
                     fixHint: 'Import an existing board with `wilson board import`, or create one with `wilson card create`.',
                 };
             }
-            return { ok: true, message: `${count} cards · stage config at ${root}/config/stages.yaml` };
+            return { ok: true, message: `${cards.length} cards · stage config at ${root}/config/stages.yaml` };
         } catch (err) {
             return {
                 ok: false,
-                message: `board tables unavailable: ${(err as Error).message}`,
-                fixHint: 'Run `pnpm migrate:up`.',
+                message: describeApiError(err, ctx),
+                fixHint: 'Start the API — `wilson run` — then run doctor again.',
             };
-        } finally {
-            await client.end().catch(() => undefined);
         }
     },
 };

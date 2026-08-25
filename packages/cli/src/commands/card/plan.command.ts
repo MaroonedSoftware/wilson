@@ -38,6 +38,11 @@ import { runInteractive } from './editor.js';
  * which lives outside the worktree, is the one thing allowed. That is weaker than `ScopeGuard` — it is
  * a settings file read by a spawned process, not enforced by this process — but the worktree is
  * discarded regardless of what happened to it, so nothing written there survives either way.
+ *
+ * This command still builds its own container (`@wilson/api/cli-bootstrap`) rather than calling the
+ * API like every other command in this package: card 0078 ports every command except this one, on
+ * purpose — it is the one command that cannot simply call an endpoint, because it hands the
+ * operator's terminal to an interactive process. Card 0085 takes it and drops the dependency.
  */
 const command: CommandModule = {
     description: 'Plan a card in an interactive session with an agent that can read the repo, ending in a written plan',

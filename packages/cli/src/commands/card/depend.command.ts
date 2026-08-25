@@ -1,6 +1,5 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
-import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardRepository } from '@wilson/api/cli-bootstrap';
+import { withApi } from '../../api-client.js';
 
 interface DependOpts {
     remove?: boolean;
@@ -9,16 +8,14 @@ interface DependOpts {
 /**
  * Record or drop a dependency between two cards.
  *
- * `card create` takes `dependsOn` and `syncDeps` reconciles `runner.card_deps` on every write, but
- * nothing reached that for a card that already exists — so a dependency discovered after a card was
- * written could not be recorded at all. `depends_on` is a hard block on dispatch, which makes this
- * the difference between a card waiting for the interface it needs and one racing it.
+ * `wilson card create` takes `dependsOn` and `syncDeps` reconciles `runner.card_deps` on every
+ * write, but nothing reached that for a card that already exists — so a dependency discovered after
+ * a card was written could not be recorded at all. `depends_on` is a hard block on dispatch, which
+ * makes this the difference between a card waiting for the interface it needs and one racing it.
  *
- * The write goes through `BoardRepository.write` rather than an INSERT, so the change lands as a
- * card version like every other edit.
- *
- * Cycle rejection at load time (PROJECT.md, Runner requirements) is still unbuilt; this refuses the
- * self-dependency and nothing more.
+ * The self-dependency refusal and the existing-dependency no-op both happen behind
+ * `POST /api/cards/:id/depend` now (`BoardWriteService.depend`, card 0080); this command reads the
+ * card first only to phrase the already-there/already-gone message.
  */
 const command: CommandModule<DependOpts> = {
     description: 'Record that one card depends on another',
@@ -27,20 +24,11 @@ const command: CommandModule<DependOpts> = {
         { name: 'dependsOnId', description: 'The card it waits for, e.g. 0034', required: true },
     ],
     options: [{ flags: '--remove', description: 'Drop the dependency instead of adding it', type: 'boolean' }],
-    run: requireContainer<DependOpts>(async (opts, ctx, args) => {
+    run: withApi<DependOpts>(async (opts, ctx, args, api) => {
         const [cardId, dependsOnId] = [String(args[0]), String(args[1])];
-        const board = ctx.container.get(BoardRepository);
 
-        if (cardId === dependsOnId) {
-            ctx.logger.error('a card cannot depend on itself');
-            return 1;
-        }
-
-        // Read it before writing so a typo is a clear message rather than a foreign key violation.
-        await board.read(dependsOnId);
-
-        const before = await board.read(cardId);
-        const has = before.frontmatter.dependsOn.includes(dependsOnId);
+        const before = await api.board.getCard(cardId);
+        const has = before.dependsOn.includes(dependsOnId);
         if (opts.remove && !has) {
             ctx.logger.info(`${cardId} does not depend on ${dependsOnId}`);
             return 0;
@@ -50,14 +38,7 @@ const command: CommandModule<DependOpts> = {
             return 0;
         }
 
-        const dependsOn = opts.remove
-            ? before.frontmatter.dependsOn.filter(id => id !== dependsOnId)
-            : [...before.frontmatter.dependsOn, dependsOnId].sort();
-
-        await board.write(cardId, `${opts.remove ? 'Drop' : 'Add'} ${cardId} dependency on ${dependsOnId}`, card => ({
-            ...card,
-            frontmatter: { ...card.frontmatter, dependsOn },
-        }));
+        await api.board.setCardDependency(cardId, { dependsOnId, remove: opts.remove });
 
         ctx.logger.info(opts.remove ? `${cardId} no longer depends on ${dependsOnId}` : `${cardId} depends on ${dependsOnId}`);
         return 0;
