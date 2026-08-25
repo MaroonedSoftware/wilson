@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tool } from 'ai';
 import { z } from 'zod';
+import { pnpmStoreLock } from '#modules/stages/run.command.js';
 import type { ToolContext } from './tool.context.js';
 
 const exec = promisify(execFile);
@@ -42,12 +43,24 @@ export const bashTool = (ctx: ToolContext) =>
             }
 
             const [file, ...args] = decision.argv;
-            const result = await exec(file!, args, {
-                cwd: ctx.worktreeRoot,
-                timeout: timeout_ms ?? DEFAULT_TIMEOUT_MS,
-                maxBuffer: MAX_OUTPUT,
-                env: scrubbedEnv(),
-            }).catch((err: Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean }) => err);
+            const runOnce = () =>
+                exec(file!, args, {
+                    cwd: ctx.worktreeRoot,
+                    timeout: timeout_ms ?? DEFAULT_TIMEOUT_MS,
+                    maxBuffer: MAX_OUTPUT,
+                    env: scrubbedEnv(),
+                });
+
+            // `pnpm install` writes to the same shared content-addressable store `setupCommand`
+            // installs into (`run.command.ts`'s `pnpmStoreLock`). A stage is free to run its own
+            // install — it is on `implementing`'s allowedCommands — and without this it races
+            // another card's `setupCommand` for that store, which is what poisoned card 0081 itself.
+            const isStoreWrite = file === 'pnpm' && args[0] === 'install';
+            const result = await (
+                isStoreWrite
+                    ? pnpmStoreLock.run(`${ctx.cardId} ${ctx.stage} bash`, message => ctx.logger.info(message), runOnce)
+                    : runOnce()
+            ).catch((err: Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean }) => err);
 
             if (result instanceof Error) {
                 const e = result as Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean };

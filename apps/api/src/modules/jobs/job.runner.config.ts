@@ -30,6 +30,14 @@
  * logs at startup so the ceiling is visible without reading pg-boss's source. Each concurrent stage
  * is a git worktree, a `pnpm install`, and an agent, so raising this trades disk and memory headroom
  * for throughput — a call that needs measuring the host it runs on, not this card.
+ *
+ * "On this daemon process" is also why `run.command.ts`'s `pnpmStoreLock` (card 0081, guarding
+ * concurrent `pnpm install`s against pnpm's shared store) is a plain in-process lock rather than a
+ * lockfile or a DB advisory lock: every stage this constant bounds is a job handler in the same
+ * event loop, so a lock that only needs to work within one process is exactly as strong a guarantee
+ * as the concurrency this constant actually admits. Raising this number stays bounded to one
+ * process too, unless a later change makes `card.stage` span multiple daemon processes — at which
+ * point the store lock would need to move with it.
  */
 export const CARD_STAGE_CONCURRENCY = 2;
 
