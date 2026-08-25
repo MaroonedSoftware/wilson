@@ -14,6 +14,8 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { Notifier } from '#modules/notify/notifier.js';
+import type { CardNotification } from '#modules/notify/notification.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
@@ -372,6 +374,19 @@ export class StageDispatcher {
             this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${decision.target}": ${reclaimed.error}`);
         }
 
+        // Do not send twice for one event: skip when the card already carried the flag going into
+        // this run, so a retried or redelivered job that reaches the same exhausted-kickback outcome
+        // again does not re-notify for a state change already reported.
+        if (needsHuman && !card.frontmatter.needsHuman) {
+            await this.notify({
+                cardId,
+                title: card.frontmatter.title,
+                stage: decision.target,
+                moment: 'needs-human',
+                reason: needsHuman.reason,
+            });
+        }
+
         return { target: decision.target, needsHuman: needsHuman !== undefined };
     }
 
@@ -422,6 +437,18 @@ export class StageDispatcher {
             },
         );
 
+        // Do not send twice for one event: an already-flagged card refused again (a retried or
+        // redelivered job re-checking the same still-over-budget card) has nothing new to report.
+        if (!card.frontmatter.needsHuman) {
+            await this.notify({
+                cardId,
+                title: card.frontmatter.title,
+                stage: stageName,
+                moment: 'needs-human',
+                reason: message,
+            });
+        }
+
         return {
             passed: false,
             failures: [message],
@@ -430,6 +457,18 @@ export class StageDispatcher {
             transitionedTo: stageName,
             needsHuman: true,
         };
+    }
+
+    /**
+     * Tell a person the card needs them — the `needs-human` moment of card 0050's Notification
+     * work. Called after a write has already committed, never inside one (Constraints: "Fire after
+     * the write"), so a notification never reports a transition that then rolled back.
+     */
+    private async notify(notification: Omit<CardNotification, 'project'>): Promise<void> {
+        await new Notifier(this.config.notifyWebhookUrl, this.config.notifyBaseUrl, this.logger).notify({
+            project: this.config.project,
+            ...notification,
+        });
     }
 
     private assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void {

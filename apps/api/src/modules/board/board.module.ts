@@ -24,6 +24,10 @@ export const BoardModule: ServerKitModule = {
                 // .` in a card's worktree cannot pick up a sibling card's tree.
                 resolve(optionalConfigString(config, 'PROJECT_WORKTREE_ROOT') ?? `${codeRoot}/../.worktrees`),
                 resolve(optionalConfigString(config, 'PROJECT_RUN_ROOT') ?? `${codeRoot}/../.run`),
+                // Card 0050: both optional, and off (no webhook attempted) when NOTIFY_WEBHOOK_URL
+                // is unset.
+                optionalConfigString(config, 'NOTIFY_WEBHOOK_URL'),
+                optionalConfigString(config, 'NOTIFY_BASE_URL'),
             ),
         );
 

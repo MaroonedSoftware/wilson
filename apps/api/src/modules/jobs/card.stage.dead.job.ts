@@ -73,7 +73,10 @@ export class CardStageDeadJob extends Job<CardStagePayload> {
             payload: { jobId: this.context.id, reason },
         });
 
-        await poisonCard({ boardRepo: this.boardRepo, events: this.events }, { project: this.board.project, cardId, stageName, reason });
+        await poisonCard(
+            { boardRepo: this.boardRepo, events: this.events, board: this.board },
+            { project: this.board.project, cardId, stageName, reason },
+        );
 
         await this.cardJobs.clear(cardId);
     }
