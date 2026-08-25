@@ -351,11 +351,20 @@ export const JobsModule: ServerKitModule = {
     // the deadline as a rejection; this logs it and swallows it, so that does not stop the rest of
     // shutdown (Data's pool teardown among it) from running.
     //
-    // The only broker call anywhere in this hook's path used to run after `runner.stop()` was the one
-    // this card fixes (`CardJobs.inFlight`, called from `stopCardStageJobs`, now
-    // `CardJobs.confirmInFlightAfterStop`). Everything else that touches the broker or `CardJobs` —
-    // `Poller.tick`'s `inFlight`/`broker.send` included — runs before `runner.stop()`, either as part
-    // of normal operation or via `poller?.stop()` above it in `BoundedCardStageJobRunner.stop()`.
+    // The broker call *this hook itself* used to make after `runner.stop()` was `CardJobs.inFlight`,
+    // called from `stopCardStageJobs` and now `CardJobs.confirmInFlightAfterStop`, which reads
+    // `pgboss.job` over the app's own connection instead. `Poller.tick`'s `inFlight`/`broker.send`
+    // are not a problem either: `poller?.stop()` runs above `stopCardStageJobs` in
+    // `BoundedCardStageJobRunner.stop()`.
+    //
+    // That is not the same as saying nothing else can reach the broker on a closed connection.
+    // `stop()` gives up and returns once its own timeout elapses **while a handler keeps running** —
+    // that is the whole premise of card 0066 and of the report above. A `CardStageJob.run` that
+    // reaches its chain point after that returns calls `broker.send` (card.stage.job.ts:192) on a
+    // closed connection, and `CardStageDeadJob.run` calls `pgboss.getJobById`
+    // (card.stage.dead.job.ts:64) the same way. Both throw the same assertion this card fixed here,
+    // from a job handler rather than from shutdown. Card 0102 covers them; do not read this comment
+    // as a claim that the path is clear.
     shutdown: async (container: Container) => {
         try {
             await container.get(JobRunner).stop();
