@@ -10,6 +10,7 @@ import {
     CardSummary,
     CardVersion,
     CreateCardRequest,
+    DependCardRequest,
     EditCardRequest,
     ListQuery,
     MoveCardRequest,
@@ -22,7 +23,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const BoardRouter = ServerKitRouter();
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L94)
+ * from [board.ck](file://./../../data/contracts/board.ck#L101)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards', async ctx => {
@@ -35,7 +36,7 @@ BoardRouter.get('/api/cards', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L103)
+ * from [board.ck](file://./../../data/contracts/board.ck#L110)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
@@ -50,7 +51,7 @@ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L121)
+ * from [board.ck](file://./../../data/contracts/board.ck#L128)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id', async ctx => {
@@ -73,7 +74,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
  * Not `put`. This is a partial update — only the body changes, frontmatter is not editable here
  * (decision 5: stage, branch, retries are runner state; `move` is the recorded way to override
  * stage) — which is exactly what `patch` means and `put`, a full replace, does not.
- * from [board.ck](file://./../../data/contracts/board.ck#L134)
+ * from [board.ck](file://./../../data/contracts/board.ck#L141)
  * anonymous access, no security required
  */
 BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx => {
@@ -100,7 +101,7 @@ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx =>
  * 0080's other five mutations — depend, ack, approve, start, release — are transitions of exactly
  * this shape. `POST .../move` establishes that convention once so five more operations can copy it
  * rather than each inventing its own.
- * from [board.ck](file://./../../data/contracts/board.ck#L158)
+ * from [board.ck](file://./../../data/contracts/board.ck#L165)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ctx => {
@@ -122,7 +123,113 @@ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ct
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L180)
+ * Card 0080's other four mutations are pure transitions or a flag action; `depend` alone edits one
+ * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
+ * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
+ * `EditCardRequest` replaces `body`.
+ * from [board.ck](file://./../../data/contracts/board.ck#L192)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, DependCardRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.depend(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L215)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/ack', async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.ack(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L234)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/approve', async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.approve(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L253)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/start', async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.start(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L272)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/release', async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.release(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](file://./../../data/contracts/board.ck#L291)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/events', async ctx => {
@@ -144,7 +251,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L196)
+ * from [board.ck](file://./../../data/contracts/board.ck#L307)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/versions', async ctx => {
@@ -166,7 +273,7 @@ BoardRouter.get('/api/cards/:id/versions', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L209)
+ * from [board.ck](file://./../../data/contracts/board.ck#L320)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/stages', async ctx => {

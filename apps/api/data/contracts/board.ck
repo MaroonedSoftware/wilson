@@ -70,6 +70,13 @@ contract EditCardRequest: {
     body: string
 }
 
+contract DependCardRequest: {
+    dependsOnId: string
+    # Absent (the default) records the dependency; `true` drops it instead — mirroring `wilson card
+    # depend`'s `--remove` flag.
+    remove?: boolean
+}
+
 contract CardEvent: {
     id: string
     type: string
@@ -167,6 +174,110 @@ operation /api/cards/{id}/move: {
             }
             # Same refusal `wilson card move` makes for a target the stage graph does not define,
             # carried as the same message via `details` (see BoardWriteService.move).
+            400:
+            404:
+        }
+    }
+}
+
+
+# Card 0080's other four mutations are pure transitions or a flag action; `depend` alone edits one
+# field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
+# PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
+# `EditCardRequest` replaces `body`.
+operation /api/cards/{id}/depend: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Set card dependency
+        service: BoardWriteService.depend
+        request: {
+            application/json: DependCardRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # Same refusal `wilson card depend` makes for a card depending on itself, carried via
+            # `details` as the move operation's 400 is. The same 404 covers either id — the card or
+            # the one it would depend on — not existing.
+            400:
+            404:
+        }
+    }
+}
+
+operation /api/cards/{id}/ack: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Acknowledge a flagged card
+        service: BoardWriteService.ack
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # `wilson card ack` exits 1 for a card that is not flagged; the same refusal is this 400
+            # here rather than a silent no-op.
+            400:
+            404:
+        }
+    }
+}
+
+operation /api/cards/{id}/approve: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Approve card plan
+        service: BoardWriteService.approve
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # `wilson card approve`'s two refusals — outside `backlog`, or an empty "Files in scope" —
+            # both carried as this 400.
+            400:
+            404:
+        }
+    }
+}
+
+operation /api/cards/{id}/start: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Start card
+        service: BoardWriteService.start
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # Whatever `whyNotDispatchable` refuses, or a card a job is already carrying — the same
+            # two refusals `wilson card start` makes before enqueuing.
+            400:
+            404:
+        }
+    }
+}
+
+operation /api/cards/{id}/release: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Release card
+        service: BoardWriteService.release
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # No claim to release, or a daemon that might genuinely have the job in flight — the same
+            # two refusals `wilson card release` makes before cancelling.
             400:
             404:
         }

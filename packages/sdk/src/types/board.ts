@@ -75,7 +75,19 @@ export interface EditCardRequest {
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L73)
+ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L73)
+ */
+export interface DependCardRequest {
+    dependsOnId: string;
+    /**
+     * Absent (the default) records the dependency; `true` drops it instead — mirroring `wilson card
+     * depend`'s `--remove` flag.
+     */
+    remove?: boolean;
+}
+
+/**
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L80)
  */
 export interface CardEvent {
     id: string;
@@ -86,7 +98,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L81)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L88)
  */
 export interface CardVersion {
     id: string;
@@ -97,7 +109,7 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L89)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L96)
  */
 export interface ListQuery {
     limit?: number;
