@@ -198,7 +198,18 @@ export class TestingVerifier implements StageVerifier {
         changedPaths: string[],
         counts: TestCounts | undefined,
     ): Promise<string[]> {
-        const testPaths = changedPaths.filter(path => TEST_FILE_PATTERN.test(path));
+        // `changedPaths` is every path the diff touches, deletions included — and a card that
+        // deletes a test file has a path here that no longer exists in the worktree. Copying it into
+        // the baseline tree fails with ENOENT and takes the whole stage down with it, which is what
+        // happened to card 0078 once its `wilson card run` test file was removed. Deleted tests are
+        // not this check's business anyway: it exists to prove the card's *new* tests fail against
+        // the pre-change tree, and a test that no longer exists cannot be run in either tree.
+        const candidatePaths = changedPaths.filter(path => TEST_FILE_PATTERN.test(path));
+        const testPaths = (
+            await Promise.all(
+                candidatePaths.map(async path => ((await stat(join(worktree.path, path)).catch(() => undefined)) ? path : undefined)),
+            )
+        ).filter((path): path is string => path !== undefined);
         if (testPaths.length === 0) return [];
 
         const failures: string[] = [];
