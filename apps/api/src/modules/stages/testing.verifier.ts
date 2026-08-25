@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
+import { git } from '#modules/board/git.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
@@ -9,6 +10,28 @@ import type { StageVerifier, VerificationInput, VerificationOutcome } from './st
 import { parseTestReport, type TestCounts } from './test.report.js';
 
 const TEST_FILE_PATTERN = /(^|\/)[^/]*\.test\.ts$/;
+
+// A leading underscore, or `tmp`/`scratch`/`temp` as the whole leading word (followed by `_`, `.`
+// or `-`), not merely a prefix — "temporary.test.ts" and "scratchpad.test.ts" are real names, not
+// scratch ones.
+const SCRATCH_NAME_PATTERN = /^_|^(?:tmp|scratch|temp)[_.-]/i;
+
+/**
+ * Reject a scratch-named test file: a leading underscore or a tmp/scratch/temp prefix, the shape
+ * a throwaway file keeps when a stage starts it to try something and then keeps it because the
+ * tests turned out worth keeping, without ever renaming it. Judged on the basename only, and only
+ * meant to be called on files this card added — a pre-existing file with this shape is not this
+ * check's business, and the caller (`TestingVerifier.newTestPaths`) is what enforces that.
+ */
+export const scratchTestFileName = (path: string): string | undefined => {
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (!SCRATCH_NAME_PATTERN.test(name)) return undefined;
+    return (
+        `${path} is not a name this suite will keep: rename it to describe the unit under test ` +
+        `(the repo's convention is lowercase, dot- or dash-separated, e.g. "shutdown.faketimer.test.ts"), ` +
+        `not a leading underscore or a tmp/scratch/temp prefix`
+    );
+};
 
 /**
  * Compare this run's counts against the baseline, in the order the plan lists them.
@@ -79,6 +102,11 @@ export class TestingVerifier implements StageVerifier {
             failures.push('the diff contains no file matching *.test.ts: the testing stage added no tests');
         }
 
+        for (const path of await this.newTestPaths(worktree)) {
+            const reason = scratchTestFileName(path);
+            if (reason) failures.push(reason);
+        }
+
         if (stage.baselineCheck) {
             failures.push(...(await this.checkBaseline(cardId, worktree, stage, changedPaths, counts)));
         } else {
@@ -129,6 +157,30 @@ export class TestingVerifier implements StageVerifier {
             failures.push(`test report at ${testReportPath} is unusable: ${(err as Error).message}`);
             return undefined;
         }
+    }
+
+    /**
+     * Test files this card *added*, as distinct from `changedPaths`' broader "touched since base" —
+     * a pre-existing test file this card only modified is not the naming check's business, so an
+     * `M` in `git diff --name-status` is excluded here even though `changedPaths` would include it.
+     * A file git has never seen (untracked) is added by definition.
+     */
+    private async newTestPaths(worktree: Worktree): Promise<string[]> {
+        const { stdout: statusOut } = await git(worktree.path, ['diff', '--name-status', worktree.baseSha, '--']);
+        const added = statusOut
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .filter(line => line.startsWith('A'))
+            .map(line => line.split('\t').pop() as string);
+
+        const { stdout: untrackedOut } = await git(worktree.path, ['ls-files', '--others', '--exclude-standard']);
+        const untracked = untrackedOut
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+
+        return [...added, ...untracked].filter(path => TEST_FILE_PATTERN.test(path));
     }
 
     /**
