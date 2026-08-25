@@ -19,7 +19,7 @@ import type { CardNotification } from '#modules/notify/notification.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
-import { runConfiguredCommand } from './run.command.js';
+import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, loadStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
@@ -174,21 +174,38 @@ export class StageDispatcher {
         // Before the agent sees the tree, not as its first task: a fresh worktree has no
         // node_modules, and card 0001 twice spent its whole run installing dependencies and
         // confirming the baseline built, then reported that as the work.
+        //
+        // Wrapped in `pnpmStoreLock` because this is an install: two of these racing pnpm's shared
+        // store is what broke four of five cards started together in card 0081, and an agent's own
+        // `pnpm install` through the bash tool takes the same lock, so either side waits for the
+        // other rather than corrupting the store. The wait happens here, before `runAgent` below
+        // ever starts the stage's `maxWallClockMs` clock — that clock opens inside the adapter's own
+        // `generate()` call (`api.stage.agent.ts`/`cli.stage.agent.ts`), well after this returns — so
+        // a stage queued behind another card's install is not charged for a queue it did not choose.
         if (stage.setupCommand) {
-            const failure = await runConfiguredCommand(worktree.path, stage.setupCommand);
+            const setupCommand = stage.setupCommand;
+            const failure = await pnpmStoreLock.run(
+                `${cardId} ${stageName} setup`,
+                message => this.logger.info(message),
+                () => runConfiguredCommand(worktree.path, setupCommand),
+            );
             await this.events.append({
                 project: this.config.project,
                 cardId,
                 stage: stageName,
                 type: 'worktree.prepared',
-                payload: { command: stage.setupCommand, ok: !failure, ...(failure ? { reason: failure.reason } : {}) },
+                payload: { command: setupCommand, ok: !failure, ...(failure ? { reason: failure.reason } : {}) },
             });
             if (failure) {
+                // Not retried: the race that used to produce this exact failure is gone now that the
+                // install is serialized, so what reaches here is a genuine failure — a real lockfile
+                // mismatch, a registry outage, a full disk — and retrying identical work against an
+                // unpinned cause is exactly the waste `isPermanentFailure` exists to avoid elsewhere.
                 // An unprepared worktree makes every later signal meaningless — the build would fail
                 // for reasons that have nothing to do with the card.
                 throw new Error(`worktree setup failed for ${cardId}: ${failure.reason}`);
             }
-            this.logger.info(`worktree prepared with \`${stage.setupCommand}\``);
+            this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
         const planPath = await this.materializePlan(card, pinnedSha);
