@@ -32,7 +32,14 @@ const command: CommandModule = {
         }
 
         const before = await board.read(cardId);
-        if (before.frontmatter.stage === target) {
+
+        // Moving a card by hand is already an operator saying they have looked, so a flag comes off
+        // on any move — including the no-op case below, where the card is already in the target
+        // stage. That path used to be a bare no-op; a flagged card sitting in its target stage still
+        // needs the flag cleared, so it cannot stay a no-op when there is a flag to clear.
+        const clearsFlag = Boolean(before.frontmatter.needsHuman);
+
+        if (before.frontmatter.stage === target && !clearsFlag) {
             ctx.logger.info(`${cardId} is already in ${target}`);
             return 0;
         }
@@ -44,10 +51,13 @@ const command: CommandModule = {
         await board.writeWithEvent(
             cardId,
             `Move ${cardId} to ${target}`,
-            card => ({
-                ...card,
-                frontmatter: { ...card.frontmatter, stage: target },
-            }),
+            card => {
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = card.frontmatter;
+                return {
+                    ...card,
+                    frontmatter: { ...rest, stage: target },
+                };
+            },
             {
                 project: config.project,
                 cardId,
@@ -57,7 +67,11 @@ const command: CommandModule = {
             },
         );
 
-        ctx.logger.info(`${cardId}: ${before.frontmatter.stage} → ${target}`);
+        if (before.frontmatter.stage === target) {
+            ctx.logger.info(`${cardId}: cleared flag, stays in ${target}`);
+        } else {
+            ctx.logger.info(`${cardId}: ${before.frontmatter.stage} → ${target}`);
+        }
         return 0;
     }),
 };

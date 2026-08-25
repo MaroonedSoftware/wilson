@@ -9,6 +9,7 @@ import { buildConfig, modules } from '@wilson/api/cli-bootstrap';
 import boardInitCommand from './commands/board/init.command.js';
 import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
+import cardAckCommand from './commands/card/ack.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
 import cardDependCommand from './commands/card/depend.command.js';
@@ -49,6 +50,7 @@ const app = await createCliApp({
         reg(['board', 'init'], boardInitCommand),
         reg(['board', 'import'], boardImportCommand),
         reg(['card', 'list'], cardListCommand),
+        reg(['card', 'ack'], cardAckCommand),
         reg(['card', 'approve'], cardApproveCommand),
         reg(['card', 'create'], cardCreateCommand),
         reg(['card', 'depend'], cardDependCommand),
