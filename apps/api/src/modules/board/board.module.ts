@@ -7,6 +7,7 @@ import { BoardRepository } from './board.repository.js';
 import { PostgresBoardRepository } from './postgres.board.repository.js';
 import { BoardImporter } from './board.importer.js';
 import { BoardService } from './board.service.js';
+import { BoardWriteService } from './board.write.service.js';
 import { optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 export const BoardModule: ServerKitModule = {
@@ -36,5 +37,6 @@ export const BoardModule: ServerKitModule = {
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
         registry.register(BoardImporter).useClass(BoardImporter).asTransient();
         registry.register(BoardService).useClass(BoardService).asTransient();
+        registry.register(BoardWriteService).useClass(BoardWriteService).asTransient();
     },
 };

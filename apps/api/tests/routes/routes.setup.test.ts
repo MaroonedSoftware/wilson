@@ -54,8 +54,19 @@ describe('routers', () => {
         expect(FeedRouter.match('/api/feed', 'GET').route).toBe(true);
     });
 
-    it('does not route a write method to any board path — the board surface is read-only', () => {
-        expect(BoardRouter.match('/api/cards', 'POST').route).toBe(false);
-        expect(BoardRouter.match('/api/cards/0001', 'DELETE').route).toBe(false);
+    // Card 0075 gave the board a write surface — create, move, edit — so "read-only" no longer
+    // holds. What still holds is that only those three are routed: an undeclared write method
+    // (DELETE, PUT) must not match, the same way an undeclared path never did.
+    it.each([
+        ['POST', '/api/cards'],
+        ['PATCH', '/api/cards/0001'],
+        ['POST', '/api/cards/0001/move'],
+    ])('routes %s %s to the board router', (method, path) => {
+        expect(BoardRouter.match(path, method).route).toBe(true);
+    });
+
+    it('does not route an undeclared write method to any board path', () => {
+        expect(BoardRouter.match('/api/cards', 'DELETE').route).toBe(false);
+        expect(BoardRouter.match('/api/cards/0001', 'PUT').route).toBe(false);
     });
 });
