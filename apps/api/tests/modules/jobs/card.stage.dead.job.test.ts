@@ -1,0 +1,165 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
+import type { JobContext } from '@maroonedsoftware/jobbroker';
+import type { PgBoss } from 'pg-boss';
+import { CardStageDeadJob } from '#modules/jobs/card.stage.dead.job.js';
+import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { BoardConfig } from '#modules/board/board.config.js';
+import type { BoardRepository } from '#modules/board/board.repository.js';
+import type { EventLog } from '#modules/events/event.log.js';
+import type { CardJobs } from '#modules/jobs/card.jobs.js';
+import type { Card, CardFrontmatter } from '#modules/board/card.js';
+
+const card = (stage: string): Card => ({
+    frontmatter: {
+        id: '0001',
+        title: 'Card 0001',
+        stage,
+        dependsOn: [],
+        retries: {},
+    } as CardFrontmatter,
+    sections: {},
+    body: '',
+});
+
+describe('CardStageDeadJob', () => {
+    let board: BoardConfig;
+    let boardRepo: { read: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let cardJobs: { clear: ReturnType<typeof vi.fn> };
+    let pgboss: { getJobById: ReturnType<typeof vi.fn> };
+    let context: JobContext;
+    let job: CardStageDeadJob;
+
+    beforeEach(() => {
+        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run');
+        boardRepo = { read: vi.fn(async () => card('implementing')), write: vi.fn(async () => 'sha') };
+        events = { append: vi.fn(async () => {}) };
+        cardJobs = { clear: vi.fn(async () => {}) };
+        pgboss = { getJobById: vi.fn(async () => ({ output: { name: 'Error', message: 'exhausted retries', stack: 'stack' } })) };
+        context = { id: 'dead-job-1', name: 'card.stage.dead', signal: new AbortController().signal };
+
+        job = new CardStageDeadJob(
+            pgboss as unknown as PgBoss,
+            context,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+    });
+
+    describe('card still sitting in the stage the dead job names', () => {
+        beforeEach(() => {
+            boardRepo.read.mockResolvedValue(card('implementing'));
+        });
+
+        it('poisons the card: transitions the board to poisoned', async () => {
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            const mutate = boardRepo.write.mock.calls[0][2];
+            const written = await mutate(card('implementing'));
+            expect(written.frontmatter.stage).toBe('poisoned');
+        });
+
+        it('records stage.dead with the reason and job id, plus stage.poisoned and transition.written', async () => {
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            const types = events.append.mock.calls.map(c => c[0].type);
+            expect(types).toEqual(['stage.dead', 'stage.poisoned', 'transition.written']);
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    project: 'test',
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'stage.dead',
+                    payload: { jobId: 'dead-job-1', reason: 'exhausted retries' },
+                }),
+            );
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'transition.written',
+                    payload: expect.objectContaining({ from: 'implementing', to: 'poisoned' }),
+                }),
+            );
+        });
+
+        it('looks the failed output up by the currently running job id, not the original job', async () => {
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(pgboss.getJobById).toHaveBeenCalledWith('card.stage.dead', 'dead-job-1');
+        });
+
+        it('falls back to a generic reason when the dead-letter row carries no output', async () => {
+            pgboss.getJobById.mockResolvedValue(undefined);
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'stage.dead',
+                    payload: { jobId: 'dead-job-1', reason: 'card.stage exhausted its retries with no recorded error' },
+                }),
+            );
+        });
+
+        it('releases the claim, so the card is not left in flight after being poisoned', async () => {
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        });
+    });
+
+    describe('card that already moved on before the dead row was read', () => {
+        it('does not touch the board when the card progressed to a later, non-terminal stage', async () => {
+            boardRepo.read.mockResolvedValue(card('testing'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).not.toHaveBeenCalled();
+        });
+
+        it('does not touch the board when the card already reached a terminal state', async () => {
+            boardRepo.read.mockResolvedValue(card('merged'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).not.toHaveBeenCalled();
+        });
+
+        it('records only a stage.dead event flagged already-resolved, naming the card current stage', async () => {
+            boardRepo.read.mockResolvedValue(card('merged'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(events.append).toHaveBeenCalledTimes(1);
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    project: 'test',
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'stage.dead',
+                    payload: { jobId: 'dead-job-1', alreadyResolved: true, currentStage: 'merged' },
+                }),
+            );
+        });
+
+        it('does not call the pg-boss job lookup, since no failure output is needed', async () => {
+            boardRepo.read.mockResolvedValue(card('dropped'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(pgboss.getJobById).not.toHaveBeenCalled();
+        });
+
+        it('does not release a claim that was never re-recorded for a card already off this stage', async () => {
+            boardRepo.read.mockResolvedValue(card('poisoned'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(cardJobs.clear).not.toHaveBeenCalled();
+        });
+    });
+});

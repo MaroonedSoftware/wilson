@@ -15,6 +15,45 @@ export interface CardStagePayload {
 }
 
 /**
+ * Stop a card whose failure retrying cannot fix, wherever that failure was noticed.
+ *
+ * `poisoned` is a terminal state and deliberately not a kickback: the card's retry budget is for
+ * work that came back wrong, and spending it on an exhausted balance or a missing credential both
+ * wastes the budget and misreports the cause.
+ *
+ * Shared: `CardStageJob` calls this the moment a stage's own failure is classified permanent, and
+ * `CardStageDeadJob` calls it once a `card.stage` job has exhausted pg-boss's retries instead —
+ * same destination, same board write, same event shape, regardless of which noticed the failure.
+ */
+export async function poisonCard(
+    deps: { boardRepo: BoardRepository; events: EventLog },
+    args: { project: string; cardId: string; stageName: string; reason: string },
+): Promise<void> {
+    const { project, cardId, stageName, reason } = args;
+
+    await deps.events.append({
+        project,
+        cardId,
+        stage: stageName,
+        type: 'stage.poisoned',
+        payload: { reason },
+    });
+
+    await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => ({
+        ...card,
+        frontmatter: { ...card.frontmatter, stage: 'poisoned' },
+    }));
+
+    await deps.events.append({
+        project,
+        cardId,
+        stage: stageName,
+        type: 'transition.written',
+        payload: { from: stageName, to: 'poisoned', by: 'runner', reason },
+    });
+}
+
+/**
  * Runs one stage for one card, then decides whether the chain keeps going.
  *
  * `StageDispatcher.run` only ever reports where a card landed (`transitionedTo`), forward on a pass
@@ -115,35 +154,13 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
-     * Stop a card whose failure retrying cannot fix.
+     * Stop a card whose failure retrying cannot fix. See {@link poisonCard} for the shared write.
      *
-     * `poisoned` is a terminal state and deliberately not a kickback: the card's retry budget is for
-     * work that came back wrong, and spending it on an exhausted balance or a missing credential
-     * both wastes the budget and misreports the cause. The job returns normally afterwards so the
-     * queue does not retry it either — the whole point is that the next attempt fails identically.
+     * The job returns normally afterwards so the queue does not retry it either — the whole point is
+     * that the next attempt fails identically.
      */
     private async poison(cardId: string, stageName: string, error: unknown): Promise<void> {
         const reason = error instanceof Error ? error.message : String(error);
-
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: stageName,
-            type: 'stage.poisoned',
-            payload: { reason },
-        });
-
-        await this.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => ({
-            ...card,
-            frontmatter: { ...card.frontmatter, stage: 'poisoned' },
-        }));
-
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: stageName,
-            type: 'transition.written',
-            payload: { from: stageName, to: 'poisoned', by: 'runner', reason },
-        });
+        await poisonCard({ boardRepo: this.boardRepo, events: this.events }, { project: this.board.project, cardId, stageName, reason });
     }
 }
