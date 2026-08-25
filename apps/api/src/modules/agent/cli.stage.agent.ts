@@ -17,7 +17,7 @@ import type { ToolContext } from './tools/index.js';
  * exists to avoid: the first run of it failed on "Credit balance is too low" while a perfectly good
  * subscription sat unused.
  */
-const subscriptionEnv = (): NodeJS.ProcessEnv => {
+export const subscriptionEnv = (): NodeJS.ProcessEnv => {
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
