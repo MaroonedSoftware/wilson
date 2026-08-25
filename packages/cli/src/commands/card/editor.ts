@@ -27,6 +27,24 @@ export const editBody = async (initial: string, name: string): Promise<string | 
 };
 
 /**
+ * Spawn a foreground process, handing it the terminal, and wait for it to exit.
+ *
+ * The same shape as the `$EDITOR` spawn above, generalized: `plan.command.ts` uses it to hand the
+ * terminal to `claude` for an interactive planning session, exactly as `editBody` hands it to
+ * `$EDITOR`. No `shell: true` here — `plan.command.ts` calls this with a fixed binary name and an
+ * argv array of flags, none of which need shell parsing the way an `$EDITOR` value like `code --wait`
+ * does. Resolves on any exit, including non-zero: what matters afterward is what the process wrote to
+ * disk, not the code it left with.
+ */
+export const runInteractive = async (command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> => {
+    await new Promise<void>((resolve, reject) => {
+        const child = spawn(command, args, { stdio: 'inherit', ...options });
+        child.on('error', reject);
+        child.on('exit', () => resolve());
+    });
+};
+
+/**
  * The next id on the board.
  *
  * Sequential and zero-padded, because ids are typed into commands, read in `dependsOn` and carried
