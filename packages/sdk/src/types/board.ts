@@ -4,7 +4,7 @@ import type { JsonValue } from '../sdk-options.js';
  * The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
  * read — and a board that hard-codes its columns lies the first time a stage is added, which is
  * cheap to do precisely because stages are config.
- * generated from [BoardColumns](file://./../../../../apps/api/data/contracts/board.ck#L21)
+ * generated from [BoardColumns](file://./../../../../apps/api/data/contracts/board.ck#L22)
  */
 export interface BoardColumns {
     /** configured stages, in the order they run */
@@ -17,7 +17,7 @@ export interface BoardColumns {
  * No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
  * it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
  * from every response. It comes back when parking-lot ordering is actually built, with a value.
- * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L29)
+ * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L30)
  */
 export interface CardSummary {
     id: string;
@@ -41,7 +41,7 @@ export interface CardSummary {
  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
  * it: the next sequential id over the current board. A client cannot pick one.
- * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L53)
+ * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L54)
  */
 export interface CreateCardRequest {
     title: string;
@@ -56,7 +56,7 @@ export interface CreateCardRequest {
 }
 
 /**
- * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L63)
+ * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L64)
  */
 export interface MoveCardRequest {
     /**
@@ -68,14 +68,14 @@ export interface MoveCardRequest {
 }
 
 /**
- * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L70)
+ * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L71)
  */
 export interface EditCardRequest {
     body: string;
 }
 
 /**
- * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L74)
+ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L75)
  */
 export interface DependCardRequest {
     dependsOnId: string;
@@ -87,7 +87,7 @@ export interface DependCardRequest {
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L81)
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L82)
  */
 export interface CardEvent {
     id: string;
@@ -98,7 +98,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L89)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L90)
  */
 export interface CardVersion {
     id: string;
@@ -109,7 +109,7 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L97)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L98)
  */
 export interface ListQuery {
     limit?: number;
@@ -119,7 +119,7 @@ export interface ListQuery {
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L104)
+ * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L105)
  */
 export interface ImportBoardRequest {
     /**
@@ -130,7 +130,7 @@ export interface ImportBoardRequest {
 }
 
 /**
- * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L110)
+ * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L111)
  */
 export interface ImportReport {
     cards: number;
@@ -145,7 +145,57 @@ export interface ImportReport {
 }
 
 /**
- * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L41)
+ * Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
+ * conversation itself, which needs the operator's own terminal — and the half that does not: cutting
+ * the throwaway worktree, loading the `planning` stage's model and instructions, validating the
+ * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
+ * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
+ * `claude` with the operator's stdio against what this returns.
+ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L127)
+ */
+export interface PlanSession {
+    /**
+     * Identifies this session for the `save`/`close` calls that follow. Deterministically the card's
+     * own id, not an opaque token from a session table: the worktree and its branch are always cut
+     * as `plan-<id>` / a branch keyed off `<id>` (never the card's real path or branch — card 0058's
+     * guard), so there is exactly one live planning session per card, and opening a new one for the
+     * same id is what recovers a session whose CLI died mid-conversation. Carried as its own field
+     * regardless, so this response names what it is rather than leaving a caller to assume it equals
+     * the path param.
+     */
+    sessionId: string;
+    /** Absolute path to the throwaway worktree the spawned agent should be pointed at. */
+    worktreePath: string;
+    /**
+     * Where the finished plan must be written, and the one file writes to it are allowed against.
+     * Already seeded: the card's existing body if it has sections, the six-heading skeleton
+     * otherwise — same seed `wilson card plan` writes today.
+     */
+    draftPath: string;
+    /** The `planning` stage's own model, from `stages.yaml` — never a string this contract pins. */
+    model: string;
+    /**
+     * The `planning` stage's own instructions, plus the one fact only this session knows: where the
+     * draft lives. Meant to travel as the spawned agent's appended system prompt, with the same
+     * weight as its base instructions, not as a user turn it might treat as negotiable.
+     */
+    instructions: string;
+}
+
+/**
+ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L150)
+ */
+export interface SaveDraftRequest {
+    /**
+     * The finished draft's full body, six headings included. There is no terminal on the other end
+     * of an HTTP call for a confirmation prompt — "approval is explicit and versioned" is enforced by
+     * the caller showing a diff and asking before this is ever sent, not by this contract.
+     */
+    body: string;
+}
+
+/**
+ * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L42)
  */
 export interface CardDetail extends CardSummary {
     body: string;
