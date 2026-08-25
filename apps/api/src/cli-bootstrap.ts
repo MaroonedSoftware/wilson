@@ -39,3 +39,4 @@ export { nextCard, unsatisfiedDependencies } from '#modules/board/next.card.js';
 export type { NextCard, Blocked } from '#modules/board/next.card.js';
 export { CardJobs } from '#modules/jobs/card.jobs.js';
 export { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+export { git } from '#modules/board/git.js';

@@ -119,20 +119,6 @@ export class WorktreeManager {
     }
 
     /**
-     * Reclaim a worktree and delete its branch outright.
-     *
-     * For a throwaway tree only, never a card's own: `reclaim` alone leaves the branch behind, which
-     * is right for a card's branch (its history is worth keeping once the worktree is gone) and wrong
-     * for a synthetic branch minted only so `create`'s `-B` had something to reset — it carries no
-     * history worth keeping once the session that used it ends. `wilson card plan` is this method's
-     * one caller, tearing down the throwaway branch its planning session ran on.
-     */
-    async abandon(cardId: string, branch: string): Promise<void> {
-        await this.reclaim(cardId);
-        await git(this.config.codeRoot, ['branch', '-D', branch]).catch(() => undefined);
-    }
-
-    /**
      * Commit whatever the stage produced to the card's branch.
      *
      * Without this a stage's work only ever exists as uncommitted changes in a worktree, and the

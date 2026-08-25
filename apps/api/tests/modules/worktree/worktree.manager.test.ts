@@ -240,47 +240,6 @@ describe('WorktreeManager', () => {
         await expect(manager.reclaim('9999')).resolves.toBeUndefined();
     });
 
-    describe('abandon', () => {
-        // `wilson card plan` cuts a throwaway worktree on a synthetic branch for one planning
-        // session and must leave no trace of either afterwards — unlike a card's own branch, which
-        // `reclaim` alone deliberately leaves behind so its history survives the worktree.
-        it('removes the worktree directory and deletes the branch', async () => {
-            const worktree = await manager.create('plan-0001', 'wilson-plan/0001');
-
-            await manager.abandon('plan-0001', 'wilson-plan/0001');
-
-            expect(existsSync(worktree.path)).toBe(false);
-            const { stdout } = await exec('git', ['branch', '--list', 'wilson-plan/0001'], { cwd: codeRoot });
-            expect(stdout.trim()).toBe('');
-        });
-
-        it('prunes git worktree bookkeeping too, not just the directory', async () => {
-            await manager.create('plan-0001', 'wilson-plan/0001');
-
-            await manager.abandon('plan-0001', 'wilson-plan/0001');
-
-            const { stdout } = await exec('git', ['worktree', 'list'], { cwd: codeRoot });
-            expect(stdout).not.toContain('plan-0001');
-        });
-
-        it('leaves an unrelated card branch untouched', async () => {
-            // The one thing this must never delete: a real card's branch, even one that shares no
-            // relation to the throwaway plan branch beyond both living in the same repo.
-            const cardWorktree = await manager.create('0001', 'card/0001-thing');
-            await manager.create('plan-0002', 'wilson-plan/0002');
-
-            await manager.abandon('plan-0002', 'wilson-plan/0002');
-
-            expect(existsSync(cardWorktree.path)).toBe(true);
-            const { stdout } = await exec('git', ['branch', '--list', 'card/0001-thing'], { cwd: codeRoot });
-            expect(stdout.trim()).not.toBe('');
-        });
-
-        it('is safe to abandon something that was never created', async () => {
-            await expect(manager.abandon('9999', 'wilson-plan/9999')).resolves.toBeUndefined();
-        });
-    });
-
     describe('branchName', () => {
         it('slugifies the title', () => {
             expect(manager.branchName('0042', 'Port allocator')).toBe('card/0042-port-allocator');

@@ -29,6 +29,16 @@ vi.mock('../../../../packages/cli/src/commands/card/editor.js', () => ({
     runInteractive: runInteractiveMock,
 }));
 
+const { gitMock } = vi.hoisted(() => ({ gitMock: vi.fn() }));
+// The command deletes the throwaway plan branch with a raw `git` call rather than a `WorktreeManager`
+// method (that method would live outside this card's files in scope). Only `git` is replaced here —
+// everything else `@wilson/api/cli-bootstrap` exports stays real, the same way the johnny5 mock above
+// keeps everything but `prompts.confirm`.
+vi.mock('@wilson/api/cli-bootstrap', async importOriginal => {
+    const actual = await importOriginal<typeof import('@wilson/api/cli-bootstrap')>();
+    return { ...actual, git: gitMock };
+});
+
 // Imported after the mocks above are declared; vitest hoists `vi.mock` calls above imports, so by
 // the time this module (and transitively `plan.command.ts`) loads, both stubs are already in place.
 const { default: command } = await import('../../../../packages/cli/src/commands/card/plan.command.js');
@@ -69,7 +79,7 @@ describe('card plan command', () => {
         branchName: ReturnType<typeof vi.fn>;
         hasWork: ReturnType<typeof vi.fn>;
         create: ReturnType<typeof vi.fn>;
-        abandon: ReturnType<typeof vi.fn>;
+        reclaim: ReturnType<typeof vi.fn>;
     };
     let logger: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn>; debug: ReturnType<typeof vi.fn> };
 
@@ -116,13 +126,15 @@ describe('card plan command', () => {
             branchName: vi.fn((id: string, title: string) => `card/${id}-${title.toLowerCase().replace(/\s+/g, '-')}`),
             hasWork: vi.fn().mockResolvedValue(false),
             create: vi.fn().mockResolvedValue({ path: worktreePath, branch: 'wilson-plan/0099', baseSha: 'deadbeef' }),
-            abandon: vi.fn().mockResolvedValue(undefined),
+            reclaim: vi.fn().mockResolvedValue(undefined),
         };
         logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 
         runInteractiveMock.mockReset();
         confirmMock.mockReset();
         confirmMock.mockResolvedValue(true);
+        gitMock.mockReset();
+        gitMock.mockResolvedValue({ stdout: '', stderr: '' });
     });
 
     afterEach(async () => {
@@ -174,7 +186,8 @@ describe('card plan command', () => {
 
         expect(result).toBe(0);
         expect(worktrees.create).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
 
         expect(board.write).toHaveBeenCalledTimes(1);
         const [id, message, mutate] = board.write.mock.calls[0]!;
@@ -214,7 +227,8 @@ describe('card plan command', () => {
         expect(result).toBe(0);
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('declined'));
         expect(board.write).not.toHaveBeenCalled();
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
     });
 
     it('writes nothing and never prompts when the draft comes back byte-for-byte unchanged', async () => {
@@ -231,7 +245,8 @@ describe('card plan command', () => {
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
         expect(board.write).not.toHaveBeenCalled();
         expect(confirmMock).not.toHaveBeenCalled();
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
     });
 
     it('refuses an incomplete draft missing a whole section, naming it, and writes nothing', async () => {
@@ -250,7 +265,8 @@ describe('card plan command', () => {
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Out of scope'));
         expect(board.write).not.toHaveBeenCalled();
         expect(confirmMock).not.toHaveBeenCalled();
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
     });
 
     it('refuses a draft whose "Files in scope" section has no actual entry once comments are stripped', async () => {
@@ -309,18 +325,20 @@ describe('card plan command', () => {
 
         await expect(run({}, buildCtx(board), ['0099'])).rejects.toThrow('claude exited unexpectedly');
 
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
         expect(board.write).not.toHaveBeenCalled();
     });
 
-    it('still calls abandon on the throwaway id even when cutting the worktree itself fails', async () => {
+    it('still reclaims the throwaway id and deletes its branch even when cutting the worktree itself fails', async () => {
         const card = buildCard();
         const board = { read: vi.fn().mockResolvedValue(card), write: vi.fn() };
         worktrees.create.mockRejectedValue(new Error('git worktree add failed'));
 
         await expect(run({}, buildCtx(board), ['0099'])).rejects.toThrow('git worktree add failed');
 
-        expect(worktrees.abandon).toHaveBeenCalledWith('plan-0099', 'wilson-plan/0099');
+        expect(worktrees.reclaim).toHaveBeenCalledWith('plan-0099');
+        expect(gitMock).toHaveBeenCalledWith(config.codeRoot, ['branch', '-D', 'wilson-plan/0099']);
         expect(runInteractiveMock).not.toHaveBeenCalled();
     });
 });

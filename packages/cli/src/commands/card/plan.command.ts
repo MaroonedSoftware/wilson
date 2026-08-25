@@ -10,6 +10,7 @@ import {
     WorktreeManager,
     filesInScope,
     findStage,
+    git,
     loadStages,
     sectionsOf,
     type Card,
@@ -197,8 +198,12 @@ const command: CommandModule = {
         } finally {
             // Both the worktree and its throwaway branch removed on every exit, pass or fail — never
             // the card's real worktree or branch, since `planId` and `planBranch` were never the
-            // card's own.
-            await worktrees.abandon(planId, planBranch);
+            // card's own. `reclaim` only ever removes the worktree, deliberately leaving a card's real
+            // branch behind; the synthetic branch minted just so `create`'s `-B` had something to
+            // reset carries no history worth keeping, so it is deleted directly here rather than by a
+            // new WorktreeManager method.
+            await worktrees.reclaim(planId);
+            await git(config.codeRoot, ['branch', '-D', planBranch]).catch(() => undefined);
         }
     }),
 };
