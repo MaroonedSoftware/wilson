@@ -498,7 +498,19 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
             }
             const path = String(input.file_path ?? input.path ?? '');
             const decision = await context.scope.check(path);
-            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
+            if (!decision.allowed) return deny(decision.reason, { path });
+            // The counterpart to the denial above: file.tools.ts/bash.tool.ts append tool.executed
+            // for the api adapter, but Write/Edit here go through the engine's own built-in tools
+            // and this callback rather than through those files, so this adapter has to record it
+            // itself at the only point it decides to allow the call.
+            await context.events.append({
+                project: context.project,
+                cardId: context.cardId,
+                stage: context.stage,
+                type: 'tool.executed',
+                payload: { tool: toolName, path: decision.path },
+            });
+            return { behavior: 'allow' };
         }
 
         if (READ_TOOLS.includes(toolName)) {
@@ -512,7 +524,19 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         if (EXEC_TOOLS.includes(toolName)) {
             const command = String(input.command ?? '');
             const decision = context.commands.check(command);
-            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { command });
+            if (!decision.allowed) return deny(decision.reason, { command });
+            // Recorded once the command is allowed, not gated on its exit code — same reasoning as
+            // bash.tool.ts's tool.executed append: a failing command still ran, and knowing it ran
+            // is the point. This callback only sees the proposed call, not its result, so that is
+            // the only point it can record it at.
+            await context.events.append({
+                project: context.project,
+                cardId: context.cardId,
+                stage: context.stage,
+                type: 'tool.executed',
+                payload: { tool: toolName, command },
+            });
+            return { behavior: 'allow' };
         }
 
         // This adapter's own report tool, supplied as an in-process MCP server. Allowed
