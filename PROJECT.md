@@ -662,7 +662,17 @@ tracked on the board, not here — this list survives as the intended shape.
 **Built:** the walking skeleton, board schema, runner core, human gates, the
 implementing, testing and review stages with their verifiers, transitions written by
 the runner, the pg-boss queue with stage chaining, and the daemon that drains it. A
-card is enqueued once and runs to the `ready` gate unattended.
+card is enqueued once and runs to the `ready` gate unattended. The daemon can also
+enqueue that first job itself: a poller, off by default behind `POLLER_ENABLED`
+(`.env.example`), ticks on an interval (`POLLER_INTERVAL_MS`,
+`apps/api/src/modules/jobs/job.runner.config.ts`) and enqueues at most one card per
+tick — the same one `nextCard` would hand a human, run past the same
+`whyNotDispatchable` refusal and `CardJobs.inFlight` claim check `wilson card start`
+uses, never a second idea of "ready". It will not promote a card out of the parking
+lot, move anything through a `manual` gate, or dispatch a card blocked on an unmerged
+dependency — those stay exactly as manual as before. `wilson card start` still works,
+poller on or off; turning `POLLER_ENABLED` off runs the daemon as the pure drainer it
+always was, no code change required.
 
 **Next, in order:**
 
@@ -676,16 +686,13 @@ card is enqueued once and runs to the `ready` gate unattended.
 2. **Worktree GC.** Nothing reclaims a card's worktree on completion, and the baseline
    check cuts a second one per testing run. This reached 3.5 GB across 15 worktrees
    before anyone looked.
-3. **The poller**, so cards start themselves rather than needing `card start`. It needs
-   to know what is already in flight before it can enqueue safely. Deliberately after
-   the safety rails: autonomy last.
-4. Multi-project registry, port allocation, dry-run toggle. Filesystem reconciliation
+3. Multi-project registry, port allocation, dry-run toggle. Filesystem reconciliation
    was on this list and is not coming: with the board in Postgres there is no file to
    reconcile against.
-5. Planning and `plan-review` stages; the interactive planning surface.
-6. ContractKit contract, the API, and the web board.
-7. Plugins: card sources and context providers.
-8. Compose stack.
+4. Planning and `plan-review` stages; the interactive planning surface.
+5. ContractKit contract, the API, and the web board.
+6. Plugins: card sources and context providers.
+7. Compose stack.
 
 ## Bootstrapping
 

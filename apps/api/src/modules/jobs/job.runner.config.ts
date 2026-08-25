@@ -32,3 +32,21 @@
  * for throughput — a call that needs measuring the host it runs on, not this card.
  */
 export const CARD_STAGE_CONCURRENCY = 2;
+
+/**
+ * How often the poller (`poller.ts`) checks the board for a card to enqueue.
+ *
+ * Every tick is a board read (`BoardRepository.list()`, all cards for the project) plus, when a
+ * candidate exists, a `loadStages` and a `CardJobs.inFlight` check — cheap individually, but this
+ * runs forever, so the interval is the floor on two costs at once: how often an idle daemon reads
+ * the whole board for nothing, and how long a card sits ready after the dependency blocking it
+ * merges before anything notices it. Thirty seconds is short enough that "the poller will pick it
+ * up" is true on a timescale nobody waits on, and long enough that idle polling is noise next to
+ * the database's normal load.
+ *
+ * Not a config value: like `CARD_STAGE_CONCURRENCY`, this is a call about the daemon's own
+ * steady-state cost rather than something a deployment should need to tune, so it stays a constant
+ * beside it rather than growing an env var of its own. Whether the poller runs at all is the actual
+ * per-deployment choice — see `POLLER_ENABLED` in `jobs.module.ts`.
+ */
+export const POLLER_INTERVAL_MS = 30_000;
