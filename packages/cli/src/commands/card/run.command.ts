@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { StageDispatcher } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, StageDispatcher, loadStages, whyNotDispatchable } from '@wilson/api/cli-bootstrap';
 
 interface RunOpts {
     stage?: string;
@@ -20,6 +20,21 @@ const command: CommandModule<RunOpts> = {
     run: requireContainer<RunOpts>(async (opts, ctx, args) => {
         const cardId = String(args[0]);
         const stage = opts.stage ?? 'implementing';
+
+        const boardConfig = ctx.container.get(BoardConfig);
+        const board = ctx.container.get(BoardRepository);
+        const card = await board.read(cardId);
+
+        // Refuse what `card start` refuses, for the same reason: bypassing the queue is what `run`
+        // is for, but a card the runner cannot dispatch at all (needsHuman, terminal, parking-lot, a
+        // manual stage) is not dispatchable through this door either.
+        const stages = await loadStages(boardConfig.boardRoot);
+        const notDispatchable = whyNotDispatchable(card, stages);
+        if (notDispatchable) {
+            ctx.logger.error(`cannot run ${cardId}: ${notDispatchable.reason}`);
+            ctx.logger.error(`move it to a dispatchable stage first: wilson card move ${cardId} <stage>`);
+            return 1;
+        }
 
         const outcome = await ctx.container.get(StageDispatcher).run(cardId, stage);
 

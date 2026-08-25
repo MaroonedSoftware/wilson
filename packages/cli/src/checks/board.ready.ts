@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import type { Check } from '@maroonedsoftware/johnny5';
+import { loadStages } from '@wilson/api/cli-bootstrap';
 
 /**
  * The board must be queryable and its stage config must exist.
@@ -27,6 +28,15 @@ export const boardReady: Check = {
         }
         if (!existsSync(join(root, 'config', 'stages.yaml'))) {
             return { ok: false, message: `no stage config at ${root}/config/stages.yaml`, fixHint: 'Run `wilson board init`.' };
+        }
+        try {
+            await loadStages(root);
+        } catch (err) {
+            return {
+                ok: false,
+                message: `stage config at ${root}/config/stages.yaml is invalid: ${(err as Error).message}`,
+                fixHint: 'Fix the stage config by hand — it is human-write-only.',
+            };
         }
 
         const client = new pg.Client({
