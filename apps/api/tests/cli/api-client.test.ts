@@ -68,7 +68,9 @@ describe('describeApiError', () => {
 
         const message = describeApiError(err, buildCtx({ API_URL: 'http://localhost:9999' }).ctx);
 
-        expect(message).toBe('could not reach the API at http://localhost:9999 — is it running? start it with `wilson run`');
+        expect(message).toBe(
+            'could not reach the API at http://localhost:9999 — is it running? start it with `pnpm --filter @wilson/api start` (or `pnpm dev` while iterating)',
+        );
     });
 
     it('treats ENOTFOUND and ECONNRESET as connection failures too', () => {
