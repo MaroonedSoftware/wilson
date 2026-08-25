@@ -85,7 +85,19 @@ export const EditCardRequest = z.strictObject({
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
 
 /**
- * generated from [CardEvent](file://./../../data/contracts/board.ck#L73)
+ * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L73)
+ */
+export const DependCardRequest = z.strictObject({
+    dependsOnId: z.string(),
+    remove: z
+        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+        .optional()
+        .describe("Absent (the default) records the dependency; `true` drops it instead — mirroring `wilson card\ndepend`'s `--remove` flag."),
+});
+export type DependCardRequest = z.infer<typeof DependCardRequest>;
+
+/**
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L80)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -97,7 +109,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../data/contracts/board.ck#L81)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L88)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -109,7 +121,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../data/contracts/board.ck#L89)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L96)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),

@@ -1,15 +1,34 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { Logger } from '@maroonedsoftware/logger';
+import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import { loadStages, validTargets } from '#modules/stages/stage.config.js';
-import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest } from '../../generated/board.js';
+import { loadStages, findStage, validTargets } from '#modules/stages/stage.config.js';
+import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
+import { CardJobs } from '#modules/jobs/card.jobs.js';
+import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
-import type { Card } from './card.js';
+import { filesInScope, type Card } from './card.js';
+
+const exec = promisify(execFile);
+
+/**
+ * The pid of a running `wilson run` daemon, or undefined if none is.
+ *
+ * Ported from `release.command.ts` unchanged: same probe (`wilson run` is `./src/index.ts run`, so
+ * its process line contains "index.ts run"), same reason for existing — see `release` below for why
+ * a producer-only connection needs this to disambiguate a claim that looks `active`.
+ */
+const runningDaemon = async (): Promise<string | undefined> => {
+    const running = await exec('pgrep', ['-f', 'index.ts run']).catch(() => undefined);
+    return running?.stdout.trim().split('\n').filter(Boolean)[0];
+};
 
 /**
  * The board's write surface — the service the generated `/api/cards*` `post`/`patch` handlers bind
@@ -36,6 +55,8 @@ export class BoardWriteService {
         private readonly worktrees: WorktreeManager,
         private readonly eventLog: EventLog,
         private readonly logger: Logger,
+        private readonly cardJobs: CardJobs,
+        private readonly broker: JobBroker,
     ) {}
 
     /**
@@ -138,6 +159,203 @@ export class BoardWriteService {
 
         await this.boardRepository.write(id, `Edit ${id} plan body`, card => ({ ...card, body: request.body }));
         return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Record or drop a dependency between two cards. Mirrors `wilson card depend`: a no-op request
+     * (adding one already present, or dropping one already absent) writes nothing.
+     *
+     * `dependsOnId` is read first, before `id`, so a typo in the target reads as "that card does not
+     * exist" rather than the referential-integrity violation `syncDeps` would otherwise surface —
+     * same order the CLI reads in, same reason.
+     *
+     * Not `writeWithEvent`: this edits `dependsOn`, it does not transition the card's stage, so it is
+     * `board.write` like `edit` above, not a recorded transition like `move`/`ack`/`approve`.
+     */
+    async depend(id: string, request: DependCardRequest): Promise<CardDetail> {
+        const dependsOnId = request.dependsOnId;
+        const remove = request.remove ?? false;
+
+        if (id === dependsOnId) {
+            throw httpError(400).withDetails({ reason: 'a card cannot depend on itself' });
+        }
+
+        await this.readOrThrow(dependsOnId);
+        const before = await this.readOrThrow(id);
+
+        const has = before.frontmatter.dependsOn.includes(dependsOnId);
+        if (remove && !has) return toCardDetail(before);
+        if (!remove && has) return toCardDetail(before);
+
+        const dependsOn = remove
+            ? before.frontmatter.dependsOn.filter(depId => depId !== dependsOnId)
+            : [...before.frontmatter.dependsOn, dependsOnId].sort();
+
+        await this.boardRepository.write(id, `${remove ? 'Drop' : 'Add'} ${id} dependency on ${dependsOnId}`, card => ({
+            ...card,
+            frontmatter: { ...card.frontmatter, dependsOn },
+        }));
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Clear a card's `needsHuman` flag and give its current stage its retry budget back. Mirrors
+     * `wilson card ack`: does not move the card — it was flagged in the stage it failed in, and that
+     * is where it should try again — and only touches that stage's retry counter.
+     */
+    async ack(id: string): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        if (!before.frontmatter.needsHuman) {
+            throw httpError(400).withDetails({ reason: `${id} is not flagged for a human — nothing to acknowledge` });
+        }
+
+        const stage = before.frontmatter.stage;
+        const reason = before.frontmatter.needsHumanReason;
+        const droppedRetries = before.frontmatter.retries[stage];
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Ack ${id}`,
+            current => {
+                // Drop `needsHuman`/`needsHumanReason` entirely rather than setting them false/undefined,
+                // and drop the current stage's retry key entirely rather than zeroing it — an absent key
+                // is what "never failed" looks like, and a key present with a falsy value is a second
+                // shape for the same state.
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = current.frontmatter;
+                const { [current.frontmatter.stage]: _dropped, ...retries } = current.frontmatter.retries;
+                return {
+                    ...current,
+                    frontmatter: { ...rest, retries },
+                };
+            },
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage,
+                type: 'card.acked',
+                payload: { stage, reason, retries: droppedRetries, by: 'human' },
+            },
+        );
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Approve a card's plan, pinning it and moving the card out of `backlog`. Mirrors `wilson card
+     * approve`, including the version it pins: `writeIn` snapshots the card *after* the mutate
+     * callback returns, so `currentVersion` read from inside it still returns the version from
+     * *before* this write — the one holding the plan text just approved, not the version this
+     * approval itself is about to create. That looks off by one and is not. Leave it.
+     */
+    async approve(id: string): Promise<CardDetail> {
+        const card = await this.readOrThrow(id);
+        if (card.frontmatter.stage !== 'backlog') {
+            throw httpError(400).withDetails({ reason: `cannot approve ${id}: it is in "${card.frontmatter.stage}", not "backlog"` });
+        }
+
+        // An empty "Files in scope" would dispatch straight into `NotDispatchableError`'s
+        // `empty-scope` case later, with nothing writable for the stage to act on.
+        if (filesInScope(card).length === 0) {
+            throw httpError(400).withDetails({ reason: `cannot approve ${id}: its plan's "Files in scope" is empty — nothing would be writable` });
+        }
+
+        // Where approval sends the card: `backlog`'s own `onPass` target, not a hard-coded
+        // `implementing`. Stages are config, not code (PROJECT.md decision 8).
+        const stages = await loadStages(this.boardConfig.boardRoot);
+        const target = findStage(stages, 'backlog').onPass;
+
+        const payload: Record<string, unknown> = { from: 'backlog', to: target, by: 'human' };
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Approve ${id}`,
+            async current => {
+                const pinnedVersion = await this.boardRepository.currentVersion(id);
+                payload.planVersionId = pinnedVersion;
+                return {
+                    ...current,
+                    frontmatter: { ...current.frontmatter, stage: target, planVersionId: pinnedVersion },
+                };
+            },
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: target,
+                type: 'transition.written',
+                payload,
+            },
+        );
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Enqueue a card's current stage on the job queue. Mirrors `wilson card start`: refuses whatever
+     * `whyNotDispatchable` refuses, and a card a job is already carrying, before enqueuing — and
+     * enqueues via `broker.send` then `cardJobs.record`, in that order, so the claim never precedes
+     * the job.
+     *
+     * Unlike the CLI, there is no `PgBoss.start()`/`stop()` here: the CLI opens and closes pg-boss by
+     * hand because johnny5's bootstrap never runs module `start` hooks, so nothing has connected it.
+     * The server does run `start` hooks (`JobsModule.start`, see `setup.server.ts`), so `JobBroker` is
+     * already connected by the time a request reaches this service.
+     */
+    async start(id: string): Promise<CardDetail> {
+        const card = await this.readOrThrow(id);
+
+        const stages = await loadStages(this.boardConfig.boardRoot);
+        const notDispatchable = whyNotDispatchable(card, stages);
+        if (notDispatchable) {
+            throw httpError(400).withDetails({ reason: notDispatchable.reason });
+        }
+
+        const running = await this.cardJobs.inFlight(id);
+        if (running) {
+            throw httpError(400).withDetails({ reason: `cannot enqueue ${id}: job ${running} is already carrying it` });
+        }
+
+        const jobId = await this.broker.send('card.stage', { cardId: id, stageName: card.frontmatter.stage });
+        await this.cardJobs.record(id, jobId);
+
+        return toCardDetail(card);
+    }
+
+    /**
+     * Release a card whose job is stuck: cancel the job through the broker and clear the claim.
+     * Mirrors `wilson card release` exactly, including the reason `JobRunner.start()` is not used
+     * here either (card 0065): starting a full runner registers a worker for every job type and
+     * begins draining the queue, which would make this service a second daemon rather than a
+     * producer-only caller. `JobBroker`/`CardJobs` reach `send`/`cancel`/`getJob`-equivalent calls
+     * without ever calling `work()` for anything, so nothing here can pick up, run or chain a stage.
+     *
+     * `inFlight` is checked before the running-daemon probe, not after: a card with no claim — or one
+     * whose job already settled — is "nothing to release" regardless of whether a `wilson run` daemon
+     * happens to be running elsewhere. Checking the daemon first would make every card look like a
+     * maybe-in-flight job whenever any daemon process is alive.
+     */
+    async release(id: string): Promise<CardDetail> {
+        const jobId = await this.cardJobs.inFlight(id);
+        if (!jobId) {
+            throw httpError(400).withDetails({ reason: `${id} holds no claim — nothing to release` });
+        }
+
+        // Only a card that does hold a live claim needs disambiguating: is that claim genuinely being
+        // worked right now, or just abandoned? See the module doc on `runningDaemon` for why this
+        // comes after `inFlight` rather than before it.
+        const daemonPid = await runningDaemon();
+        if (daemonPid) {
+            throw httpError(400).withDetails({
+                reason: `${id}: job ${jobId} is claimed and daemon ${daemonPid} is running — it may genuinely be in flight`,
+            });
+        }
+
+        // Cancel, not delete: a cancelled job leaves a record behind that explains the gap in the
+        // card's history; a deleted one leaves nothing.
+        await this.broker.cancel('card.stage', jobId);
+        await this.cardJobs.clear(id);
+
+        return toCardDetail(await this.readOrThrow(id));
     }
 
     private async readOrThrow(id: string): Promise<Card> {

@@ -5,6 +5,7 @@ import type {
     CardSummary,
     CardVersion,
     CreateCardRequest,
+    DependCardRequest,
     EditCardRequest,
     ListQuery,
     MoveCardRequest,
@@ -69,6 +70,46 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /**
+     * @name Set card dependency
+     * @description Card 0080's other four mutations are pure transitions or a flag action; `depend` alone edits one
+     * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
+     * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
+     * `EditCardRequest` replaces `body`.
+     */
+    async setCardDependency(id: string, body: DependCardRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/depend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /** @name Acknowledge a flagged card */
+    async acknowledgeAFlaggedCard(id: string): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/ack`, { method: 'POST' });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /** @name Approve card plan */
+    async approveCardPlan(id: string): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /** @name Start card */
+    async startCard(id: string): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/start`, { method: 'POST' });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /** @name Release card */
+    async releaseCard(id: string): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
         return await parseJson<CardDetail>(result);
     }
 
