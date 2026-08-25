@@ -91,6 +91,37 @@ UI-initiated transitions are human-gate approvals, which are rare enough that a 
 trip is imperceptible. Drag feedback is animation, not state — optimistic _ordering_
 within the parking lot is fine, because ordering is not runner state.
 
+### The API is the daemon
+
+There is one process that drains the queue, and it is `apps/api`. Starting the server
+(`pnpm --filter @wilson/api start`, or the compose stack in Deployment) runs ServerKit's full
+`setup -> start -> ready -> shutdown` lifecycle, and `JobsModule.start` is what starts the
+`JobRunner` — draining whatever is already queued, and enqueueing more itself when
+`POLLER_ENABLED` is set (see below). There is no second way to do this: card 0079 retired `wilson
+run`, the CLI command that used to start a `JobRunner` by hand in-process, once it became possible
+for the API server and that command to both be running against the same queue at once — pg-boss
+does not know they are the same logical daemon, so two processes meant two workers and, after card
+0049 added the poller, two pollers each enqueueing a card per tick. `wilson doctor`'s "daemon not
+stale" check asks the running API's `/api/health` for its start time rather than grepping a
+process table, for the same reason: a process table has no way to tell you the API itself is the
+thing draining the queue.
+
+**In development, `pnpm dev` (`apps/api`) is `node --watch`**, and this project self-hosts: a
+source change under `apps/api/src` restarts the process mid-stage, abandoning whatever job it was
+running (observed 2026-08-25 — merging one card restarted the server and killed another card's
+testing stage, which then looked like a wall-clock timer failing when the process holding the
+timer was simply gone). `wilson run` used to be the workaround, run in a second terminal, stable
+by construction because it was never the thing `--watch` restarted. With `wilson run` retired,
+the stable equivalent already exists and needs no new script: `pnpm --filter @wilson/api start`
+runs the same entrypoint without `--watch`. Use `pnpm dev` to iterate on code with nothing
+in flight; use `start` — or the compose stack — whenever a card must be allowed to run to
+completion. A `--watch` that special-cased an in-flight job, or a poller that refused to start under a
+watcher, were both considered and rejected: either adds runtime logic whose only job is to guess
+whether it is safe to restart, when the operator already knows and `start` already exists as the
+answer. "Don't run `--watch` while a card is mid-flight" is one sentence, not a special case.
+
+
+
 ### The daemon is not a poller
 
 `jobbroker` replaces the hand-rolled lease loop. pg-boss already provides

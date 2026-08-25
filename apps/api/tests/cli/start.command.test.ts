@@ -29,7 +29,9 @@ describe('wilson card start', () => {
         expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/cards/0066/start');
         expect(methodOf(fetchMock.mock.calls[0]!)).toBe('POST');
         expect(logger.info).toHaveBeenCalledWith('enqueued 0066 · implementing');
-        expect(logger.info).toHaveBeenCalledWith('the job runs wherever the API is draining the queue — start it with `wilson run` if nothing is.');
+        expect(logger.info).toHaveBeenCalledWith(
+            'the job runs wherever the API is draining the queue — start it with `pnpm --filter @wilson/api start` if nothing is.',
+        );
     });
 
     it('prints the API-supplied reason and exits 1 for a card whyNotDispatchable refuses, rather than an HTTP status line', async () => {

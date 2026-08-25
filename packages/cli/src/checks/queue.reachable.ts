@@ -23,7 +23,7 @@ export const queueReachable: Check = {
             if (result.rows.length > 0) {
                 return { ok: true, message: 'queue is installed' };
             }
-            return { ok: true, message: 'queue has not been created yet; it is created the first time `wilson run` starts' };
+            return { ok: true, message: 'queue has not been created yet; it is created the first time the API starts' };
         } catch (err) {
             return {
                 ok: false,

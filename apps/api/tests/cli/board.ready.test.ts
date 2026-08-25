@@ -77,7 +77,10 @@ describe('boardReady', () => {
 
         expect(result.ok).toBe(false);
         expect(result.message).toBe('stages.yaml is invalid: onPass "testing" is not a configured stage');
-        expect(result.fixHint).toContain('wilson run');
+        // Card 0079: `wilson run` is gone, so the fix hint for "the API is unreachable" must point at
+        // how the API actually starts now, not a command that no longer exists.
+        expect(result.fixHint).toContain('pnpm --filter @wilson/api start');
+        expect(result.fixHint).not.toContain('wilson run');
     });
 
     it('reports a refused connection with the same "is it running?" message every other command gives', async () => {
