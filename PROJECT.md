@@ -318,13 +318,37 @@ Human gates are a first-class stage type, not a special case in the runner.
 Review failure moves the card backward with findings appended to the plan and a
 retry counter incremented.
 
-### Parking lot
+### Before the work: parking lot, planning, backlog
 
-Not a stage — a column the dispatch query excludes. Cards there are stubs: a title
-and a note, no plan, no branch, no worktree, never claimed by a job. The only
-transition out is a human promoting one into planning, which is also where it first
-acquires a plan file. It exists so a thought can be captured mid-review without
-becoming work.
+Three lanes sit ahead of `implementing`, and none of them is dispatched. Together they
+are where a thought becomes a contract, with a human gate at each end.
+
+**Parking lot** — ideas to remember and plan later, and a place to point at. Not a
+stage; a column the dispatch query excludes. Cards there are stubs: a title and a
+note, no plan, no branch, no worktree, never claimed by a job. It exists so a thought
+can be captured mid-review without becoming work.
+
+Its second job matters as much as its first: **a parked card is a durable reference.**
+Other cards cite it by id — "the rails it is gated behind", "this is the cheap version
+of what card 0027 wants" — and that citation stays meaningful whether or not anyone
+ever implements it. A parked card is not only queued work; it is a named idea the rest
+of the board can refer to.
+
+**Planning** — cards being planned, by a human and an agent together. `mode: manual`,
+because the queue must never dispatch it: the stage is a conversation, and there is
+nothing for pg-boss to carry. `wilson card plan` drives it, reading this stage's model
+and instructions from config, and it ends when a plan filling the six contract
+headings is written as a new card version.
+
+**Backlog** — plans approved and ready to be worked. Also `mode: manual`, and the
+gate that matters most: leaving it is what pins `planVersionId`, so the version every
+downstream stage reads is the one a person actually approved. A card sits here as long
+as it likes; nothing picks it up, including the poller, which refuses a manual stage
+through the same `whyNotDispatchable` check `wilson card start` uses.
+
+The human gates are therefore three: promoting out of the parking lot, approving out
+of backlog, and merging at `ready`. Everything between the second and third runs
+unattended.
 
 ### Per-stage model routing
 
