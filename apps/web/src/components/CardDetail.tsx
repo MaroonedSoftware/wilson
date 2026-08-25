@@ -139,6 +139,11 @@ export function CardDetailView({
                 </Group>
                 <Group gap="xs">
                     <StageBadge stage={card.stage} />
+                    {card.needsHuman && (
+                        <Badge color="red" variant="light" radius="sm">
+                            needs human
+                        </Badge>
+                    )}
                     {card.branch && (
                         <Badge color="gray" variant="outline" radius="sm" ff="monospace">
                             {card.branch}
@@ -146,6 +151,19 @@ export function CardDetailView({
                     )}
                 </Group>
             </Stack>
+
+            {card.needsHuman && (
+                <Paper withBorder p="sm" radius="sm" style={{ borderColor: 'var(--mantine-color-red-6)' }}>
+                    <Stack gap={4}>
+                        <Text size="sm" fw={500} c="red">
+                            {card.needsHumanReason ?? 'This card is flagged for a human.'}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                            Clear it with <Code>wilson card ack {card.id}</Code>.
+                        </Text>
+                    </Stack>
+                </Paper>
+            )}
 
             {scope.length > 0 && (
                 <Stack gap={6}>

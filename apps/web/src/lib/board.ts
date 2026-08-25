@@ -19,10 +19,14 @@ export const columnOrder = (columns: BoardColumns, cards: CardSummary[]): string
     return [...known, ...unknown];
 };
 
-/** Cards per column, lowest id first — ids are sequential, so that is also oldest first. */
+/**
+ * Cards per column, flagged first, then lowest id first — ids are sequential, so that is also
+ * oldest first within each group. Flagged cards sort to the top of their own column, not the top
+ * of the board: the flag is information about the card, not a reason to jump the column queue.
+ */
 export const groupByStage = (cards: CardSummary[]): Map<string, CardSummary[]> => {
     const grouped = new Map<string, CardSummary[]>();
-    for (const card of [...cards].sort((a, b) => a.id.localeCompare(b.id))) {
+    for (const card of [...cards].sort((a, b) => Number(b.needsHuman) - Number(a.needsHuman) || a.id.localeCompare(b.id))) {
         grouped.set(card.stage, [...(grouped.get(card.stage) ?? []), card]);
     }
     return grouped;

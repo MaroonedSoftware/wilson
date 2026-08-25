@@ -9,12 +9,13 @@ import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/
  */
 export const TONE: Record<string, string> = {
     'parking-lot': 'gray',
+    planning: 'cyan',
+    backlog: 'indigo',
     implementing: 'blue',
     testing: 'violet',
     review: 'grape',
     ready: 'teal',
     merged: 'green',
-    'needs-human': 'orange',
     poisoned: 'red',
     dropped: 'gray',
 };
@@ -25,7 +26,7 @@ function Card({ card, blockedBy }: { card: CardSummary; blockedBy: string[] }) {
         // Mantine's generic `component` prop, `to`/`params` lose the literal typing TanStack
         // Router needs to check `cardId` against this route's params.
         <Link to="/cards/$cardId" params={{ cardId: card.id }} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-            <Paper withBorder p="xs" radius="sm">
+            <Paper withBorder p="xs" radius="sm" style={card.needsHuman ? { borderColor: 'var(--mantine-color-red-6)' } : undefined}>
                 <Group gap={6} wrap="nowrap" align="baseline">
                     <Text size="xs" c="dimmed" ff="monospace">
                         {card.id}
@@ -34,10 +35,19 @@ function Card({ card, blockedBy }: { card: CardSummary; blockedBy: string[] }) {
                         {card.title}
                     </Text>
                 </Group>
-                {blockedBy.length > 0 && (
-                    <Badge size="xs" color="orange" variant="light" mt={6}>
-                        blocked on {blockedBy.join(', ')}
-                    </Badge>
+                {(card.needsHuman || blockedBy.length > 0) && (
+                    <Group gap={6} mt={6}>
+                        {card.needsHuman && (
+                            <Badge size="xs" color="red" variant="light">
+                                {card.needsHumanReason ?? 'needs human'}
+                            </Badge>
+                        )}
+                        {blockedBy.length > 0 && (
+                            <Badge size="xs" color="orange" variant="light">
+                                blocked on {blockedBy.join(', ')}
+                            </Badge>
+                        )}
+                    </Group>
                 )}
             </Paper>
         </Link>
