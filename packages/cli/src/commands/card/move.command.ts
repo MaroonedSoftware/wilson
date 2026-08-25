@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
-import { BoardConfig, BoardRepository, loadStages, validTargets } from '@wilson/api/cli-bootstrap';
+import { BoardConfig, BoardRepository, EventLog, WorktreeManager, loadStages, validTargets } from '@wilson/api/cli-bootstrap';
 
 /**
  * Move a card to another stage.
@@ -21,6 +21,8 @@ const command: CommandModule = {
         const [cardId, target] = [String(args[0]), String(args[1])];
         const config = ctx.container.get(BoardConfig);
         const board = ctx.container.get(BoardRepository);
+        const worktrees = ctx.container.get(WorktreeManager);
+        const events = ctx.container.get(EventLog);
 
         // Refuse a state the stage graph does not name. A typo would otherwise park the card
         // somewhere nothing will ever pick it up. A declared on-pass target counts even before
@@ -66,6 +68,23 @@ const command: CommandModule = {
                 payload: { from: before.frontmatter.stage, to: target, by: 'human' },
             },
         );
+
+        // `wilson card move` is the operator's override, and it writes a real transition — so it
+        // reclaims on the same rule the runner uses, `reclaimIfTerminal` (isTerminal(target)), rather
+        // than growing its own idea of when a card is done. `clearsFlag` is exactly "was this card
+        // flagged before this move", which is what must gate reclaiming even though this same move is
+        // what clears the flag (card 0055 keeps a flagged card's tree on purpose). Best-effort: the
+        // transition above already stands, so a failure here is logged, not thrown.
+        const reclaimed = await board.reclaimIfTerminal(worktrees, events, {
+            project: config.project,
+            cardId,
+            stage: target,
+            target,
+            flagged: clearsFlag,
+        });
+        if (reclaimed.error) {
+            ctx.logger.warn(`could not reclaim worktree for ${cardId} after moving to "${target}": ${reclaimed.error}`);
+        }
 
         if (before.frontmatter.stage === target) {
             ctx.logger.info(`${cardId}: cleared flag, stays in ${target}`);

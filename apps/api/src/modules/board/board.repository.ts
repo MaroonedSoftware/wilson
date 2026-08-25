@@ -1,6 +1,8 @@
 import { Injectable } from 'injectkit';
 import type { DateTime } from 'luxon';
-import type { AppendableCardEvent } from '#modules/events/event.log.js';
+import type { AppendableCardEvent, EventLog } from '#modules/events/event.log.js';
+import { isTerminal } from '#modules/stages/terminal.js';
+import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { Card } from './card.js';
 
 /** One row of a card's version history — what `git log` on the board repo used to answer. */
@@ -62,4 +64,52 @@ export abstract class BoardRepository {
 
     /** Create a card that does not exist yet. Fails if the id is taken. */
     abstract create(card: Card, message: string): Promise<string>;
+
+    /**
+     * Reclaim a card's worktree once a transition has landed it on a terminal stage, and record that
+     * it happened.
+     *
+     * The one place "the card is done" turns into "the worktree goes away" — shared by the runner's
+     * own terminal transitions (`StageDispatcher.writeTransition`) and a human's `wilson card move`,
+     * so the two callers cannot drift into two definitions of done. `isTerminal(target)` is the
+     * runner's own rule; a human override inherits it rather than growing its own idea of "finished".
+     *
+     * `worktrees` and `events` are passed in rather than injected here: this class has no worktree or
+     * event-log dependency of its own, and taking them as parameters lets a caller that already holds
+     * both (the dispatcher's constructor fields, or a CLI command's DI container) share this one
+     * decision without this abstract class growing dependencies neither its contract nor its Postgres
+     * implementation otherwise needs.
+     *
+     * Never reclaims a flagged card's tree — `args.flagged` must reflect the card's state *before*
+     * this transition, even when the transition itself is what clears the flag. Card 0055 keeps a
+     * flagged card's worktree on purpose, so a person has something to inspect; that guarantee must
+     * hold no matter which caller is the one reaching a terminal state. Do not "fix" this to check the
+     * post-transition flag — a card moved straight to a terminal state by the person who is right now
+     * looking at the flag is still a card whose tree that flag promised would survive.
+     *
+     * Best-effort, like the transition it follows: a failure to remove a directory is reported back
+     * rather than thrown, so a `writeWithEvent` that already committed is never unwound by a cleanup
+     * step failing after the fact. The caller decides how to log it.
+     */
+    async reclaimIfTerminal(
+        worktrees: WorktreeManager,
+        events: EventLog,
+        args: { project: string; cardId: string; stage: string; target: string; flagged: boolean },
+    ): Promise<{ error?: string }> {
+        if (!isTerminal(args.target) || args.flagged) return {};
+
+        try {
+            await worktrees.reclaim(args.cardId);
+            await events.append({
+                project: args.project,
+                cardId: args.cardId,
+                stage: args.stage,
+                type: 'worktree.reclaimed',
+                payload: { cardId: args.cardId, target: args.target },
+            });
+            return {};
+        } catch (err) {
+            return { error: (err as Error).message };
+        }
+    }
 }
