@@ -47,13 +47,16 @@ describe('CARD_STAGE_DEAD_POLICY', () => {
  * It named pg-boss's unconfigured default while jobbroker had no hook to set worker concurrency
  * through; jobbroker 1.12.0 added one (`JobWorkerPolicy`), so the value is now declared — which is
  * what `CARD_STAGE_WORKER` below exists to keep true. The number itself did not change with the
- * hook: one at a time, confirmed by observation (two cards enqueued a second apart, and the second
- * stayed in `created` until the first finished). An earlier reading of this as 2 came from a sweep
- * that caught two daemons running concurrently, not one daemon carrying two jobs.
+ * hook: it was 1 by inheritance, and stayed 1 through the wiring. An earlier reading of it as 2 came
+ * from a sweep that caught two daemons running concurrently, not one daemon carrying two jobs.
+ *
+ * Now 2, deliberately, once the two things that made concurrency unsafe were fixed: card 0045
+ * stopped stage commands inheriting the server's environment, and card 0081 locked every `pnpm
+ * install`. Pinned here so the number moves on purpose rather than by accident.
  */
 describe('CARD_STAGE_CONCURRENCY', () => {
-    it('is 1, the number of stages this runner actually runs at once', () => {
-        expect(CARD_STAGE_CONCURRENCY).toBe(1);
+    it('is 2, the number of stages this runner runs at once', () => {
+        expect(CARD_STAGE_CONCURRENCY).toBe(2);
     });
 });
 
