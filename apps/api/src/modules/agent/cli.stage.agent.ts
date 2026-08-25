@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
+import { deleteFile } from './tools/delete.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import type { ToolContext } from './tools/index.js';
 
@@ -32,8 +33,10 @@ export const subscriptionEnv = (): NodeJS.ProcessEnv => {
 const REPORT_SERVER = 'wilson';
 const REPORT_TOOL = 'report_result';
 const REQUEST_SCOPE_TOOL = 'request_scope';
+const DELETE_TOOL = 'delete';
 const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUEST_SCOPE_TOOL}`;
+const qualifiedDeleteTool = (): string => `mcp__${REPORT_SERVER}__${DELETE_TOOL}`;
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
@@ -106,6 +109,22 @@ export class CliStageAgent extends StageAgent {
                               }).shape,
                               async ({ path, reason }: { path: string; reason: string }) => {
                                   const message = await requestScope(context, path, reason);
+                                  return { content: [{ type: 'text' as const, text: message }] };
+                              },
+                          ),
+                          // The engine's own tool set has no delete: only Write and Edit. Supplied
+                          // the same way as `request_scope` — carried on this stage's own MCP server,
+                          // sharing `deleteFile` with the api adapter's `delete` tool (delete.tool.ts)
+                          // so the two adapters cannot drift in what a deletion means. Only present
+                          // for an `rw` stage, matching `write`/`edit`/`request_scope` above.
+                          tool(
+                              DELETE_TOOL,
+                              'Delete one file in the worktree. Refuses a directory; use it once per file, never recursively.',
+                              z.object({
+                                  path: z.string().describe('Path relative to the worktree root.'),
+                              }).shape,
+                              async ({ path }: { path: string }) => {
+                                  const message = await deleteFile(context, path);
                                   return { content: [{ type: 'text' as const, text: message }] };
                               },
                           ),
@@ -191,6 +210,9 @@ export class CliStageAgent extends StageAgent {
                     ? [
                           `If the plan's "Files in scope" does not cover a file the work genuinely needs, call`,
                           `${qualifiedRequestScopeTool()} with the path and why, rather than working around the gap.`,
+                          '',
+                          `To remove a file the work no longer needs, call ${qualifiedDeleteTool()} with its path —`,
+                          `it is scope-checked the same way a write is, and refuses a directory.`,
                           '',
                       ]
                     : []),
@@ -507,6 +529,14 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         // decision is `requestScope`'s to make, not the guard's — the same split the api adapter's
         // tool set makes between this tool and ScopeGuard.
         if (toolName === qualifiedRequestScopeTool()) {
+            return writable === 'rw' ? { behavior: 'allow' } : deny(`this stage is ${writable}: it may not write`, { tool: toolName });
+        }
+
+        // This adapter's own delete tool, present on the MCP server only for an `rw` stage (see
+        // above). `deleteFile` does its own `ScopeGuard.check` and event logging, the same split
+        // `request_scope`/`requestScope` already makes — the guard here only gates on writability,
+        // exactly as it does for request_scope.
+        if (toolName === qualifiedDeleteTool()) {
             return writable === 'rw' ? { behavior: 'allow' } : deny(`this stage is ${writable}: it may not write`, { tool: toolName });
         }
 
