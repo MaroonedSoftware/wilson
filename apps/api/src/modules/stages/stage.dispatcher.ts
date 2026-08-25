@@ -356,7 +356,7 @@ export class StageDispatcher {
     ): Promise<{ target: string; needsHuman: boolean }> {
         const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: card.frontmatter.retries }
-            : kickback(stage, card.frontmatter.retries);
+            : kickback(stage, card.frontmatter.retries, Boolean(outcome.unjudged));
         const findings = findingsFrom(outcome.result);
         const needsHuman = decision.needsHuman;
 
@@ -588,6 +588,17 @@ export class StageDispatcher {
         const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, result: reported });
         const failures = [...verification.failures];
 
+        // A result that never parsed against the stage's own schema carries no judgment about the
+        // code — there is nothing coherent for a verifier to have judged. Checked here, against the
+        // same schema the report tool itself enforces, so every stage gets this for free instead of
+        // each verifier re-parsing its own schema just to tell the dispatcher what it already knows
+        // for its own reasons (`ReviewVerifier` does this today, to return early on a hallucinated
+        // result before checking findings' provenance). Guarded on `safeParse` actually being a
+        // function: every stage registered through `StagesModule` gets a real Zod schema here, but a
+        // test double standing in for one is not this check's business to reject.
+        const schemaInvalid =
+            reported !== undefined && typeof resultSchema.safeParse === 'function' && !resultSchema.safeParse(reported).success;
+
         // A stage that never called the report tool never said it was finished. Whatever is in the
         // tree is where it happened to stop, not what it set out to produce.
         if (reported === undefined) {
@@ -618,6 +629,15 @@ export class StageDispatcher {
             failures.unshift(run.engineFailure);
         }
 
+        // None of the checks above is a verdict on the code: a truncated run, a budget or engine
+        // cutoff, a missing report and an unparseable result are all the stage failing to finish, not
+        // a judgment of what it produced. Left `false` when a verifier's own substantive checks are
+        // what failed — a bad citation, an empty diff, a verdict that contradicts its severities —
+        // since those are exactly the judgments `writeTransition`/`kickback` should route past.
+        const unjudged =
+            failures.length > 0 &&
+            (reported === undefined || schemaInvalid || run.truncated || Boolean(run.budgetFailure) || Boolean(run.engineFailure));
+
         return {
             passed: failures.length === 0,
             failures,
@@ -625,6 +645,7 @@ export class StageDispatcher {
             scopeGrants: scope.grants(),
             result: reported,
             usage: run.usage,
+            unjudged,
         };
     }
 }

@@ -221,10 +221,39 @@ string naming the testing stage and its failure. A human reading that alongside 
 the two apart — testing kept trying, or the implementation was the actual blocker — and route the
 latter to `implementing` by hand with `wilson card move`. That costs a round of testing attempts
 before a human sees it, not a wrong outcome: still strictly better than card 0060's shape, which spent
-its retries on an already-correct implementing stage instead. Telling the two failures apart
-automatically would need testing to report why it failed, not just that it did — a signal the
-runner does not carry today (`apps/api/src/modules/stages/kickback.ts`) — and is left for a later
-card.
+its retries on an already-correct implementing stage instead.
+
+**The general rule, and where `onFail` still applies.** `onFail`'s target is the stage that can fix
+the failure — and when the stage that failed is the one that can fix it, the target is itself. That
+is true whenever a stage fails its own exit condition for a reason that says nothing about the
+code: a step, wall-clock or token budget cutoff, an engine that stopped responding, a run that never
+called the report tool, or a result that never parsed against the stage's schema. None of those is a
+verdict on what the stage produced — there was nothing coherent to judge — so routing to whatever
+`onFail` names would send a stage that already passed (or one still mid-work) to redo work it did not
+fail, exactly the shape card 0060 hit for `testing` and card 0075 hit for `review`: a review that
+burned its step budget and never reached a verdict was sent to `implementing`, which had already
+passed, at `retries.implementing` 2 of 3 — left alone it would have discarded three stages of correct
+work over a slow reviewer, not a code defect. An operator moved it back to `review` by hand.
+
+Card 0062 could not fix this generally: `kickback` (`apps/api/src/modules/stages/kickback.ts`) saw
+only which stage failed and how many times, never the run's own outcome, so it had no way to tell
+"this stage did not finish" from "this stage judged the work and found it wanting". `StageOutcome`
+now carries that distinction (`unjudged`, in `stage.result.ts`), threaded through
+`StageDispatcher.writeTransition` into `kickback`: a review with a blocker, or a verifier rejecting an
+empty or out-of-scope diff, has judged the code and still routes to `onFail` exactly as before — a
+review that exhausted its steps or returned a result that never parsed routes to `review`, whichever
+stage failed this way routes to itself, and either way `maxKickbacks` still bounds the retries and
+`needs-human` still catches an exhausted one. Card 0060's earlier fix is not what changed: this is the
+general form of the same rule, previously encoded only as `testing.onFail: testing`.
+
+`testing.onFail: testing` stays exactly as it is — this card complements it rather than replacing it.
+It self-loops on *every* testing failure, including a well-formed verdict that testing wrote no tests
+or its report is stale, which is a judgment about the work `unjudged` deliberately does not cover
+(testing has no downstream stage that could act on that judgment differently, which is why card 0062
+chose a blanket self-loop for it). `unjudged` only closes the narrower gap card 0062 left open: telling
+"testing skipped its own job" apart from "testing failed because the implementation cannot be tested"
+would need the same signal — the run's own outcome, not just which stage failed and how many times —
+and remains a human call via `wilson card move`, exactly as card 0062 left it.
 
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and

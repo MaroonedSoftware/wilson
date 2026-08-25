@@ -76,4 +76,16 @@ export interface StageOutcome {
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */
     needsHuman?: boolean;
+    /**
+     * Set on a failing outcome when the failure says nothing about the code: a step, wall-clock or
+     * token budget cutoff, an engine that stopped responding, a run that never called the report
+     * tool, or a result that never parsed against the stage's own schema. None of those is a verdict
+     * on what the stage produced — there was nothing coherent to judge. Unset (or `false`) when a
+     * verifier actually evaluated the work and rejected it, or when the stage passed.
+     *
+     * `kickback` (`kickback.ts`) uses this to route the retry back to this stage instead of wherever
+     * `onFail` points — see its doc comment for why the distinction has to live here, in the run's
+     * own outcome, rather than in `kickback` itself.
+     */
+    unjudged?: boolean;
 }
