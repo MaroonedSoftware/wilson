@@ -71,8 +71,8 @@ stages:
           - pnpm lint
           - pnpm install
       buildCommand: pnpm build
-      onPass: testing
-      onFail: planning
+      onPass: merged
+      onFail: implementing
       maxKickbacks: 3
       instructions: |
           You are implementing one card in an isolated git worktree.
