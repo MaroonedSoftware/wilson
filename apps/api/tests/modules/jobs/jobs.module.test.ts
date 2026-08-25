@@ -44,13 +44,11 @@ describe('CARD_STAGE_DEAD_POLICY', () => {
  * running `card.stage` jobs is visible without reading either library's source.
  */
 describe('CARD_STAGE_CONCURRENCY', () => {
-    // Measured, not read. Card 0063 first recorded 1 from pg-boss's documented default; a sweep
-    // over `stage.dispatched`/`stage.passed` pairs in this runner's own event log puts the real
-    // maximum at two (0053 and 0054 both in `implementing` at 23:40:29 on 2026-08-24). Whatever
-    // produces the second slot is not the documented default, so this pins the observed ceiling
-    // and will fail loudly if it ever moves.
-    it('is 2, the number of stages this runner has actually been observed running at once', () => {
-        expect(CARD_STAGE_CONCURRENCY).toBe(2);
+    // One at a time, confirmed by observation: two cards enqueued a second apart, and the second
+    // stayed in `created` until the first finished. An earlier reading of this as 2 came from a
+    // sweep that caught two daemons running concurrently, not one daemon carrying two jobs.
+    it('is 1, the number of stages this runner actually runs at once', () => {
+        expect(CARD_STAGE_CONCURRENCY).toBe(1);
     });
 });
 
