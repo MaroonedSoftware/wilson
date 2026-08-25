@@ -55,9 +55,10 @@ const buildCtx = () => {
 };
 
 describe('wilson card release', () => {
-    it('refuses outright when a wilson run daemon is active, without ever opening the broker', async () => {
+    it('refuses outright when a wilson run daemon is active and the card holds a live claim, without ever cancelling or clearing', async () => {
         daemonRunning('9001');
         const { ctx, logger, pgBoss, cardJobs, broker } = buildCtx();
+        cardJobs.inFlight.mockResolvedValue('job-42');
 
         const result = await run(ctx, '0001');
 
@@ -65,13 +66,46 @@ describe('wilson card release', () => {
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('9001'));
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('in flight'));
 
-        // The whole point of the daemon guard: it runs before anything that could dispatch, run or
-        // chain a stage. Nothing broker- or claim-related is even reached.
-        expect(pgBoss.start).not.toHaveBeenCalled();
-        expect(cardJobs.inFlight).not.toHaveBeenCalled();
+        // The daemon guard only ever disambiguates a card that does hold a live claim — it runs
+        // after `inFlight` confirms that, not before. Nothing broker-cancel-or-clear related is
+        // reached once it refuses.
+        expect(cardJobs.inFlight).toHaveBeenCalledWith('0001');
         expect(broker.getJob).not.toHaveBeenCalled();
         expect(broker.cancel).not.toHaveBeenCalled();
         expect(cardJobs.clear).not.toHaveBeenCalled();
+
+        // The producer-only connection it opened to check the claim is still closed cleanly.
+        expect(pgBoss.start).toHaveBeenCalledTimes(1);
+        expect(pgBoss.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports "no claim" for a claimless card even while a wilson run daemon is active elsewhere', async () => {
+        // This is the review fix this card exists to cover: a claimless card must never be reported
+        // as "may genuinely be in flight" just because some daemon happens to be running somewhere.
+        // The daemon probe must not even run — `inFlight` settles the question first.
+        daemonRunning('9001');
+        const { ctx, logger, pgBoss, cardJobs, broker } = buildCtx();
+        cardJobs.inFlight.mockResolvedValue(undefined);
+        // Calls accumulate on this shared mock across tests in the file (nothing resets it between
+        // `it`s), so clear its call log now — what matters here is whether *this* run touches it.
+        execFileImpl.mockClear();
+
+        const result = await run(ctx, '0006');
+
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('0006'));
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('no claim'));
+        expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('in flight'));
+        expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('9001'));
+
+        // The daemon probe (execFile via `runningDaemon`) is never even consulted for a claimless
+        // card — proving the ordering, not just the outcome.
+        expect(execFileImpl).not.toHaveBeenCalled();
+
+        expect(broker.cancel).not.toHaveBeenCalled();
+        expect(cardJobs.clear).not.toHaveBeenCalled();
+        expect(pgBoss.start).toHaveBeenCalledTimes(1);
+        expect(pgBoss.stop).toHaveBeenCalledTimes(1);
     });
 
     it('exits non-zero and writes nothing when the card holds no claim', async () => {
