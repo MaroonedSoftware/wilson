@@ -47,7 +47,7 @@ export const describeApiError = (err: unknown, ctx: CliContext): string => {
         return body?.details?.reason ?? body?.message ?? err.message;
     }
     if (isConnectionFailure(err)) {
-        return `could not reach the API at ${resolveApiBase(ctx)} — is it running? start it with \`wilson run\``;
+        return `could not reach the API at ${resolveApiBase(ctx)} — is it running? start it with \`pnpm --filter @wilson/api start\` (or \`pnpm dev\` while iterating)`;
     }
     return err instanceof Error ? err.message : String(err);
 };
