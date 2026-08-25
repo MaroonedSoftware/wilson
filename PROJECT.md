@@ -107,6 +107,15 @@ the worktree and port when a job dies. On redelivery the runner discards any
 artifacts from the interrupted attempt and re-dispatches from a clean worktree;
 partial output is never verified.
 
+**Throughput is bounded, today by pg-boss's own default rather than a choice.**
+`CARD_STAGE_CONCURRENCY` (`apps/api/src/modules/jobs/job.runner.config.ts`) names how many
+`card.stage` jobs run at once on a daemon process: one. jobbroker gives `JobsModule`
+(`apps/api/src/modules/jobs/jobs.module.ts`) no hook to pass pg-boss's own concurrency options
+through, so this is what pg-boss falls back to unconfigured, not a limit anyone set. It matters
+because each concurrent stage is a git worktree, a `pnpm install`, and an agent — raising it is a
+call about the host's disk and memory, not the queue, and belongs to whoever is looking at that
+host.
+
 ### Two adapters, chosen per stage
 
 A stage names its engine in config: `adapter: api | cli`.
