@@ -11,6 +11,7 @@ import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { CardStageJob } from './card.stage.job.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs } from './card.jobs.js';
+import { CARD_STAGE_CONCURRENCY } from './job.runner.config.js';
 
 /**
  * How long a `card.stage` job may run before the queue calls it stuck and hands it to another
@@ -70,6 +71,9 @@ export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
  * pg-boss on the same Postgres database as everything else — no separate broker to run or operate.
  * One queue for now, `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
  * through consecutive `agent` stages without a human re-triggering each one.
+ *
+ * At most `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) of those jobs run at once — pg-boss's own
+ * default, since jobbroker gives this module no way to raise or lower it.
  */
 export const JobsModule: ServerKitModule = {
     name: 'Jobs',
@@ -122,6 +126,10 @@ export const JobsModule: ServerKitModule = {
     // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
     start: async (container: Container) => {
+        // See CARD_STAGE_CONCURRENCY (job.runner.config.ts): this is pg-boss's own default,
+        // inherited unconfigured because jobbroker has no hook to set it through. Logged so the
+        // ceiling on simultaneously running stages is visible without reading either source.
+        container.get(Logger).info(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY} (pg-boss default; jobbroker has no hook to configure it)`);
         await container.get(JobRunner).start();
     },
     // Stops accepting new jobs and waits for in-flight ones to finish before Data tears down the
