@@ -7,6 +7,7 @@ import { Notifier } from '#modules/notify/notifier.js';
 import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { isTerminal } from '#modules/stages/terminal.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
 
@@ -157,6 +158,8 @@ export class CardStageJob extends Job<CardStagePayload> {
             if (error instanceof NotDispatchableError) {
                 if (error.reason.kind === 'unsatisfied-dependency') {
                     await this.defer(cardId, stageName, error.reason.outstanding, error.message);
+                } else if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {
+                    await this.stale(cardId, stageName, error.reason.actualStage);
                 } else {
                     await this.poison(cardId, stageName, error);
                 }
@@ -251,6 +254,27 @@ export class CardStageJob extends Job<CardStagePayload> {
             stage: stageName,
             type: 'dispatch.deferred',
             payload: { outstanding, reason },
+        });
+    }
+
+    /**
+     * A job arrived for a card that has already finished — not a bug, once the card's current stage
+     * is terminal. A card reaches `merged` (or `dropped`/`poisoned`) while a job for its last stage
+     * is still queued, `wilson card move` reclaims the worktree on the human's transition, and this
+     * job then dispatches into a card that is done. Poisoning it here would be card 0066/0082's bug:
+     * undoing a human's completed merge because a stale job showed up after the fact.
+     *
+     * So this changes nothing about the card — no transition, no worktree touch — and only records
+     * that the arrival happened, the same reasoning card 0051 already applies to a dead-lettered job
+     * landing on a card a human resolved by hand.
+     */
+    private async stale(cardId: string, wantedStage: string, actualStage: string): Promise<void> {
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: wantedStage,
+            type: 'stage.stale',
+            payload: { wantedStage, actualStage },
         });
     }
 

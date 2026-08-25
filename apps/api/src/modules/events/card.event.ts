@@ -11,6 +11,7 @@ export type CardEventType =
     | 'stage.failed'
     | 'stage.poisoned'
     | 'stage.dead'
+    | 'stage.stale'
     | 'dispatch.deferred'
     | 'engine.failed'
     | 'tool.denied'

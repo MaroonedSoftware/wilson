@@ -92,6 +92,21 @@ describe('StageDispatcher assertDispatchable — NotDispatchableError discrimina
         expect(error.reason.kind).toBe('wrong-stage');
     });
 
+    /**
+     * Card 0084: `wrong-stage` now carries the card's actual stage alongside the discriminant, so
+     * `CardStageJob` can tell a card genuinely misplaced (card 0044's bug) from a stale job arriving
+     * after the card already reached a terminal stage — without that field it would have nothing to
+     * call `isTerminal` on.
+     */
+    it('carries the card\'s actual stage on a "wrong-stage" refusal', () => {
+        const target = card('0002', 'merged');
+
+        const error = capture(target, [target]);
+
+        expect(error.reason.kind).toBe('wrong-stage');
+        expect(error.reason.kind === 'wrong-stage' && error.reason.actualStage).toBe('merged');
+    });
+
     it('carries kind "empty-scope" when the card has no "Files in scope"', () => {
         const target = card('0002', 'testing', { sections: {}, body: '## Goal\n\nDo the thing.' });
 
