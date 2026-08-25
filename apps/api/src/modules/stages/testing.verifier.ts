@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { runConfiguredCommand } from './run.command.js';
+import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
 import { parseTestReport, type TestCounts } from './test.report.js';
@@ -155,7 +155,18 @@ export class TestingVerifier implements StageVerifier {
 
         try {
             if (stage.setupCommand) {
-                const setup = await runConfiguredCommand(baseline.path, stage.setupCommand);
+                // The third install path, and the one card 0081 missed while fixing itself: this is
+                // a second `pnpm install`, into the same shared store, running while another card's
+                // setup may be installing too. 0081 wrapped the dispatcher's setup and the agent's
+                // bash `pnpm install` but not this, and was then poisoned when a redelivered attempt's
+                // setup raced the baseline install of the attempt still running. Same lock, so all
+                // three paths serialize against each other rather than two of three.
+                const setupCommand = stage.setupCommand;
+                const setup = await pnpmStoreLock.run(
+                    `${cardId} testing baseline setup`,
+                    message => this.logger.info(message),
+                    () => runConfiguredCommand(baseline.path, setupCommand),
+                );
                 if (setup) {
                     failures.push(`the baseline worktree could not be set up: ${setup.reason}`);
                     return failures;
