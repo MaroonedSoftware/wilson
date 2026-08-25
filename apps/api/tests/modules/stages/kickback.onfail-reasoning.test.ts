@@ -51,4 +51,32 @@ describe('card 0062 — the kickback-target reasoning is written down', () => {
         expect(projectMd).toContain('`testing.onFail: testing` is also');
         expect(projectMd).toContain('correct, and looks wrong at first glance');
     });
+
+    // A review pass on this card's first attempt landed a blocker: the reasoning above asserted
+    // the self-loop "is also correct" without ever naming the case it does not cleanly cover —
+    // testing failing not because it skipped its own job, but because the implementation it was
+    // handed cannot be tested at all. These three checks pin down the follow-up text that names
+    // that case explicitly, in all three places the earlier tests already check, rather than
+    // trusting a summary of what the fix-up commit did.
+    it('names the untestable-implementation case on StageConfig.onFail and says how it eventually surfaces', () => {
+        const stageConfigSource = read('../../../src/modules/stages/stage.config.ts');
+
+        expect(stageConfigSource).toContain('the implementation it was handed cannot be tested as written');
+        expect(stageConfigSource).toContain('needsHuman');
+        expect(stageConfigSource).toMatch(/route the latter to `implementing` by hand/);
+    });
+
+    it('names the untestable-implementation case on kickback() as the same testing.onFail gap', () => {
+        const kickbackSource = read('../../../src/modules/stages/kickback.ts');
+
+        expect(kickbackSource).toContain('"testing skipped its own job"');
+        expect(kickbackSource).toContain('failed because the implementation cannot be tested');
+    });
+
+    it('names the untestable-implementation case in PROJECT.md and how a human would route it', () => {
+        const projectMd = read('../../../../../PROJECT.md');
+
+        expect(projectMd).toContain('testing fails because the implementation cannot be tested as written');
+        expect(projectMd).toContain('wilson card move');
+    });
 });
