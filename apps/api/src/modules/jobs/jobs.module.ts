@@ -2,13 +2,14 @@ import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
-import { JobBroker, JobRunner, type JobQueuePolicy } from '@maroonedsoftware/jobbroker';
+import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy } from '@maroonedsoftware/jobbroker';
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { CardStageJob } from './card.stage.job.js';
+import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs } from './card.jobs.js';
 
 /**
@@ -51,6 +52,19 @@ export const CARD_STAGE_POLICY: JobQueuePolicy = {
 };
 
 /**
+ * Retry policy for `card.stage.dead`: no retries and no dead letter of its own.
+ *
+ * This handler is what finally reads a dead-lettered `card.stage` job and reacts to it — a queue
+ * nobody was subscribed to, subscribed. It must not be able to dead-letter itself: a failure inside
+ * it (a database hiccup while poisoning the card, say) should log and stop, exactly like any other
+ * unhandled job error, not spend a retry budget or recurse into a second dead-letter queue that
+ * would be just as unread as the first one was.
+ */
+export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
+    retryLimit: 0,
+};
+
+/**
  * The job queue.
  *
  * pg-boss on the same Postgres database as everything else — no separate broker to run or operate.
@@ -80,9 +94,15 @@ export const JobsModule: ServerKitModule = {
             .asSingleton();
 
         registry.register(CardStageJob).useClass(CardStageJob).asTransient();
+        // CardStageDeadJob reads which job is currently running it (JobContext.id) to look its own
+        // dead-letter row back up for the failed attempt's output — register the token so that
+        // injection resolves instead of throwing.
+        registerJobContext(registry);
+        registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
+        jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 
