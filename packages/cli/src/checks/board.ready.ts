@@ -47,7 +47,7 @@ export const boardReady: Check = {
             return {
                 ok: false,
                 message: describeApiError(err, ctx),
-                fixHint: 'Start the API — `wilson run` — then run doctor again.',
+                fixHint: 'Start the API — `pnpm --filter @wilson/api start` — then run doctor again.',
             };
         }
     },

@@ -1,5 +1,3 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { Logger } from '@maroonedsoftware/logger';
@@ -9,26 +7,13 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { loadStages, findStage, validTargets } from '#modules/stages/stage.config.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
+import { RunningCards } from '#modules/jobs/card.stage.job.js';
 import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
 import { filesInScope, type Card } from './card.js';
-
-const exec = promisify(execFile);
-
-/**
- * The pid of a running `wilson run` daemon, or undefined if none is.
- *
- * Ported from `release.command.ts` unchanged: same probe (`wilson run` is `./src/index.ts run`, so
- * its process line contains "index.ts run"), same reason for existing — see `release` below for why
- * a producer-only connection needs this to disambiguate a claim that looks `active`.
- */
-const runningDaemon = async (): Promise<string | undefined> => {
-    const running = await exec('pgrep', ['-f', 'index.ts run']).catch(() => undefined);
-    return running?.stdout.trim().split('\n').filter(Boolean)[0];
-};
 
 /**
  * The board's write surface — the service the generated `/api/cards*` `post`/`patch` handlers bind
@@ -57,6 +42,7 @@ export class BoardWriteService {
         private readonly logger: Logger,
         private readonly cardJobs: CardJobs,
         private readonly broker: JobBroker,
+        private readonly runningCards: RunningCards,
     ) {}
 
     /**
@@ -329,10 +315,10 @@ export class BoardWriteService {
      * producer-only caller. `JobBroker`/`CardJobs` reach `send`/`cancel`/`getJob`-equivalent calls
      * without ever calling `work()` for anything, so nothing here can pick up, run or chain a stage.
      *
-     * `inFlight` is checked before the running-daemon probe, not after: a card with no claim — or one
-     * whose job already settled — is "nothing to release" regardless of whether a `wilson run` daemon
-     * happens to be running elsewhere. Checking the daemon first would make every card look like a
-     * maybe-in-flight job whenever any daemon process is alive.
+     * `inFlight` is checked before the in-flight disambiguation, not after: a card with no claim — or
+     * one whose job already settled — is "nothing to release" regardless of what else is running.
+     * Checking the disambiguation first would make every card look like a maybe-in-flight job
+     * whenever anything at all is running.
      */
     async release(id: string): Promise<CardDetail> {
         const jobId = await this.cardJobs.inFlight(id);
@@ -341,12 +327,19 @@ export class BoardWriteService {
         }
 
         // Only a card that does hold a live claim needs disambiguating: is that claim genuinely being
-        // worked right now, or just abandoned? See the module doc on `runningDaemon` for why this
-        // comes after `inFlight` rather than before it.
-        const daemonPid = await runningDaemon();
-        if (daemonPid) {
+        // worked right now, or just abandoned? Before card 0079, `wilson run` and the API could both
+        // be draining the queue, so a `pgrep -f 'index.ts run'` for a second, possibly-live worker was
+        // the only way to tell "no daemon left to finish this" from "something else out there might
+        // still be on it". Now the API is the only daemon, and this method only ever runs inside it —
+        // asking "is a daemon up" from in here is always true, so it answers nothing. What still
+        // genuinely varies is `RunningCards`: whether *this* process's own `CardStageJob` handler is
+        // mid-run on *this* card right now (see its doc in card.stage.job.ts — the same tracker
+        // `stopCardStageJobs` reads to report shutdown abandonment). A claim `inFlight` still calls
+        // live but that this process is not currently running is exactly a claim left behind by an
+        // earlier process that crashed before it could clear or hand off — safe to release.
+        if (this.runningCards.snapshot().includes(id)) {
             throw httpError(400).withDetails({
-                reason: `${id}: job ${jobId} is claimed and daemon ${daemonPid} is running — it may genuinely be in flight`,
+                reason: `${id}: job ${jobId} is claimed and this process is running it right now — it may genuinely be in flight`,
             });
         }
 
