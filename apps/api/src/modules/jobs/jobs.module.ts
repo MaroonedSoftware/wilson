@@ -96,6 +96,15 @@ export const CARD_STAGE_WORKER: JobWorkerPolicy = {
  * is short enough that `stop()` normally settles well inside this deadline; this exists only for the
  * rarer case where `stop()` itself hangs beyond its own bound — its cleanup stuck on the database,
  * say — so shutdown still proceeds rather than blocking forever on a promise that may never resolve.
+ *
+ * This is also, most likely, the same root cause behind a second error pg-boss logs on its own
+ * during a stage that was still active when shutdown started: `Worker.stop` awaiting a job's
+ * handler promise that pg-boss's own graceful window gave up on, the promise later settling and its
+ * completion path (`Manager.fail`) running against a connection `PgBoss.stop()` had by then already
+ * closed. Same shape as the bug this card fixes — something touching the connection after `stop()`
+ * has torn it down — but entirely inside pg-boss's own `stop()` call, not a call this codebase makes
+ * afterwards, so there is nothing here to change it from the outside. Left alone, per this card's
+ * scope; noted so the next person does not spend time chasing it as a separate defect.
  */
 export const SHUTDOWN_DEADLINE_MS = 35_000;
 
@@ -107,9 +116,26 @@ export interface AbandonedCardJob {
     jobId: string;
 }
 
+/**
+ * A card `RunningCards` still showed once shutdown gave up, whose post-stop confirmation itself
+ * failed — neither "settled" nor "still running" was answerable. `reason` is the failure's own
+ * message, kept so the report says what went wrong rather than just that something did.
+ */
+export interface UnconfirmedCardJob {
+    cardId: string;
+    reason: string;
+}
+
 export interface ShutdownReport {
     /** Cards this process was still mid-run on once shutdown gave up. Empty is a clean stop. */
     abandoned: AbandonedCardJob[];
+    /**
+     * Cards `RunningCards` still showed that could not be confirmed settled or abandoned at all —
+     * the post-stop read itself failed. Distinct from both other states: unlike a clean stop, the
+     * card is not known to have settled; unlike `abandoned`, it is not known to still be running
+     * either. Empty alongside an empty `abandoned` is what a genuinely clean stop looks like.
+     */
+    unconfirmed: UnconfirmedCardJob[];
 }
 
 /**
@@ -125,37 +151,61 @@ export interface ShutdownReport {
  * the question to ask; "is `RunningCards` still holding a card `stop()` claimed to be done with" is.
  * `SHUTDOWN_DEADLINE_MS` only guards the separate, rarer case of `stop()` not returning at all.
  *
- * Each card `RunningCards` still shows is confirmed live via `CardJobs.inFlight` before being
- * reported, since the tracker can be a beat stale — a card it still shows can have already settled
- * between `stop()` returning and this check running.
+ * Each card `RunningCards` still shows is confirmed live via `CardJobs.confirmInFlightAfterStop`
+ * before being reported, since the tracker can be a beat stale — a card it still shows can have
+ * already settled between `stop()` returning and this check running. That confirmation runs after
+ * `runner.stop()` has already closed pg-boss's own connection, so it deliberately does not use
+ * `CardJobs.inFlight` — that method asks the broker, which asks pg-boss's manager, which throws
+ * once the connection is closed. `confirmInFlightAfterStop` reads the same job state a different
+ * way, over a connection that is still open; see its doc comment for why that is sound.
+ *
+ * A card whose confirmation itself fails — the read throws rather than answering settled or
+ * abandoned — is neither: it is not swallowed into a clean report, and it is not guessed at as
+ * abandoned. It is collected into `unconfirmed` instead, a third, truthful state, and left for the
+ * caller to say loudly rather than hide.
  */
 export const stopCardStageJobs = async (runner: JobRunner, running: RunningCards, cardJobs: CardJobs): Promise<ShutdownReport> => {
     await Promise.race([runner.stop(), delay(SHUTDOWN_DEADLINE_MS)]);
 
     const abandoned: AbandonedCardJob[] = [];
+    const unconfirmed: UnconfirmedCardJob[] = [];
     for (const cardId of running.snapshot()) {
-        const jobId = await cardJobs.inFlight(cardId);
-        if (jobId) abandoned.push({ cardId, jobId });
+        try {
+            const jobId = await cardJobs.confirmInFlightAfterStop(cardId);
+            if (jobId) abandoned.push({ cardId, jobId });
+        } catch (error) {
+            unconfirmed.push({ cardId, reason: error instanceof Error ? error.message : String(error) });
+        }
     }
-    return { abandoned };
+    return { abandoned, unconfirmed };
 };
 
 /**
- * Thrown by `BoundedCardStageJobRunner.stop()` when a card was still running once shutdown gave up
- * waiting for it, so a caller that already does nothing but `await runner.stop()` — `run.command.ts`
- * included — finds out its stop was not clean without needing a new dependency of its own; it just
- * has to look at what `stop()` did. The full, truthful accounting is on `abandoned`; `message` is
- * already the human-readable form so a bare `error.message` is enough for a caller that just wants
- * to log and move on.
+ * Thrown by `BoundedCardStageJobRunner.stop()` when a stop was not clean — a card was still running
+ * once shutdown gave up waiting for it, or shutdown could not even confirm whether one was — so a
+ * caller that already does nothing but `await runner.stop()` — `run.command.ts` included — finds out
+ * without needing a new dependency of its own; it just has to look at what `stop()` did. The full,
+ * truthful accounting is on `abandoned` and `unconfirmed`; `message` is already the human-readable
+ * form so a bare `error.message` is enough for a caller that just wants to log and move on.
  */
 export class AbandonedCardJobsError extends Error {
     readonly abandoned: AbandonedCardJob[];
+    readonly unconfirmed: UnconfirmedCardJob[];
 
-    constructor(abandoned: AbandonedCardJob[]) {
-        const names = abandoned.map(({ cardId, jobId }) => `${cardId} (job ${jobId})`).join(', ');
-        super(`${abandoned.length} card.stage job(s) still in flight, abandoned and will be redelivered: ${names}`);
+    constructor(abandoned: AbandonedCardJob[], unconfirmed: UnconfirmedCardJob[] = []) {
+        const parts: string[] = [];
+        if (abandoned.length > 0) {
+            const names = abandoned.map(({ cardId, jobId }) => `${cardId} (job ${jobId})`).join(', ');
+            parts.push(`${abandoned.length} card.stage job(s) still in flight, abandoned and will be redelivered: ${names}`);
+        }
+        if (unconfirmed.length > 0) {
+            const names = unconfirmed.map(({ cardId, reason }) => `${cardId} (${reason})`).join(', ');
+            parts.push(`could not confirm ${unconfirmed.length} card(s) settled or abandoned: ${names}`);
+        }
+        super(parts.join('; '));
         this.name = 'AbandonedCardJobsError';
         this.abandoned = abandoned;
+        this.unconfirmed = unconfirmed;
     }
 }
 
@@ -194,8 +244,8 @@ class BoundedCardStageJobRunner extends JobRunner {
         // written (card 0066), not a snapshot something else keeps changing underneath it.
         await this.poller?.stop();
         const report = await stopCardStageJobs(this.inner, this.running, this.cardJobs);
-        if (report.abandoned.length > 0) {
-            throw new AbandonedCardJobsError(report.abandoned);
+        if (report.abandoned.length > 0 || report.unconfirmed.length > 0) {
+            throw new AbandonedCardJobsError(report.abandoned, report.unconfirmed);
         }
     }
 }
@@ -297,9 +347,15 @@ export const JobsModule: ServerKitModule = {
     },
     // Stops accepting new jobs and waits, bounded, for in-flight ones to finish before Data tears
     // down the pool underneath them. `JobRunner.stop()` (see BoundedCardStageJobRunner above) is what
-    // actually does the bounding and reporting, surfacing a card still abandoned past the deadline as
-    // a rejection; this logs it and swallows it, so abandonment does not stop the rest of shutdown
-    // (Data's pool teardown among it) from running.
+    // actually does the bounding and reporting, surfacing a card still abandoned or unconfirmed past
+    // the deadline as a rejection; this logs it and swallows it, so that does not stop the rest of
+    // shutdown (Data's pool teardown among it) from running.
+    //
+    // The only broker call anywhere in this hook's path used to run after `runner.stop()` was the one
+    // this card fixes (`CardJobs.inFlight`, called from `stopCardStageJobs`, now
+    // `CardJobs.confirmInFlightAfterStop`). Everything else that touches the broker or `CardJobs` —
+    // `Poller.tick`'s `inFlight`/`broker.send` included — runs before `runner.stop()`, either as part
+    // of normal operation or via `poller?.stop()` above it in `BoundedCardStageJobRunner.stop()`.
     shutdown: async (container: Container) => {
         try {
             await container.get(JobRunner).stop();
