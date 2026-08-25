@@ -54,6 +54,35 @@ export async function poisonCard(
 }
 
 /**
+ * Cards this process is mid-run on right now.
+ *
+ * `runner.card_jobs` (via `CardJobs`) is the durable claim — which job, if any, is carrying a card,
+ * queryable by any process at any time. It does not say which card THIS worker's `card.stage`
+ * handler is inside `run()` for at this instant, and that is exactly what a bounded shutdown needs
+ * to name: not every claimed card on the board, just the one this process would be abandoning.
+ * `CardStageJob.run` adds a card on entry and removes it once the handler settles — normally,
+ * permanently-failed, or thrown — so a card still here past a deadline is one whose handler never
+ * returned.
+ */
+@Injectable()
+export class RunningCards {
+    private readonly cardIds = new Set<string>();
+
+    add(cardId: string): void {
+        this.cardIds.add(cardId);
+    }
+
+    delete(cardId: string): void {
+        this.cardIds.delete(cardId);
+    }
+
+    /** Cards this process was mid-run on at the moment this was called. */
+    snapshot(): string[] {
+        return [...this.cardIds];
+    }
+}
+
+/**
  * Runs one stage for one card, then decides whether the chain keeps going.
  *
  * `StageDispatcher.run` only ever reports where a card landed (`transitionedTo`), forward on a pass
@@ -71,11 +100,25 @@ export class CardStageJob extends Job<CardStagePayload> {
         private readonly boardRepo: BoardRepository,
         private readonly events: EventLog,
         private readonly cardJobs: CardJobs,
+        // Defaulted, not just typed optional: DI (jobs.module.ts) always supplies the shared
+        // singleton, so this only matters for a test constructing a job by hand with the six
+        // dependencies it cares about — it still gets a valid (if unshared) tracker rather than a
+        // `this.running.add is not a function` crash on the first `run()` call.
+        private readonly running: RunningCards = new RunningCards(),
     ) {
         super();
     }
 
     async run({ cardId, stageName }: CardStagePayload): Promise<void> {
+        this.running.add(cardId);
+        try {
+            await this.runStage(cardId, stageName);
+        } finally {
+            this.running.delete(cardId);
+        }
+    }
+
+    private async runStage(cardId: string, stageName: string): Promise<void> {
         let outcome;
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
