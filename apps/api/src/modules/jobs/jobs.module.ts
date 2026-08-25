@@ -3,7 +3,7 @@ import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
-import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy } from '@maroonedsoftware/jobbroker';
+import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy, type JobWorkerPolicy } from '@maroonedsoftware/jobbroker';
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
@@ -65,6 +65,26 @@ export const CARD_STAGE_POLICY: JobQueuePolicy = {
  */
 export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
     retryLimit: 0,
+};
+
+/**
+ * Worker policy for `card.stage`: how many of these jobs *this process* runs at once.
+ *
+ * The counterpart to `CARD_STAGE_POLICY` above, and a different question — that one is stored on the
+ * queue and governs what happens to a job that fails; this one configures the worker this daemon
+ * starts and governs how fast jobs come off the queue. Another node consuming the same queue could
+ * legitimately use a different value, and changing this takes effect on the next start rather than
+ * for everyone at once.
+ *
+ * `concurrency` is the only field set: `batchSize` stays at pg-boss's default of one job per fetch
+ * (a batch settles per job under jobbroker's `perJobResults`, but a stage is minutes of agent work,
+ * not something worth fetching in bulk), and `pollInterval` stays at pg-boss's default because
+ * nothing here waits on sub-second dispatch latency — `POLLER_INTERVAL_MS` is thirty seconds.
+ *
+ * See `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) for the number itself and why it is 1.
+ */
+export const CARD_STAGE_WORKER: JobWorkerPolicy = {
+    concurrency: CARD_STAGE_CONCURRENCY,
 };
 
 /**
@@ -187,8 +207,8 @@ class BoundedCardStageJobRunner extends JobRunner {
  * One queue for now, `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
  * through consecutive `agent` stages without a human re-triggering each one.
  *
- * At most `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) of those jobs run at once — pg-boss's own
- * default, since jobbroker gives this module no way to raise or lower it.
+ * At most `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) of those jobs run at once, declared on the
+ * registration below as `CARD_STAGE_WORKER` rather than inherited from pg-boss's default.
  */
 export const JobsModule: ServerKitModule = {
     name: 'Jobs',
@@ -229,7 +249,7 @@ export const JobsModule: ServerKitModule = {
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
-        jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
+        jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
@@ -268,10 +288,11 @@ export const JobsModule: ServerKitModule = {
     // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
     start: async (container: Container) => {
-        // See CARD_STAGE_CONCURRENCY (job.runner.config.ts): this is pg-boss's own default,
-        // inherited unconfigured because jobbroker has no hook to set it through. Logged so the
-        // ceiling on simultaneously running stages is visible without reading either source.
-        container.get(Logger).info(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY} (pg-boss default; jobbroker has no hook to configure it)`);
+        // See CARD_STAGE_CONCURRENCY (job.runner.config.ts). Logged so the ceiling on simultaneously
+        // running stages is visible in the daemon's own startup output rather than only by reading
+        // the registration — the number is now this module's to choose, so what it chose is worth
+        // saying out loud.
+        container.get(Logger).info(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY}`);
         await container.get(JobRunner).start();
     },
     // Stops accepting new jobs and waits, bounded, for in-flight ones to finish before Data tears
