@@ -32,9 +32,13 @@ import { StageVerifierMap } from './stage.verifier.js';
  * before any attempt can succeed. An unsatisfied dependency is "not now", not "never": the
  * dependency landing makes the card dispatchable again with no change to the card itself.
  * `CardStageJob` branches on this discriminant, not the message text, to route each case correctly.
+ *
+ * `wrong-stage` carries `actualStage` so a caller can tell a card genuinely in the wrong place
+ * (card 0044's bug) from a stale job arriving after the card already reached a terminal stage
+ * (card 0084) — the same distinction `isTerminal` draws everywhere else.
  */
 export type NotDispatchableReason =
-    | { readonly kind: 'wrong-stage' }
+    | { readonly kind: 'wrong-stage'; readonly actualStage: string }
     | { readonly kind: 'empty-scope' }
     | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] };
 
@@ -504,7 +508,7 @@ export class StageDispatcher {
     private assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void {
         if (card.frontmatter.stage !== stage.name) {
             throw new NotDispatchableError(
-                { kind: 'wrong-stage' },
+                { kind: 'wrong-stage', actualStage: card.frontmatter.stage },
                 `card ${card.frontmatter.id} is in stage "${card.frontmatter.stage}", not "${stage.name}"`,
             );
         }
