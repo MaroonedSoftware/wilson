@@ -153,6 +153,22 @@ export const StageConfigSchema = z.object({
      * bounded by the stage's own `maxKickbacks`, exactly like a kickback to any other stage — the
      * difference is only that the stage still has real work left to do (write the missing tests),
      * so a retry can actually change the outcome instead of reproducing the same empty diff.
+     *
+     * That "real work left to do" assumption has a limit: testing can fail not because it skipped
+     * its own job but because the implementation it was handed cannot be tested as written — no
+     * seam to attach an assertion to, a dependency nothing can fake, behavior only a code change
+     * could make observable. A self-loop retrying `testing` does not fix that; no amount of trying
+     * harder writes a passing test for something that cannot be tested. The self-loop does not lose
+     * this case silently, though — it still runs out `maxKickbacks` and lands on `needsHuman`,
+     * exactly like any other exhausted stage, carrying a reason string built from testing's own
+     * failed attempts. A human reading that reason alongside the worktree can tell "wrote no tests"
+     * apart from "this cannot be tested as built" and route the latter to `implementing` by hand
+     * (`wilson card move`). What the self-loop costs in that case is not a wrong answer, only a
+     * later one: `maxKickbacks` worth of testing attempts before a human sees it, instead of routing
+     * straight there. Distinguishing the two automatically would need a signal `kickback` does not
+     * have today — a structured reason from the failed run itself, not just which stage failed and
+     * how many times — see the note in `kickback.ts`. Left for a later card rather than guessed at
+     * here.
      */
     onFail: z.string(),
     maxKickbacks: z.number().int().min(0).default(3),

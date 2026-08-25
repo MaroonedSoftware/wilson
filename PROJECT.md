@@ -204,6 +204,19 @@ nothing wrong at any point. A stage whose `onFail` names itself is not a special
 bounded by its own `maxKickbacks` exactly like a kickback to any other stage, the difference being
 that it still has real work left to do.
 
+That "real work left to do" holds when testing wrote no tests or its report is stale, but not when
+testing fails because the implementation cannot be tested as written — no seam for an assertion to
+attach to, a dependency nothing can fake. A self-loop retrying `testing` cannot fix that either; it
+still lands on `needs-human` once `maxKickbacks` is spent, same as any exhausted stage, with a reason
+string naming the testing stage and its failure. A human reading that alongside the worktree can tell
+the two apart — testing kept trying, or the implementation was the actual blocker — and route the
+latter to `implementing` by hand with `wilson card move`. That costs a round of testing attempts
+before a human sees it, not a wrong outcome: still strictly better than card 0060's shape, which spent
+its retries on an already-correct implementing stage instead. Telling the two failures apart
+automatically would need testing to report why it failed, not just that it did — a signal the
+runner does not carry today (`apps/api/src/modules/stages/kickback.ts`) — and is left for a later
+card.
+
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and
 folding it into planning would make planning a stage with two models and two

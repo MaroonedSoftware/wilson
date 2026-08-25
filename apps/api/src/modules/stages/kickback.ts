@@ -33,6 +33,10 @@ export interface KickbackDecision {
  * (`StageDispatcher.writeTransition`) has to pass it, which this card left alone — routing
  * `testing.onFail: testing` already removes the concrete harm from card 0060, since `implementing`
  * is never re-dispatched with nothing to do. Left as a documented option, not a silent omission.
+ *
+ * The same gap is what would be needed to separate "testing skipped its own job" from "testing
+ * failed because the implementation cannot be tested" (see the `onFail` field in `stage.config.ts`)
+ * — both are `testing` failing its exit condition, and only the run's own outcome could say which.
  */
 export const kickback = (stage: StageConfig, retries: Record<string, number>): KickbackDecision => {
     const attempts = (retries[stage.name] ?? 0) + 1;
