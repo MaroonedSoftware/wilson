@@ -47,7 +47,7 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`stage:    ${fm.stage}`);
         if (timeInStage) ctx.logger.info(`for:      ${timeInStage.shiftTo('days', 'hours', 'minutes').toHuman()}`);
         ctx.logger.info(`branch:   ${fm.branch ?? '—'}`);
-        ctx.logger.info(`planVersion: ${fm.planVersionId ?? '— (not approved; stages run against current state)'}`);
+        ctx.logger.info(`pinned:   ${fm.planVersionId ?? '— (not approved; wilson card approve to pin the plan a stage runs against)'}`);
         if (fm.dependsOn.length > 0) ctx.logger.info(`blocked:  ${fm.dependsOn.join(', ')}`);
         if (fm.needsHuman) ctx.logger.info(`needs human: ${fm.needsHumanReason ?? '(no reason given)'}`);
         const retries = Object.entries(fm.retries);
