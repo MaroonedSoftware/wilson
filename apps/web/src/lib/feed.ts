@@ -1,0 +1,38 @@
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from './sdk.js';
+
+/** Whether the board is watching the live feed or showing whatever it last fetched. */
+export type FeedStatus = 'live' | 'disconnected';
+
+/**
+ * Subscribes to `/api/feed` for the lifetime of the app and invalidates the cards query on every
+ * event, so a card that moves shows up without anyone pressing refresh.
+ *
+ * Deliberately not a reducer that folds events into board state: the feed hands a fresh subscriber
+ * the latest value per card on connect, so replaying the stream client-side would just rebuild what
+ * the snapshot already gives for free. An event only ever means "go re-fetch the list" — the runner
+ * is the sole writer, and rendering a client-side guess at the next state would render a lie.
+ *
+ * Reconnection needs no code of its own: a plain `EventSource` retries on its own after the
+ * connection drops (an API restart, most likely, since every restart drops every open stream), and
+ * `onopen`/`onerror` are enough to track whether that retry has landed yet.
+ */
+export const useCardFeed = (): FeedStatus => {
+    const queryClient = useQueryClient();
+    const [status, setStatus] = useState<FeedStatus>('disconnected');
+
+    useEffect(() => {
+        const source = new EventSource(`${API_BASE}/api/feed`);
+
+        source.onopen = () => setStatus('live');
+        source.onerror = () => setStatus('disconnected');
+        source.addEventListener('card', () => {
+            void queryClient.invalidateQueries({ queryKey: ['cards'] });
+        });
+
+        return () => source.close();
+    }, [queryClient]);
+
+    return status;
+};
