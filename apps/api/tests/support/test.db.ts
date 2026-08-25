@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from '#modules/data/db.js';
@@ -25,13 +26,25 @@ export const testDb = (): Kysely<DB> =>
         plugins: [...KyselyDefaultPlugins],
     });
 
-let counter = 0;
-
 /**
  * A project name no other test uses.
  *
  * Cards are keyed by `(project, id)`, so a unique project is all the isolation a test needs — no
  * schema per test, no truncation between them, and tests in the same file can run against one
  * connection. This is the cheap version of what card 0027 wants for worktrees.
+ *
+ * This used to append a module-level counter to `process.pid`: pid to separate workers, the
+ * counter to separate calls within one. That reasoning was sound and the implementation still
+ * broke, because vitest gives each test file its own module registry — the counter restarts at 0
+ * in every file, not once per worker. Two DB-touching files running in the same worker both
+ * produced `test-<pid>-0`, their cards collided on `(project, id)`, and whichever inserted second
+ * failed, intermittently, depending on scheduling. Anything reset per file reintroduces the same
+ * bug in a new shape, so the fix cannot be more module state.
+ *
+ * `randomUUID()` has no module state to reset: it pulls fresh cryptographic randomness from the OS
+ * on every call, so two calls collide only by a 128-bit-random accident — unlike `Math.random()`,
+ * which is unseeded and only improbable, not cryptographically random. That holds regardless of
+ * which files vitest loads into which worker or in what order. The `pid` prefix is no longer load
+ * bearing for uniqueness; it stays so a failing project name is traceable back to its worker.
  */
-export const uniqueProject = (): string => `test-${process.pid}-${counter++}`;
+export const uniqueProject = (): string => `test-${process.pid}-${randomUUID()}`;
