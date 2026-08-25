@@ -55,8 +55,8 @@ describe('CARD_STAGE_DEAD_POLICY', () => {
  * install`. Pinned here so the number moves on purpose rather than by accident.
  */
 describe('CARD_STAGE_CONCURRENCY', () => {
-    it('is 2, the number of stages this runner runs at once', () => {
-        expect(CARD_STAGE_CONCURRENCY).toBe(2);
+    it('is 3, the number of stages this runner runs at once', () => {
+        expect(CARD_STAGE_CONCURRENCY).toBe(3);
     });
 });
 

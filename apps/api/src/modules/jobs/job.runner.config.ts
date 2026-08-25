@@ -38,7 +38,7 @@
  * also covers the agent's own installs, and because it is exactly what is needed the moment this
  * number moves.
  */
-export const CARD_STAGE_CONCURRENCY = 2;
+export const CARD_STAGE_CONCURRENCY = 3;
 
 /**
  * How often the poller (`poller.ts`) checks the board for a card to enqueue.
