@@ -68,7 +68,11 @@ describe('deleteFile', () => {
         expect(events).toMatchObject([
             {
                 type: 'tool.denied',
-                payload: { tool: 'delete', path: 'src/other/keep.ts', reason: 'path is outside the plan’s files in scope' },
+                payload: {
+                    tool: 'delete',
+                    path: 'src/other/keep.ts',
+                    reason: 'path is outside the plan’s files in scope — call request_scope with this path if the work genuinely needs it',
+                },
             },
         ]);
         await expect(stat(join(root, 'src', 'other', 'keep.ts'))).resolves.toBeDefined();

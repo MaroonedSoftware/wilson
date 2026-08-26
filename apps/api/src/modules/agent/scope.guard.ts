@@ -40,6 +40,13 @@ export interface ScopeGuardOptions {
 const ALWAYS_DENIED = ['.runner/**', '.board/**', '**/stages.yaml', '**/stages.yml', '.git/**'];
 
 /**
+ * Refusal for a path on {@link ALWAYS_DENIED}. Says `request_scope` will not help, not just that
+ * the path is off-limits — `grant` refuses these too (see its own test), so the message would
+ * otherwise send an agent through a round trip that was always going to fail the same way.
+ */
+const DENY_LIST_REASON = 'path is denied: the runner owns it, not the plan — request_scope cannot widen it, so work through a different path';
+
+/**
  * Decides whether an agent may write a path.
  *
  * This is the single enforcement point for scope. It is not a lint that runs after the fact: a write
@@ -78,7 +85,7 @@ export class ScopeGuard {
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
         if (this.matchDeny(contained.path)) {
-            return { allowed: false, path: contained.path, reason: 'path is denied: the runner owns it, not the plan' };
+            return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
         }
         this.granted.add(contained.path);
         return contained;
@@ -111,7 +118,7 @@ export class ScopeGuard {
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
         if (this.matchDeny(contained.path)) {
-            return { allowed: false, path: contained.path, reason: 'path is denied: the runner owns it, not the plan' };
+            return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
         }
         return contained;
     }
@@ -122,7 +129,7 @@ export class ScopeGuard {
         const key = contained.path;
 
         if (this.matchDeny(key)) {
-            return { allowed: false, path: key, reason: 'path is denied: the runner owns it, not the plan' };
+            return { allowed: false, path: key, reason: DENY_LIST_REASON };
         }
         if (this.granted.has(key)) {
             return { allowed: true, path: key, via: 'grant' };
@@ -137,7 +144,14 @@ export class ScopeGuard {
             this.collateralUsed.add(key);
             return { allowed: true, path: key, via: 'collateral' };
         }
-        return { allowed: false, path: key, reason: 'path is outside the plan’s files in scope' };
+        // Naming the fix, not just the fault, same as the out-of-tree refusal below: a plan's scope
+        // is closed by default, so "not listed" is a dead end an agent can only escape by asking for
+        // a widening — say so here rather than leaving it to whichever caller happens to append it.
+        return {
+            allowed: false,
+            path: key,
+            reason: 'path is outside the plan’s files in scope — call request_scope with this path if the work genuinely needs it',
+        };
     }
 
     /**

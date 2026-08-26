@@ -212,6 +212,20 @@ describe('createToolGuard', () => {
             expect(denied[1]?.reason).toContain('2nd time this has been refused in this run');
         });
 
+        it('still groups two identical out-of-scope Write denials despite the longer scope-refusal message', async () => {
+            // Card 0110 lengthened the scope guard's out-of-scope reason to name the request_scope
+            // remedy. denialShapeFor keys on tool+path, not the reason text, but that's exactly the
+            // kind of thing a longer message could silently break — prove it hasn't.
+            const { guard } = build('rw');
+            const first = await guard('Write', { file_path: '/tmp/src/other/new.ts' }, opts);
+            expect((first as { message: string }).message).toContain('call request_scope with this path');
+
+            const second = await guard('Write', { file_path: '/tmp/src/other/new.ts' }, opts);
+            const message = (second as { message: string }).message;
+            expect(message).toContain('2nd time this has been refused in this run');
+            expect(message).toContain('call request_scope with this path');
+        });
+
         it('keeps repeat counts private to one guard instance', async () => {
             // createToolGuard is called fresh per stage run; a second call (a different stage, or a
             // retry of the same one) must not inherit another run's history.
