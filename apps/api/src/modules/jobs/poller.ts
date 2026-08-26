@@ -5,6 +5,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { nextCard } from '#modules/board/next.card.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { loadStages, findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
@@ -19,7 +20,12 @@ import { CardJobs } from './card.jobs.js';
  * already exists and that `card start` already trusts. `nextCard` orders every workable candidate,
  * lowest id first — respecting `unsatisfiedDependencies`, skipping flagged cards — and this runs each
  * one past `whyNotDispatchable` (the same refusal `card start` and `CardStageJob`'s dispatcher both go
- * through) and `CardJobs.inFlight` (the same claim check `card start` makes) before enqueuing.
+ * through), `CardJobs.inFlight` (the same claim check `card start` makes), and — card 0128 —
+ * `BoardRepository.scopeConflict` (the same check `deferOnScopeConflict`, jobs/predispatch/scope.conflict.ts,
+ * runs right before dispatch) before enqueuing. The last one is deliberately asked here rather than
+ * folded into `whyNotDispatchable`: it is a question about every other card on the board, not about
+ * whether this one card's own stage is dispatchable, and `whyNotDispatchable`'s doc already says it
+ * stays out of that for the CLI path — this keeps it staying out, for both callers.
  * If this ever disagrees with `wilson card start` about whether a card is ready, one of them has a
  * bug — this must never grow a second definition of "ready" to resolve that disagreement.
  *
@@ -65,6 +71,7 @@ export class Poller {
         private readonly cardJobs: CardJobs,
         private readonly logger: Logger,
         private readonly settings: SettingsStore,
+        private readonly events: EventLog,
     ) {}
 
     /** Idempotent: calling `start` while already running does nothing. */
@@ -110,12 +117,16 @@ export class Poller {
      *
      * Walks `nextCard.candidates` in order rather than stopping at the first one, so one card in a
      * manual stage — `wilson card next`'s honest answer for a human — cannot silently wedge the queue
-     * behind it forever. It skips a candidate only for that one reason. Any other refusal from
-     * `whyNotDispatchable` (flagged, terminal, parking-lot, a stage the config doesn't know) means
-     * something is actually wrong rather than merely manual, so the tick still stops there exactly as
-     * it always has — `candidates` should never contain flagged/terminal/blocked cards in the first
-     * place (`nextCard` already filters those), so reaching one of those refusals here is itself a
-     * sign of drift between the two, not a case to route around.
+     * behind it forever. It skips a candidate only for that one reason, plus one more added by card
+     * 0128: a candidate `BoardRepository.scopeConflict` says would defer. Both are cards the walk must
+     * pass over rather than stop at, for the same underlying reason — stopping there starves every
+     * candidate behind it, and a card that would defer is no more this tick's card to enqueue than one
+     * sitting in a manual stage is. Any other refusal from `whyNotDispatchable` (flagged, terminal,
+     * parking-lot, a stage the config doesn't know) means something is actually wrong rather than
+     * merely manual, so the tick still stops there exactly as it always has — `candidates` should never
+     * contain flagged/terminal/blocked cards in the first place (`nextCard` already filters those), so
+     * reaching one of those refusals here is itself a sign of drift between the two, not a case to
+     * route around.
      */
     private async tick(): Promise<void> {
         try {
@@ -161,6 +172,35 @@ export class Poller {
                 // already started does not stop the walk — it just isn't this tick's card to enqueue.
                 const running = await this.cardJobs.inFlight(cardId);
                 if (running) continue;
+
+                // Card 0128: ask the same scope-conflict question `deferOnScopeConflict`
+                // (jobs/predispatch/scope.conflict.ts) asks right before `dispatcher.run`, but before
+                // ever enqueueing rather than after. Skipping a conflicted candidate here is cheap;
+                // letting it through only to have the job defer immediately is not merely wasteful —
+                // that defer clears the card's claim and returns control to this same walk, offering
+                // the identical candidate right back to it. Card 0117 taught the poller to walk past a
+                // manual stage rather than let it wedge the queue; a card that would defer is the same
+                // problem, so it gets the same answer: try the next candidate instead.
+                //
+                // Deliberately asked here and not folded into `whyNotDispatchable` (dispatchable.ts):
+                // that function is the one refusal `wilson card start` and the poller are required to
+                // agree on, and a scope conflict is a question about every *other* card on the board,
+                // not about this one — `whyNotDispatchable` already documents that it stays out of
+                // this for the CLI path, and doing it any differently for the poller would just be a
+                // second definition of the same check.
+                //
+                // Best-effort like every other lookup a tick makes: a check that cannot answer is
+                // treated as "no conflict" rather than stopping the walk over it. A real conflict a
+                // failed lookup missed here is still caught correctly by `deferOnScopeConflict` once
+                // the job actually runs — this is an optimization to avoid the wasted enqueue, not the
+                // check of record.
+                let conflict: { cardId: string } | undefined;
+                try {
+                    conflict = await this.board.scopeConflict(this.events, this.boardConfig.project, candidate, stages);
+                } catch {
+                    conflict = undefined;
+                }
+                if (conflict) continue;
 
                 const jobId = await this.broker.send('card.stage', { cardId, stageName });
                 await this.cardJobs.record(cardId, jobId);

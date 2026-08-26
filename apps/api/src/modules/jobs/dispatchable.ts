@@ -24,6 +24,15 @@ export interface NotDispatchable {
  * (poller or `wilson card start`), not here. `BoardRepository.scopeConflict` is the shared matcher
  * both this file's callers and that check are meant to agree with — see the note there before
  * changing either.
+ *
+ * Card 0128 asked, and answered, the same question again: should the poller's own pre-enqueue walk
+ * (poller.ts) fold a scope-conflict check in here too, so `whyNotDispatchable` alone could tell it to
+ * pass over a candidate that would defer? No — `scopeConflict` asks about every *other* card on the
+ * board, a fundamentally different, heavier question than this function's "is this one card's own
+ * stage dispatchable," and `wilson card start` has no use for it (a human starting one card does not
+ * need the poller's walk-past behaviour). The poller asks `BoardRepository.scopeConflict` itself,
+ * directly, alongside its own `whyNotDispatchable` call, rather than this function growing a second
+ * shape depending on who is asking.
  */
 export const whyNotDispatchable = (card: Card, stages: ProjectStages): NotDispatchable | undefined => {
     if (card.frontmatter.needsHuman) {

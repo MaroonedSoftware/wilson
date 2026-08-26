@@ -49,13 +49,18 @@ export const effectiveScope = (card: Card, granted: readonly string[]): string[]
 };
 
 /**
- * Whether `card` currently sits in a stage the runner treats as "in flight" for a scope-conflict
- * comparison — an agent-mode stage. `ready`/`backlog`-shaped stages, `parking-lot`, and every
- * terminal stage hold nothing (card 0104): comparing against them would degenerate this check into
- * the lock it is deliberately not. Mirrors the stage classification `whyNotDispatchable`
- * (jobs/dispatchable.ts) applies to the card being dispatched, applied here to every *other* card on
- * the board — deliberately not `needsHuman`-aware, unlike `whyNotDispatchable`: a card flagged mid-
- * `implementing` still has an unmerged worktree holding those files, so it still counts.
+ * Whether `card` currently sits in a stage the runner ever dispatches a job into — an agent-mode
+ * stage. `ready`/`backlog`-shaped stages, `parking-lot`, and every terminal stage hold nothing (card
+ * 0104), so a card there can be skipped without a database round trip. Mirrors the stage
+ * classification `whyNotDispatchable` (jobs/dispatchable.ts) applies to the card being dispatched,
+ * applied here to every *other* card on the board — deliberately not `needsHuman`-aware, unlike
+ * `whyNotDispatchable`: a card flagged mid-`implementing` still has an unmerged worktree holding
+ * those files, so it still counts.
+ *
+ * Card 0128: no longer the decisive signal by itself — only ever a cheap first filter ahead of
+ * {@link BoardRepository.hasLiveClaim}, the real question. A card sitting here holds nothing unless
+ * something is actually carrying it: the gridlock this card fixed was exactly a parked card (deferred,
+ * or its chain stopped) sitting in an agent stage with no job, being treated as if it did.
  */
 const isRunningStage = (card: Card, stages: ProjectStages): boolean => {
     const stageName = card.frontmatter.stage;
@@ -174,15 +179,27 @@ export abstract class BoardRepository {
      *
      * `events` and `stages` are taken as parameters for the same reason `reclaimIfTerminal`'s
      * `worktrees`/`events` are: this class has no `EventLog` or stage-config dependency of its own,
-     * and a caller that already holds both (`CardStageJob`) can share this one decision without the
-     * abstract class growing dependencies neither its contract nor its Postgres implementation
-     * otherwise needs.
+     * and a caller that already holds both (`CardStageJob`, and now `Poller` — see poller.ts) can
+     * share this one decision without the abstract class growing dependencies neither its contract
+     * nor its Postgres implementation otherwise needs. `hasLiveClaim`, below, is the same idea applied
+     * to card 0128's fix: this class has no queue or job-tracking dependency of its own either, so
+     * that question is answered by the Postgres implementation instead of by importing one in.
      *
      * Compares `effectiveScope` — declared plus granted — on both sides, via `scopeOverlap`
-     * (card 0069's proven matcher, reused rather than reimplemented) against every other card whose
-     * stage `isRunningStage` counts as in flight. Returns the first collision found, not every one:
-     * "which card and which files" is enough to act on, and a card can only be deferred once per
+     * (card 0069's proven matcher, reused rather than reimplemented) against every other card that
+     * both `isRunningStage` and `hasLiveClaim` count as in flight — sitting in an agent stage is
+     * necessary but not sufficient (card 0128): a card can sit there with nothing carrying it, and
+     * only a live claim means something actually is. Returns the first collision found, not every
+     * one: "which card and which files" is enough to act on, and a card can only be deferred once per
      * dispatch anyway.
+     *
+     * Card 0128: this is deliberately asymmetric in time, not merely in itself. If A is parked (no
+     * claim) and B is then dispatched, B's own call here sees no conflict and proceeds — A is not
+     * carrying anything yet. When A is later dispatched, its call sees B's claim and defers on B
+     * instead. That is correct for a lock-free deferral — nothing here is acquired or held across the
+     * two calls — and not a bug to "fix" into a symmetric reservation: a lock's lifetime would run to
+     * merge, and merge is a human gate, which is card 0104's whole reason for choosing deferral over
+     * one.
      */
     async scopeConflict(
         events: EventLog,
@@ -195,6 +212,7 @@ export abstract class BoardRepository {
         for (const other of await this.list()) {
             if (other.frontmatter.id === card.frontmatter.id) continue;
             if (!isRunningStage(other, stages)) continue;
+            if (!(await this.hasLiveClaim(project, other.frontmatter.id))) continue;
 
             const theirs = effectiveScope(other, await grantedPaths(events, project, other.frontmatter.id));
             const overlap = scopeOverlap(mine, theirs);
@@ -203,4 +221,18 @@ export abstract class BoardRepository {
 
         return undefined;
     }
+
+    /**
+     * Card 0128. Whether a job is currently carrying `cardId` — `scopeConflict`'s live-claim half,
+     * and the fix for the gridlock: a card sitting in an agent stage with nothing carrying it (it
+     * deferred, or its chain stopped) must block nothing, and stage alone cannot tell the difference.
+     *
+     * Abstract, for the same reason `worktrees`/`events` are parameters on `reclaimIfTerminal` rather
+     * than fields here: this class has no queue or job-tracking dependency of its own, and importing
+     * one (`CardJobs`, `modules/jobs/card.jobs.ts`) would pull the jobs module's shape into a class the
+     * jobs module itself already depends on (`CardJobs` takes `BoardConfig`, `CardStageJob` takes
+     * `BoardRepository`) — the reverse import would make the two modules depend on each other. The
+     * Postgres implementation answers this by reading `runner.card_jobs` directly instead.
+     */
+    abstract hasLiveClaim(project: string, cardId: string): Promise<boolean>;
 }
