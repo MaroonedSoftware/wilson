@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { FeedRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
-import { SettingsRouter } from '#src/routes/settings.router.js';
 
 /**
  * Every router the server mounts is either generated from a contract, or — for the one route that
@@ -17,8 +16,8 @@ import { SettingsRouter } from '#src/routes/settings.router.js';
  * ContractKit emits JSON handlers, and an SSE stream isn't one.
  */
 describe('routers', () => {
-    it('mounts the generated health, board and settings routers plus the hand-written feed router, and nothing else', () => {
-        expect(routers).toEqual([HealthRouter, BoardRouter, SettingsRouter, FeedRouter]);
+    it('mounts the generated health and board routers plus the hand-written feed router, and nothing else', () => {
+        expect(routers).toEqual([HealthRouter, BoardRouter, FeedRouter]);
     });
 
     /**
@@ -53,10 +52,6 @@ describe('routers', () => {
 
     it('routes GET /api/feed to the feed router', () => {
         expect(FeedRouter.match('/api/feed', 'GET').route).toBe(true);
-    });
-
-    it.each([['GET'], ['PUT']])('routes %s /api/settings/poller-enabled to the settings router', method => {
-        expect(SettingsRouter.match('/api/settings/poller-enabled', method).route).toBe(true);
     });
 
     // Card 0075 gave the board a write surface — create, move, edit — so "read-only" no longer
