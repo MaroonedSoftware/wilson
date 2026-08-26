@@ -34,6 +34,12 @@ export type AppendableCardEvent = Omit<CardEvent, 'type'> & { type: AppendableCa
  * same database, which is what lets a transition and its event share a transaction — previously the
  * card was committed to git and the event appended here, with no way to reconcile a partial failure.
  */
+/**
+ * Postgres's own limit on a NOTIFY payload, less headroom for the envelope's own keys. Not a tuning
+ * knob: past 8000 bytes the server raises `payload string too long` and the append fails.
+ */
+const NOTIFY_PAYLOAD_LIMIT = 7000;
+
 @Injectable()
 export class EventLog {
     constructor(private readonly db: Kysely<DB>) {}
@@ -63,13 +69,26 @@ export class EventLog {
         // transaction, with no in-process commit tracking needed. For a standalone event (the
         // pool default) the insert already commits on its own, so the notify goes out right away.
         // See `modules/feed/card.feed.listener.ts` for the subscriber on the other end.
-        await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${JSON.stringify({
+        // Postgres caps a NOTIFY payload at 8000 bytes and raises `payload string too long` past it,
+        // which fails the whole append — including, inside `writeWithEvent`'s transaction, the insert
+        // and the transition it was recording. A `stage.passed` event carries the agent's entire
+        // structured result, so a verbose stage exceeds this on its own: card 0105's implementing
+        // pass committed its work, then lost the transition to this and began re-running the stage on
+        // every queue retry. The row itself is JSONB and has no such limit, so the detail is never
+        // lost from the log — only from this notification, which exists to nudge the SSE feed.
+        // Dropping `payload` costs one feed message its detail; letting the append throw costs a card.
+        const envelope = {
             project: event.project,
             cardId: event.cardId,
             stage: event.stage ?? null,
             type: event.type,
             payload: event.payload ?? {},
-        })})`.execute(executor);
+        };
+        let notification = JSON.stringify(envelope);
+        if (Buffer.byteLength(notification, 'utf8') > NOTIFY_PAYLOAD_LIMIT) {
+            notification = JSON.stringify({ ...envelope, payload: { truncated: true } });
+        }
+        await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${notification})`.execute(executor);
     }
 
     /**
