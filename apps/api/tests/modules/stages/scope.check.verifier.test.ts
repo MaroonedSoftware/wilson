@@ -253,6 +253,48 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toContain('verdict is "pass" but a division was proposed; a pass should carry none');
     });
 
+    it('rejects a result whose reason is empty, since "planning" would have nothing to start from', async () => {
+        const outcome = await verify({ ...card0079, reason: '   ' });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.some(f => f.includes('reason is empty'))).toBe(true);
+    });
+
+    /**
+     * `BREADTH_THRESHOLD` (4) is the exact line the verifier draws between "unremarkable pair or
+     * trio" and "too broad". The 0075/0078 fixtures above clear it by a wide margin (eight-wide
+     * groups); this checks the boundary itself: a group one below the threshold must not force a
+     * refusal, and a group exactly at the threshold must.
+     */
+    it('passes a "pass" whose widest group sits one below the threshold', async () => {
+        const belowThreshold: ScopeCheckResult = {
+            ...card0079,
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c'] }],
+            verdict: 'pass',
+            reason: 'three near-identical fields, one below this stage\'s repetition threshold.',
+        };
+
+        const outcome = await verify(belowThreshold);
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('requires "refuse" once the widest group reaches the threshold exactly', async () => {
+        const atThreshold: ScopeCheckResult = {
+            ...card0079,
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'] }],
+            verdict: 'pass',
+            reason: 'four near-identical fields.',
+        };
+
+        const outcome = await verify(atThreshold);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('"pass"');
+    });
+
     it('fails a stage that wrote to its read-only worktree, independent of its reported verdict', async () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
         await writeFile(join(worktree.path, 'README.md'), 'changed\n', 'utf8');
