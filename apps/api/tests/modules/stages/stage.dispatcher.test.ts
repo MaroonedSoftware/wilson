@@ -106,18 +106,22 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         );
     });
 
-    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
+    // `head` and `card` are the same object in this suite unless a test says otherwise: these tests
+    // are about the transition-writing logic itself, not the head/card split (card 0109), which has
+    // its own dedicated group below.
+    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
         (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
                     stageName: string,
                     stage: StageConfig,
+                    head: Card,
                     card: Card,
                     outcome: StageOutcome,
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
-        ).writeTransition('0001', 'testing', stage, card, result);
+        ).writeTransition('0001', 'testing', stage, head, card, result);
 
     it('advances a passing stage to onPass and leaves the body untouched', async () => {
         const stage = makeStage({ onPass: 'review' });
@@ -242,6 +246,43 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(latest.frontmatter.needsHuman).toBe(true);
         expect(latest.frontmatter.needsHumanReason).toContain('testing');
     });
+
+    /**
+     * Card 0109: `retries` is runner state, counted off `head`, not the plan-contract snapshot
+     * pinned at approval. A card approved once and kicked back twice since carries its real attempt
+     * count only on the live row — the pinned plan still shows whatever `retries` looked like at
+     * approval time (here, empty). Counting from the pinned snapshot instead would forget every
+     * attempt made after approval and let a card that has already exhausted its kickbacks keep
+     * retrying for free.
+     */
+    it('counts a kickback off the live card’s retries, not the pinned plan’s', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
+        const pinned: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, retries: {} } };
+        const head: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, retries: { testing: 2 } } };
+
+        const { target, needsHuman } = await writeTransition(stage, pinned, outcome({ passed: false }), head);
+
+        // Reading from `head` (2 prior attempts) reaches maxKickbacks (3) on this attempt and flags
+        // the card. Reading from the pinned plan's empty `retries` would compute attempt 1 instead,
+        // route to `implementing` unflagged, and grant a kickback the card already spent.
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.retries).toEqual({ testing: 3 });
+        expect(stored.frontmatter.needsHuman).toBe(true);
+    });
+
+    it('carries the live card’s retries forward on a pass, not the pinned plan’s', async () => {
+        const stage = makeStage({ onPass: 'review' });
+        const pinned: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, retries: {} } };
+        const head: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, retries: { testing: 5 } } };
+
+        const { target } = await writeTransition(stage, pinned, outcome({ passed: true }), head);
+
+        expect(target).toBe('review');
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.retries).toEqual({ testing: 5 });
+    });
 });
 
 /**
@@ -286,18 +327,19 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         return { dispatcher, boardRepo, project: config.project };
     };
 
-    const writeTransition = (dispatcher: StageDispatcher, stage: StageConfig, card: Card, result: StageOutcome) =>
+    const writeTransition = (dispatcher: StageDispatcher, stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
         (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
                     stageName: string,
                     stage: StageConfig,
+                    head: Card,
                     card: Card,
                     outcome: StageOutcome,
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
-        ).writeTransition('0001', 'testing', stage, card, result);
+        ).writeTransition('0001', 'testing', stage, head, card, result);
 
     beforeEach(() => {
         fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
@@ -382,6 +424,20 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    // Card 0109: `needsHuman` is runner state, read from `head`, not the pinned plan-contract
+    // snapshot — a card flagged after its plan was approved must still be recognised as already
+    // flagged here, even though the pinned `card` (frozen at approval, before the flag existed) says
+    // otherwise.
+    it('reads the already-flagged check off the live card, not a pinned plan snapshot that predates the flag', async () => {
+        const { dispatcher } = await buildDispatcher('https://hooks.example/notify');
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+        const flaggedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, needsHuman: true, needsHumanReason: 'already flagged' } };
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }), flaggedHead);
+
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('does not fail the transition when the webhook itself fails', async () => {
         const { dispatcher, boardRepo } = await buildDispatcher('https://hooks.example/notify');
         fetchMock.mockImplementation(async () => {
@@ -433,18 +489,19 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
         );
     });
 
-    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
+    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
         (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
                     stageName: string,
                     stage: StageConfig,
+                    head: Card,
                     card: Card,
                     outcome: StageOutcome,
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
-        ).writeTransition('0001', 'testing', stage, card, result);
+        ).writeTransition('0001', 'testing', stage, head, card, result);
 
     it('reclaims the card’s worktree and records worktree.reclaimed when the target is merged', async () => {
         const stage = makeStage({ onPass: 'merged' });

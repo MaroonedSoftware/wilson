@@ -25,27 +25,36 @@ import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './s
 import { StageVerifierMap } from './stage.verifier.js';
 
 /**
- * Which of `assertDispatchable`'s three conditions fired, carried on the error it throws.
+ * Which of `assertDispatchable`'s conditions fired, carried on the error it throws.
  *
- * All three are deterministic against a fixed card — retrying changes nothing — but they are not
+ * All of them are deterministic against a fixed card — retrying changes nothing — but they are not
  * all the same kind of "never". Wrong stage and empty scope require a human to change the card
- * before any attempt can succeed. An unsatisfied dependency is "not now", not "never": the
- * dependency landing makes the card dispatchable again with no change to the card itself.
- * `CardStageJob` branches on this discriminant, not the message text, to route each case correctly.
+ * before any attempt can succeed. `needs-human` is the same shape: the flag has to be acknowledged
+ * before the card moves. An unsatisfied dependency is "not now", not "never": the dependency landing
+ * makes the card dispatchable again with no change to the card itself. `CardStageJob` branches on
+ * this discriminant, not the message text, to route each case correctly — and a variant added here
+ * without a branch there falls to its default, which is `poison()`. That is how card 0109's own
+ * first pass turned a flagged card into a terminal one; add the route with the variant.
  *
  * `wrong-stage` carries `actualStage` so a caller can tell a card genuinely in the wrong place
  * (card 0044's bug) from a stale job arriving after the card already reached a terminal stage
  * (card 0084) — the same distinction `isTerminal` draws everywhere else.
+ *
+ * `needs-human` exists for the same reason `wrong-stage` does: a card can be flagged between the
+ * moment a job is enqueued and the moment it dispatches, and this is the defense against that race
+ * inside the dispatch path itself (card 0109) — `whyNotDispatchable` (jobs/dispatchable.ts) is the
+ * earlier check that keeps a flagged card from being enqueued in the first place.
  */
 export type NotDispatchableReason =
     | { readonly kind: 'wrong-stage'; readonly actualStage: string }
     | { readonly kind: 'empty-scope' }
-    | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] };
+    | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] }
+    | { readonly kind: 'needs-human' };
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
  *
- * None of its three conditions is a provider hiccup or a dropped connection, so retrying is a
+ * None of its conditions is a provider hiccup or a dropped connection, so retrying is a
  * slower route to the same answer. `isPermanentFailure`'s message-text matching exists because the
  * SDK and the provider give it nothing better; that reasoning does not extend to an error this
  * codebase throws itself, so this carries a typed `reason` instead of adding a pattern. The message
@@ -151,8 +160,15 @@ export class StageDispatcher {
         const stages = await loadStages(this.config.boardRoot);
         const stage = findStage(stages, stageName);
 
-        // Read the card at its approved version, not the newest one: an edit landing on the board while this
-        // stage runs must not change the contract underneath it.
+        // Two reads answer two different questions about this card, and conflating them was card
+        // 0109's bug: `head` is the live row — stage, retries, needsHuman, dependsOn — the runner
+        // state that describes where the card actually is right now and moves independently of the
+        // plan. `card` is the plan contract — title, "Files in scope", body — read at its approved
+        // version, not the newest one, so an edit landing on the board while this stage runs cannot
+        // retroactively change the contract the running agent is working to. Every read below is one
+        // or the other, never a mix: `assertDispatchable` takes both and keeps them straight;
+        // `materializePlan` and `filesInScope` stay on `card`; `writeTransition`/`refuseOverBudget`'s
+        // retries and needsHuman stay on `head`.
         const head = await this.board.read(cardId);
         const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
@@ -161,7 +177,7 @@ export class StageDispatcher {
         }
 
         const boardCards = await this.board.list();
-        this.assertDispatchable(card, stage, boardCards);
+        this.assertDispatchable(head, card, stage, boardCards);
 
         // Checked before any worktree is cut, not after: an over-budget card must not cut a tree,
         // install dependencies or reach a model. Absent `maxCardInputTokens` means unbounded, so
@@ -170,7 +186,7 @@ export class StageDispatcher {
             const spent = await this.events.totalInputTokens(this.config.project, cardId);
             const message = cardOverBudget(spent, stage.maxCardInputTokens);
             if (message) {
-                return this.refuseOverBudget(cardId, stageName, card, spent, stage.maxCardInputTokens, message);
+                return this.refuseOverBudget(cardId, stageName, head, card, spent, stage.maxCardInputTokens, message);
             }
         }
 
@@ -343,7 +359,7 @@ export class StageDispatcher {
             let transitionedTo: string | undefined;
             let needsHuman = false;
             try {
-                const transition = await this.writeTransition(cardId, stageName, stage, card, outcome);
+                const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
                 transitionedTo = transition.target;
                 needsHuman = transition.needsHuman;
             } catch (err) {
@@ -385,12 +401,16 @@ export class StageDispatcher {
         cardId: string,
         stageName: string,
         stage: StageConfig,
+        head: Card,
         card: Card,
         outcome: StageOutcome,
     ): Promise<{ target: string; needsHuman: boolean }> {
+        // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
+        // is frozen at approval — a retry count read from it would forget every attempt made since,
+        // and a flag read from it would look unset even after the card was flagged post-approval.
         const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
-            ? { target: stage.onPass, retries: card.frontmatter.retries }
-            : kickback(stage, card.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+            ? { target: stage.onPass, retries: head.frontmatter.retries }
+            : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
         const findings = findingsFrom(outcome.result);
         const needsHuman = decision.needsHuman;
 
@@ -432,7 +452,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             target: decision.target,
-            flagged: Boolean(card.frontmatter.needsHuman) || Boolean(needsHuman),
+            flagged: Boolean(head.frontmatter.needsHuman) || Boolean(needsHuman),
         });
         if (reclaimed.error) {
             this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${decision.target}": ${reclaimed.error}`);
@@ -441,7 +461,7 @@ export class StageDispatcher {
         // Do not send twice for one event: skip when the card already carried the flag going into
         // this run, so a retried or redelivered job that reaches the same exhausted-kickback outcome
         // again does not re-notify for a state change already reported.
-        if (needsHuman && !card.frontmatter.needsHuman) {
+        if (needsHuman && !head.frontmatter.needsHuman) {
             await this.notify({
                 cardId,
                 title: card.frontmatter.title,
@@ -472,6 +492,7 @@ export class StageDispatcher {
     private async refuseOverBudget(
         cardId: string,
         stageName: string,
+        head: Card,
         card: Card,
         spent: number,
         cap: number,
@@ -497,13 +518,15 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: stageName, retries: card.frontmatter.retries, by: 'runner', needsHuman: true },
+                // `retries` is runner state, read from `head`, not the plan-contract snapshot `card`.
+                payload: { from: stageName, to: stageName, retries: head.frontmatter.retries, by: 'runner', needsHuman: true },
             },
         );
 
         // Do not send twice for one event: an already-flagged card refused again (a retried or
         // redelivered job re-checking the same still-over-budget card) has nothing new to report.
-        if (!card.frontmatter.needsHuman) {
+        // `needsHuman` is runner state, so this reads `head`, not `card`.
+        if (!head.frontmatter.needsHuman) {
             await this.notify({
                 cardId,
                 title: card.frontmatter.title,
@@ -535,20 +558,35 @@ export class StageDispatcher {
         });
     }
 
-    private assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void {
-        if (card.frontmatter.stage !== stage.name) {
+    /**
+     * `head` is the live row and answers every question about runner state — needsHuman, stage,
+     * dependsOn — because that is exactly what can have moved since `card` was pinned at approval.
+     * `card` answers one question only, "Files in scope", because that is the plan contract pinning
+     * exists to hold fixed against edits landing while a stage runs; reading it from `head` instead
+     * would let such an edit widen a running stage's scope out from under it.
+     */
+    private assertDispatchable(head: Card, card: Card, stage: StageConfig, cards: Card[]): void {
+        // Checked first and on its own, like `whyNotDispatchable` does: a card can be flagged while
+        // sitting in any stage, so the refusal should say that, not describe the stage as the problem.
+        if (head.frontmatter.needsHuman) {
             throw new NotDispatchableError(
-                { kind: 'wrong-stage', actualStage: card.frontmatter.stage },
-                `card ${card.frontmatter.id} is in stage "${card.frontmatter.stage}", not "${stage.name}"`,
+                { kind: 'needs-human' },
+                `card ${head.frontmatter.id} is flagged for a human and will not dispatch until it is cleared`,
+            );
+        }
+        if (head.frontmatter.stage !== stage.name) {
+            throw new NotDispatchableError(
+                { kind: 'wrong-stage', actualStage: head.frontmatter.stage },
+                `card ${head.frontmatter.id} is in stage "${head.frontmatter.stage}", not "${stage.name}"`,
             );
         }
         // A hard block: file-based coordination cannot carry an in-flight API contract between two
         // running agents (PROJECT.md, dependency blocking).
-        const outstanding = unsatisfiedDependencies(card, cards);
+        const outstanding = unsatisfiedDependencies(head, cards);
         if (outstanding.length > 0) {
             throw new NotDispatchableError(
                 { kind: 'unsatisfied-dependency', outstanding },
-                `card ${card.frontmatter.id} is waiting on ${outstanding.join(', ')}`,
+                `card ${head.frontmatter.id} is waiting on ${outstanding.join(', ')}`,
             );
         }
         if (filesInScope(card).length === 0) {
