@@ -6,7 +6,7 @@ import { git } from '#modules/board/git.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
-import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
+import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 import { parseTestReport, type TestCounts } from './test.report.js';
 
 const TEST_FILE_PATTERN = /(^|\/)[^/]*\.test\.ts$/;
@@ -97,6 +97,11 @@ export class TestingVerifier implements StageVerifier {
         }
 
         const counts = await this.readReport(worktree.path, stage.testReportPath, failures, startedAt);
+
+        // Formatting is an exit condition, not a habit an agent is asked to remember — this is
+        // exactly how card 0032's unformatted test file reached main uncaught: nothing but a
+        // by-hand repo-wide check ever ran prettier against a testing-stage diff.
+        failures.push(...(await checkFormat(worktree, stage)));
 
         if (!changedPaths.some(path => TEST_FILE_PATTERN.test(path))) {
             failures.push('the diff contains no file matching *.test.ts: the testing stage added no tests');

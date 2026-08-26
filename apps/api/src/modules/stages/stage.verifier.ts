@@ -1,5 +1,6 @@
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 import type { Worktree } from '#modules/worktree/worktree.manager.js';
+import { runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 
 export interface VerificationInput {
@@ -21,6 +22,21 @@ export interface VerificationOutcome {
 export interface StageVerifier {
     verify(input: VerificationInput): Promise<VerificationOutcome>;
 }
+
+/**
+ * Run the stage's format check, if configured, and report the tool's own failure as an exit
+ * condition — the same shape `buildCommand` already runs inline in `ImplementingVerifier`, pulled
+ * out here so every verifier whose stage may write code shares one check instead of each growing
+ * its own copy that can drift out of sync.
+ *
+ * An unset `formatCommand` is not a failure: a stage that never configures one runs no check at
+ * all, exactly like an unset `buildCommand` today.
+ */
+export const checkFormat = async (worktree: Worktree, stage: StageConfig): Promise<string[]> => {
+    if (!stage.formatCommand) return [];
+    const failure = await runConfiguredCommand(worktree.path, stage.formatCommand);
+    return failure ? [failure.reason] : [];
+};
 
 /**
  * The DI token for the stage-name -> verifier map. A class extending Map is registered by
