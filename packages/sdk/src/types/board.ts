@@ -195,11 +195,61 @@ export interface SaveDraftRequest {
 }
 
 /**
+ * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
+ * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
+ * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+ * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+ * of.
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L172)
+ */
+export interface DivisionPiece {
+    title: string;
+    tasks: string[];
+    delivers: string;
+    /**
+     * Titles of other pieces in the same division this piece's own report named as blocking it.
+     * `ScopeDivisionPieceSchema` defaults this to `[]` whether the model said "independent" or simply
+     * did not say — an empty array here is not proof of independence. A client must show this field
+     * as reported and let an operator add to it before anything is created; it must not try to infer
+     * a missing dependency from `delivers` prose.
+     */
+    dependsOn: string[];
+}
+
+/**
  * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L42)
  */
 export interface CardDetail extends CardSummary {
     body: string;
     sections: Record<string, string>;
+}
+
+/**
+ * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a
+ * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+ * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+ * spend, not this endpoint's.
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L188)
+ */
+export interface CardDivision {
+    /**
+     * The refusal's own stated reason (`ScopeCheckResultSchema.reason`) — repetition, named in the
+     * model's own words, not merely "refused".
+     */
+    reason: string;
+    pieces: DivisionPiece[];
+}
+
+/**
+ * `POST /api/cards/{id}/split`'s request: every piece to create, exactly as an operator confirmed
+ * it — `title`/`tasks`/`delivers` as `scope-check` reported them, `dependsOn` as the operator left it
+ * after being shown what was reported and given the chance to add to it. The endpoint does not go
+ * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+ * acts on.
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L200)
+ */
+export interface SplitCardsRequest {
+    pieces: DivisionPiece[];
 }
 
 /**
@@ -213,4 +263,16 @@ export interface CardDetail extends CardSummary {
  */
 export interface ReleaseResult extends CardDetail {
     releasedAs: 'queued' | 'orphan';
+}
+
+/**
+ * `POST /api/cards/{id}/split`'s response: the origin card, re-read after being annotated with the
+ * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+ * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+ * sentence, not a plan with all six headings filled in.
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L208)
+ */
+export interface SplitResult {
+    origin: CardDetail;
+    pieces: CardDetail[];
 }

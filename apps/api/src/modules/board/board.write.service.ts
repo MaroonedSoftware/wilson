@@ -8,7 +8,18 @@ import { loadStages, findStage, validTargets } from '#modules/stages/stage.confi
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
-import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest, ReleaseResult } from '../../generated/board.js';
+import { ScopeCheckResultSchema } from '#modules/stages/stage.result.js';
+import type {
+    CardDetail,
+    CardDivision,
+    CreateCardRequest,
+    MoveCardRequest,
+    EditCardRequest,
+    DependCardRequest,
+    ReleaseResult,
+    SplitCardsRequest,
+    SplitResult,
+} from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -365,6 +376,143 @@ export class BoardWriteService {
         return { ...toCardDetail(await this.readOrThrow(id)), releasedAs };
     }
 
+    /**
+     * The most recent scope-check refusal on record for a card, read from its event log rather than
+     * a fresh run: `scope-check` already happened, and re-running it (card 0105's job, not this
+     * one's) could return a different division for the cost of a whole pass. Writes nothing —
+     * {@link split} below is the only thing in this pair that does.
+     *
+     * Refuses, naming why, when there is nothing to act on: no `stage.failed` event on record for
+     * `scope-check`, or one whose `result` did not survive re-parsing as a `ScopeCheckResult` (a
+     * schema mismatch old data could carry, or a result that was never structured to begin with) or
+     * whose `division` came back empty. Both read as "nothing to split" rather than a 500, since a
+     * client cannot act on either.
+     */
+    async division(id: string): Promise<CardDivision> {
+        await this.readOrThrow(id);
+
+        const rows = await this.eventLog.tail(this.boardConfig.project, id, DIVISION_LOOKBACK);
+        let refusal: (typeof rows)[number] | undefined;
+        for (let i = rows.length - 1; i >= 0; i--) {
+            if (rows[i]!.type === 'stage.failed' && rows[i]!.stage === 'scope-check') {
+                refusal = rows[i];
+                break;
+            }
+        }
+        if (!refusal) {
+            throw httpError(400).withDetails({ reason: `${id} has no scope-check refusal on record — nothing to split` });
+        }
+
+        const parsed = ScopeCheckResultSchema.safeParse((refusal.payload as { result?: unknown }).result);
+        if (!parsed.success || parsed.data.division.length === 0) {
+            throw httpError(400).withDetails({ reason: `${id}'s most recent scope-check refusal carried no division — nothing to split` });
+        }
+
+        return {
+            reason: parsed.data.reason,
+            pieces: parsed.data.division.map(piece => ({
+                title: piece.title,
+                tasks: piece.tasks,
+                delivers: piece.delivers,
+                dependsOn: piece.dependsOn,
+            })),
+        };
+    }
+
+    /**
+     * Create one card per confirmed piece, in `planning` — never `backlog`, since a piece is a title,
+     * a task list and a sentence, not a plan with all six headings filled in (`wilson card plan` is
+     * how it gets one) — record the dependencies named in each piece's `dependsOn`, and annotate the
+     * origin card with the ids it produced.
+     *
+     * Never moves or drops the origin (card [[0090]]'s stranding lesson applies here too, and the
+     * pieces are exactly what would be stranded), and never re-runs `scope-check` on what it creates
+     * — deciding a split is `scope-check`'s job (card 0105); this only acts on pieces an operator
+     * already confirmed, which is the whole of `request.pieces` rather than anything re-read from the
+     * event log.
+     *
+     * Cards are created one at a time, each computing the next id over the board it just extended —
+     * the same sequential assignment {@link create} uses, applied in a loop because this creates more
+     * than one. Dependencies are recorded in a second pass, once every piece has an id, so a piece
+     * naming a dependency that sorts after it in `request.pieces` is not left unresolved.
+     *
+     * **Why this does not call {@link create} and {@link depend}, which card 0113's plan asked for.**
+     * Both would work and both would lose the version message. `create` writes its own, and neither
+     * takes one, so every piece's history would read as an ordinary card creation with nothing tying
+     * it to the card it came out of — where this writes `Split 0111 into 0114: <piece title>`, and
+     * the dependency pass writes which piece it was recorded for. On a card whose whole purpose is
+     * provenance, that link is the part worth keeping, and the duplication is four lines.
+     *
+     * The maintenance risk is real and stated rather than hidden: behaviour added to `create` or
+     * `depend` does not reach here. If a third caller ever needs the same thing, give those two an
+     * optional message and collapse this into them — that is the fix, not copying more of them.
+     *
+     * Validation runs before anything is written, unlike the piecemeal failures reusing `depend`
+     * would give: at least two pieces, unique titles, no piece depending on itself, and every
+     * `dependsOn` naming a piece in this same request. A split that cannot be completed writes no
+     * cards at all.
+     */
+    async split(id: string, request: SplitCardsRequest): Promise<SplitResult> {
+        const origin = await this.readOrThrow(id);
+
+        if (request.pieces.length < 2) {
+            throw httpError(400).withDetails({ reason: 'a split needs at least two pieces' });
+        }
+
+        const titles = new Set(request.pieces.map(piece => piece.title));
+        if (titles.size !== request.pieces.length) {
+            throw httpError(400).withDetails({ reason: 'piece titles must be unique' });
+        }
+        for (const piece of request.pieces) {
+            for (const dep of piece.dependsOn) {
+                if (dep === piece.title) {
+                    throw httpError(400).withDetails({ reason: `piece "${piece.title}" lists itself as a dependency` });
+                }
+                if (!titles.has(dep)) {
+                    throw httpError(400).withDetails({
+                        reason: `piece "${piece.title}" depends on "${dep}", which is not one of the pieces being created`,
+                    });
+                }
+            }
+        }
+
+        const titleToId = new Map<string, string>();
+        for (const piece of request.pieces) {
+            const cardId = nextCardId(await this.boardRepository.list());
+            const card: Card = {
+                frontmatter: { id: cardId, title: piece.title, stage: 'planning', dependsOn: [], retries: {} },
+                sections: {},
+                body: seedSplitBody(id, origin.frontmatter.title, piece),
+            };
+            await this.boardRepository.create(card, `Split ${id} into ${cardId}: ${piece.title}`);
+            titleToId.set(piece.title, cardId);
+        }
+
+        for (const piece of request.pieces) {
+            const cardId = titleToId.get(piece.title)!;
+            for (const depTitle of piece.dependsOn) {
+                const dependsOnId = titleToId.get(depTitle)!;
+                await this.boardRepository.write(cardId, `Add ${cardId} dependency on ${dependsOnId}`, card => ({
+                    ...card,
+                    frontmatter: { ...card.frontmatter, dependsOn: [...card.frontmatter.dependsOn, dependsOnId].sort() },
+                }));
+            }
+        }
+
+        const producedIds = request.pieces.map(piece => titleToId.get(piece.title)!);
+        await this.boardRepository.write(id, `Split ${id} into ${producedIds.join(', ')}`, card => ({
+            ...card,
+            body: `${card.body}\n\n---\n\nSplit into: ${producedIds.join(', ')}. This card was left in place — drop it yourself once the pieces above are planned.`,
+        }));
+
+        const pieces = await Promise.all(producedIds.map(cardId => this.boardRepository.read(cardId).then(toCardDetail)));
+
+        return {
+            origin: toCardDetail(await this.boardRepository.read(id)),
+            pieces,
+        };
+    }
+
     private async readOrThrow(id: string): Promise<Card> {
         try {
             return await this.boardRepository.read(id);
@@ -385,3 +533,32 @@ const nextCardId = (cards: Card[]): string => {
     const highest = cards.reduce((max, card) => Math.max(max, Number.parseInt(card.frontmatter.id, 10) || 0), 0);
     return String(highest + 1).padStart(4, '0');
 };
+
+/**
+ * How far back {@link BoardWriteService.division} scans a card's event log for its most recent
+ * scope-check refusal. `EventLog.tail` has no type/stage-filtered query — `event.log.ts` is outside
+ * this card's "Files in scope" — so this is the same best-effort lookback cap
+ * `BoardRepository.grantedPaths` already accepts for `scope.granted` events, applied here to
+ * `stage.failed`/`scope-check` instead: generous rather than exact, and wrong only for a card whose
+ * event history runs past it before the refusal it should find.
+ */
+const DIVISION_LOOKBACK = 2000;
+
+/**
+ * A stub body for a card created from one division piece: what it would deliver, the tasks it
+ * carries, and a pointer back to the card it was cut from. Not the six-heading plan contract —
+ * `PLAN_SECTIONS` is what `backlog` requires, and this card lands in `planning`, unplanned, on
+ * purpose (see {@link BoardWriteService.split}'s doc comment).
+ */
+const seedSplitBody = (originId: string, originTitle: string, piece: { tasks: string[]; delivers: string }): string =>
+    [
+        `Split from ${originId} (${originTitle}), one piece of a scope-check refusal's division. Not yet planned — run \`wilson card plan\` next.`,
+        '',
+        '## Delivers',
+        '',
+        piece.delivers,
+        '',
+        '## Tasks',
+        '',
+        ...piece.tasks.map(task => `- ${task}`),
+    ].join('\n');

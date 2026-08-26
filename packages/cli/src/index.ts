@@ -23,6 +23,7 @@ import cardNextCommand from './commands/card/next.command.js';
 import cardPlanCommand from './commands/card/plan.command.js';
 import cardReleaseCommand from './commands/card/release.command.js';
 import cardShowCommand from './commands/card/show.command.js';
+import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
 
@@ -59,6 +60,7 @@ const app = await createCliApp({
         reg(['card', 'next'], cardNextCommand),
         reg(['card', 'plan'], cardPlanCommand),
         reg(['card', 'release'], cardReleaseCommand),
+        reg(['card', 'split'], cardSplitCommand),
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
     ],
