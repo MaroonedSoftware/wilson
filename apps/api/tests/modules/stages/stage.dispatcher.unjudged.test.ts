@@ -104,18 +104,19 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
         );
     });
 
-    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome) =>
+    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
         (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
                     stageName: string,
                     stage: StageConfig,
+                    head: Card,
                     card: Card,
                     outcome: StageOutcome,
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
-        ).writeTransition('0001', 'review', stage, card, result);
+        ).writeTransition('0001', 'review', stage, head, card, result);
 
     it('routes a review that never reached a verdict back to review, not to onFail — card 0075’s shape', async () => {
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });

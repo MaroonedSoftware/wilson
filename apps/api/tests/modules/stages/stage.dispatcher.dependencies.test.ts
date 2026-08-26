@@ -71,9 +71,12 @@ describe('StageDispatcher assertDispatchable dependency gate', () => {
     const assertDispatchable = (dispatcher: StageDispatcher, target: Card, cards: Card[]) =>
         (
             dispatcher as unknown as {
-                assertDispatchable(card: Card, stage: StageConfig, cards: Card[]): void;
+                assertDispatchable(head: Card, card: Card, stage: StageConfig, cards: Card[]): void;
             }
-        ).assertDispatchable(target, stage, cards);
+            // `head` and `card` are the same object here: this suite is about `unsatisfiedDependencies`
+            // agreeing with `nextCard`/`card list`, not about the head/card split itself — that split is
+            // covered directly in stage.dispatcher.not-dispatchable.test.ts (card 0109).
+        ).assertDispatchable(target, target, stage, cards);
 
     it('dispatches a card with no dependencies', () => {
         const target = card('0001', 'testing');
