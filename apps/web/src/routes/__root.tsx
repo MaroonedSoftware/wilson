@@ -1,6 +1,7 @@
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router';
 import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
 import { IconSettings } from '@tabler/icons-react';
+import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { useCardFeed } from '#src/lib/feed.js';
 
 /**
@@ -20,6 +21,7 @@ function Root() {
                 <Group h="100%" px="md" justify="space-between">
                     <Title order={4}>wilson</Title>
                     <Group gap="xs">
+                        <FlaggedIndicator />
                         <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
                             <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
                                 {feedStatus === 'live' ? 'live' : 'snapshot'}
