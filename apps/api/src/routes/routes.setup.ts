@@ -6,7 +6,8 @@ import { HealthRouter } from './health.router.js';
 import { SettingsRouter } from './settings.router.js';
 
 /**
- * The live card feed: current stage and latest event per card, over SSE at `/api/feed`.
+ * Builds the live card feed router: current stage and latest event per card, over SSE at
+ * `/api/feed`.
  *
  * Not `@maroonedsoftware/koa/serverfeed`'s `serverFeedRouter`: it guards its route with
  * `requirePolicy`, defaulting to an MFA gate, and even `{ policy: false }` still requires a valid
@@ -14,11 +15,20 @@ import { SettingsRouter } from './settings.router.js';
  * 0019), so no policy option that factory offers is satisfiable here. `openCardFeedStream` (see
  * `modules/feed/card.feed.route.ts`) takes the response over directly instead, the same way
  * `serverfeed`'s lower-level `handleServerFeed` does, and imposes no policy.
+ *
+ * A factory rather than a module-level constant, unlike the other routers here: it needs the
+ * server's lifecycle signal (`ServerKitServerBuilder.lifecycleSignal`) so shutdown drains an open
+ * stream instead of holding the socket until the force-close grace period, and that signal only
+ * exists once `setupServer` has constructed the builder — not at this module's import time.
+ * `signal` is optional so a caller with no server lifecycle (a test) still gets a working router.
  */
-export const FeedRouter = ServerKitRouter();
-FeedRouter.get('/api/feed', async ctx => {
-    openCardFeedStream(ctx as unknown as SseContext, cardFeed);
-});
+export const FeedRouter = (signal?: AbortSignal) => {
+    const router = ServerKitRouter();
+    router.get('/api/feed', async ctx => {
+        openCardFeedStream(ctx as unknown as SseContext, cardFeed, signal);
+    });
+    return router;
+};
 
 /**
  * Every router the server mounts, in one place — adding a router later is one line here.
@@ -34,7 +44,10 @@ FeedRouter.get('/api/feed', async ctx => {
  * as a new file beside it, so the "every file here but this one is generated" invariant the tests
  * enforce stays true.
  *
+ * Takes the server's lifecycle signal and threads it to `FeedRouter` alone; the other three
+ * routers have no long-lived connection to drain and stay untouched by it.
+ *
  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
  * unknown>`, so callers cast at the point they hand this to `setupRoutes` instead.
  */
-export const routers = [HealthRouter, BoardRouter, SettingsRouter, FeedRouter];
+export const routers = (signal?: AbortSignal) => [HealthRouter, BoardRouter, SettingsRouter, FeedRouter(signal)];

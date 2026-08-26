@@ -32,6 +32,11 @@ export const setupServer = async (): Promise<Server> => {
     // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
     // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
     await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);
-    serverBuilder.setupMiddleware(setupMiddleware).setupRoutes(routers as ServerKitRouterType[]);
+    // Same signal, threaded one layer further: the LISTEN connection above drains on shutdown, and
+    // this is what makes the `/api/feed` streams hanging off it do the same instead of holding the
+    // socket open until the force-close grace period.
+    serverBuilder
+        .setupMiddleware(setupMiddleware)
+        .setupRoutes(routers(serverBuilder.lifecycleSignal) as ServerKitRouterType[]);
     return await serverBuilder.start(configNumber(config, 'PORT', 13100));
 };
