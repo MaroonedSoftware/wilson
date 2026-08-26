@@ -36,7 +36,11 @@ const REQUEST_SCOPE_TOOL = 'request_scope';
 const DELETE_TOOL = 'delete';
 const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUEST_SCOPE_TOOL}`;
-const qualifiedDeleteTool = (): string => `mcp__${REPORT_SERVER}__${DELETE_TOOL}`;
+// Exported so a test can assert the prompt names this tool by a value derived from the same
+// constant the MCP server below registers it under, rather than a literal the two could drift
+// from independently (card 0097 — that drift, a bare `delete` typed into board config instead of
+// this, is exactly the bug this file now guards against).
+export const qualifiedDeleteTool = (): string => `mcp__${REPORT_SERVER}__${DELETE_TOOL}`;
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
@@ -84,6 +88,14 @@ const EXEC_TOOLS = ['Bash'];
  * to run on. `wilson card plan` is a different call site: it spawns `claude` directly for an
  * interactive planning session, where the operator sitting at the terminal arguably should see their
  * own setup, and it is not changed here.
+ *
+ * **`stage.instructions` (board config) must never name a tool, bare or qualified.** Config
+ * cannot know which adapter will run a given stage — `adapter` is a field on the very same stage
+ * config, and can change — and `api` and `cli` name a deletion capability differently (this one
+ * bare, `cli`'s MCP-qualified). Whichever adapter is chosen builds its own tool-naming lines from
+ * its own constants and appends them after `stage.instructions` in the prompt below, so a name
+ * typed into config would win a disagreement it has no business having — exactly the bug card
+ * 0097 fixed. Guidance belongs in config; the tool's actual name belongs only here.
  */
 @Injectable()
 export class CliStageAgent extends StageAgent {
@@ -108,6 +120,12 @@ export class CliStageAgent extends StageAgent {
         // widening it could never use. This adapter honours the same condition rather than exposing
         // the tool unconditionally.
         const canWrite = stage.worktree === 'rw';
+        // Whether this run's exit condition compares test counts against a baseline (see
+        // `TestingVerifier.checkCounts`) — `testReportPath` is what that check reads, so its
+        // presence is the same signal the verifier itself keys off. Used below to decide whether
+        // the delete-tool guidance carries the "don't leave an it.skip behind" warning: that
+        // consequence is only real where such a check actually runs.
+        const checksTestCounts = stage.testReportPath !== undefined;
         const reportServer = createSdkMcpServer({
             name: REPORT_SERVER,
             tools: [
@@ -232,6 +250,11 @@ export class CliStageAgent extends StageAgent {
                 '',
                 `You are in a git worktree at ${context.worktreeRoot}.`,
                 '',
+                // `stage.instructions` comes from board config, which must not name a tool — see
+                // the class doc comment above for why (card 0097). The lines below are this
+                // adapter's own, appended after it, naming this engine's tools the only way it can
+                // be sure they are named right: interpolated from the constants the MCP server
+                // above actually registers them under.
                 stage.instructions,
                 '',
                 ...(canWrite
@@ -242,6 +265,14 @@ export class CliStageAgent extends StageAgent {
                           `To remove a file the work no longer needs, call ${qualifiedDeleteTool()} with its path —`,
                           `it is scope-checked the same way a write is, and refuses a directory.`,
                           '',
+                          ...(checksTestCounts
+                              ? [
+                                    `A test that no longer belongs gets deleted, not emptied and left as an 'it.skip':`,
+                                    `this stage's exit condition compares the skipped-test count against the baseline,`,
+                                    `and a new skip reads as a regression and fails the stage.`,
+                                    '',
+                                ]
+                              : []),
                       ]
                     : []),
                 `When the work is done and the build passes, call ${qualifiedReportTool()} with your result.`,
@@ -632,6 +663,22 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
             return writable === 'rw' ? { behavior: 'allow' } : deny(`this stage is ${writable}: it may not write`, { tool: toolName });
         }
 
+        // Card 0097, task 2: could a bare `delete` — the wrong name board config used to hand a
+        // stage — be caught here and answered with the qualified one? No, and not for lack of a
+        // branch to add. This callback only ever runs for a `toolName` the engine itself already
+        // recognises as a real tool (a built-in, or one of this MCP server's own) that this
+        // stage's policy happens not to allow — that is what the catch-all `deny` below is for. A
+        // name outside that whole surface, like a bare `delete`, is rejected by the engine's own
+        // dispatcher with "No such tool available: delete" before a permission decision is ever
+        // requested — there is nothing to permission-check for a tool that does not exist. That
+        // rejection does reach the message stream, as a `user` message carrying the tool_result
+        // answering the model's tool_use block (required by the API's own protocol), but by the
+        // time this adapter's read loop below observes it the engine has already moved the turn
+        // on: feeding a correction back in would mean writing into the running query, which the
+        // SDK only exposes via `streamInput` on an `AsyncIterable` prompt, and this adapter starts
+        // `query()` from a plain string. Rebuilding the call around streaming input to open that
+        // one narrow correction path is a bigger change than this defect is worth. Task 1's fix —
+        // naming the tool right before the model ever has to guess — is what actually prevents it.
         return deny(`${toolName} is not available to this stage`, {});
     };
 };

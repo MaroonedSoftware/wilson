@@ -13,6 +13,14 @@ import { buildTools, REPORT_TOOL } from './tools/index.js';
  * The original path, unchanged in behaviour: our own tools, our own loop, our own compaction. It
  * bills per token and stops working when the balance does — which is why `CliStageAgent` exists
  * beside it.
+ *
+ * **`stage.instructions` (board config) must never name a tool, bare or qualified.** Config
+ * cannot know which adapter will run a given stage — `adapter` is a field on the very same stage
+ * config, and can change — and this adapter's tools are named differently from `cli`'s (this
+ * one's `delete` is literally that; `cli`'s is MCP-qualified). This adapter's own tools already
+ * carry their real names and descriptions in the schema the model sees (`buildTools`), which is
+ * enough on its own; the only extra guidance appended below is a stage-specific consequence the
+ * generic tool description has no way to state (card 0097).
  */
 @Injectable()
 export class ApiStageAgent extends StageAgent {
@@ -21,9 +29,24 @@ export class ApiStageAgent extends StageAgent {
     }
 
     async run({ stage, context, planPath, title, resultSchema }: AgentRunInput): Promise<AgentRunOutput> {
+        const canWrite = stage.worktree === 'rw';
+        // Same signal `TestingVerifier.checkCounts` itself keys off — see the matching comment in
+        // `cli.stage.agent.ts`. Gates the "don't leave an it.skip behind" warning below, which only
+        // means something where a stage actually compares test counts against a baseline.
+        const checksTestCounts = stage.testReportPath !== undefined;
         const agent = new ToolLoopAgent({
             model: this.models.resolve(stage.provider, stage.model),
-            instructions: stage.instructions,
+            instructions: [
+                stage.instructions,
+                ...(canWrite && checksTestCounts
+                    ? [
+                          '',
+                          `A test that no longer belongs gets deleted, not emptied and left as an 'it.skip': this`,
+                          `stage's exit condition compares the skipped-test count against the baseline, and a`,
+                          `new skip reads as a regression and fails the stage.`,
+                      ]
+                    : []),
+            ].join('\n'),
             tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree),
             ...(stage.tools ? { activeTools: stage.tools as never } : {}),
             // The loop ends when the agent says it is finished, when it runs out of steps, or when it
