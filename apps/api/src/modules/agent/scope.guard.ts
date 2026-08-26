@@ -134,6 +134,14 @@ export class ScopeGuard {
 
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
+        // The runner's own channel, readable unconditionally — mirrors the same bypass in `check`
+        // below. Without it, a project deny glob matching REPORT_RESULT_PATH (e.g. a project that
+        // denies dotfiles) would refuse the read `report_result`'s own handler performs, even though
+        // `check` unconditionally allows writing that same path — breaking result reporting for that
+        // project with no path around it, since `grant` also refuses to widen the name.
+        if (contained.path === REPORT_RESULT_PATH) {
+            return { allowed: true, path: contained.path };
+        }
         if (this.matchDeny(contained.path)) {
             return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
         }
