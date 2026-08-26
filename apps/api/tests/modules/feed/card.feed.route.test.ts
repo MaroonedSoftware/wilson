@@ -8,20 +8,23 @@ import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
  * sink without standing up a real server, so this drives the real transport and the real
  * `ServerFeed` — only the raw socket is faked.
  */
-const fakeCtx = (): { ctx: SseContext; frames: () => string[] } => {
+const fakeCtx = (): { ctx: SseContext; frames: () => string[]; ended: () => boolean } => {
     const chunks: string[] = [];
+    let ended = false;
     const res: SseResponse = {
         writeHead: () => undefined,
         write: (chunk: string) => {
             chunks.push(chunk);
             return true;
         },
-        end: () => undefined,
+        end: () => {
+            ended = true;
+        },
         destroy: () => undefined,
         setTimeout: () => undefined,
         on: () => undefined,
     };
-    return { ctx: { status: 0, respond: true, res }, frames: () => [...chunks] };
+    return { ctx: { status: 0, respond: true, res }, frames: () => [...chunks], ended: () => ended };
 };
 
 /** Pulls the JSON `data:` payload out of every `event: card` frame written so far. */
@@ -107,5 +110,55 @@ describe('openCardFeedStream', () => {
         openCardFeedStream(ctx, feed);
 
         expect(cardEvents(frames())).toHaveLength(0);
+    });
+
+    /**
+     * Card 0042: without a signal an SSE stream never ends on its own, so a shutdown had to wait
+     * out the force-close grace period for every connected client. `signal` is how shutdown drains
+     * a stream instead — this is the observable effect of that plumbing, exercised through the
+     * real transport (`openSseStream`), not a mock of it.
+     */
+    it('ends the underlying response when the given signal aborts, instead of waiting to be force-closed', () => {
+        const feed = new ServerFeed();
+        const controller = new AbortController();
+        const { ctx, ended } = fakeCtx();
+
+        openCardFeedStream(ctx, feed, controller.signal);
+        expect(ended()).toBe(false);
+
+        controller.abort();
+
+        expect(ended()).toBe(true);
+    });
+
+    /**
+     * The open question this card was parked on: aborting the signal has to unwind
+     * `feed.onEvent`'s subscription too, not just close the transport, or a shutdown stream would
+     * keep the feed holding a reference to a dead subscriber forever.
+     */
+    it('releases the feed subscription when the given signal aborts, on shutdown as on client disconnect', () => {
+        const feed = new ServerFeed();
+        feed.status('proj', '0001', 'stage.dispatched', { stage: 'implementing' });
+        const controller = new AbortController();
+        const { ctx, frames } = fakeCtx();
+
+        openCardFeedStream(ctx, feed, controller.signal);
+        expect(cardEvents(frames())).toHaveLength(1);
+
+        controller.abort();
+        feed.status('proj', '0002', 'stage.dispatched', { stage: 'review' });
+
+        // A live subscriber would have picked up the second card's event too; a closed stream must
+        // not, or the abort didn't actually release the subscription.
+        expect(cardEvents(frames())).toHaveLength(1);
+    });
+
+    it('leaves the stream open with no end-of-life effect when no signal is given at all', () => {
+        const feed = new ServerFeed();
+        const { ctx, ended } = fakeCtx();
+
+        openCardFeedStream(ctx, feed);
+
+        expect(ended()).toBe(false);
     });
 });
