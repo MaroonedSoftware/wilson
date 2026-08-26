@@ -36,7 +36,7 @@ describe('wilson card release', () => {
         const result = await run(ctx, '0004');
 
         expect(result).toBe(0);
-        expect(logger.info).toHaveBeenCalledWith('0004: released — cancelled an orphaned job with no daemon running, claim cleared');
+        expect(logger.info).toHaveBeenCalledWith('0004: released — cancelled an orphaned job left behind by an earlier process, claim cleared');
     });
 
     it('prints the API-supplied reason and exits 1 for a card holding no claim, rather than an HTTP status line', async () => {
