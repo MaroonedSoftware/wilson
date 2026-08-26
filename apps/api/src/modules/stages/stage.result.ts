@@ -99,13 +99,14 @@ export const ScopeDivisionPieceSchema = z.object({
  * present — the breadth evidence), a verdict, why in terms of repetition, and — only when refusing —
  * a concrete division.
  *
- * `verdict` drives `ScopeCheckVerifier.passed` directly rather than following `ReviewResultSchema`'s
- * pattern of a `passed`/`verdict` split resolved later by `shouldAdvance` (`kickback.ts`):
- * `shouldAdvance` only special-cases the literal string `"revise"`, which is review's own routing
- * signal, and `kickback.ts` is out of this card's scope to extend for a second one. Since this
- * stage's `onPass`/`onFail` point to different destinations (`implementing` vs `planning`, unlike
- * review's shared `onFail`), folding the verdict into `passed` is not a workaround here — it is
- * this stage's actual exit condition: "is this card small enough for one pass", full stop.
+ * Unlike `ReviewResultSchema`'s `passed`/`verdict` split — resolved later by `shouldAdvance`
+ * (`kickback.ts`), which special-cases the literal string `"revise"` (review's own routing signal) —
+ * this schema has no `passed` field of its own for the dispatcher to read: `StageDispatcher.runAgent`
+ * computes its routing-relevant `outcome.passed` from `failures.length === 0` alone, and
+ * `shouldAdvance` never special-cases `"refuse"`. So `ScopeCheckVerifier.verify` (`kickback.ts` is out
+ * of this card's scope to extend for a second verdict string) turns a `"refuse"` verdict into a
+ * pushed failure itself, making the dispatcher's own check the thing that actually routes a refusal
+ * to `planning` instead of `implementing`. See `ScopeCheckVerifier`'s class doc comment for the detail.
  */
 export const ScopeCheckResultSchema = z
     .object({

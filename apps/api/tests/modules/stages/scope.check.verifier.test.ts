@@ -150,7 +150,10 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(card0075);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toEqual([]);
+        // A well-formed refusal still pushes exactly one failure, naming the reason — that is what
+        // makes the dispatcher's own `failures.length === 0` routing check false and sends the card to
+        // `planning` instead of `implementing` (see `ScopeCheckVerifier`'s class doc comment).
+        expect(outcome.failures).toEqual([`refusing: ${card0075.reason}`]);
         expect(card0075.reason).toContain('eight');
         expect(card0075.reason).toMatch(/repetition/);
         expect(card0075.division.length).toBeGreaterThanOrEqual(2);
@@ -163,7 +166,7 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(card0078);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toEqual([]);
+        expect(outcome.failures).toEqual([`refusing: ${card0078.reason}`]);
     });
 
     // The important case (see the fixture's own comment): 0079 is the largest plan on the board, and
@@ -192,18 +195,26 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify({ ...card0079, verdict: 'refuse', division });
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(1);
+        // Two failures: the breadth-mismatch complaint, plus the unconditional "refusing: ..." entry
+        // every "refuse" verdict carries so the dispatcher's own routing check sees it (see the class
+        // doc comment).
+        expect(outcome.failures).toHaveLength(2);
         expect(outcome.failures[0]).toContain('no group repeats');
+        expect(outcome.failures[1]).toBe(`refusing: ${card0079.reason}`);
     });
 
     it('accepts a division piece that depends on another piece in the same division', async () => {
-        const outcome = await verify({
+        const dividedCard = {
             ...card0075,
             division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[0].title] }],
-        });
+        };
+        const outcome = await verify(dividedCard);
 
-        expect(outcome.passed).toBe(false); // still routes to "refuse" (see class doc comment), not a stage failure
-        expect(outcome.failures).toEqual([]);
+        // Routes to "refuse" (see class doc comment): a well-formed refusal still pushes its own
+        // "refusing: ..." entry, which is what fails the dispatcher's routing check on purpose — it is
+        // not a stage failure about the report's internal consistency, which is what this test checks.
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([`refusing: ${dividedCard.reason}`]);
     });
 
     it('rejects a division piece that names itself as a dependency', async () => {

@@ -32,10 +32,16 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * says "refuse" while reporting none, has produced an inconsistent report regardless of which way it
  * leans, and this stage's whole value is in not passing that through uncaught.
  *
- * Unlike `ReviewVerifier`, whose `passed` tracks report quality independently of the verdict
- * (`shouldAdvance` resolves the routing from `verdict` afterwards), `passed` here *is* the routing
- * decision: see the doc comment on `ScopeCheckResultSchema` for why that is this stage's exit
- * condition rather than a shortcut around one.
+ * A well-formed "refuse" is this stage doing its job, not a defect in the report — but the routing
+ * that actually matters does not read this class's `passed` field at all. `StageDispatcher.runAgent`
+ * computes the dispatcher's own `outcome.passed` as `failures.length === 0`, and `shouldAdvance`
+ * (`kickback.ts`) only special-cases the literal verdict string `"revise"` (review's own routing
+ * signal), not `"refuse"`. Left alone, a well-formed refusal would report zero failures, the
+ * dispatcher's `passed` would come out `true`, and the card would advance to `implementing` instead
+ * of being kicked back to `planning` — exactly backwards from this stage's whole purpose. So `verify`
+ * pushes an entry onto `failures` whenever `verdict === 'refuse'`, unconditionally on whether the
+ * report was otherwise internally consistent: that is what makes the dispatcher's own
+ * `failures.length === 0` check go false and routes the card through `stage.onFail` (`planning`).
  */
 @Injectable()
 export class ScopeCheckVerifier implements StageVerifier {
@@ -110,11 +116,18 @@ export class ScopeCheckVerifier implements StageVerifier {
             failures.push('verdict is "pass" but a division was proposed; a pass should carry none');
         }
 
-        // `passed` is the routing decision itself (see the class doc comment): only a well-formed,
-        // internally consistent "pass" clears this stage's exit condition. A well-formed "refuse" is
-        // this stage doing its job correctly, and still reports `failures: []` — but it is not a
-        // `passed` outcome, because passing here means "send the card to implementing", which a
-        // refusal must never do.
+        if (verdict === 'refuse') {
+            // See the class doc comment: the dispatcher's real routing check is `failures.length ===
+            // 0`, not this method's `passed` field, and `shouldAdvance` never special-cases "refuse".
+            // Pushed unconditionally — even when every check above found nothing wrong with the
+            // report — so a well-formed refusal still fails the dispatcher's check and is kicked back
+            // to `planning` instead of advancing to `implementing`.
+            failures.push(`refusing: ${reason}`);
+        }
+
+        // `passed` is only ever read by this verifier's own callers, not by the dispatcher's routing
+        // (see the class doc comment) — kept `false` for a refusal for the same reason: passing here
+        // would mean "send the card to implementing", which a refusal must never do.
         return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [] };
     }
 }
