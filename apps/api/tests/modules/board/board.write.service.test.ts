@@ -324,6 +324,90 @@ describe('BoardWriteService', () => {
             expect(worktrees.reclaim).not.toHaveBeenCalled();
         });
 
+        describe('entering backlog — card 0127: this is the approval gate now, whatever the source', () => {
+            const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') =>
+                card(id, { stage }, body);
+
+            it('pins the plan version on entering backlog from planning', async () => {
+                const { board, events, service } = freshBoard();
+                const planVersion = await board.create(withScope('0090', 'planning'), 'seed');
+
+                const detail = await service.move('0090', { stage: 'backlog' });
+
+                expect(detail.stage).toBe('backlog');
+                const stored = await board.read('0090');
+                expect(stored.frontmatter.planVersionId).toBe(planVersion);
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        cardId: '0090',
+                        stage: 'backlog',
+                        type: 'transition.written',
+                        payload: { from: 'planning', to: 'backlog', by: 'human', planVersionId: planVersion },
+                    }),
+                    expect.anything(),
+                );
+            });
+
+            it('pins the plan version on entering backlog from parking-lot too — most of this board\'s cards arrive this way', async () => {
+                const { board, service } = freshBoard();
+                const planVersion = await board.create(withScope('0091', 'parking-lot'), 'seed');
+
+                const detail = await service.move('0091', { stage: 'backlog' });
+
+                expect(detail.stage).toBe('backlog');
+                const stored = await board.read('0091');
+                expect(stored.frontmatter.planVersionId).toBe(planVersion);
+            });
+
+            it('refuses entering backlog with an empty "Files in scope", writing nothing — the same refusal `approve` always made', async () => {
+                const { board, service } = freshBoard();
+                await board.create(withScope('0092', 'planning', '## Goal\n\nDo it.\n\n## Files in scope\n\n'), 'seed');
+
+                await expect(service.move('0092', { stage: 'backlog' })).rejects.toMatchObject({
+                    statusCode: 400,
+                    details: { reason: expect.stringContaining('Files in scope') },
+                });
+                const stored = await board.read('0092');
+                expect(stored.frontmatter.stage).toBe('planning');
+                expect(stored.frontmatter.planVersionId).toBeUndefined();
+            });
+
+            it('pins the version that held the plan text at the moment of entry, not the version this write itself creates (the deliberate off-by-one)', async () => {
+                const { board, service } = freshBoard();
+                const approvedBody = '## Goal\n\nApprove me.\n\n## Files in scope\n\n- src/a.ts\n';
+                await board.create(withScope('0093', 'planning', approvedBody), 'seed');
+
+                await service.move('0093', { stage: 'backlog' });
+                const pinnedVersion = (await board.read('0093')).frontmatter.planVersionId!;
+
+                await board.write('0093', 'edit after entering backlog', c => ({
+                    ...c,
+                    body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n',
+                }));
+
+                const pinned = await board.readAt('0093', pinnedVersion);
+                expect(pinned.body).toBe(approvedBody);
+            });
+
+            it('does not re-pin a card already in backlog when it is only re-moved to backlog to clear a flag', async () => {
+                const { board, service } = freshBoard();
+                await board.create(withScope('0094', 'planning'), 'seed');
+                await service.move('0094', { stage: 'backlog' });
+                const pinnedVersion = (await board.read('0094')).frontmatter.planVersionId!;
+                await board.write('0094', 'flag it', c => ({
+                    ...c,
+                    frontmatter: { ...c.frontmatter, needsHuman: true, needsHumanReason: 'stuck' },
+                }));
+
+                const detail = await service.move('0094', { stage: 'backlog' });
+
+                expect(detail.stage).toBe('backlog');
+                expect(detail.needsHuman).toBe(false);
+                const stored = await board.read('0094');
+                expect(stored.frontmatter.planVersionId).toBe(pinnedVersion);
+            });
+        });
+
         it('still commits the transition and only logs a warning when the reclaim itself throws', async () => {
             const throwingWorktrees = {
                 reclaim: vi.fn(async () => {
@@ -516,33 +600,68 @@ describe('BoardWriteService', () => {
         });
     });
 
-    describe('approve', () => {
+    describe('approve — card 0127: now a thin planning-only front door onto `move`', () => {
         const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') =>
             card(id, { stage }, body);
 
-        it('refuses a card outside backlog with a 400, writing nothing', async () => {
+        it('refuses a card outside planning with a 400, writing nothing', async () => {
             const { board, service } = freshBoard();
             await board.create(withScope('0050', 'implementing'), 'seed');
 
             await expect(service.approve('0050')).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('"implementing", not "backlog"') },
+                details: { reason: expect.stringContaining('"implementing", not "planning"') },
             });
             const stored = await board.read('0050');
             expect(stored.frontmatter.stage).toBe('implementing');
             expect(stored.frontmatter.planVersionId).toBeUndefined();
         });
 
-        it('refuses a backlog card whose plan has an empty "Files in scope", writing nothing', async () => {
+        it('refuses a card in backlog too — the old target of this refusal — since approving now only ever starts from planning', async () => {
             const { board, service } = freshBoard();
-            await board.create(withScope('0051', 'backlog', '## Goal\n\nDo it.\n\n## Files in scope\n\n'), 'seed');
+            await board.create(withScope('0055', 'backlog'), 'seed');
+
+            await expect(service.approve('0055')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"backlog", not "planning"') },
+            });
+        });
+
+        /**
+         * The plan draws this boundary explicitly: "A `parking-lot` → `backlog` promotion... is not
+         * 'approving a plan' in the same sense, [and] goes through plain `wilson card move` instead."
+         * `approve` must refuse a parking-lot card exactly as it refuses any other non-`planning`
+         * stage — the promotion path is `move`, not this thin front door onto it.
+         */
+        it('refuses a parking-lot card too — its promotion into backlog goes through plain `move`, not this front door', async () => {
+            const { board, service } = freshBoard();
+            const planVersion = await board.create(withScope('0056', 'parking-lot'), 'seed');
+
+            await expect(service.approve('0056')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"parking-lot", not "planning"') },
+            });
+            const stored = await board.read('0056');
+            expect(stored.frontmatter.stage).toBe('parking-lot');
+            expect(stored.frontmatter.planVersionId).toBeUndefined();
+
+            // The same card is still promotable — just not through `approve`: plain `move` pins it,
+            // exactly as it does for any other source stage entering `backlog`.
+            const detail = await service.move('0056', { stage: 'backlog' });
+            expect(detail.stage).toBe('backlog');
+            expect((await board.read('0056')).frontmatter.planVersionId).toBe(planVersion);
+        });
+
+        it('refuses a planning card whose plan has an empty "Files in scope", writing nothing — the refusal now lives in `move`', async () => {
+            const { board, service } = freshBoard();
+            await board.create(withScope('0051', 'planning', '## Goal\n\nDo it.\n\n## Files in scope\n\n'), 'seed');
 
             await expect(service.approve('0051')).rejects.toMatchObject({
                 statusCode: 400,
                 details: { reason: expect.stringContaining('Files in scope') },
             });
             const stored = await board.read('0051');
-            expect(stored.frontmatter.stage).toBe('backlog');
+            expect(stored.frontmatter.stage).toBe('planning');
             expect(stored.frontmatter.planVersionId).toBeUndefined();
         });
 
@@ -552,18 +671,16 @@ describe('BoardWriteService', () => {
             await expect(service.approve('missing')).rejects.toMatchObject({ statusCode: 404 });
         });
 
-        it("pins the version that held the plan a human just read — the one before this write, not the one this write creates — and moves to backlog's onPass target", async () => {
+        it('pins the version that held the plan a human just read — the one before this write, not the one this write creates — and moves planning into backlog', async () => {
             const { board, events, service } = freshBoard();
-            const approvedVersion = await board.create(withScope('0052', 'backlog'), 'seed');
+            const approvedVersion = await board.create(withScope('0052', 'planning'), 'seed');
 
             const detail = await service.approve('0052');
 
-            // `stages.yaml` in this file routes backlog to "testing", not the more obvious
-            // "implementing" a hard-coded target would produce.
-            expect(detail.stage).toBe('testing');
+            expect(detail.stage).toBe('backlog');
 
             const stored = await board.read('0052');
-            expect(stored.frontmatter.stage).toBe('testing');
+            expect(stored.frontmatter.stage).toBe('backlog');
             expect(stored.frontmatter.planVersionId).toBe(approvedVersion);
 
             const versionAfterApproval = await board.currentVersion('0052');
@@ -572,9 +689,9 @@ describe('BoardWriteService', () => {
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({
                     cardId: '0052',
-                    stage: 'testing',
+                    stage: 'backlog',
                     type: 'transition.written',
-                    payload: { from: 'backlog', to: 'testing', by: 'human', planVersionId: approvedVersion },
+                    payload: { from: 'planning', to: 'backlog', by: 'human', planVersionId: approvedVersion },
                 }),
                 expect.anything(),
             );
@@ -583,7 +700,7 @@ describe('BoardWriteService', () => {
         it('pins the plan text as it stood at approval, so a later edit does not change what a pinned read sees', async () => {
             const { board, service } = freshBoard();
             const approvedBody = '## Goal\n\nApprove me.\n\n## Files in scope\n\n- src/a.ts\n';
-            await board.create(withScope('0053', 'backlog', approvedBody), 'seed');
+            await board.create(withScope('0053', 'planning', approvedBody), 'seed');
 
             await service.approve('0053');
             const pinnedVersion = (await board.read('0053')).frontmatter.planVersionId!;

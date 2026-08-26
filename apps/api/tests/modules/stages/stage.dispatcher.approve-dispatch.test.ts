@@ -35,9 +35,9 @@ afterAll(async () => {
     await db.destroy();
 });
 
-// `backlog` routes to `testing`, not the more obvious `implementing` — the same choice
-// board.write.service.test.ts makes for `approve`, so a regression to a hard-coded target would
-// show up as a divergence in behaviour here too.
+// `backlog` is manual, its own onPass is irrelevant here — this test moves the card on to
+// `testing` explicitly (`writeService.move('0001', { stage: 'testing' })`), standing in for the
+// poller's own second step, rather than reading it from config the way `approve` used to.
 const stagesYaml = `
 stages:
   - name: backlog
@@ -61,7 +61,7 @@ const seedCard: Card = {
     frontmatter: {
         id: '0001',
         title: 'do the thing',
-        stage: 'backlog',
+        stage: 'planning',
         dependsOn: [],
         retries: {},
     },
@@ -72,16 +72,24 @@ const seedCard: Card = {
 /**
  * Card 0109's own bug report: "the first time `wilson card approve` was ever used on this board" —
  * approving a card and then dispatching it poisoned the card immediately, because
- * `assertDispatchable` checked the *pinned* plan snapshot's `stage` (always `backlog`, since
- * `approve` pins the version from before its own write) instead of the live card's stage
- * (`testing`, where `approve` had just sent it).
+ * `assertDispatchable` checked the *pinned* plan snapshot's `stage` instead of the live card's
+ * stage. The fix (using `head`, the live row, for that check) has to keep holding no matter how a
+ * card's plan version comes to be pinned at a stage other than the one it is dispatched at.
  *
- * This wires up the real `BoardWriteService.approve` — the exact write path the bug report names —
- * against a real Postgres board, then runs `StageDispatcher.run` all the way to a passing, committed
- * transition, the way `stage.dispatcher.collateral.test.ts` drives a full run: a real git worktree, a
- * stub agent adapter and verifier standing in for the model, everything else real. Asserting on the
- * reads in isolation (as the pre-0109 test suite did) is exactly what hid this, per the card's own
- * acceptance criteria — this exercises the seam between `approve` and `run` where the bug actually
+ * Card 0127 moved *where* the pin happens — entering `backlog` now, not leaving it — and made
+ * leaving `backlog` a second, separate write (the poller's job, or a plain `move`) that never
+ * re-pins. That reshapes this test's setup into two steps instead of one (`approve` from
+ * `planning` into `backlog`, pinning; then `move` out of `backlog` into an agent stage, same as the
+ * poller's own `advanceBacklogCard`) without changing what it is actually proving: the pinned
+ * snapshot's own `frontmatter.stage` (`planning`, here) still differs from the live card's stage
+ * (`testing`) at dispatch time, and that must not poison the card.
+ *
+ * This wires up the real `BoardWriteService` against a real Postgres board, then runs
+ * `StageDispatcher.run` all the way to a passing, committed transition, the way
+ * `stage.dispatcher.collateral.test.ts` drives a full run: a real git worktree, a stub agent adapter
+ * and verifier standing in for the model, everything else real. Asserting on the reads in isolation
+ * (as the pre-0109 test suite did) is exactly what hid this, per the card's own acceptance criteria —
+ * this exercises the seam between approving/advancing a card and running it, where the bug actually
  * lived.
  */
 describe('approving a card and then dispatching it (card 0109)', () => {
@@ -172,21 +180,27 @@ describe('approving a card and then dispatching it (card 0109)', () => {
         );
     };
 
-    it('dispatches normally on its very first run after approval, instead of poisoning on a wrong-stage refusal', async () => {
+    it('dispatches normally on its very first run after approval and being advanced out of backlog, instead of poisoning on a wrong-stage refusal', async () => {
         const { config, board, events, worktrees, writeService } = await setUp();
 
         const approvedVersion = await board.currentVersion('0001');
-        const detail = await writeService.approve('0001');
+        const approved = await writeService.approve('0001');
+        expect(approved.stage).toBe('backlog');
+
+        // The poller's second step (`advanceBacklogCard`), reproduced here with the same `move`
+        // it is a thin wrapper over: a card already pinned on entry to `backlog` moves on to an
+        // agent stage without touching the pin.
+        const detail = await writeService.move('0001', { stage: 'testing' });
         expect(detail.stage).toBe('testing');
 
         // Reproduces the exact shape the bug report describes: the live card is in "testing" (where
-        // approve just sent it) while the version pinned onto it is the one from *before* the
-        // approval write, whose own `frontmatter.stage` still reads "backlog".
+        // the second move just sent it) while the version pinned onto it is the one from *before*
+        // the approval write, whose own `frontmatter.stage` still reads "planning".
         const head = await board.read('0001');
         expect(head.frontmatter.stage).toBe('testing');
         expect(head.frontmatter.planVersionId).toBe(approvedVersion);
         const pinned = await board.readAt('0001', approvedVersion);
-        expect(pinned.frontmatter.stage).toBe('backlog');
+        expect(pinned.frontmatter.stage).toBe('planning');
 
         let scopedDecision: ScopeDecision | undefined;
         let editedDecision: ScopeDecision | undefined;
@@ -226,6 +240,7 @@ describe('approving a card and then dispatching it (card 0109)', () => {
     it('still dispatches the plan pinned at approval, not a body edited afterward, and does not widen scope', async () => {
         const { config, board, events, worktrees, writeService } = await setUp();
         await writeService.approve('0001');
+        await writeService.move('0001', { stage: 'testing' });
 
         const editedBody = '## Goal\n\nDo it differently.\n\n## Files in scope\n\n- src/a.ts\n- src/b.ts\n';
         await board.write('0001', 'edit after approval', current => ({

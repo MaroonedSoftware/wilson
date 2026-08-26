@@ -5,7 +5,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { nextCard } from '#modules/board/next.card.js';
-import { loadStages } from '#modules/stages/stage.config.js';
+import { loadStages, findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { whyNotDispatchable } from './dispatchable.js';
@@ -30,6 +30,14 @@ import { CardJobs } from './card.jobs.js';
  * refusing the whole tick over it. That is the one and only reason this and `wilson card next` may
  * name different cards — do not "fix" that by changing what `next` means; card 0117's whole point was
  * to leave it alone.
+ *
+ * Card 0127: `backlog` is the one exception to "skip past a manual stage" — it is a queue the poller
+ * itself works, not merely a person's. A card there was already approved and pinned on arrival
+ * (`BoardWriteService.move`), so there is nothing left for a human to decide; this advances it to
+ * `backlog`'s own `onPass` and enqueues it there, exactly as if a human had moved and started it by
+ * hand. `backlog` is named explicitly for this, never derived from `mode: manual` — `ready` is manual
+ * too, with `onPass: merged`, and `planning` is manual with `onPass: backlog`; either one advanced the
+ * same way would merge or approve a card with nobody having looked.
  *
  * One candidate per tick, never more: a board with thirty ready cards must not become thirty
  * concurrent stages the moment this starts ticking. `CARD_STAGE_CONCURRENCY` is what actually bounds
@@ -124,6 +132,18 @@ export class Poller {
 
             for (const candidate of candidates.slice(0, MAX_CANDIDATES_PER_TICK)) {
                 const stageName = candidate.frontmatter.stage;
+                const cardId = candidate.frontmatter.id;
+
+                // Card 0127: `backlog`, named explicitly — never derived from `mode: manual`, so
+                // `ready` and every other manual stage fall through to the ordinary refusal below
+                // exactly as before. A card here is already approved and pinned; advance it rather
+                // than skipping it as "merely manual".
+                if (stageName === 'backlog') {
+                    const advanced = await this.advanceBacklogCard(cardId, stages);
+                    if (!advanced) continue;
+                    return;
+                }
+
                 const reason = whyNotDispatchable(candidate, stages);
                 if (reason) {
                     const stage = stages.stages.find(s => s.name === stageName);
@@ -134,8 +154,6 @@ export class Poller {
                     // exactly as a single-candidate tick always has.
                     return;
                 }
-
-                const cardId = candidate.frontmatter.id;
 
                 // The single most important check here: refuse a card something is already carrying,
                 // exactly as `card start` does, so a poller tick can never put two jobs — and so two
@@ -154,5 +172,42 @@ export class Poller {
             // than letting one bad read or a dropped connection stop the poller for good.
             this.logger.error(error);
         }
+    }
+
+    /**
+     * Advance one `backlog` card to `backlog`'s own `onPass` target — read from config, never
+     * hard-coded — and enqueue it there. Returns whether it did: `false` means "something already
+     * holds this card's claim, try the next candidate", the same meaning the ordinary enqueue path
+     * below gives its own in-flight check, not "something is wrong".
+     *
+     * Writes the transition itself, `by: 'runner'` — the value `StageDispatcher.writeTransition`
+     * already uses for every transition the system makes on its own, as opposed to `'human'` for one
+     * `wilson card move`/`approve` records over HTTP. Does not touch `planVersionId`: a card only
+     * ever reaches `backlog` already pinned (`BoardWriteService.move`, card 0127), so re-pinning here
+     * would just restate the version that pinning already recorded.
+     */
+    private async advanceBacklogCard(cardId: string, stages: ProjectStages): Promise<boolean> {
+        const running = await this.cardJobs.inFlight(cardId);
+        if (running) return false;
+
+        const target = findStage(stages, 'backlog').onPass;
+
+        await this.board.writeWithEvent(
+            cardId,
+            `Move ${cardId} to ${target}`,
+            card => ({ ...card, frontmatter: { ...card.frontmatter, stage: target } }),
+            {
+                project: this.boardConfig.project,
+                cardId,
+                stage: target,
+                type: 'transition.written',
+                payload: { from: 'backlog', to: target, by: 'runner' },
+            },
+        );
+
+        const jobId = await this.broker.send('card.stage', { cardId, stageName: target });
+        await this.cardJobs.record(cardId, jobId);
+        this.logger.info(`poller: advanced ${cardId} · backlog → ${target}, enqueued (job ${jobId})`);
+        return true;
     }
 }
