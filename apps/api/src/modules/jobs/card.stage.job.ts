@@ -277,7 +277,36 @@ export class CardStageJob extends Job<CardStagePayload> {
             // Hand the claim straight to the next job rather than clearing and re-recording: the card
             // is continuously in flight across a chain, and a gap between the two is a window a
             // poller would enqueue into.
-            const jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
+            //
+            // Card 0102: `broker.send` can throw here on a connection pg-boss already closed —
+            // `runner.stop()` gives up and returns once its own timeout elapses whether or not this
+            // handler has finished, and this is the moment every multi-stage card passes through on
+            // every transition. By the time it throws, the stage above has already passed and its
+            // transition is already written, so this is not a failed stage and must not be treated
+            // like one: letting the error propagate out of `run()` would make *this* job's own
+            // pg-boss attempt look like it failed, and a retry would re-run `dispatcher.run` for a
+            // stage that already passed and already committed its work — kicked back and retried,
+            // which is strictly worse than the stranding it would be "fixing", and exactly what this
+            // card's constraints forbid. So the throw is caught here instead: this attempt still
+            // completes normally (no retry), `cardJobs.record` deliberately never runs (see
+            // `chain.orphaned`'s comment in card.event.ts for why that is fine, not a second bug), and
+            // what is genuinely lost — the handoff — is what gets recorded.
+            let jobId: string;
+            try {
+                jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
+            } catch (error) {
+                await this.events.append({
+                    project: this.board.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'chain.orphaned',
+                    payload: {
+                        target: outcome.transitionedTo,
+                        reason: error instanceof Error ? error.message : String(error),
+                    },
+                });
+                return;
+            }
             await this.cardJobs.record(cardId, jobId);
             return;
         }

@@ -27,6 +27,19 @@ export type CardEventType =
     // the card itself is built from.
     | 'rebase.conflict'
     | 'dispatch.deferred'
+    // Card 0102. A handler can still be running after `runner.stop()` has already returned — that
+    // is the premise `stopCardStageJobs`/card 0066 is built on — so `CardStageJob`'s own `broker.send`
+    // handing the claim to the next job in a chain can throw on a connection pg-boss already closed
+    // underneath it. By the time that happens the stage has already passed and its transition is
+    // already written; only the handoff was lost. Appended in place of letting that throw (which
+    // would make the queue retry a stage that already passed) or a `cardJobs.record` that runs
+    // (which never happens here — that is the "no claim recorded" this event exists to explain).
+    // Payload carries `target` (the stage the card actually landed on, per `outcome.transitionedTo`)
+    // and `reason` (the `broker.send` error). The card is left in `target`, an ordinary agent stage,
+    // so `whyNotDispatchable` sees nothing wrong with it: `wilson card start` picks it straight back
+    // up, and so does `Poller.tick` if `POLLER_ENABLED` is on — which it is not by default, so this
+    // event is the only signal an operator gets that the chain did not carry itself forward.
+    | 'chain.orphaned'
     | 'engine.failed'
     | 'tool.denied'
     // The counterpart to `tool.denied`: a mutation or command that was allowed and actually ran,

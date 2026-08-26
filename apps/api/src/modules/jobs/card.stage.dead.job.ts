@@ -61,9 +61,23 @@ export class CardStageDeadJob extends Job<CardStagePayload> {
         // pg-boss carries the failed job's own output (name/message/stack of its last error) forward
         // onto the dead-letter row it inserts for it, so this job's own record — not the original
         // job's, which is gone — already has everything the final attempt reported.
-        const deadJob = await this.pgboss.getJobById<CardStagePayload>(this.context.name, this.context.id);
-        const output = deadJob?.output as JobFailureOutput | undefined;
-        const reason = output?.message ?? 'card.stage exhausted its retries with no recorded error';
+        //
+        // Card 0102: this job can itself be running past `runner.stop()` the same way `CardStageJob`
+        // can (see its `broker.send` comment), so `getJobById` can throw on a connection pg-boss
+        // already closed. That loses the failure reason, not the chain — this job still owns the
+        // card and still poisons it below either way — so the fallback below is deliberately worded
+        // differently from the "no recorded error" one above: that one means pg-boss genuinely has no
+        // output for this row, this one means the output could not be read at all, and a reason that
+        // looked like the card's own dispatcher failure would be a lie about what actually happened.
+        let reason: string;
+        try {
+            const deadJob = await this.pgboss.getJobById<CardStagePayload>(this.context.name, this.context.id);
+            const output = deadJob?.output as JobFailureOutput | undefined;
+            reason = output?.message ?? 'card.stage exhausted its retries with no recorded error';
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            reason = `could not read the dead-letter output: ${detail}`;
+        }
 
         await this.events.append({
             project: this.board.project,
