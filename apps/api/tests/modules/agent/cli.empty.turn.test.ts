@@ -171,6 +171,64 @@ describe('CliStageAgent — turn.empty (card 0126)', () => {
         expect(recorded).toHaveLength(0);
     });
 
+    it('does not record turn.empty when report_result was called but reading its target failed', async () => {
+        // A closer look-alike to the true defect than "a Write ran" (the previous test): here the
+        // model actually invoked report_result — this is not silence — and only the read afterwards
+        // failed, because the report file was never written to disk. `anyToolSeen` has to pick up
+        // the tool_use block for report_result itself, the same as any other tool, so this must not
+        // be folded into turn.empty even though `reported` ends up undefined exactly as it does in
+        // the true empty-turn case.
+        const root = await makeWorktree();
+        queryMock.mockReturnValue({
+            [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                    async next() {
+                        if (step === 0) {
+                            step = 1;
+                            // No file was ever written at REPORT_RESULT_PATH, so this read fails and
+                            // `reported` is left undefined — the tool was still called, though.
+                            await tools.get('report_result')!({});
+                            return {
+                                done: false,
+                                value: {
+                                    type: 'assistant',
+                                    message: { content: [{ type: 'tool_use', name: 'mcp__wilson__report_result', id: 'toolu_1', input: {} }] },
+                                },
+                            };
+                        }
+                        return { done: false, value: successResult };
+                    },
+                };
+            },
+        });
+        const { events, recorded } = recordingEvents();
+        const agent = new CliStageAgent(silentLogger as never);
+
+        const output = (await agent.run(runInput(makeStage(), root, events) as never)) as Output;
+
+        expect(output.result).toBeUndefined();
+        expect(recorded).toHaveLength(0);
+    });
+
+    it('records turn.empty with the SDK’s bare subtype when the result carried no stop_reason at all', async () => {
+        // `describeEngineStop` phrases a null `stop_reason` differently ("ended as 'success'", no
+        // parenthetical) from the `end_turn` case every other test in this file uses. The turn.empty
+        // payload has to carry whatever that function actually produces, not a value hardcoded past
+        // it, so this exercises the other branch of that formatting through the same detection path.
+        const root = await makeWorktree();
+        const bareSuccess = { type: 'result', subtype: 'success', stop_reason: null, usage: { input_tokens: 10, output_tokens: 5 } };
+        queryMock.mockReturnValue(streamOf([proseOnlyMessage, bareSuccess]));
+        const { events, recorded } = recordingEvents();
+        const agent = new CliStageAgent(silentLogger as never);
+
+        const output = (await agent.run(runInput(makeStage(), root, events) as never)) as Output;
+
+        expect(output.engineStopReason).toBe("ended as 'success'");
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]).toMatchObject({ type: 'turn.empty', payload: { engineStopReason: "ended as 'success'" } });
+    });
+
     it('does not fire on a stage that legitimately has nothing to do and reports so honestly', async () => {
         // The constraint this card is most careful about: a stage that finds its work already done
         // and reports an honest, empty-diff result must not be mistaken for one that never started.
