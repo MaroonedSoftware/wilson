@@ -278,6 +278,11 @@ describe('the card stage concurrency control', () => {
 describe('deployment facts', () => {
     it('renders the roots read-only and says why, rather than leaving an edit control to hunt for', async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        // Mocked like every other test in this file: left unmocked, this hits the real API base
+        // (`http://localhost:13100` by default), and whether it resolves before the assertion below
+        // runs is a race the test must not depend on either way.
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
 
         renderApp('/settings');
 
@@ -286,8 +291,12 @@ describe('deployment facts', () => {
         expect(screen.getByText('/deploy/worktrees')).toBeTruthy();
         expect(screen.getByText(/environment-only/)).toBeTruthy();
 
-        // Read-only: nothing on the page offers to edit them — no text inputs at all, since the
-        // only interactive control this card adds is the auto-mode switch.
-        expect(document.querySelectorAll('input[type="text"]')).toHaveLength(0);
+        // Read-only: nothing in the Deployment section offers to edit the roots. Scoped to that
+        // section specifically, not the whole page — card 0115's "Poll interval"/"Concurrent
+        // stages" controls sit in their own sections above and are genuinely editable `NumberInput`s
+        // (which Mantine renders as `<input type="text" inputmode="decimal">`); this test is about
+        // the deployment facts, not a claim that no other control on the page takes input.
+        const deploymentSection = screen.getByText('Deployment').closest('.mantine-Paper-root') as HTMLElement;
+        expect(within(deploymentSection).queryAllByRole('textbox')).toHaveLength(0);
     });
 });
