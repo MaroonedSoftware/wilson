@@ -48,7 +48,7 @@ function FlaggedRoute() {
                     Nothing is flagged right now.
                 </Text>
             ) : (
-                <Board columns={stagesWithFlagged} cards={flagged} />
+                <Board columns={stagesWithFlagged} cards={flagged} allCards={cards.data} />
             )}
         </Stack>
     );

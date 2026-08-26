@@ -80,10 +80,24 @@ function Column({ stage, cards, stageById }: { stage: string; cards: CardSummary
  * Columns come from the API rather than a list in here, because stages are config — a board that
  * hard-codes them starts lying the first time a stage is added.
  */
-export function Board({ columns, cards }: { columns: BoardColumns; cards: CardSummary[] }) {
+export function Board({
+    columns,
+    cards,
+    allCards,
+}: {
+    columns: BoardColumns;
+    cards: CardSummary[];
+    /**
+     * The full card set to resolve dependency stages against, when `cards` is a filtered subset
+     * (card 0119's `/flagged` view, for one). Falls back to `cards` itself so a dependency on a
+     * card outside the filtered set doesn't read as unfinished just because it's missing from the
+     * lookup — see `unfinishedDeps` in `lib/board.ts`.
+     */
+    allCards?: CardSummary[];
+}) {
     const order = columnOrder(columns, cards);
     const grouped = groupByStage(cards);
-    const stageById = stagesById(cards);
+    const stageById = stagesById(allCards ?? cards);
 
     return (
         <ScrollArea type="auto">
