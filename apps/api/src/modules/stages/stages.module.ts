@@ -3,9 +3,10 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
+import { ScopeCheckVerifier } from './scope.check.verifier.js';
 import { StageDispatcher } from './stage.dispatcher.js';
 import { StagesService } from './stages.service.js';
-import { ImplementingResultSchema, ReviewResultSchema, StageResultSchemaMap } from './stage.result.js';
+import { ImplementingResultSchema, ReviewResultSchema, ScopeCheckResultSchema, StageResultSchemaMap } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { TestingVerifier } from './testing.verifier.js';
 
@@ -15,6 +16,7 @@ export const StagesModule: ServerKitModule = {
         registry.register(ImplementingVerifier).useClass(ImplementingVerifier).asTransient();
         registry.register(TestingVerifier).useClass(TestingVerifier).asTransient();
         registry.register(ReviewVerifier).useClass(ReviewVerifier).asTransient();
+        registry.register(ScopeCheckVerifier).useClass(ScopeCheckVerifier).asTransient();
         registry
             .register(StageVerifierMap)
             .useFactory(container => {
@@ -22,6 +24,7 @@ export const StagesModule: ServerKitModule = {
                 map.set('implementing', container.get(ImplementingVerifier));
                 map.set('testing', container.get(TestingVerifier));
                 map.set('review', container.get(ReviewVerifier));
+                map.set('scope-check', container.get(ScopeCheckVerifier));
                 return map;
             })
             .asSingleton();
@@ -32,6 +35,7 @@ export const StagesModule: ServerKitModule = {
                 map.set('implementing', ImplementingResultSchema);
                 map.set('testing', ImplementingResultSchema);
                 map.set('review', ReviewResultSchema);
+                map.set('scope-check', ScopeCheckResultSchema);
                 return map;
             })
             .asSingleton();

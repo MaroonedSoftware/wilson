@@ -57,6 +57,74 @@ export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
 
 /**
+ * A bucket of the plan's Tasks-section items the scope-check stage judges to be "the same kind of
+ * thing" — card 0105's calibration finding: breadth (how many times a plan repeats one kind of
+ * work), not file count or plan length, is what predicts a card too big for one pass. Every item in
+ * the Tasks section belongs to exactly one group: a plan doing three different things once each
+ * reports three groups of size one; a plan doing the same thing eight times reports one group of
+ * size eight (card 0075: eight near-identical endpoints) or one of any other size (card 0078: every
+ * CLI command ported). `title` names the kind, `tasks` are that group's members, quoted or numbered
+ * from the plan so a human can find them.
+ */
+export const ScopeGroupSchema = z.object({
+    title: z.string().describe('What kind of work this group is — the label under which its tasks repeat.'),
+    tasks: z.array(z.string()).min(1).describe("Which Tasks-section items belong to this group — quote or number them."),
+});
+
+/**
+ * One piece of a proposed division, reported only when the verdict is "refuse".
+ *
+ * Not itself a split — dividing a card is `planning`'s decision (card 0105's Goal) — but concrete
+ * enough that a human or `wilson card plan` has seams to start from instead of "this card is too
+ * large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
+ * on its own.
+ */
+export const ScopeDivisionPieceSchema = z.object({
+    title: z.string().describe('A short name for this piece.'),
+    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry.'),
+    delivers: z.string().describe('What this piece would deliver on its own, if built alone.'),
+});
+
+/**
+ * What the scope-check stage reports: every Tasks-section item bucketed by kind (`groups`, always
+ * present — the breadth evidence), a verdict, why in terms of repetition, and — only when refusing —
+ * a concrete division.
+ *
+ * `verdict` drives `ScopeCheckVerifier.passed` directly rather than following `ReviewResultSchema`'s
+ * pattern of a `passed`/`verdict` split resolved later by `shouldAdvance` (`kickback.ts`):
+ * `shouldAdvance` only special-cases the literal string `"revise"`, which is review's own routing
+ * signal, and `kickback.ts` is out of this card's scope to extend for a second one. Since this
+ * stage's `onPass`/`onFail` point to different destinations (`implementing` vs `planning`, unlike
+ * review's shared `onFail`), folding the verdict into `passed` is not a workaround here — it is
+ * this stage's actual exit condition: "is this card small enough for one pass", full stop.
+ */
+export const ScopeCheckResultSchema = z
+    .object({
+        summary: z.string(),
+        groups: z
+            .array(ScopeGroupSchema)
+            .min(1)
+            .describe(
+                'Every item in the plan’s Tasks section, bucketed by "the same kind of thing" — one entry per distinct kind of work, however many tasks share it.',
+            ),
+        verdict: z.enum(['pass', 'refuse']),
+        reason: z
+            .string()
+            .describe(
+                'Why, stated in terms of repetition: name the kind of work and how many times it repeats. Never file count or plan length — those do not predict it (card 0105).',
+            ),
+        division: z.array(ScopeDivisionPieceSchema).default([]),
+    })
+    .refine(result => result.verdict !== 'refuse' || result.division.length >= 2, {
+        message: 'a "refuse" verdict must propose a division of at least two pieces',
+        path: ['division'],
+    });
+
+export type ScopeGroup = z.infer<typeof ScopeGroupSchema>;
+export type ScopeDivisionPiece = z.infer<typeof ScopeDivisionPieceSchema>;
+export type ScopeCheckResult = z.infer<typeof ScopeCheckResultSchema>;
+
+/**
  * Stage name (or its `verifier` override) -> the schema its report tool enforces.
  *
  * Registered in `StagesModule` the same way `StageVerifierMap` is, so `buildTools` never hardcodes
