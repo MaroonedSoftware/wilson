@@ -139,6 +139,10 @@ describe('wilson card next', () => {
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
         expect(messages).toContain('daemon was behind at a recent dispatch:');
         expect(messages).toContain('  0001  x');
+        // Card 0100's own constraint: a stale-daemon dispatch is not a reason to stop, so it must
+        // never land in the flagged block or borrow its needsHuman-driven wording — this card is not
+        // needsHuman (see the `card()` default above), and the flagged header must not appear at all.
+        expect(messages).not.toContain('flagged:');
     });
 
     it('says nothing about staleness when no candidate card has a daemon.stale event', async () => {

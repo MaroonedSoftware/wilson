@@ -95,6 +95,22 @@ describe('wilson card show', () => {
         );
     });
 
+    it('falls back to the bare type line for a daemon.stale event whose payload is missing behindBy', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([
+                { id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' },
+            ]),
+        );
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        expect(logger.info).toHaveBeenCalledWith('  2026-01-01T00:00:00.000Z  daemon.stale (implementing)');
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        expect(messages.some((m: string) => m.includes('commit(s) behind'))).toBe(false);
+    });
+
     it('prints a single JSON object with --json, dropping retries/planVersionId (no longer on the wire contract)', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ branch: 'card/0001' })));
         fetchMock.mockResolvedValueOnce(jsonResponse([]));
