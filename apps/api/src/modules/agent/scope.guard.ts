@@ -63,8 +63,13 @@ const REPORT_RESULT_GRANT_REASON =
 /**
  * Decides whether an agent may write a path.
  *
- * This is the single enforcement point for scope. It is not a lint that runs after the fact: a write
- * outside scope fails at the tool, so the diff can never contain one in the first place.
+ * This is the single enforcement point for scope, for the write tools: `write`, `edit` and
+ * `delete` all call through here before touching disk, so a write outside scope fails at the tool
+ * and the diff can never contain one in the first place. It guards those tools, not the process.
+ * A command from a stage's allowlist that runs project code — `pnpm build`, `pnpm test`,
+ * `pnpm exec vitest run` — never calls `check`; a test file calling `fs.writeFile` reaches the
+ * filesystem directly, unchecked by anything here. See the guardrail-vs-boundary note atop
+ * `command.allowlist.ts` for why that gap is accepted rather than closed.
  *
  * The check resolves symlinks before matching. A glob test against an unresolved path is
  * bypassable — `src/link/../../../etc/passwd`, or a symlink the agent itself created inside an
