@@ -200,7 +200,33 @@ export const ProjectStagesSchema = z.object({
 
 export type ProjectStages = z.infer<typeof ProjectStagesSchema>;
 
-export class StageConfigError extends Error {}
+/**
+ * Which "never" a `StageConfigError` describes.
+ *
+ * `stage-not-found` (`findStage`) is deterministic for the job that named the stage and no action on
+ * that job changes it — retrying is pointless, but so is leaving it queued, so it poisons.
+ * `config-invalid` covers every way `stages.yaml` itself is missing or malformed (unreadable, fails
+ * schema validation, or routes to a state that does not exist): that is not a fact about any one card,
+ * it is true for every card that would load this file, so poisoning each as it arrives would turn one
+ * config typo into a board full of poisoned cards a human then walks back one at a time. Those defer
+ * instead, leaving the card exactly where it is until the file is fixed.
+ *
+ * A field rather than a subclass, matching `NotDispatchableError`'s `reason` — see
+ * `classifyDispatchFailure` for how `CardStageJob` branches on it ahead of `isPermanentFailure`'s
+ * message matching, which is tuned for provider errors that carry no type of their own, not this
+ * codebase's own.
+ */
+export type StageConfigErrorKind = 'stage-not-found' | 'config-invalid';
+
+export class StageConfigError extends Error {
+    constructor(
+        public readonly kind: StageConfigErrorKind,
+        message: string,
+    ) {
+        super(message);
+        this.name = 'StageConfigError';
+    }
+}
 
 /**
  * The last successfully loaded config per `stages.yaml` path, with the file identity it was read at.
@@ -263,12 +289,13 @@ export const loadStages = async (boardRoot: string): Promise<ProjectStages> => {
 
     const raw = await readFile(path, 'utf8').catch((err: Error) => err);
     if (raw instanceof Error) {
-        throw new StageConfigError(`could not read ${path}: ${raw.message}`);
+        throw new StageConfigError('config-invalid', `could not read ${path}: ${raw.message}`);
     }
 
     const parsed = ProjectStagesSchema.safeParse(parseYaml(raw));
     if (!parsed.success) {
         throw new StageConfigError(
+            'config-invalid',
             `${path} is not valid stage config: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
         );
     }
@@ -297,6 +324,7 @@ export const assertRoutesResolve = (stages: ProjectStages, path = 'stages.yaml')
 
     if (dangling.length > 0) {
         throw new StageConfigError(
+            'config-invalid',
             `${path} routes to states that do not exist: ${dangling.join(', ')}. Valid targets: ${[...known].sort().join(', ')}.`,
         );
     }
@@ -330,7 +358,10 @@ export const validTargets = (stages: ProjectStages): string[] => {
 export const findStage = (stages: ProjectStages, name: string): StageConfig => {
     const stage = stages.stages.find(s => s.name === name);
     if (!stage) {
-        throw new StageConfigError(`no stage named "${name}" in stages.yaml (have: ${stages.stages.map(s => s.name).join(', ')})`);
+        throw new StageConfigError(
+            'stage-not-found',
+            `no stage named "${name}" in stages.yaml (have: ${stages.stages.map(s => s.name).join(', ')})`,
+        );
     }
     return { ...stage, verifier: stage.verifier ?? stage.name };
 };

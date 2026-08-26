@@ -26,6 +26,14 @@ export type CardEventType =
     // and `detail` (the git error `rebaseOntoHead` aborted on), which is everything the reason on
     // the card itself is built from.
     | 'rebase.conflict'
+    // "Not now", not "never": nothing on the card changed, and the same dispatch succeeds unchanged
+    // once whatever it is waiting on clears. `recordDeferral` writes this for two distinct causes,
+    // told apart by the payload's `reason` text and the presence of `outstanding`: an unsatisfied
+    // dependency carries `outstanding` (the card ids still in the way) alongside a "waiting on ..."
+    // reason; a `StageConfigError` whose `stages.yaml` will not load omits `outstanding` entirely —
+    // that failure is true for every card that would load the file, not just this one, so there is no
+    // per-card dependency list to name — and its `reason` names the path and the parse or read
+    // failure instead. See `classifyDispatchFailure`'s `defer` arm.
     | 'dispatch.deferred'
     // Card 0102. A handler can still be running after `runner.stop()` has already returned — that
     // is the premise `stopCardStageJobs`/card 0066 is built on — so `CardStageJob`'s own `broker.send`
