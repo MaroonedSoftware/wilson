@@ -332,6 +332,15 @@ export class StageDispatcher {
                 }
             }
 
+            // Only a failed stage leaves uncommitted work behind for `reclaim` to preserve, and the
+            // path is deterministic from the card id alone — naming it here does not depend on
+            // `reclaim` having actually run yet (card 0089: preservation happens lazily, at the
+            // next `create`/`resume`/`reclaim`, not at the failure site).
+            if (!outcome.passed) {
+                this.logger.warn(
+                    `${cardId} ${stageName} failed with work still in the worktree; if anything is uncommitted, reclaim will save it to ${this.worktrees.failedAttemptPatchPath(cardId)}`,
+                );
+            }
             await this.events.append({
                 project: this.config.project,
                 cardId,
@@ -345,6 +354,7 @@ export class StageDispatcher {
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
+                    ...(outcome.passed ? {} : { patchPath: this.worktrees.failedAttemptPatchPath(cardId) }),
                 },
             });
 
@@ -377,12 +387,16 @@ export class StageDispatcher {
             return { ...outcome, transitionedTo, needsHuman };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
+            const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
+            this.logger.warn(
+                `${cardId} ${stageName} failed with work still in the worktree; if anything is uncommitted, reclaim will save it to ${patchPath}`,
+            );
             await this.events.append({
                 project: this.config.project,
                 cardId,
                 stage: stageName,
                 type: 'stage.failed',
-                payload: { error: reason },
+                payload: { error: reason, patchPath },
             });
             throw err;
         }

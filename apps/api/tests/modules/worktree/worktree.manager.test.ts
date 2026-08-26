@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -238,6 +238,118 @@ describe('WorktreeManager', () => {
 
     it('is safe to reclaim something that was never created', async () => {
         await expect(manager.reclaim('9999')).resolves.toBeUndefined();
+    });
+
+    /**
+     * Card 0089: three of card 0078's testing-stage attempts each wrote real tests, and each
+     * attempt's work was destroyed outright — not merely left uncommitted — the moment the next
+     * attempt's `create`/`resume` reclaimed the worktree, since reclaiming had no way to keep
+     * anything. `reclaim` now saves whatever is dirty as a patch before it deletes the tree.
+     */
+    describe('preserving a failed attempt before reclaim deletes it', () => {
+        it('saves uncommitted tracked and untracked changes as a patch before deleting the tree', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'new.ts'), 'export const n = 1;\n', 'utf8');
+
+            await manager.reclaim('0001');
+
+            const patchPath = manager.failedAttemptPatchPath('0001');
+            expect(existsSync(patchPath)).toBe(true);
+            const patch = await readFile(patchPath, 'utf8');
+            expect(patch).toContain('src/index.ts');
+            // Untracked files never show up in a diff against HEAD — `git add -A` first is what makes
+            // them appear here at all. This is exactly the gap that lost card 0078's new test files.
+            expect(patch).toContain('src/new.ts');
+            expect(existsSync(worktree.path)).toBe(false);
+        });
+
+        it('produces a patch that git apply can use to actually recover the lost work', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'new.ts'), 'export const n = 1;\n', 'utf8');
+            const baseSha = worktree.baseSha;
+
+            await manager.reclaim('0001');
+
+            const recovery = await mkdtemp(join(tmpdir(), 'worktree-mgr-recovery-'));
+            await exec('git', ['clone', '-q', codeRoot, recovery]);
+            await exec('git', ['checkout', '-q', baseSha], { cwd: recovery });
+            await exec('git', ['apply', manager.failedAttemptPatchPath('0001')], { cwd: recovery });
+
+            expect(await readFile(join(recovery, 'src', 'index.ts'), 'utf8')).toBe('export const x = 2;\n');
+            expect(await readFile(join(recovery, 'src', 'new.ts'), 'utf8')).toBe('export const n = 1;\n');
+        });
+
+        it('writes no patch for a clean tree, so a passing stage leaves nothing behind', async () => {
+            await manager.create('0001', 'card/0001-thing');
+            await manager.reclaim('0001');
+
+            expect(existsSync(manager.failedAttemptPatchPath('0001'))).toBe(false);
+        });
+
+        it('writes no patch when reclaiming a card that was never created', async () => {
+            await manager.reclaim('9999');
+            expect(existsSync(manager.failedAttemptPatchPath('9999'))).toBe(false);
+        });
+
+        it('overwrites the patch on a second failure, leaving exactly one per card', async () => {
+            const first = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(first.path, 'src', 'first-attempt.ts'), 'export const a = 1;\n', 'utf8');
+            await manager.reclaim('0001');
+
+            const second = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(second.path, 'src', 'second-attempt.ts'), 'export const b = 2;\n', 'utf8');
+            await manager.reclaim('0001');
+
+            const patch = await readFile(manager.failedAttemptPatchPath('0001'), 'utf8');
+            expect(patch).toContain('second-attempt.ts');
+            expect(patch).not.toContain('first-attempt.ts');
+        });
+
+        it('goes through reclaim on create too, since that is what deletes the tree between attempts', async () => {
+            const first = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(first.path, 'src', 'lost.ts'), 'export const lost = 1;\n', 'utf8');
+
+            // The next attempt's `create` reclaims the stale worktree exactly as it does today (see
+            // "reclaims a stale worktree instead of colliding with it" above) — the point here is that
+            // doing so no longer just discards what was there.
+            await manager.create('0001', 'card/0001-thing');
+
+            const patch = await readFile(manager.failedAttemptPatchPath('0001'), 'utf8');
+            expect(patch).toContain('src/lost.ts');
+        });
+
+        it('does not let a failure to write the patch stop the reclaim itself', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            // Breaks every git command run inside the worktree itself, without touching the main
+            // repo's own worktree bookkeeping — `preserveUncommitted`'s own error handling is what's
+            // under test here, not `reclaimUnlocked`'s pre-existing tolerance of `git worktree remove`
+            // failing.
+            await rm(join(worktree.path, '.git'));
+
+            await expect(manager.reclaim('0001')).resolves.toBeUndefined();
+            expect(existsSync(worktree.path)).toBe(false);
+        });
+
+        it('does not change what a resumed stage starts from — only what was committed, never the patch', async () => {
+            // The rule this card sits under, asserted rather than assumed: preserving a patch must
+            // not let the next attempt inherit the previous one's uncommitted tree.
+            const first = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(first.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await manager.commit(first, '0001: implementing');
+            // A second, failed attempt on the same branch, never committed.
+            await writeFile(join(first.path, 'src', 'scratch.ts'), 'export const scratch = 1;\n', 'utf8');
+
+            const resumed = await manager.resume('0001', 'card/0001-thing');
+
+            expect(existsSync(join(resumed.path, 'src', 'feature.ts'))).toBe(true);
+            expect(existsSync(join(resumed.path, 'src', 'scratch.ts'))).toBe(false);
+            // But it was not simply thrown away — it is sitting in the patch.
+            const patch = await readFile(manager.failedAttemptPatchPath('0001'), 'utf8');
+            expect(patch).toContain('src/scratch.ts');
+        });
     });
 
     describe('branchName', () => {

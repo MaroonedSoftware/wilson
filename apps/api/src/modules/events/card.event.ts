@@ -8,6 +8,12 @@
 export type CardEventType =
     | 'stage.dispatched'
     | 'stage.passed'
+    // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
+    // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's
+    // uncommitted work, including files it created but never tracked, the next time the card's
+    // worktree is reclaimed. Named here regardless of *why* the stage failed — a thrown error or a
+    // verification that simply did not pass, both leave work uncommitted the same way — and before
+    // `reclaim` has necessarily run, since the path does not depend on that.
     | 'stage.failed'
     | 'stage.poisoned'
     | 'stage.dead'
