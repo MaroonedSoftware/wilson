@@ -82,6 +82,10 @@ describe('wilson card next', () => {
             ]),
         );
         fetchMock.mockResolvedValueOnce(columns());
+        // Card 0100 fetches an events tail per candidate this command is about to name — here the
+        // blocked 0079 and the workable 0078. Card 0090 wrote this test before that existed.
+        fetchMock.mockResolvedValueOnce(noEvents());
+        fetchMock.mockResolvedValueOnce(noEvents());
         const { ctx, logger } = buildCtx();
 
         await run(ctx);
