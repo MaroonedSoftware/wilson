@@ -25,13 +25,16 @@ import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './s
 import { StageVerifierMap } from './stage.verifier.js';
 
 /**
- * Which of `assertDispatchable`'s three conditions fired, carried on the error it throws.
+ * Which of `assertDispatchable`'s conditions fired, carried on the error it throws.
  *
- * All three are deterministic against a fixed card — retrying changes nothing — but they are not
+ * All of them are deterministic against a fixed card — retrying changes nothing — but they are not
  * all the same kind of "never". Wrong stage and empty scope require a human to change the card
- * before any attempt can succeed. An unsatisfied dependency is "not now", not "never": the
- * dependency landing makes the card dispatchable again with no change to the card itself.
- * `CardStageJob` branches on this discriminant, not the message text, to route each case correctly.
+ * before any attempt can succeed. `needs-human` is the same shape: the flag has to be acknowledged
+ * before the card moves. An unsatisfied dependency is "not now", not "never": the dependency landing
+ * makes the card dispatchable again with no change to the card itself. `CardStageJob` branches on
+ * this discriminant, not the message text, to route each case correctly — and a variant added here
+ * without a branch there falls to its default, which is `poison()`. That is how card 0109's own
+ * first pass turned a flagged card into a terminal one; add the route with the variant.
  *
  * `wrong-stage` carries `actualStage` so a caller can tell a card genuinely in the wrong place
  * (card 0044's bug) from a stale job arriving after the card already reached a terminal stage
@@ -51,7 +54,7 @@ export type NotDispatchableReason =
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
  *
- * None of its three conditions is a provider hiccup or a dropped connection, so retrying is a
+ * None of its conditions is a provider hiccup or a dropped connection, so retrying is a
  * slower route to the same answer. `isPermanentFailure`'s message-text matching exists because the
  * SDK and the provider give it nothing better; that reasoning does not extend to an error this
  * codebase throws itself, so this carries a typed `reason` instead of adding a pattern. The message
