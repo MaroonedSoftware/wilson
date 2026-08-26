@@ -1,5 +1,26 @@
 import type { StageConfig } from '#modules/stages/stage.config.js';
 
+/**
+ * How many times a stage may report a dropped result (`StageOutcome.resultDropped`) before those
+ * attempts start spending `retries[stage.name]` like any other failure.
+ *
+ * Not zero: a dropped result cost nothing real — the stage did the work, the transport lost the
+ * receipt — and charging it the same as a genuine failure on the very first occurrence would make
+ * an infrastructure hiccup as expensive as the agent actually failing, which is precisely the
+ * miscounting this card exists to fix. Not unbounded either: a stage that drops its result on
+ * every attempt is not a one-off transport blip, it is a persistent fault, and it still has to
+ * reach `needsHuman` rather than retry forever for free. Small and fixed rather than derived from
+ * `maxKickbacks`, so raising a stage's ordinary retry budget does not also silently widen its free
+ * allowance for this one failure mode.
+ */
+const RESULT_DROPPED_ALLOWANCE = 2;
+
+/**
+ * The `retries` key a stage's dropped-result count is tracked under — distinct from `stage.name`
+ * itself, so spending the free allowance never touches the counter `maxKickbacks` checks.
+ */
+const droppedRetryKey = (stage: StageConfig): string => `${stage.name}:resultDropped`;
+
 export interface KickbackDecision {
     /** The stage the card moves to. Its own name once `needsHuman` is set, so the card stays put. */
     target: string;
@@ -45,8 +66,35 @@ export interface KickbackDecision {
  * run's own outcome, not just which stage failed and how many times. That gap is what this card
  * closes for the general case; `testing.onFail: testing` was always the coarser, config-level answer
  * to the same problem for one stage, and stays exactly as coarse.
+ *
+ * `resultDropped` (`StageOutcome.resultDropped`) is narrower still: it says the stage did report,
+ * and the transport lost the result on the way back — nothing was consumed that repeating the
+ * attempt would waste. `unjudged` is true for this too, so the routing above is unaffected — the
+ * code still was not evaluated, and the retry still targets this stage. What changes is the count:
+ * the first `RESULT_DROPPED_ALLOWANCE` such attempts leave `retries[stage.name]` untouched, tracked
+ * instead under `droppedRetryKey`; once that allowance is spent, a dropped result starts consuming
+ * the same budget any other failure would, via the recursive call below.
  */
-export const kickback = (stage: StageConfig, retries: Record<string, number>, unjudged: boolean): KickbackDecision => {
+export const kickback = (
+    stage: StageConfig,
+    retries: Record<string, number>,
+    unjudged: boolean,
+    resultDropped: boolean,
+): KickbackDecision => {
+    if (resultDropped) {
+        const droppedKey = droppedRetryKey(stage);
+        const dropped = (retries[droppedKey] ?? 0) + 1;
+        const nextRetries = { ...retries, [droppedKey]: dropped };
+        if (dropped <= RESULT_DROPPED_ALLOWANCE) {
+            // Free retry: the card's own retries[stage.name] is left exactly as it was.
+            return { target: stage.name, retries: nextRetries };
+        }
+        // Allowance spent. Keep the dropped count moving (so a later raise to the allowance cannot
+        // retroactively regrant retries already spent this way) and fall through to the ordinary
+        // accounting below, which now also charges retries[stage.name] for this attempt.
+        return kickback(stage, nextRetries, unjudged, false);
+    }
+
     const attempts = (retries[stage.name] ?? 0) + 1;
     const nextRetries = { ...retries, [stage.name]: attempts };
     if (attempts >= stage.maxKickbacks) {
