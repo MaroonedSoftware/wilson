@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FlaggedRouteImport } from './routes/flagged'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as CardsCardIdRouteImport } from './routes/cards.$cardId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FlaggedRoute = FlaggedRouteImport.update({
+  id: '/flagged',
+  path: '/flagged',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -31,30 +37,34 @@ const CardsCardIdRoute = CardsCardIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/cards/$cardId'
+  fullPaths: '/' | '/flagged' | '/settings' | '/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/cards/$cardId'
-  id: '__root__' | '/' | '/settings' | '/cards/$cardId'
+  to: '/' | '/flagged' | '/settings' | '/cards/$cardId'
+  id: '__root__' | '/' | '/flagged' | '/settings' | '/cards/$cardId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FlaggedRoute: typeof FlaggedRoute
   SettingsRoute: typeof SettingsRoute
   CardsCardIdRoute: typeof CardsCardIdRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/flagged': {
+      id: '/flagged'
+      path: '/flagged'
+      fullPath: '/flagged'
+      preLoaderRoute: typeof FlaggedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FlaggedRoute: FlaggedRoute,
   SettingsRoute: SettingsRoute,
   CardsCardIdRoute: CardsCardIdRoute,
 }
