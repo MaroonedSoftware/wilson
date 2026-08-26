@@ -52,12 +52,13 @@ const makeStage = (overrides = {}) => ({
 const fakeContext = { worktreeRoot: '/tmp/worktree' };
 const resultSchema = z.object({ summary: z.string().optional() });
 
-const runInput = (stage: ReturnType<typeof makeStage>) => ({
+const runInput = (stage: ReturnType<typeof makeStage>, baseSha = 'deadbeef') => ({
     stage,
     context: fakeContext,
     planPath: '/run/plan.md',
     title: 'a card',
     resultSchema,
+    baseSha,
 });
 
 /** An async iterable that resolves as a clean, empty run once exhausted. */
@@ -128,5 +129,18 @@ describe('CliStageAgent prompt wiring', () => {
         const prompt = promptFromCall();
         expect(prompt).not.toContain(qualifiedDeleteTool());
         expect(prompt).not.toContain('delete');
+    });
+
+    // Card 0024: the runner is the only thing that knows the worktree's fork point, so it has to be
+    // the one to tell the agent what `git diff` a stage must run to see the card's whole diff — a
+    // bare `git diff` shows nothing on a resumed, fully-committed branch, and `git diff main` lies
+    // the moment main has moved since the branch was cut.
+    it("names the run's baseSha as the sha to diff against for the card's whole diff", async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const agent = new CliStageAgent(silentLogger as never);
+
+        await agent.run(runInput(makeStage({ worktree: 'readonly' }), 'cafef00d') as never);
+
+        expect(promptFromCall()).toContain('git diff cafef00d');
     });
 });

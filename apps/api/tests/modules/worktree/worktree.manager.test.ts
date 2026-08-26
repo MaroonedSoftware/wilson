@@ -114,6 +114,51 @@ describe('WorktreeManager', () => {
         await expect(manager.changedPaths(worktree)).resolves.toEqual([]);
     });
 
+    // Card 0024 extracted this from a direct `git diff --name-status <baseSha>` call inline in
+    // `testing.verifier.ts`, so `worktree.baseSha` is dereferenced in this one file instead of two.
+    // `TestingVerifier`'s own tests already exercise the behaviour indirectly through real stage
+    // runs; these cover the method itself, the same way `changedPaths` above is covered directly.
+    describe('addedPaths', () => {
+        it('reports a new, committed file as added', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'export const y = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: worktree.path });
+            await exec('git', ['commit', '-q', '-m', 'add a file'], { cwd: worktree.path });
+
+            await expect(manager.addedPaths(worktree)).resolves.toEqual(['src/added.ts']);
+        });
+
+        it('reports an untracked new file as added', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'export const y = 1;\n', 'utf8');
+
+            await expect(manager.addedPaths(worktree)).resolves.toEqual(['src/added.ts']);
+        });
+
+        it('excludes a pre-existing file that was only modified', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'export const y = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: worktree.path });
+            await exec('git', ['commit', '-q', '-m', 'modify and add'], { cwd: worktree.path });
+
+            await expect(manager.addedPaths(worktree)).resolves.toEqual(['src/added.ts']);
+        });
+
+        it('excludes a deleted file', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await exec('git', ['rm', '-q', 'src/index.ts'], { cwd: worktree.path });
+            await exec('git', ['commit', '-q', '-m', 'remove a file'], { cwd: worktree.path });
+
+            await expect(manager.addedPaths(worktree)).resolves.toEqual([]);
+        });
+
+        it('reports nothing added on a fresh worktree', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await expect(manager.addedPaths(worktree)).resolves.toEqual([]);
+        });
+    });
+
     it('removes the directory and prunes git bookkeeping on reclaim', async () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
         await manager.reclaim('0001');
