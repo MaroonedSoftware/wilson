@@ -7,6 +7,7 @@ import {
     describeDependency,
     filesInScope,
     nextCard,
+    staleDaemonCards,
     timeInCurrentStage,
     unsatisfiedDependencies,
 } from '../../../../packages/cli/src/board-view.js';
@@ -172,6 +173,41 @@ describe('nextCard', () => {
         );
 
         expect(result.next).toBeUndefined();
+    });
+});
+
+describe('staleDaemonCards', () => {
+    const event = (type: string): CardEvent => ({ id: 'e1', type, stage: null, payload: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+
+    it('reports a card whose events include daemon.stale', () => {
+        const a = card({ id: '0001' });
+        const eventsByCard = new Map([['0001', [event('stage.dispatched'), event('daemon.stale')]]]);
+
+        expect(staleDaemonCards([a], eventsByCard).map(c => c.id)).toEqual(['0001']);
+    });
+
+    it('says nothing about a card whose events never include daemon.stale', () => {
+        const a = card({ id: '0001' });
+        const eventsByCard = new Map([['0001', [event('stage.dispatched'), event('stage.passed')]]]);
+
+        expect(staleDaemonCards([a], eventsByCard)).toEqual([]);
+    });
+
+    it('treats a card missing from eventsByCard the same as one with no matching event, not as an error', () => {
+        const a = card({ id: '0001' });
+
+        expect(staleDaemonCards([a], new Map())).toEqual([]);
+    });
+
+    it('sorts by id', () => {
+        const a = card({ id: '0002' });
+        const b = card({ id: '0001' });
+        const eventsByCard = new Map([
+            ['0002', [event('daemon.stale')]],
+            ['0001', [event('daemon.stale')]],
+        ]);
+
+        expect(staleDaemonCards([a, b], eventsByCard).map(c => c.id)).toEqual(['0001', '0002']);
     });
 });
 

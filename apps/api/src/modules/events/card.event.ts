@@ -12,6 +12,13 @@ export type CardEventType =
     | 'stage.poisoned'
     | 'stage.dead'
     | 'stage.stale'
+    // Card 0100. Appended by `CardStageJob` at the moment it is about to dispatch a stage, when the
+    // commit this process is running is behind the commit the card's worktree is about to be cut
+    // from — never when the daemon is current, and never when it is merely *ahead* (a daemon ahead
+    // of the base has not missed anything the base needs; see `HealthService.commitsBehind`).
+    // Informational only: dispatch proceeds regardless, on the constraint that a daemon one commit
+    // behind is the normal state of a running board, not an exceptional one to halt on.
+    | 'daemon.stale'
     | 'dispatch.deferred'
     | 'engine.failed'
     | 'tool.denied'

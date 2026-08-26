@@ -106,6 +106,28 @@ export const nextCard = (cards: CardSummary[], nonStages: string[]): NextCard =>
 };
 
 /**
+ * Which of `cards` have a `daemon.stale` event among the events the caller already fetched for them
+ * (`eventsByCard`, keyed by card id) — card 0100's answer to "the runner is behind" not being
+ * something a person has to already suspect to find, the same bar `nextCard`'s `flagged` bucket
+ * clears for `needsHuman`.
+ *
+ * Deliberately not folded into `nextCard` itself: that function is pure over `CardSummary[]`, cheap
+ * to call with nothing but the two board-list responses `next.command.ts` already fetches, and card
+ * 0100 only ever recorded `daemon.stale` as an *event* (`CardStageJob.checkDaemonCurrent`, apps/api)
+ * rather than a field on the card — reading it needs each card's event tail, a call per card the
+ * caller controls the cost of by choosing which cards to ask for, not something this helper should
+ * force on every `nextCard` caller.
+ *
+ * A card missing from `eventsByCard` (the caller chose not to fetch it) is simply not reported, the
+ * same as one with events but no `daemon.stale` among them — absence of information here is not
+ * itself a signal.
+ */
+export const staleDaemonCards = (cards: CardSummary[], eventsByCard: Map<string, CardEvent[]>): CardSummary[] => {
+    const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return cards.filter(card => (eventsByCard.get(card.id) ?? []).some(event => event.type === 'daemon.stale')).sort(byId);
+};
+
+/**
  * The globs a plan names under "Files in scope". Mirrors `filesInScope` in
  * `apps/api/src/modules/board/card.js`, operating on `CardDetail.sections` instead of a locally-read
  * `Card`.
