@@ -311,6 +311,28 @@ stages:
         expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
     });
 
+    // Acceptance criteria (card 0104): "Overlap with a card in ready, backlog or a terminal stage
+    // does not defer." Neither `ready` nor `backlog` appears in this describe's own `stages.yaml`
+    // (they precede the agent stages entirely), so `isRunningStage` reaches `findStage`'s `catch` —
+    // an unrecognised stage counts as holding nothing, the same conclusion `parking-lot` reaches
+    // through its own explicit branch.
+    it('does not defer against a card sitting in ready or backlog', async () => {
+        await board.create(
+            card('0001', { stage: 'ready' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'backlog' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0003'), stages)).toBeUndefined();
+    });
+
     // The 0090/0100 incident: two cards colliding entirely through a path neither plan named,
     // acquired mid-run via `request_scope` and recorded as a `scope.granted` event.
     it('defers when the collision exists only through a scope.granted path, not a declared one', async () => {
