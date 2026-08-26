@@ -20,7 +20,8 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
 
 // A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
 // needs its own.
-const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged'] });
+const columns = () =>
+    jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
 describe('wilson card next', () => {
     it('fetches cards and stage columns in parallel, and reports the lowest-id workable card', async () => {
@@ -60,6 +61,22 @@ describe('wilson card next', () => {
         expect(logger.info).toHaveBeenCalledWith('nothing to do — every remaining card is waiting on a dependency');
         expect(logger.info).toHaveBeenCalledWith('\nblocked:');
         expect(logger.info).toHaveBeenCalledWith('  0002  x  (waiting on 0003)');
+    });
+
+    it('annotates a blocked-on dependency that dropped or poisoned, distinct from one still unfinished', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([
+                card({ id: '0079', stage: 'implementing', dependsOn: ['0078', '0085'] }),
+                card({ id: '0078', stage: 'implementing' }),
+                card({ id: '0085', stage: 'dropped' }),
+            ]),
+        );
+        fetchMock.mockResolvedValueOnce(columns());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx);
+
+        expect(logger.info).toHaveBeenCalledWith('  0079  x  (waiting on 0078, 0085 (dropped — will never merge))');
     });
 
     it('prints flagged cards first, above the next workable one, with their reason', async () => {

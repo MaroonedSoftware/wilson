@@ -25,6 +25,40 @@ export const unsatisfiedDependencies = (card: CardSummary, cards: CardSummary[])
     return card.dependsOn.filter(id => !isFinished(id));
 };
 
+/**
+ * Stages a dependency can sit in that guarantee it will never reach `merged` — `dropped` and
+ * `poisoned` today. Derived from `nonStages` (`BoardColumns.nonStages`, fetched from
+ * `GET /api/stages`) rather than hard-coded, so a terminal state added to the board's config does
+ * not require a CLI release to match it. `nonStages` also carries `parking-lot`, which is not
+ * terminal — a card there can still move on — so it is excluded alongside `merged`.
+ */
+export const deadStages = (nonStages: string[]): string[] =>
+    nonStages.filter(stage => stage !== 'merged' && stage !== 'parking-lot');
+
+/**
+ * The dependency ids named on `card` whose card has settled into a stage it can never leave —
+ * `dropped` or `poisoned` today — and so can never become `merged`. Distinct from
+ * `unsatisfiedDependencies`: a dependency still in progress is unsatisfied but not dead, and this
+ * card does not change what "satisfied" means. Used to tell an operator "this will never clear"
+ * apart from "this just isn't done yet".
+ */
+export const deadDependencies = (card: CardSummary, cards: CardSummary[], nonStages: string[]): string[] => {
+    const dead = new Set(deadStages(nonStages));
+    const byId = new Map(cards.map(c => [c.id, c]));
+    return card.dependsOn.filter(id => {
+        const dep = byId.get(id);
+        return dep !== undefined && dead.has(dep.stage);
+    });
+};
+
+/**
+ * Render a dependency id for `blocked on ...` listings: bare (`0085`) when it may still merge,
+ * annotated with its stage (`0085 (dropped — will never merge)`) when `deadDependencies` says it
+ * cannot. Shared by `list.command.ts` and `next.command.ts` so the two printers read the same way.
+ */
+export const describeDependency = (id: string, cards: CardSummary[], dead: string[]): string =>
+    dead.includes(id) ? `${id} (${cards.find(c => c.id === id)?.stage} — will never merge)` : id;
+
 export interface Blocked {
     card: CardSummary;
     blockedBy: string[];

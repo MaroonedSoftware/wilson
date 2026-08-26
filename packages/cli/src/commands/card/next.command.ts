@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
-import { nextCard } from '../../board-view.js';
+import { deadDependencies, describeDependency, nextCard } from '../../board-view.js';
 
 const command: CommandModule = {
     description: 'Pick the next card to work on',
@@ -31,7 +31,9 @@ const command: CommandModule = {
         if (blocked.length > 0) {
             ctx.logger.info('\nblocked:');
             for (const { card, blockedBy } of blocked) {
-                ctx.logger.info(`  ${card.id}  ${card.title}  (waiting on ${blockedBy.join(', ')})`);
+                const dead = deadDependencies(card, cards, columns.nonStages);
+                const waitingOn = blockedBy.map(id => describeDependency(id, cards, dead)).join(', ');
+                ctx.logger.info(`  ${card.id}  ${card.title}  (waiting on ${waitingOn})`);
             }
         }
 
