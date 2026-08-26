@@ -9,6 +9,17 @@ export interface Blocked {
 
 export interface NextCard {
     next?: Card;
+    /**
+     * Every workable candidate, lowest id first — `next` is always `candidates[0]` (or `undefined`
+     * when this is empty).
+     *
+     * `next` alone answers "what's the next thing to do", which is all a human needs. The poller
+     * needs more: a card in a manual stage genuinely *is* the next thing for a person, but the queue
+     * can never dispatch it, so the poller has to walk past it to the next workable candidate instead
+     * of stopping. It walks this list to do that, rather than re-deriving "workable" itself — see
+     * `poller.ts` for why that has to stay this function's job and not grow into a second one.
+     */
+    candidates: Card[];
     /** Eligible but for their dependencies, lowest id first. */
     blocked: Blocked[];
     /** Flagged for a human via `needsHuman`, lowest id first. Never `next`, never in `blocked`. */
@@ -65,5 +76,5 @@ export const nextCard = (cards: Card[]): NextCard => {
     blocked.sort((a, b) => (a.card.frontmatter.id < b.card.frontmatter.id ? -1 : a.card.frontmatter.id > b.card.frontmatter.id ? 1 : 0));
     flagged.sort((a, b) => (a.frontmatter.id < b.frontmatter.id ? -1 : a.frontmatter.id > b.frontmatter.id ? 1 : 0));
 
-    return { next: candidates[0], blocked, flagged };
+    return { next: candidates[0], candidates, blocked, flagged };
 };

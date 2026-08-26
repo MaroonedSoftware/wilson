@@ -16,12 +16,20 @@ import { CardJobs } from './card.jobs.js';
  * instead of waiting for `wilson card start`.
  *
  * Deliberately not a second idea of "ready": every question this asks is answered by something that
- * already exists and that `card start` already trusts. `nextCard` picks the single lowest-id
- * candidate — respecting `unsatisfiedDependencies`, skipping flagged cards — and this still runs that
- * candidate past `whyNotDispatchable` (the same refusal `card start` and `CardStageJob`'s dispatcher
- * both go through) and `CardJobs.inFlight` (the same claim check `card start` makes) before enqueuing.
+ * already exists and that `card start` already trusts. `nextCard` orders every workable candidate,
+ * lowest id first — respecting `unsatisfiedDependencies`, skipping flagged cards — and this runs each
+ * one past `whyNotDispatchable` (the same refusal `card start` and `CardStageJob`'s dispatcher both go
+ * through) and `CardJobs.inFlight` (the same claim check `card start` makes) before enqueuing.
  * If this ever disagrees with `wilson card start` about whether a card is ready, one of them has a
  * bug — this must never grow a second definition of "ready" to resolve that disagreement.
+ *
+ * `nextCard.next` — the single lowest-id candidate — is what `wilson card next` shows a human, and a
+ * card sitting in a manual stage genuinely is the next thing for a *person* to do. It is not
+ * something the queue will ever dispatch, though, so this walks `nextCard.candidates` instead of
+ * trusting `next`: it skips past a manual (or `command`) stage to the next candidate rather than
+ * refusing the whole tick over it. That is the one and only reason this and `wilson card next` may
+ * name different cards — do not "fix" that by changing what `next` means; card 0117's whole point was
+ * to leave it alone.
  *
  * One candidate per tick, never more: a board with thirty ready cards must not become thirty
  * concurrent stages the moment this starts ticking. `CARD_STAGE_CONCURRENCY` is what actually bounds
@@ -91,28 +99,56 @@ export class Poller {
      * One tick: at most one enqueue, and nothing written or logged at `info` when there is nothing
      * to do. This runs forever, so an idle tick must be cheap and silent — a line per tick is a log
      * nobody reads.
+     *
+     * Walks `nextCard.candidates` in order rather than stopping at the first one, so one card in a
+     * manual stage — `wilson card next`'s honest answer for a human — cannot silently wedge the queue
+     * behind it forever. It skips a candidate only for that one reason. Any other refusal from
+     * `whyNotDispatchable` (flagged, terminal, parking-lot, a stage the config doesn't know) means
+     * something is actually wrong rather than merely manual, so the tick still stops there exactly as
+     * it always has — `candidates` should never contain flagged/terminal/blocked cards in the first
+     * place (`nextCard` already filters those), so reaching one of those refusals here is itself a
+     * sign of drift between the two, not a case to route around.
      */
     private async tick(): Promise<void> {
         try {
             const cards = await this.board.list();
-            const { next } = nextCard(cards);
-            if (!next) return;
+            const { candidates } = nextCard(cards);
+            if (candidates.length === 0) return;
 
             const stages = await loadStages(this.boardConfig.boardRoot);
-            if (whyNotDispatchable(next, stages)) return;
 
-            const cardId = next.frontmatter.id;
-            const stageName = next.frontmatter.stage;
+            // Bounds the walk so a board with nothing dispatchable — every remaining candidate sitting
+            // in a manual stage — cannot turn into a scan of the whole backlog every `POLLER_INTERVAL_MS`,
+            // forever. Well above any candidate list this project expects; raise it if that stops holding.
+            const MAX_CANDIDATES_PER_TICK = 50;
 
-            // The single most important check here: refuse a card something is already carrying,
-            // exactly as `card start` does, so a poller tick can never put two jobs — and so two
-            // agents — on one card's branch.
-            const running = await this.cardJobs.inFlight(cardId);
-            if (running) return;
+            for (const candidate of candidates.slice(0, MAX_CANDIDATES_PER_TICK)) {
+                const stageName = candidate.frontmatter.stage;
+                const reason = whyNotDispatchable(candidate, stages);
+                if (reason) {
+                    const stage = stages.stages.find(s => s.name === stageName);
+                    // A stage the queue never dispatches (`manual` or `command`) — try the next
+                    // candidate instead of refusing the whole tick over it.
+                    if (stage && stage.mode !== 'agent') continue;
+                    // Any other refusal means something is wrong, not merely manual — stop here,
+                    // exactly as a single-candidate tick always has.
+                    return;
+                }
 
-            const jobId = await this.broker.send('card.stage', { cardId, stageName });
-            await this.cardJobs.record(cardId, jobId);
-            this.logger.info(`poller: enqueued ${cardId} · ${stageName} (job ${jobId})`);
+                const cardId = candidate.frontmatter.id;
+
+                // The single most important check here: refuse a card something is already carrying,
+                // exactly as `card start` does, so a poller tick can never put two jobs — and so two
+                // agents — on one card's branch. Asked per candidate, not once, so a card someone else
+                // already started does not stop the walk — it just isn't this tick's card to enqueue.
+                const running = await this.cardJobs.inFlight(cardId);
+                if (running) continue;
+
+                const jobId = await this.broker.send('card.stage', { cardId, stageName });
+                await this.cardJobs.record(cardId, jobId);
+                this.logger.info(`poller: enqueued ${cardId} · ${stageName} (job ${jobId})`);
+                return;
+            }
         } catch (error) {
             // A tick that fails is not fatal to the loop: log and try again next interval rather
             // than letting one bad read or a dropped connection stop the poller for good.
