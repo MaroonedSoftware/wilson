@@ -361,6 +361,33 @@ describe('Poller start/stop', () => {
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
     });
 
+    /**
+     * Constraint: "The poller reads its interval per tick, not once. Otherwise a change needs a
+     * restart, which is the defect 0106 existed to fix." `loop()`'s comment says the same, but
+     * nothing yet proves it against the real `start()`/`stop()` surface: a settings row changing
+     * value between two ticks — with no `stop()`/`start()` cycle in between — must change the very
+     * next wait, not merely the one after a restart.
+     */
+    it('applies a changed POLLER_INTERVAL_MS to the next wait without a restart', async () => {
+        const settings = {
+            get: vi.fn().mockResolvedValueOnce(POLLER_INTERVAL_MS_DEFAULT).mockResolvedValueOnce(5_000),
+            set: vi.fn(async () => undefined),
+        } as unknown as SettingsStore;
+        const { poller } = buildPoller([], { settings });
+
+        poller.start();
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
+
+        // Let the first wait elapse and the tick after it run — loop() reads the setting again
+        // before its *next* delay() call, with no stop()/start() anywhere in between.
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+
+        await poller.stop();
+    });
+
     it('a subsequent start() after stop() begins ticking again rather than staying blocked forever', async () => {
         const { poller, board } = buildPoller([card('0001', 'implementing')]);
 

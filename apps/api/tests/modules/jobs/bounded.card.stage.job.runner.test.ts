@@ -270,6 +270,48 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         expect(logger.info).not.toHaveBeenCalled();
     });
 
+    /**
+     * Review finding on this card: the first `RunningCards` check happens before `poller.stop()` is
+     * even called, and `poller.stop()` is itself an `await` — a gap a card.stage job dispatched into
+     * a still-live worker can start inside, landing in `RunningCards` after the check passed but
+     * before the restart. The fix re-checks `RunningCards` immediately after `poller.stop()` resolves
+     * and, finding it non-empty, defers instead of restarting into the stage it would otherwise
+     * silently catch — proven here by having the `poller.stop()` fake itself add a running card
+     * during the pause, the same race window the real pg-boss dispatch would land in.
+     */
+    it('re-checks RunningCards right after pausing the poller and defers if a stage started in that gap', async () => {
+        const order: string[] = [];
+        const inner = fakeInnerRunner(order);
+        const running = new RunningCards();
+        const poller = {
+            stop: vi.fn(async () => {
+                order.push('poller.stop');
+                // Simulate a card.stage job landing on a still-live worker during the pause.
+                running.add('0099');
+            }),
+        } as unknown as import('#modules/jobs/poller.js').Poller;
+        const pollerSettings = fakePollerSettings(order);
+        const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, running, fakeCardJobs() as never, poller, pollerSettings, settings, logger);
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+        CARD_STAGE_WORKER.concurrency = 3;
+
+        await reconcile(runner);
+
+        // The restart must be aborted entirely: no concurrency mutation, no inner cycle — the stage
+        // that snuck in during the pause is left running undisturbed, exactly as one that was already
+        // running before the check started would be.
+        expect(inner.stop).not.toHaveBeenCalled();
+        expect(inner.start).not.toHaveBeenCalled();
+        expect(CARD_STAGE_WORKER.concurrency).toBe(3);
+        expect(applied(runner)).toBe(3);
+        // The poller was paused to make the restart safe; since the restart was aborted, it must be
+        // resumed rather than left off — the same call `applyCurrentValue` makes after a real restart.
+        expect(pollerSettings.applyCurrentValue).toHaveBeenCalledTimes(1);
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('deferred'));
+    });
+
     it('catches a settings-read failure and logs it, rather than throwing out of the watcher loop', async () => {
         const inner = fakeInnerRunner();
         const poller = fakePoller();
