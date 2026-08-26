@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { Kysely, sql, type Transaction } from 'kysely';
 import type { DateTime } from 'luxon';
+import { Logger } from '@maroonedsoftware/logger';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import type { CardEvent, CardEventType } from './card.event.js';
@@ -34,15 +35,12 @@ export type AppendableCardEvent = Omit<CardEvent, 'type'> & { type: AppendableCa
  * same database, which is what lets a transition and its event share a transaction — previously the
  * card was committed to git and the event appended here, with no way to reconcile a partial failure.
  */
-/**
- * Postgres's own limit on a NOTIFY payload, less headroom for the envelope's own keys. Not a tuning
- * knob: past 8000 bytes the server raises `payload string too long` and the append fails.
- */
-const NOTIFY_PAYLOAD_LIMIT = 7000;
-
 @Injectable()
 export class EventLog {
-    constructor(private readonly db: Kysely<DB>) {}
+    constructor(
+        private readonly db: Kysely<DB>,
+        private readonly logger: Logger,
+    ) {}
 
     /**
      * Append one event.
@@ -52,7 +50,7 @@ export class EventLog {
      * for the standalone events (worktree created, stage started) that describe no state change.
      */
     async append(event: AppendableCardEvent, executor: Kysely<DB> | Transaction<DB> = this.db): Promise<void> {
-        await executor
+        const row = await executor
             .insertInto('runner.cardEvents')
             .values({
                 project: event.project,
@@ -61,7 +59,12 @@ export class EventLog {
                 type: event.type,
                 payload: JSON.stringify(event.payload ?? {}),
             })
-            .execute();
+            .returning('id')
+            .executeTakeFirstOrThrow();
+        // `id` is BIGSERIAL; the driver hands back a BigInt despite `Generated<string>` — see
+        // `postgres.board.repository.ts`'s `versionId`. Stringify before it reaches `JSON.stringify`
+        // below, which throws on a raw BigInt.
+        const id = String(row.id);
 
         // Publish on the same executor that did the insert. Postgres queues a `NOTIFY` issued
         // inside a transaction and only delivers it once that transaction commits, discarding it
@@ -69,26 +72,41 @@ export class EventLog {
         // transaction, with no in-process commit tracking needed. For a standalone event (the
         // pool default) the insert already commits on its own, so the notify goes out right away.
         // See `modules/feed/card.feed.listener.ts` for the subscriber on the other end.
-        // Postgres caps a NOTIFY payload at 8000 bytes and raises `payload string too long` past it,
-        // which fails the whole append — including, inside `writeWithEvent`'s transaction, the insert
-        // and the transition it was recording. A `stage.passed` event carries the agent's entire
-        // structured result, so a verbose stage exceeds this on its own: card 0105's implementing
-        // pass committed its work, then lost the transition to this and began re-running the stage on
-        // every queue retry. The row itself is JSONB and has no such limit, so the detail is never
-        // lost from the log — only from this notification, which exists to nudge the SSE feed.
-        // Dropping `payload` costs one feed message its detail; letting the append throw costs a card.
+        //
+        // The notification carries the event's identity — which row, on which card — and not its
+        // contents. Postgres caps a NOTIFY payload at 8000 bytes and raises `payload string too
+        // long` past it, which used to fail the whole append — including, inside
+        // `writeWithEvent`'s transaction, the insert and the transition it was recording. A
+        // `stage.passed` event carries the agent's entire structured result, so a verbose stage
+        // exceeded this on its own: card 0105's implementing pass committed its work, then lost the
+        // transition to this and began re-running the stage on every queue retry. The row itself is
+        // JSONB and has no such limit, so the fix is to stop putting the payload on the wire at all:
+        // `pg_notify` exists to wake the subscriber, and the subscriber has a database connection
+        // and can read the row it was told about. `project`/`cardId`/`stage`/`type` stay in the
+        // envelope — they are always small and fixed-shape, unlike `payload` — so the subscriber
+        // (and anything watching the raw channel, like this file's tests) can identify an event
+        // without a round trip; only `id`, for fetching the payload itself, is new.
+        //
+        // A failure to notify must not cost the append. For the pool-default executor the insert has
+        // already committed by the time we get here, so there is nothing left to lose. Inside an open
+        // transaction, a genuine error from this statement would still abort it the same as any other
+        // query would — catching it here cannot rescue that, and does not need to: the envelope below
+        // is a small, fixed-shape identity object, never the caller-controlled payload, so it can no
+        // longer reproduce the failure this card exists to fix. What this guards against is
+        // everything else that can go wrong announcing an id (a dropped connection, a full-of-other-
+        // problems channel), none of which should turn into a lost card transition.
         const envelope = {
             project: event.project,
             cardId: event.cardId,
             stage: event.stage ?? null,
             type: event.type,
-            payload: event.payload ?? {},
+            id,
         };
-        let notification = JSON.stringify(envelope);
-        if (Buffer.byteLength(notification, 'utf8') > NOTIFY_PAYLOAD_LIMIT) {
-            notification = JSON.stringify({ ...envelope, payload: { truncated: true } });
+        try {
+            await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${JSON.stringify(envelope)})`.execute(executor);
+        } catch (err) {
+            this.logger.error(err);
         }
-        await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${notification})`.execute(executor);
     }
 
     /**
