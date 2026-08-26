@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
+import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -151,12 +152,28 @@ const fakeSettingsStore = (): SettingsStore =>
         set: vi.fn(async () => undefined),
     }) as unknown as SettingsStore;
 
+/**
+ * A `BoardRepository.scopeConflict` fake for card 0128: defaults to "no conflict, ever" so every
+ * pre-existing test above keeps its old behaviour, and a caller wanting a candidate to defer passes
+ * its own via `deps.scopeConflict`.
+ */
+const noConflict = vi.fn(async () => undefined);
+
+const fakeEvents = () => ({}) as unknown as EventLog;
+
 const buildPoller = (
     cards: Card[],
-    deps: Partial<{ cardJobs: FakeCardJobs; broker: ReturnType<typeof fakeBroker>; logger: ReturnType<typeof fakeLogger>; settings: SettingsStore }> = {},
+    deps: Partial<{
+        cardJobs: FakeCardJobs;
+        broker: ReturnType<typeof fakeBroker>;
+        logger: ReturnType<typeof fakeLogger>;
+        settings: SettingsStore;
+        scopeConflict: ReturnType<typeof vi.fn>;
+    }> = {},
 ) => {
     const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
-    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1') };
+    const scopeConflict = deps.scopeConflict ?? noConflict;
+    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1'), scopeConflict };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
@@ -168,6 +185,7 @@ const buildPoller = (
         cardJobs as unknown as CardJobs,
         logger as unknown as Logger,
         settings,
+        fakeEvents(),
     );
     return { poller, board, cardJobs, broker, logger, settings };
 };
@@ -286,6 +304,65 @@ describe('Poller tick — what it will and will not enqueue', () => {
     });
 
     /**
+     * Card 0128, the fix's other half: a candidate `BoardRepository.scopeConflict` says would defer
+     * must not be enqueued only to have the job defer immediately — that wastes a cycle and, per the
+     * gridlock this card fixes, would also stop the walk right there. The tick must fall through to
+     * the next workable candidate instead, exactly as it already does for a manual stage or a live
+     * `CardJobs` claim.
+     */
+    it('skips a candidate that would defer on a scope conflict, enqueuing the next workable candidate instead', async () => {
+        const scopeConflict = vi.fn(async (_events: unknown, _project: string, candidate: Card) =>
+            candidate.frontmatter.id === '0001' ? { cardId: '0099', overlap: [] } : undefined,
+        );
+        const cards = [card('0001', 'implementing'), card('0002', 'implementing')];
+        const { poller, board, broker, cardJobs, logger } = buildPoller(cards, { scopeConflict });
+
+        await runOneTick(poller);
+
+        expect(scopeConflict).toHaveBeenCalled();
+        expect(board.scopeConflict).toBe(scopeConflict);
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(cardJobs.record).not.toHaveBeenCalledWith('0001', expect.anything());
+        expect(logger.info.mock.calls[0][0]).toContain('0002');
+    });
+
+    /**
+     * Acceptance criterion, asserted directly: a tick where every candidate conflicts must enqueue
+     * nothing, log nothing, and — the gridlock's other symptom — not spin by writing or claiming
+     * anything either. `MAX_CANDIDATES_PER_TICK` already bounds the walk itself; this proves a fully
+     * conflicted board actually reaches that bound quietly rather than throwing partway through.
+     */
+    it('a tick where every candidate conflicts enqueues nothing, logs nothing, and does not spin', async () => {
+        const scopeConflict = vi.fn(async () => ({ cardId: '0099', overlap: [] }));
+        const cards = [card('0001', 'implementing'), card('0002', 'implementing')];
+        const { poller, broker, cardJobs, logger } = buildPoller(cards, { scopeConflict });
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(cardJobs.record).not.toHaveBeenCalled();
+        expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Best-effort, per the doc comment on the check: a `scopeConflict` lookup that fails is treated as
+     * "no conflict" rather than stopping the walk, exactly like every other best-effort pre-dispatch
+     * check in this codebase — a real conflict a failed lookup missed here is still caught correctly
+     * by `deferOnScopeConflict` once the job actually runs.
+     */
+    it('treats a scopeConflict lookup that throws as no conflict, rather than stopping the walk over it', async () => {
+        const scopeConflict = vi.fn(async () => {
+            throw new Error('board unavailable');
+        });
+        const { poller, broker } = buildPoller([card('0001', 'implementing')], { scopeConflict });
+
+        await runOneTick(poller);
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing' });
+    });
+
+    /**
      * A refusal that is not merely "the stage is manual/command" means something is actually wrong —
      * a stage the config doesn't know, here — so the tick must stop exactly where a single-candidate
      * tick always has, rather than routing around it to a dispatchable card behind it.
@@ -387,6 +464,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
             statefulCardJobs() as unknown as CardJobs,
             logger as unknown as Logger,
             fakeSettingsStore(),
+            fakeEvents(),
         );
 
         await expect(runOneTick(poller)).resolves.toBeUndefined();
@@ -595,6 +673,7 @@ describe('Poller start/stop', () => {
             cardJobs as unknown as CardJobs,
             fakeLogger() as unknown as Logger,
             fakeSettingsStore(),
+            fakeEvents(),
         );
 
         poller.start();

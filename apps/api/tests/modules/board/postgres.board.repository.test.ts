@@ -185,6 +185,24 @@ describe('PostgresBoardRepository', () => {
      * The reason the board moved into Postgres at all. Previously the card was committed to git and
      * the event appended here, so a failure between the two left them disagreeing permanently.
      */
+    /**
+     * Card 0128. `hasLiveClaim` is the `scopeConflict` fix's other half — read directly from
+     * `runner.cardJobs` rather than through `CardJobs`, since `BoardRepository` has no dependency on
+     * the jobs module. A row existing (however it got there) means true; nothing does, or nothing
+     * any longer does, means false.
+     */
+    it('hasLiveClaim reports true only while a claim row exists for that card', async () => {
+        await board.create(card('0001'), 'create');
+
+        expect(await board.hasLiveClaim(config.project, '0001')).toBe(false);
+
+        await db.insertInto('runner.cardJobs').values({ project: config.project, cardId: '0001', jobId: 'job-1' }).execute();
+        expect(await board.hasLiveClaim(config.project, '0001')).toBe(true);
+
+        await db.deleteFrom('runner.cardJobs').where('project', '=', config.project).where('cardId', '=', '0001').execute();
+        expect(await board.hasLiveClaim(config.project, '0001')).toBe(false);
+    });
+
     it('rolls the transition back when the event it is paired with fails', async () => {
         await board.create(card('0001', { stage: 'implementing' }), 'create');
         const exploding = {
@@ -257,6 +275,14 @@ stages:
         board = new PostgresBoardRepository(config, db, events);
     });
 
+    /**
+     * Card 0128: `isRunningStage` alone no longer means "in flight" — a real claim row, the same
+     * shape `CardJobs.record` leaves behind, is what every "defers" test below now needs on the
+     * *other* card before `scopeConflict` will find it.
+     */
+    const claimCard = (project: string, cardId: string, jobId = `job-${cardId}`) =>
+        db.insertInto('runner.cardJobs').values({ project, cardId, jobId }).execute();
+
     it('finds nothing when no other card is on the board', async () => {
         await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/a.ts\n'), 'create');
 
@@ -272,6 +298,7 @@ stages:
             card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
             'create',
         );
+        await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
 
@@ -279,6 +306,50 @@ stages:
         expect(conflict?.overlap).toEqual([
             { ours: 'apps/api/src/modules/events/card.event.ts', theirs: 'apps/api/src/modules/events/card.event.ts' },
         ]);
+    });
+
+    /**
+     * Card 0128. The gridlock itself: two cards sitting in agent stages with overlapping scope, but
+     * neither one actually carried by a job — exactly what parked eight cards in `scope-check` with
+     * nothing dispatchable. Before this card, `isRunningStage` alone was enough to make each defer on
+     * the other forever; now, with no live claim on either side, `scopeConflict` must find nothing —
+     * asserted from both directions, since either one could be the one a poller or `card start` asks.
+     */
+    it('finds no conflict between two cards parked in agent stages with overlapping scope and no live claims (the gridlock)', async () => {
+        await board.create(
+            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
+        expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
+    });
+
+    /**
+     * Card 0128's documented time-asymmetry: once 0001 is actually carried, 0002 defers on it — but
+     * not the reverse, because nothing here is acquired or held across the two calls. Asymmetric in
+     * time is fine and expected; a caller "fixing" this into a symmetric reservation would be
+     * reintroducing the lock card 0104 deliberately chose not to build.
+     */
+    it('defers only from the side without the live claim, not symmetrically', async () => {
+        await board.create(
+            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await claimCard(config.project, '0001');
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
+        expect(conflict?.cardId).toBe('0001');
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
     });
 
     it('does not defer against a card sitting in parking-lot or a terminal stage', async () => {
@@ -353,6 +424,7 @@ stages:
             type: 'scope.granted',
             payload: { path: 'apps/api/src/board-view.ts', reason: 'needed it too' },
         });
+        await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
 
@@ -371,6 +443,7 @@ stages:
             card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/types.ts\n'),
             'create',
         );
+        await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
 

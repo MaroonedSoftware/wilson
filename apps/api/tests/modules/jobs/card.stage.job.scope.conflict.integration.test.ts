@@ -119,6 +119,9 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
 
         await boardRepo.create(card('0001', 'implementing', 'apps/api/src/modules/events/card.event.ts'), 'create');
         await boardRepo.create(card('0002', 'implementing', 'apps/api/src/modules/events/card.event.ts'), 'create');
+        // Card 0128: sitting in `implementing` is no longer sufficient by itself — 0001 must actually
+        // be carried by a job, the same live claim a real `CardJobs.record` would leave behind.
+        await db.insertInto('runner.cardJobs').values({ project, cardId: '0001', jobId: 'external-job-1' }).execute();
 
         await job.run({ cardId: '0002', stageName: 'implementing' });
 
@@ -140,6 +143,25 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
 
         await boardRepo.create(card('0001', 'implementing', 'apps/api/src/a.ts'), 'create');
         await boardRepo.create(card('0002', 'implementing', 'apps/api/src/b.ts'), 'create');
+
+        await job.run({ cardId: '0002', stageName: 'implementing' });
+
+        expect(dispatcher.run).toHaveBeenCalledWith('0002', 'implementing');
+        const rows = await events.tail(project, '0002', 100);
+        expect(rows.map(r => r.type)).not.toContain('dispatch.deferred');
+    });
+
+    /**
+     * Card 0128, through the real stack: two cards sitting in the same agent stage with overlapping
+     * scope, neither one actually carried by a job — the exact shape that gridlocked the board (0024
+     * and 0041 each deferred on the other, holding no claim). Before this card, `deferOnScopeConflict`
+     * would defer this dispatch forever on stage membership alone; now it must go through.
+     */
+    it('dispatches normally when two overlapping cards are merely parked in an agent stage with no live claim on either side (the gridlock)', async () => {
+        const { job, project, events, boardRepo, dispatcher } = await buildJob();
+
+        await boardRepo.create(card('0001', 'implementing', 'apps/api/src/modules/events/card.event.ts'), 'create');
+        await boardRepo.create(card('0002', 'implementing', 'apps/api/src/modules/events/card.event.ts'), 'create');
 
         await job.run({ cardId: '0002', stageName: 'implementing' });
 
