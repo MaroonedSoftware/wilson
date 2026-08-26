@@ -74,6 +74,15 @@ export const StageConfigSchema = z.object({
     setupCommand: z.string().optional(),
     /** The command whose exit code the exit condition checks. */
     buildCommand: z.string().optional(),
+    /**
+     * The command whose exit code the exit condition checks for formatting.
+     *
+     * Check, not write: a formatter that reformats a stage's files on its way out would hide the
+     * drift it exists to catch, and would change the diff the rest of verification is judging.
+     * Same shape as `buildCommand` — only the exit code matters, and the tool's own output is what
+     * a failure reports.
+     */
+    formatCommand: z.string().optional(),
     /** The command that runs the test suite and writes the report `testReportPath` points at. */
     testCommand: z.string().optional(),
     /** Where the test report lands, relative to the worktree. */

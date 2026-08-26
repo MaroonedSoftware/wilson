@@ -1,3 +1,15 @@
 pnpm-lock.yaml
 **/node_modules/
 **/dist/
+
+# ContractKit's own DSL. Prettier has no parser for it — naming a `.ck` file explicitly errors,
+# even though a plain directory glob already skips unrecognized extensions on its own. ContractKit
+# formats its own generated output through its `prettier: true` config instead.
+**/*.ck
+
+# Unformatted on main before this gate existed (card 0041) and left that way rather than
+# reformatted wholesale here. A change that actually touches one of these should format it for
+# real instead of leaning on this line.
+apps/api/tests/README.md
+brand/README.md
+pnpm-workspace.yaml

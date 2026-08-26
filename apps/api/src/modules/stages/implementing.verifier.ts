@@ -1,10 +1,10 @@
 import { Injectable } from 'injectkit';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
-import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
+import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 
 /**
- * The implementing stage's exit condition, in order, all three required.
+ * The implementing stage's exit condition, in order, all four required.
  *
  * Every exit condition an agent can satisfy by doing less work is one it will eventually satisfy by
  * doing less work (PROJECT.md). `build passes` on its own is satisfied by an empty diff, so the diff
@@ -47,6 +47,10 @@ export class ImplementingVerifier implements StageVerifier {
             const build = await runConfiguredCommand(worktree.path, stage.buildCommand);
             if (build) failures.push(build.reason);
         }
+
+        // Formatting is an exit condition, not a habit an agent is asked to remember: this is a
+        // fact the machinery checks, not prose in the instructions hoping it happens.
+        failures.push(...(await checkFormat(worktree, stage)));
 
         return { passed: failures.length === 0, failures, changedPaths };
     }

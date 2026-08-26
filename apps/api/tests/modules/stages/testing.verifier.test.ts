@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { baselineProvesChange, checkCounts, scratchTestFileName, TestingVerifier } from '#modules/stages/testing.verifier.js';
 import { parseTestReport } from '#modules/stages/test.report.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -277,14 +277,104 @@ describe('TestingVerifier — scratch-named test files', () => {
 
     it('does not flag a pre-existing badly-named file the stage only modifies', async () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
-        await writeFile(
-            join(worktree.path, 'tests', 'tmp_legacy.test.ts'),
-            "it('old', () => { expect(1).toBe(1); });\n",
-            'utf8',
-        );
+        await writeFile(join(worktree.path, 'tests', 'tmp_legacy.test.ts'), "it('old', () => { expect(1).toBe(1); });\n", 'utf8');
 
         const outcome = await verifier.verify(verifyInput(worktree));
 
         expect(outcome.failures.some(f => f.includes('tmp_legacy.test.ts'))).toBe(false);
+    });
+});
+
+/**
+ * Card 0041: `TestingVerifier.verify` now runs `checkFormat` (`stage.verifier.ts`) too — the same
+ * exit condition `ImplementingVerifier` runs, so the testing stage cannot commit an unformatted
+ * test file the way card 0032's `board.service.test.ts` did. `testCommand`/`testReportPath` are
+ * left unset and `baselineCheck` off so `verify` does only the work these tests are about; the
+ * other checks it also runs are free to add their own failures alongside — these tests only assert
+ * on what happens to the format-specific one.
+ */
+describe('TestingVerifier — format check (card 0041)', () => {
+    let base: string;
+    let manager: WorktreeManager;
+    let verifier: TestingVerifier;
+    let prettierBin: string;
+
+    beforeEach(async () => {
+        const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url));
+        prettierBin = join(repoRoot, 'node_modules', '.bin', 'prettier');
+
+        base = await mkdtemp(join(tmpdir(), 'testing-verifier-format-'));
+        const codeRoot = join(base, 'code');
+        await mkdir(codeRoot, { recursive: true });
+
+        await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+        await writeFile(join(codeRoot, 'README.md'), '# base\n', 'utf8');
+        await exec('git', ['add', '-A'], { cwd: codeRoot });
+        await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+        const config = new StaticBoardConfig('test', join(base, 'board'), codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        manager = new WorktreeManager(config, silentLogger as never);
+        verifier = new TestingVerifier(manager, silentLogger as never);
+    });
+
+    afterEach(async () => {
+        await rm(base, { recursive: true, force: true }).catch(() => undefined);
+    });
+
+    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, stage: StageConfig) => ({
+        worktree,
+        stage,
+        cardId: '0001',
+        scope: {} as ScopeGuard,
+        result: undefined,
+    });
+
+    it('fails and names the file when the testing stage leaves something prettier would reformat', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'bad.test.ts'), "it('x',()=>{  expect(1).toBe(1) })\n", 'utf8');
+
+        const stage = makeStage({
+            testCommand: undefined,
+            testReportPath: undefined,
+            baselineCheck: false,
+            formatCommand: `${prettierBin} --check .`,
+        });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.some(f => f.includes('bad.test.ts'))).toBe(true);
+    });
+
+    it('does not flag formatting once the testing stage’s new file is actually formatted', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'good.test.ts'), "it('x',()=>{  expect(1).toBe(1) })\n", 'utf8');
+        // Normalise with the real formatter rather than hand-typing what "already formatted" looks
+        // like — the point is that *prettier's own opinion* is satisfied, not a guess at it.
+        await exec(prettierBin, ['--write', '.'], { cwd: worktree.path });
+
+        const stage = makeStage({
+            testCommand: undefined,
+            testReportPath: undefined,
+            baselineCheck: false,
+            formatCommand: `${prettierBin} --check .`,
+        });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.failures.some(f => f.includes('good.test.ts'))).toBe(false);
+    });
+
+    it('runs no format check at all when formatCommand is not configured, even on an unformatted new test file', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'bad.test.ts'), "it('x',()=>{  expect(1).toBe(1) })\n", 'utf8');
+
+        const stage = makeStage({ testCommand: undefined, testReportPath: undefined, baselineCheck: false });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.failures.some(f => f.includes('bad.test.ts'))).toBe(false);
     });
 });
