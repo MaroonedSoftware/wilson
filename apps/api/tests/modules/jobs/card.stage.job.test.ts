@@ -381,6 +381,44 @@ describe('CardStageJob', () => {
             expect(cardJobs.clear).toHaveBeenCalledWith('0001');
             expect(cardJobs.record).not.toHaveBeenCalled();
         });
+
+        /**
+         * Card 0109. `assertDispatchable`'s `needs-human` check exists for the race between a job
+         * being enqueued and dispatched: whatever flagged the card already wrote the reason and
+         * already notified before this job ever reached `dispatcher.run`. Left unrouted, this fell
+         * into the same default branch as `wrong-stage`/`empty-scope` and poisoned an already-flagged
+         * card — strictly worse than the refusal it was meant to produce.
+         */
+        it('defers rather than poisons a needs-human refusal', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new NotDispatchableError({ kind: 'needs-human' }, 'card 0001 is flagged for a human and will not dispatch until it is cleared');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'dispatch.deferred',
+                    payload: { reason: 'card 0001 is flagged for a human and will not dispatch until it is cleared' },
+                }),
+            );
+        });
+
+        it('does not poison, write the board, or enqueue anything for a needs-human refusal', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new NotDispatchableError({ kind: 'needs-human' }, 'card 0001 is flagged for a human and will not dispatch until it is cleared');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).not.toHaveBeenCalled();
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+            expect(cardJobs.record).not.toHaveBeenCalled();
+        });
     });
 
     /**

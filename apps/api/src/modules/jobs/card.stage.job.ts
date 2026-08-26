@@ -233,6 +233,8 @@ export class CardStageJob extends Job<CardStagePayload> {
             if (error instanceof NotDispatchableError) {
                 if (error.reason.kind === 'unsatisfied-dependency') {
                     await this.defer(cardId, stageName, error.reason.outstanding, error.message);
+                } else if (error.reason.kind === 'needs-human') {
+                    await this.deferFlagged(cardId, stageName, error.message);
                 } else if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {
                     await this.stale(cardId, stageName, error.reason.actualStage);
                 } else {
@@ -371,6 +373,28 @@ export class CardStageJob extends Job<CardStagePayload> {
             stage: stageName,
             type: 'dispatch.deferred',
             payload: { outstanding, reason },
+        });
+    }
+
+    /**
+     * Leave a card the dispatcher found already flagged for a human exactly where it is.
+     *
+     * `assertDispatchable`'s `needs-human` check (card 0109) exists for the race between a job being
+     * enqueued and dispatched: something else already wrote the flag, its reason, and its
+     * notification before this job ever reached `dispatcher.run`. There is nothing new to write or
+     * notify here, and `poison` would be wrong twice over — a flagged card is not broken, and a human
+     * clearing the flag makes it dispatchable again with no other change, the same "not now, not
+     * never" shape `defer` above gives an unsatisfied dependency. So this only records that the
+     * arrival happened, the same as `stale` does for a job that arrives after the card already moved
+     * on.
+     */
+    private async deferFlagged(cardId: string, stageName: string, reason: string): Promise<void> {
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'dispatch.deferred',
+            payload: { reason },
         });
     }
 
