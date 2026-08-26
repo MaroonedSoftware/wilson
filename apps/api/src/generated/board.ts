@@ -51,7 +51,7 @@ export type CardSummary = z.infer<typeof CardSummary>;
  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
  * it: the next sequential id over the current board. A client cannot pick one.
- * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L54)
+ * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L64)
  */
 export const CreateCardRequest = z.strictObject({
     title: z.string(),
@@ -65,7 +65,7 @@ export const CreateCardRequest = z.strictObject({
 export type CreateCardRequest = z.infer<typeof CreateCardRequest>;
 
 /**
- * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L64)
+ * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L74)
  */
 export const MoveCardRequest = z.strictObject({
     stage: z
@@ -77,7 +77,7 @@ export const MoveCardRequest = z.strictObject({
 export type MoveCardRequest = z.infer<typeof MoveCardRequest>;
 
 /**
- * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L71)
+ * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L81)
  */
 export const EditCardRequest = z.strictObject({
     body: z.string(),
@@ -85,7 +85,7 @@ export const EditCardRequest = z.strictObject({
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
 
 /**
- * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L75)
+ * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L85)
  */
 export const DependCardRequest = z.strictObject({
     dependsOnId: z.string(),
@@ -97,7 +97,7 @@ export const DependCardRequest = z.strictObject({
 export type DependCardRequest = z.infer<typeof DependCardRequest>;
 
 /**
- * generated from [CardEvent](file://./../../data/contracts/board.ck#L82)
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L92)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -109,7 +109,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../data/contracts/board.ck#L90)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L100)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -121,7 +121,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../data/contracts/board.ck#L98)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L108)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),
@@ -132,7 +132,7 @@ export type ListQuery = z.infer<typeof ListQuery>;
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L105)
+ * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L115)
  */
 export const ImportBoardRequest = z.strictObject({
     dryRun: z
@@ -145,7 +145,7 @@ export const ImportBoardRequest = z.strictObject({
 export type ImportBoardRequest = z.infer<typeof ImportBoardRequest>;
 
 /**
- * generated from [ImportReport](file://./../../data/contracts/board.ck#L111)
+ * generated from [ImportReport](file://./../../data/contracts/board.ck#L121)
  */
 export const ImportReport = z.strictObject({
     cards: z.coerce.number().int(),
@@ -168,7 +168,7 @@ export type ImportReport = z.infer<typeof ImportReport>;
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../data/contracts/board.ck#L127)
+ * generated from [PlanSession](file://./../../data/contracts/board.ck#L137)
  */
 export const PlanSession = z.strictObject({
     sessionId: z
@@ -192,7 +192,7 @@ export const PlanSession = z.strictObject({
 export type PlanSession = z.infer<typeof PlanSession>;
 
 /**
- * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L150)
+ * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L160)
  */
 export const SaveDraftRequest = z.strictObject({
     body: z
@@ -211,3 +211,17 @@ export const CardDetail = CardSummary.extend({
     sections: z.record(z.string(), z.string()),
 });
 export type CardDetail = z.infer<typeof CardDetail>;
+
+/**
+ * `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
+ * cases it took. `queued` is a job in `created` or `retry` — by definition nothing has picked it up,
+ * so cancelling it cannot interrupt anything. `orphan` is a job the broker still shows `active` but
+ * that this process's own tracking confirms nothing is currently running — left behind by an earlier
+ * process that crashed before it could clear or hand off. A job genuinely mid-run stays refused (see
+ * the release operation's 400 below) and never reaches this response at all.
+ * generated from [ReleaseResult](file://./../../data/contracts/board.ck#L53)
+ */
+export const ReleaseResult = CardDetail.extend({
+    releasedAs: z.enum(['queued', 'orphan']),
+});
+export type ReleaseResult = z.infer<typeof ReleaseResult>;

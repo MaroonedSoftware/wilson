@@ -10,6 +10,9 @@ import { withApi } from '../../api-client.js';
  * *this* process's own `CardStageJob` handler is mid-run on this card right now (`RunningCards`,
  * checked in `release()`), which distinguishes a genuinely live claim from one left behind by an
  * earlier process that crashed before clearing it. This command just calls the endpoint.
+ *
+ * Card 0087: the response's `releasedAs` names which of the two safe-to-cancel cases the service
+ * took, so the two get different lines here rather than one message standing in for both.
  */
 const command: CommandModule = {
     description: "Release a card's stuck job: cancel it through the broker and clear the claim",
@@ -17,9 +20,11 @@ const command: CommandModule = {
     run: withApi(async (_opts, ctx, args, api) => {
         const cardId = String(args[0]);
 
-        await api.board.releaseCard(cardId);
+        const result = await api.board.releaseCard(cardId);
+        const cancelled =
+            result.releasedAs === 'orphan' ? 'an orphaned job with no daemon running' : 'a queued job that had not started';
 
-        ctx.logger.info(`${cardId}: released — job cancelled, claim cleared`);
+        ctx.logger.info(`${cardId}: released — cancelled ${cancelled}, claim cleared`);
         ctx.logger.info('the card itself has not moved; decide where it goes next with `wilson card move`.');
         return 0;
     }),

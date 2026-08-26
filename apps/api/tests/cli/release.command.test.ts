@@ -11,7 +11,9 @@ const run = (ctx: unknown, cardId: string) => (command.run as unknown as Handler
 
 describe('wilson card release', () => {
     it('calls release and reports the job cancelled and the claim cleared', async () => {
-        fetchMock.mockResolvedValueOnce(jsonResponse({ id: '0003', title: 'x', stage: 'implementing', dependsOn: [], needsHuman: false }));
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({ id: '0003', title: 'x', stage: 'implementing', dependsOn: [], needsHuman: false, releasedAs: 'queued' }),
+        );
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0003');
@@ -19,7 +21,7 @@ describe('wilson card release', () => {
         expect(result).toBe(0);
         expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/cards/0003/release');
         expect(methodOf(fetchMock.mock.calls[0]!)).toBe('POST');
-        expect(logger.info).toHaveBeenCalledWith('0003: released — job cancelled, claim cleared');
+        expect(logger.info).toHaveBeenCalledWith('0003: released — cancelled a queued job that had not started, claim cleared');
         expect(logger.info).toHaveBeenCalledWith('the card itself has not moved; decide where it goes next with `wilson card move`.');
     });
 

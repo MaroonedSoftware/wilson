@@ -8,7 +8,7 @@ import { loadStages, findStage, validTargets } from '#modules/stages/stage.confi
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/card.stage.job.js';
-import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest } from '../../generated/board.js';
+import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest, ReleaseResult } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -319,8 +319,14 @@ export class BoardWriteService {
      * one whose job already settled — is "nothing to release" regardless of what else is running.
      * Checking the disambiguation first would make every card look like a maybe-in-flight job
      * whenever anything at all is running.
+     *
+     * Card 0087 adds `releasedAs` to the response: which of the two safe-to-cancel cases this was,
+     * so the CLI can say so rather than one message covering both. That needs the job's actual
+     * broker state — `created`/`retry` versus `active` — which `inFlight` deliberately does not
+     * hand back (it only ever answers "live or not", against `LIVE_STATES`), so it is asked for
+     * again here rather than guessed at from anything else already in hand.
      */
-    async release(id: string): Promise<CardDetail> {
+    async release(id: string): Promise<ReleaseResult> {
         const jobId = await this.cardJobs.inFlight(id);
         if (!jobId) {
             throw httpError(400).withDetails({ reason: `${id} holds no claim — nothing to release` });
@@ -343,12 +349,20 @@ export class BoardWriteService {
             });
         }
 
+        // Which of the two cases this cancel is: `created`/`retry` is queued work nothing has
+        // touched yet; `active` here is the one the check above just cleared as orphaned rather than
+        // genuinely running. `getJob` can race a job settling on its own between this call and
+        // `inFlight`'s — rare, and low-stakes here since the job is being cancelled either way — and
+        // that race resolves to the more common `queued` label rather than a third state of its own.
+        const job = await this.broker.getJob('card.stage', jobId);
+        const releasedAs: ReleaseResult['releasedAs'] = job?.state === 'active' ? 'orphan' : 'queued';
+
         // Cancel, not delete: a cancelled job leaves a record behind that explains the gap in the
         // card's history; a deleted one leaves nothing.
         await this.broker.cancel('card.stage', jobId);
         await this.cardJobs.clear(id);
 
-        return toCardDetail(await this.readOrThrow(id));
+        return { ...toCardDetail(await this.readOrThrow(id)), releasedAs };
     }
 
     private async readOrThrow(id: string): Promise<Card> {

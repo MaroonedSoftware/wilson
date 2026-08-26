@@ -44,6 +44,16 @@ contract CardDetail: CardSummary & {
     sections: record(string, string)
 }
 
+# `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
+# cases it took. `queued` is a job in `created` or `retry` — by definition nothing has picked it up,
+# so cancelling it cannot interrupt anything. `orphan` is a job the broker still shows `active` but
+# that this process's own tracking confirms nothing is currently running — left behind by an earlier
+# process that crashed before it could clear or hand off. A job genuinely mid-run stays refused (see
+# the release operation's 400 below) and never reaches this response at all.
+contract ReleaseResult: CardDetail & {
+    releasedAs: enum(queued, orphan)
+}
+
 # The write surface. Each request body is its own named contract rather than inlined on the
 # operation, for the same reason `ListQuery` is one: contractkit only honours a field's `?` down
 # the schema path a named type takes, and every one of card 0080's five mutations copies this shape.
@@ -331,7 +341,7 @@ operation /api/cards/{id}/release: {
         service: BoardWriteService.release
         response: {
             200: {
-                application/json: CardDetail
+                application/json: ReleaseResult
             }
             # No claim to release, or a daemon that might genuinely have the job in flight — the same
             # two refusals `wilson card release` makes before cancelling.
