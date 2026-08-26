@@ -6,9 +6,10 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { nextCard } from '#modules/board/next.card.js';
 import { loadStages } from '#modules/stages/stage.config.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { whyNotDispatchable } from './dispatchable.js';
 import { CardJobs } from './card.jobs.js';
-import { POLLER_INTERVAL_MS } from './job.runner.config.js';
 
 /**
  * Enqueue the one next dispatchable card, on an interval, so `card.stage` jobs start themselves
@@ -47,6 +48,7 @@ export class Poller {
         private readonly broker: JobBroker,
         private readonly cardJobs: CardJobs,
         private readonly logger: Logger,
+        private readonly settings: SettingsStore,
     ) {}
 
     /** Idempotent: calling `start` while already running does nothing. */
@@ -72,8 +74,11 @@ export class Poller {
 
     private async loop(signal: AbortSignal): Promise<void> {
         while (!signal.aborted) {
+            // Read fresh on every iteration, not once at `start()` — card 0115's whole point.
+            // A row written mid-run changes the wait about to start, not just the next process.
+            const intervalMs = await this.settings.get(POLLER_INTERVAL_MS);
             try {
-                await delay(POLLER_INTERVAL_MS, undefined, { signal });
+                await delay(intervalMs, undefined, { signal });
             } catch {
                 // Aborted while waiting for the next tick — nothing ran, nothing to clean up.
                 return;

@@ -6,6 +6,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
+import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import type { Logger } from '@maroonedsoftware/logger';
 
@@ -49,7 +50,7 @@ const delayMock = vi.fn((_ms: number, _value: undefined, opts: { signal: AbortSi
 vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
 
 const { Poller } = await import('#modules/jobs/poller.js');
-const { POLLER_INTERVAL_MS } = await import('#modules/jobs/job.runner.config.js');
+const { POLLER_INTERVAL_MS_DEFAULT } = await import('#modules/jobs/job.runner.config.js');
 
 /** Release the oldest outstanding interval wait, letting the loop run one more tick. */
 const releaseTick = () => pending.shift()?.resolve();
@@ -110,31 +111,44 @@ const statefulCardJobs = (initial: Record<string, string> = {}): FakeCardJobs =>
 const fakeBroker = (jobId = 'job-1') => ({ send: vi.fn(async () => jobId) });
 const fakeLogger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() });
 
+/**
+ * A `SettingsStore` fake for `POLLER_INTERVAL_MS` (card 0115: `Poller.loop` now reads it fresh every
+ * iteration rather than closing over a constant): resolves any definition to its own coded default,
+ * keyed by `key` so a second setting asked through the same fake would not collide with this one.
+ */
+const fakeSettingsStore = (): SettingsStore =>
+    ({
+        get: vi.fn(async (definition: { defaultValue: unknown }) => definition.defaultValue),
+        set: vi.fn(async () => undefined),
+    }) as unknown as SettingsStore;
+
 const buildPoller = (
     cards: Card[],
-    deps: Partial<{ cardJobs: FakeCardJobs; broker: ReturnType<typeof fakeBroker>; logger: ReturnType<typeof fakeLogger> }> = {},
+    deps: Partial<{ cardJobs: FakeCardJobs; broker: ReturnType<typeof fakeBroker>; logger: ReturnType<typeof fakeLogger>; settings: SettingsStore }> = {},
 ) => {
     const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = { list: vi.fn(async () => cards) };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
+    const settings = deps.settings ?? fakeSettingsStore();
     const poller = new Poller(
         board as unknown as BoardRepository,
         config,
         broker as unknown as JobBroker,
         cardJobs as unknown as CardJobs,
         logger as unknown as Logger,
+        settings,
     );
-    return { poller, board, cardJobs, broker, logger };
+    return { poller, board, cardJobs, broker, logger, settings };
 };
 
 /** Reach the private `tick()` directly: one tick, deterministically, with no interval/timer involved at all. */
 const runOneTick = (poller: InstanceType<typeof Poller>): Promise<void> => (poller as unknown as { tick: () => Promise<void> }).tick();
 
-describe('POLLER_INTERVAL_MS', () => {
+describe('POLLER_INTERVAL_MS_DEFAULT', () => {
     it('is 30 seconds', () => {
-        expect(POLLER_INTERVAL_MS).toBe(30_000);
+        expect(POLLER_INTERVAL_MS_DEFAULT).toBe(30_000);
     });
 });
 
@@ -246,6 +260,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
             fakeBroker() as unknown as JobBroker,
             statefulCardJobs() as unknown as CardJobs,
             logger as unknown as Logger,
+            fakeSettingsStore(),
         );
 
         await expect(runOneTick(poller)).resolves.toBeUndefined();
@@ -266,8 +281,11 @@ describe('Poller start/stop', () => {
         poller.start();
         poller.start();
 
-        // Exactly one loop means exactly one outstanding interval wait, not two.
-        expect(pending).toHaveLength(1);
+        // Exactly one loop means exactly one outstanding interval wait, not two. Awaited rather than
+        // asserted immediately: card 0115 makes `loop()` read `POLLER_INTERVAL_MS` from the
+        // `SettingsStore` fake before its first `delay()` call, which is now at least one microtask
+        // tick away rather than synchronous.
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
 
         await poller.stop();
     });
@@ -282,7 +300,11 @@ describe('Poller start/stop', () => {
         const { poller, broker, cardJobs } = buildPoller([card('0001', 'implementing')]);
 
         poller.start();
-        expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        // Awaited rather than asserted immediately, for the same reason as the idempotency test
+        // above: `loop()` awaits the settings read before its first `delay()` call.
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
         releaseTick();
 
         await vi.waitFor(() => expect(broker.send).toHaveBeenCalledTimes(1));
@@ -317,9 +339,13 @@ describe('Poller start/stop', () => {
             broker as unknown as JobBroker,
             cardJobs as unknown as CardJobs,
             fakeLogger() as unknown as Logger,
+            fakeSettingsStore(),
         );
 
         poller.start();
+        // The interval read (card 0115) puts at least one microtask tick between start() and the
+        // delay() call `releaseTick()` needs to find waiting in `pending`.
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
         releaseTick();
         await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
 
@@ -335,16 +361,44 @@ describe('Poller start/stop', () => {
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
     });
 
+    /**
+     * Constraint: "The poller reads its interval per tick, not once. Otherwise a change needs a
+     * restart, which is the defect 0106 existed to fix." `loop()`'s comment says the same, but
+     * nothing yet proves it against the real `start()`/`stop()` surface: a settings row changing
+     * value between two ticks — with no `stop()`/`start()` cycle in between — must change the very
+     * next wait, not merely the one after a restart.
+     */
+    it('applies a changed POLLER_INTERVAL_MS to the next wait without a restart', async () => {
+        const settings = {
+            get: vi.fn().mockResolvedValueOnce(POLLER_INTERVAL_MS_DEFAULT).mockResolvedValueOnce(5_000),
+            set: vi.fn(async () => undefined),
+        } as unknown as SettingsStore;
+        const { poller } = buildPoller([], { settings });
+
+        poller.start();
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
+
+        // Let the first wait elapse and the tick after it run — loop() reads the setting again
+        // before its *next* delay() call, with no stop()/start() anywhere in between.
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+
+        await poller.stop();
+    });
+
     it('a subsequent start() after stop() begins ticking again rather than staying blocked forever', async () => {
         const { poller, board } = buildPoller([card('0001', 'implementing')]);
 
         poller.start();
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
         releaseTick();
         await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
         await poller.stop();
 
         poller.start();
-        expect(pending).toHaveLength(1);
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
         releaseTick();
         await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(2));
 

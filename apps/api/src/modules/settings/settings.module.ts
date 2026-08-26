@@ -6,9 +6,12 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 import { SettingsStore } from './settings.store.js';
 import { PollerSettingService } from './poller.setting.service.js';
+import { PollerIntervalSettingService } from './poller.interval.setting.service.js';
+import { CardStageConcurrencySettingService } from './card.stage.concurrency.setting.service.js';
 
 /**
- * Operational settings backed by `runner.settings` — the poller's on/off switch is the first.
+ * Operational settings backed by `runner.settings` — the poller's on/off switch, its interval, and
+ * `card.stage`'s concurrency (card 0115).
  *
  * Listed before Jobs in `modules.ts` so a reader sees `PollerSettingService` (which needs `Poller`)
  * exist before the module that consumes it — `setup` only registers tokens, though, so the actual
@@ -29,5 +32,7 @@ export const SettingsModule: ServerKitModule = {
             .useFactory(c => new SettingsStore(c.get(BoardConfig), c.get(Kysely<DB>), config))
             .asTransient();
         registry.register(PollerSettingService).useClass(PollerSettingService).asTransient();
+        registry.register(PollerIntervalSettingService).useClass(PollerIntervalSettingService).asTransient();
+        registry.register(CardStageConcurrencySettingService).useClass(CardStageConcurrencySettingService).asTransient();
     },
 };

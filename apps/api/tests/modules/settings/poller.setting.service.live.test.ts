@@ -90,18 +90,24 @@ const card = (id: string, stage: string): Card => ({
     body: '',
 });
 
-/** A `SettingsStore` fake, in-memory — real enough to drive `PollerSettingService`, no database needed here. */
+/**
+ * A `SettingsStore` fake, in-memory — real enough to drive `PollerSettingService`, no database
+ * needed here. Keyed by `definition.key` rather than one shared value: card 0115 has `Poller.loop`
+ * reading `POLLER_INTERVAL_MS` from this same store on every tick, alongside `POLLER_ENABLED`, and
+ * the two must resolve independently.
+ */
 const fakeSettingsStore = (): SettingsStore => {
-    let enabled = false;
+    const values = new Map<string, unknown>();
     return {
-        get: async () => enabled,
-        set: async (_definition: unknown, value: boolean) => {
-            enabled = value;
+        get: async (definition: { key: string; defaultValue: unknown }) =>
+            (values.has(definition.key) ? values.get(definition.key) : definition.defaultValue),
+        set: async (definition: { key: string }, value: unknown) => {
+            values.set(definition.key, value);
         },
     } as unknown as SettingsStore;
 };
 
-const buildRealPoller = (cards: Card[]) => {
+const buildRealPoller = (cards: Card[], settings: SettingsStore) => {
     const config = new StaticBoardConfig('poller-setting-live-test', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = { list: vi.fn(async () => cards) };
     const claims = new Map<string, string>();
@@ -114,17 +120,21 @@ const buildRealPoller = (cards: Card[]) => {
     };
     const broker = { send: vi.fn(async () => 'job-1') };
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    const poller = new Poller(board as unknown as BoardRepository, config, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger);
+    const poller = new Poller(board as unknown as BoardRepository, config, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger, settings);
     return { poller, board, broker, cardJobs };
 };
 
 describe('PollerSettingService.set — turning the poller on with no restart', () => {
     it('setting poller-enabled true starts the real poller, and a tick then enqueues a dispatchable card', async () => {
-        const { poller, broker, cardJobs } = buildRealPoller([card('0001', 'implementing')]);
-        const service = new PollerSettingService(fakeSettingsStore(), poller);
+        const settings = fakeSettingsStore();
+        const { poller, broker, cardJobs } = buildRealPoller([card('0001', 'implementing')], settings);
+        const service = new PollerSettingService(settings, poller);
 
         await service.set({ enabled: true });
-        expect(pending).toHaveLength(1); // the poller is actually ticking now, not merely "recorded as on"
+        // The poller is actually ticking now, not merely "recorded as on". Awaited rather than
+        // asserted immediately: card 0115 has `loop()` read `POLLER_INTERVAL_MS` off the settings
+        // store before its first `delay()` call, which is now at least one microtask tick away.
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
 
         releaseTick();
         await vi.waitFor(() => expect(broker.send).toHaveBeenCalledTimes(1));
@@ -135,20 +145,23 @@ describe('PollerSettingService.set — turning the poller on with no restart', (
      * Acceptance criterion: "Setting a value that is already set starts no second timer."
      */
     it('setting poller-enabled true a second time, while already true, starts no second timer', async () => {
-        const { poller } = buildRealPoller([]);
-        const service = new PollerSettingService(fakeSettingsStore(), poller);
+        const settings = fakeSettingsStore();
+        const { poller } = buildRealPoller([], settings);
+        const service = new PollerSettingService(settings, poller);
 
         await service.set({ enabled: true });
         await service.set({ enabled: true });
 
-        expect(pending).toHaveLength(1);
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
     });
 
     it('setting poller-enabled false stops the timer', async () => {
-        const { poller, board } = buildRealPoller([card('0001', 'implementing')]);
-        const service = new PollerSettingService(fakeSettingsStore(), poller);
+        const settings = fakeSettingsStore();
+        const { poller, board } = buildRealPoller([card('0001', 'implementing')], settings);
+        const service = new PollerSettingService(settings, poller);
 
         await service.set({ enabled: true });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
         releaseTick();
         await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
 
@@ -186,10 +199,12 @@ describe('PollerSettingService.set — turning the poller on with no restart', (
         };
         const broker = { send: vi.fn(async () => 'job-1') };
         const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-        const poller = new Poller(board as unknown as BoardRepository, config, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger);
-        const service = new PollerSettingService(fakeSettingsStore(), poller);
+        const settings = fakeSettingsStore();
+        const poller = new Poller(board as unknown as BoardRepository, config, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger, settings);
+        const service = new PollerSettingService(settings, poller);
 
         await service.set({ enabled: true });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
         releaseTick();
         await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
 

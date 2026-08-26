@@ -126,4 +126,21 @@ describe('routers', () => {
         expect(SettingsRouter.match('/api/settings/poller-enabled', 'POST').route).toBe(false);
         expect(SettingsRouter.match('/api/settings/poller-enabled', 'DELETE').route).toBe(false);
     });
+
+    // Card 0115: the poller's interval and card.stage's concurrency, read and written over the API
+    // the same way poller-enabled already is.
+    it.each([['GET'], ['PUT']])('routes %s /api/settings/poller-interval-ms to the settings router', method => {
+        expect(SettingsRouter.match('/api/settings/poller-interval-ms', method).route).toBe(true);
+    });
+
+    it.each([['GET'], ['PUT']])('routes %s /api/settings/card-stage-concurrency to the settings router', method => {
+        expect(SettingsRouter.match('/api/settings/card-stage-concurrency', method).route).toBe(true);
+    });
+
+    it('does not route an undeclared method to either card 0115 settings path', () => {
+        expect(SettingsRouter.match('/api/settings/poller-interval-ms', 'POST').route).toBe(false);
+        expect(SettingsRouter.match('/api/settings/poller-interval-ms', 'DELETE').route).toBe(false);
+        expect(SettingsRouter.match('/api/settings/card-stage-concurrency', 'POST').route).toBe(false);
+        expect(SettingsRouter.match('/api/settings/card-stage-concurrency', 'DELETE').route).toBe(false);
+    });
 });

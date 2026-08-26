@@ -10,12 +10,15 @@ import { Duration } from 'luxon';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { CARD_STAGE_CONCURRENCY } from '#modules/settings/card.stage.concurrency.setting.js';
+import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs } from './card.jobs.js';
 import { Poller } from './poller.js';
-import { CARD_STAGE_CONCURRENCY } from './job.runner.config.js';
+import { CARD_STAGE_CONCURRENCY_DEFAULT } from './job.runner.config.js';
 
 /**
  * How long a `card.stage` job may run before the queue calls it stuck and hands it to another
@@ -83,10 +86,18 @@ export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
  * not something worth fetching in bulk), and `pollInterval` stays at pg-boss's default because
  * nothing here waits on sub-second dispatch latency — `POLLER_INTERVAL_MS` is thirty seconds.
  *
- * See `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) for the number itself and why it is 1.
+ * See `CARD_STAGE_CONCURRENCY_DEFAULT` (job.runner.config.ts) for the number itself and why it is 3.
+ *
+ * Deliberately not re-created with a fresh object each time the concurrency setting changes:
+ * `PgBossJobRunner.start()` (`resolveWorkerPolicy`, the library's `pgboss.js`) reads `registration
+ * .worker` — this exact object, held by reference in `PgBossJobRegistryMap` below — anew every time
+ * `.start()` runs, per its own doc ("changing one takes effect on the next runner start rather than
+ * for everyone at once"). `BoundedCardStageJobRunner.reconcileConcurrency` mutates `.concurrency` in
+ * place for exactly that reason: mutating this object and then re-running `.start()` is the whole
+ * mechanism, and a second `JobWorkerPolicy` object here would go unread.
  */
 export const CARD_STAGE_WORKER: JobWorkerPolicy = {
-    concurrency: CARD_STAGE_CONCURRENCY,
+    concurrency: CARD_STAGE_CONCURRENCY_DEFAULT,
 };
 
 /**
@@ -226,29 +237,73 @@ export class AbandonedCardJobsError extends Error {
  * `runner.settings` row, and `Poller.stop()` (called on every `start()` when the answer is "off")
  * is safe on a poller that was never running.
  *
+ * Card 0115 adds `card-stage-concurrency`, and applying it here is the hard half of that card.
+ * `Poller.loop` can just re-read `POLLER_INTERVAL_MS` every tick (poller.ts) because nothing about
+ * that setting is stored anywhere but the setting's own row. Concurrency is different: pg-boss
+ * fixes a queue's worker count at `pgboss.work()` time (`PgBossJobRunner.start()`, the library's
+ * `pgboss.js` — the dispatch closure `work()` is given is built fresh inside that method and kept
+ * nowhere this codebase can reach), and there is no public, per-queue "change this worker's
+ * concurrency" call — the *library's own* `JobWorkerPolicy` doc says as much ("changing one takes
+ * effect on the next runner start"). The only lever this codebase has at all is restarting the
+ * whole runner (`inner.stop()` + `inner.start()`), and `PgBossJobRunner.stop()` calls pg-boss's own
+ * `stop()` with no arguments — its default 30-second graceful window, chosen for process shutdown,
+ * not for a stage that legitimately runs for minutes (`MAX_STAGE_WALL_CLOCK_MS`). Restarting the
+ * runner while a stage is running would either wait needlessly or — past that window — abandon it,
+ * exactly the failure `stopCardStageJobs`/`AbandonedCardJobsError` exist to report, not to cause.
+ *
+ * So a concurrency change is never pushed into a running worker: `startConcurrencyWatcher` (called
+ * from `start()`, stopped from `stop()`) checks, on the same cadence as the poller
+ * (`POLLER_INTERVAL_MS`, read fresh each cycle so it tracks the poller's own interval changes too),
+ * whether the persisted `card-stage-concurrency` differs from what is currently applied. If
+ * `RunningCards` is non-empty it defers to the next cycle — untouched, no matter how long that
+ * takes; it re-checks the same way immediately after pausing the poller too, since that pause is
+ * itself an await a stage can start inside. Only once the board is genuinely idle does it mutate `CARD_STAGE_WORKER.concurrency` (the
+ * live object `PgBossJobRegistryMap` already holds a reference to — see that constant's own doc)
+ * and cycle `inner.stop()`/`inner.start()`, which is safe specifically because nothing is running
+ * for pg-boss's 30-second window to matter: `stop()` has nothing to wait out. This is the plain
+ * answer to "pg-boss cannot change a worker's concurrency without restarting it": the setting takes
+ * effect at the next opportunity the daemon is idle, checked on every poll, never sooner.
+ *
  * Exported so a test can construct one directly against fakes, the same way `stopCardStageJobs`
  * and `AbandonedCardJobsError` already are.
  */
 export class BoundedCardStageJobRunner extends JobRunner {
+    private appliedConcurrency: number = CARD_STAGE_WORKER.concurrency ?? CARD_STAGE_CONCURRENCY_DEFAULT;
+    private concurrencyWatcherAbort: AbortController | undefined;
+    private concurrencyWatcherLoop: Promise<void> | undefined;
+
     constructor(
         private readonly inner: JobRunner,
         private readonly running: RunningCards,
         private readonly cardJobs: CardJobs,
         private readonly poller: Poller,
         private readonly pollerSettings: PollerSettingService,
+        private readonly settings: SettingsStore,
+        private readonly logger: Logger,
     ) {
         super();
     }
 
     async start(): Promise<void> {
+        // Resolved and applied to the live worker-policy object *before* `inner.start()` reads it
+        // (PgBossJobRunner.start() → resolveWorkerPolicy → CARD_STAGE_WORKER), so a database row or
+        // CARD_STAGE_CONCURRENCY already in place takes effect at this boot exactly like a
+        // POLLER_ENABLED row already does, one line below.
+        this.appliedConcurrency = await this.settings.get(CARD_STAGE_CONCURRENCY);
+        CARD_STAGE_WORKER.concurrency = this.appliedConcurrency;
+
         // What used to be a one-time, boot-only `pollerEnabled` check in `setup` below is this
         // instead — asked again every time `start()` runs, so a database row already in place
         // takes effect the same way a write made after boot does (PollerSettingService.set).
         await this.pollerSettings.applyCurrentValue();
         await this.inner.start();
+        this.startConcurrencyWatcher();
     }
 
     async stop(): Promise<void> {
+        this.concurrencyWatcherAbort?.abort();
+        await this.concurrencyWatcherLoop;
+
         // Stop the poller before asking what shutdown left abandoned: a poller still ticking
         // during shutdown could enqueue a card behind `stopCardStageJobs`'s back, and the whole
         // point of that report is to be the truth about in-flight work at the moment it is
@@ -257,6 +312,73 @@ export class BoundedCardStageJobRunner extends JobRunner {
         const report = await stopCardStageJobs(this.inner, this.running, this.cardJobs);
         if (report.abandoned.length > 0 || report.unconfirmed.length > 0) {
             throw new AbandonedCardJobsError(report.abandoned, report.unconfirmed);
+        }
+    }
+
+    /**
+     * A loop separate from `Poller`'s own — not a call `Poller.tick()` makes — so that
+     * `reconcileConcurrency`'s `await this.poller.stop()` below can never be a tick awaiting its
+     * own containing `Poller.loop()` promise. Same cadence, different promise chain.
+     */
+    private startConcurrencyWatcher(): void {
+        this.concurrencyWatcherAbort = new AbortController();
+        this.concurrencyWatcherLoop = this.watchConcurrency(this.concurrencyWatcherAbort.signal);
+    }
+
+    private async watchConcurrency(signal: AbortSignal): Promise<void> {
+        while (!signal.aborted) {
+            const intervalMs = await this.settings.get(POLLER_INTERVAL_MS);
+            try {
+                await delay(intervalMs, undefined, { signal });
+            } catch {
+                return;
+            }
+            await this.reconcileConcurrency();
+        }
+    }
+
+    /**
+     * Applies a changed `card-stage-concurrency` setting, but only once `RunningCards` is empty —
+     * see this class's own doc for why that is the one moment a runner restart is safe. A change
+     * seen while stages are running is not lost, just deferred: the next cycle asks again.
+     */
+    private async reconcileConcurrency(): Promise<void> {
+        try {
+            const desired = await this.settings.get(CARD_STAGE_CONCURRENCY);
+            if (desired === this.appliedConcurrency) return;
+            if (this.running.snapshot().length > 0) return;
+
+            // Pausing the poller for this window is not for safety — nothing is running, so
+            // `inner.stop()` has nothing to wait out either way — it only closes the narrow gap
+            // where a tick could call `broker.send` against the connection `inner.stop()` is
+            // mid-way through tearing down. Safe to call from here (unlike from inside
+            // `Poller.tick()` itself): this method runs on `watchConcurrency`'s own loop, a
+            // different promise chain from `Poller.loop()`, so `poller.stop()` awaits a promise
+            // this call is not itself part of.
+            await this.poller.stop();
+
+            // Re-check: the await above is a gap the first check (line above) cannot see across —
+            // a tick already in flight when that check ran, or a stage re-enqueuing its own next
+            // stage, can still land a card.stage job on a worker that is still up and have it start
+            // (RunningCards.add) before this line runs. Restarting into that would silently catch
+            // it, exactly the "disturb a running stage" failure this class exists to avoid. Defer
+            // instead — same as the first check — and let the next cycle try again once idle.
+            if (this.running.snapshot().length > 0) {
+                await this.pollerSettings.applyCurrentValue();
+                this.logger.info(`card.stage concurrency: deferred ${desired} (a stage started while pausing the poller)`);
+                return;
+            }
+
+            CARD_STAGE_WORKER.concurrency = desired;
+            await this.inner.stop();
+            await this.inner.start();
+            // `inner.start()` only re-registers pg-boss's workers; the poller's own on/off state is
+            // this class's to reapply, same as in `start()` above.
+            await this.pollerSettings.applyCurrentValue();
+            this.appliedConcurrency = desired;
+            this.logger.info(`card.stage concurrency: applied ${desired} (queue was idle)`);
+        } catch (error) {
+            this.logger.error(error);
         }
     }
 }
@@ -268,8 +390,9 @@ export class BoundedCardStageJobRunner extends JobRunner {
  * One queue for now, `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
  * through consecutive `agent` stages without a human re-triggering each one.
  *
- * At most `CARD_STAGE_CONCURRENCY` (job.runner.config.ts) of those jobs run at once, declared on the
- * registration below as `CARD_STAGE_WORKER` rather than inherited from pg-boss's default.
+ * At most `CARD_STAGE_CONCURRENCY` (`settings/card.stage.concurrency.setting.ts`, card 0115) of
+ * those jobs run at once, declared on the registration below as `CARD_STAGE_WORKER` rather than
+ * inherited from pg-boss's default.
  */
 export const JobsModule: ServerKitModule = {
     name: 'Jobs',
@@ -338,6 +461,8 @@ export const JobsModule: ServerKitModule = {
                     container.get(CardJobs),
                     container.get(Poller),
                     container.get(PollerSettingService),
+                    container.get(SettingsStore),
+                    container.get(Logger),
                 );
             })
             .asSingleton();
@@ -345,12 +470,12 @@ export const JobsModule: ServerKitModule = {
     // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
     start: async (container: Container) => {
-        // See CARD_STAGE_CONCURRENCY (job.runner.config.ts). Logged so the ceiling on simultaneously
-        // running stages is visible in the daemon's own startup output rather than only by reading
-        // the registration — the number is now this module's to choose, so what it chose is worth
-        // saying out loud.
-        container.get(Logger).info(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY}`);
         await container.get(JobRunner).start();
+        // Logged after `start()`, not before: `BoundedCardStageJobRunner.start()` is what resolves
+        // the `card-stage-concurrency` setting (card 0115) and writes it onto `CARD_STAGE_WORKER`, so
+        // this is the daemon's own startup output saying what it actually chose, not what the
+        // coded default happens to be.
+        container.get(Logger).info(`card.stage concurrency: ${CARD_STAGE_WORKER.concurrency}`);
     },
     // Stops accepting new jobs and waits, bounded, for in-flight ones to finish before Data tears
     // down the pool underneath them. `JobRunner.stop()` (see BoundedCardStageJobRunner above) is what

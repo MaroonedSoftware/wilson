@@ -10,13 +10,13 @@
 // `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead, as
 // `feed.mount.test.ts` already does for hook tests.
 import { createElement } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
-import type { BoardColumns, CardSummary, Health, PollerSetting } from '@wilson/sdk';
+import type { BoardColumns, CardSummary, CardStageConcurrency, Health, PollerInterval, PollerSetting } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
@@ -57,6 +57,16 @@ function renderApp(path: string) {
         ),
     );
     return { router };
+}
+
+/**
+ * Card 0115 puts two `NumberInput` + Save controls on the same page — scoping to the input's own
+ * `Stack` (each control's own doc: a local `draft` state, a `Save` button below it) finds the right
+ * button regardless of which control it belongs to or how many others are on the page.
+ */
+function saveButtonFor(input: HTMLElement): HTMLElement {
+    const container = input.closest('.mantine-Stack-root') as HTMLElement;
+    return within(container).getByRole('button', { name: 'Save' });
 }
 
 beforeEach(() => {
@@ -161,6 +171,107 @@ describe('the auto-mode toggle', () => {
         // the plan — the server's own sentence must be what renders.
         expect(screen.queryByText('409 Conflict')).toBeNull();
         expect(toggle.checked).toBe(false);
+    });
+});
+
+describe('the poll interval control', () => {
+    it('shows the interval the API reports on load, not an assumed default', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 45_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Poll interval (ms)')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('45000'));
+    });
+
+    it('saves a typed value and renders what the server returns from the write, not the value typed', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        // The server can round-trip a different value than requested — same principle the
+        // auto-mode toggle's own write test proves — so the UI must render what came back, not
+        // what was typed.
+        const setInterval = vi
+            .spyOn(wilson.settings, 'setPollerInterval')
+            .mockResolvedValue({ intervalMs: 60_000 } satisfies PollerInterval);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Poll interval (ms)')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('30000'));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: '90000' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(setInterval).toHaveBeenCalledWith({ intervalMs: 90_000 });
+        await waitFor(() => expect(input.value).toBe('60000'));
+    });
+
+    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'setPollerInterval').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'poller interval must be between 5000 and 300000 ms' }, new Headers()),
+        );
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Poll interval (ms)')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('30000'));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: '1000' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(await screen.findByText('poller interval must be between 5000 and 300000 ms')).toBeTruthy();
+        expect(input.value).toBe('30000'); // the rejected draft is gone; the last-known-good value is back
+    });
+});
+
+describe('the card stage concurrency control', () => {
+    it('shows the concurrency the API reports on load, not an assumed default', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 5 } satisfies CardStageConcurrency);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Concurrent stages')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('5'));
+    });
+
+    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'setCardStageConcurrency').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'card stage concurrency must be between 1 and 8' }, new Headers()),
+        );
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Concurrent stages')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('3'));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: '20' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(await screen.findByText('card stage concurrency must be between 1 and 8')).toBeTruthy();
+        expect(input.value).toBe('3'); // the rejected draft is gone; the last-known-good value is back
     });
 });
 
