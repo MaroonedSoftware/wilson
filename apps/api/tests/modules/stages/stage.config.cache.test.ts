@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loadStages, StageConfigError } from '#modules/stages/stage.config.js';
+import { assertRoutesResolve, findStage, loadStages, ProjectStagesSchema, StageConfigError } from '#modules/stages/stage.config.js';
 
 /**
  * `loadStages` is called twice for the same file on every dispatch (`StageDispatcher.run` and
@@ -103,12 +103,44 @@ describe('loadStages caches on file identity', () => {
         await expect(loadStages(boardRoot)).resolves.toMatchObject({ stages: [{ name: 'implementing' }] });
     });
 
+    /**
+     * Card 0031. `stages.yaml` routing to a state that does not exist is a `config-invalid` failure,
+     * not a `stage-not-found` one — `assertRoutesResolve` fails the file itself, not a lookup for one
+     * card's stage, so `classifyDispatchFailure` must defer it rather than poison the dispatching
+     * card. This is the same distinction `findStage`'s own test pins from the other side.
+     */
+    it('rejects an invalid config as StageConfigError with kind "config-invalid", not "stage-not-found"', async () => {
+        await writeFile(path, 'stages:\n  - name: implementing\n    onPass: nowhere\n    onFail: implementing\n', 'utf8');
+
+        const error = await loadStages(boardRoot).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(StageConfigError);
+        expect((error as StageConfigError).kind).toBe('config-invalid');
+    });
+
     it('throws rather than serving a cached value once the file is gone', async () => {
         await loadStages(boardRoot);
         const { rm } = await import('node:fs/promises');
         await rm(path);
 
         await expect(loadStages(boardRoot)).rejects.toBeInstanceOf(StageConfigError);
+    });
+
+    /**
+     * A missing `stages.yaml` is the same "the file itself is broken" failure as an invalid one — not
+     * a per-card `stage-not-found` failure — so it must carry `kind: 'config-invalid'` too, for
+     * `classifyDispatchFailure` to defer it rather than poisoning the card that happened to dispatch
+     * first.
+     */
+    it('tags a missing stages.yaml as "config-invalid", so a dispatch defers rather than poisons', async () => {
+        await loadStages(boardRoot);
+        const { rm } = await import('node:fs/promises');
+        await rm(path);
+
+        const error = await loadStages(boardRoot).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(StageConfigError);
+        expect((error as StageConfigError).kind).toBe('config-invalid');
     });
 
     /**
@@ -124,5 +156,53 @@ describe('loadStages caches on file identity', () => {
         expect(() => {
             (stages.stages[0] as { name: string }).name = 'mutated';
         }).toThrow(TypeError);
+    });
+});
+
+/**
+ * Card 0031. `StageConfigError` used to be one flat class with no way to tell "this job named a
+ * stage that does not exist" (a fact about this one card, deterministic, poisons) apart from
+ * "stages.yaml itself will not load" (a fact about the file, true for every card, defers). Both
+ * `findStage` and `assertRoutesResolve` throw the same class, so what has to be pinned is the `kind`
+ * each throw site sets — `classifyDispatchFailure` branches on nothing else.
+ */
+describe('StageConfigError.kind distinguishes a missing stage from a broken config', () => {
+    const stages = ProjectStagesSchema.parse({
+        stages: [{ name: 'implementing', mode: 'agent', model: 'claude-opus', instructions: 'do it', onPass: 'merged', onFail: 'implementing' }],
+    });
+
+    it('tags a stage lookup miss as "stage-not-found", naming the stage that was looked up and the stages that do exist', () => {
+        expect(() => findStage(stages, 'reviewing')).toThrow(StageConfigError);
+
+        const error = (() => {
+            try {
+                findStage(stages, 'reviewing');
+            } catch (err) {
+                return err as StageConfigError;
+            }
+            throw new Error('expected findStage to throw');
+        })();
+
+        expect(error.kind).toBe('stage-not-found');
+        expect(error.message).toContain('reviewing');
+        expect(error.message).toContain('implementing');
+    });
+
+    it('tags a dangling route as "config-invalid", not "stage-not-found"', () => {
+        const brokenRoutes = ProjectStagesSchema.parse({
+            stages: [{ name: 'implementing', mode: 'agent', model: 'claude-opus', instructions: 'do it', onPass: 'nowhere', onFail: 'implementing' }],
+        });
+
+        const error = (() => {
+            try {
+                assertRoutesResolve(brokenRoutes);
+            } catch (err) {
+                return err as StageConfigError;
+            }
+            throw new Error('expected assertRoutesResolve to throw');
+        })();
+
+        expect(error).toBeInstanceOf(StageConfigError);
+        expect(error.kind).toBe('config-invalid');
     });
 });

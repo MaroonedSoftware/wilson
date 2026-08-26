@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
 
 /**
@@ -64,6 +65,48 @@ describe('classifyDispatchFailure', () => {
 
         expect(outcome).toEqual({ kind: 'flag-rebase', error });
         expect(outcome.kind === 'flag-rebase' && outcome.error.branch).toBe('card/0042-thing');
+    });
+
+    /**
+     * Card 0031. `StageDispatcher.run` calls `loadStages` and `findStage` before `assertDispatchable`
+     * ever runs, so a `StageConfigError` reaches this function directly — it is neither a
+     * `NotDispatchableError` nor a `RebaseConflictError`, and before this card it fell all the way
+     * through to `isPermanentFailure`'s message matching, matched no pattern (`no stage named` and
+     * `could not read` are not in `PERMANENT`), and retried three times before dead-lettering with no
+     * `stage.poisoned` event and no transition — exactly the bug this card fixes.
+     */
+    describe('StageConfigError, routed on its typed kind', () => {
+        it('poisons a stage-not-found error, the same as wrong-stage', () => {
+            const error = new StageConfigError('stage-not-found', 'no stage named "reviewing" in stages.yaml (have: implementing)');
+
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'poison', error });
+        });
+
+        /**
+         * A broken `stages.yaml` is true for every card that would load the same file, not a fact
+         * about this one — poisoning it would strand a whole board of otherwise-fine cards behind one
+         * config typo. `outstanding` must be absent (not an empty array): that field means "these
+         * cards are in the way", and there is no per-card dependency list for a broken file.
+         */
+        it('defers a config-invalid error rather than poisoning it, naming no outstanding cards', () => {
+            const error = new StageConfigError('config-invalid', 'could not read stages.yaml: ENOENT');
+
+            const outcome = classifyDispatchFailure(error);
+
+            expect(outcome).toEqual({ kind: 'defer', reason: 'could not read stages.yaml: ENOENT' });
+            expect(outcome.kind === 'defer' && 'outstanding' in outcome).toBe(false);
+        });
+
+        /**
+         * The same ordering contract `NotDispatchableError` already has: a `StageConfigError` whose
+         * message happens to look like a permanent-failure pattern must still route on its typed
+         * `kind`, never fall through to `isPermanentFailure`'s text matching.
+         */
+        it('defers a config-invalid error even when its message looks like a permanent provider failure', () => {
+            const error = new StageConfigError('config-invalid', 'stages.yaml is not valid stage config: authentication_error at stages.0.model');
+
+            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'defer' });
+        });
     });
 
     describe('errors this codebase did not throw', () => {

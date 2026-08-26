@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -422,6 +423,91 @@ describe('CardStageJob', () => {
             expect(broker.send).not.toHaveBeenCalled();
             expect(cardJobs.clear).toHaveBeenCalledWith('0001');
             expect(cardJobs.record).not.toHaveBeenCalled();
+        });
+    });
+
+    /**
+     * Card 0031. `StageDispatcher.run` calls `loadStages` and `findStage` before `assertDispatchable`
+     * ever gets a chance to throw a typed `NotDispatchableError`, so a `StageConfigError` used to fall
+     * through to `isPermanentFailure`'s message matching, match no pattern, and retry twice under
+     * `CARD_STAGE_POLICY` before dead-lettering silently — no `stage.poisoned` event, no transition,
+     * no operator-visible signal at all. These exercise `CardStageJob` end to end the same way the
+     * `NotDispatchableError routing` block above does, with `dispatcher.run` throwing the typed error
+     * `StageDispatcher` now actually throws.
+     */
+    describe('StageConfigError routing (card 0031)', () => {
+        it('poisons a stage-not-found error, naming the missing stage, and does not retry', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new StageConfigError('stage-not-found', 'no stage named "needs-human" in stages.yaml (have: implementing, testing, review)');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'needs-human' })).resolves.toBeUndefined();
+
+            expect(boardRepo.write).toHaveBeenCalledTimes(1);
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0001',
+                    stage: 'needs-human',
+                    type: 'stage.poisoned',
+                    payload: expect.objectContaining({ reason: expect.stringContaining('needs-human') }),
+                }),
+            );
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('dispatch.deferred');
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        });
+
+        it('defers rather than poisons a config-invalid error, naming the broken config, and leaves the card untouched', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new StageConfigError('config-invalid', 'could not read stages.yaml: ENOENT: no such file or directory');
+            });
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'dispatch.deferred',
+                    payload: { reason: 'could not read stages.yaml: ENOENT: no such file or directory' },
+                }),
+            );
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+            expect(boardRepo.write).not.toHaveBeenCalled();
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+            expect(cardJobs.record).not.toHaveBeenCalled();
+        });
+
+        it('does not throw for either StageConfigError kind, so the queue never retries a card in the wrong stage or a broken config', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new StageConfigError('stage-not-found', 'no stage named "gone" in stages.yaml (have: implementing)');
+            });
+            await expect(job.run({ cardId: '0001', stageName: 'gone' })).resolves.toBeUndefined();
+
+            dispatcher.run = vi.fn(async () => {
+                throw new StageConfigError('config-invalid', 'stages.yaml is not valid stage config: stages.0.mode: Required');
+            });
+            await expect(job.run({ cardId: '0002', stageName: 'implementing' })).resolves.toBeUndefined();
+        });
+
+        /**
+         * The acceptance criterion that motivates `defer` over `poison` here: one bad `stages.yaml`
+         * must not turn into a board full of poisoned cards a human then has to walk back one at a
+         * time. Two different cards hitting the same broken config both defer, and neither is touched.
+         */
+        it('defers every card that hits the same broken stages.yaml, poisoning none of them', async () => {
+            dispatcher.run = vi.fn(async () => {
+                throw new StageConfigError('config-invalid', 'stages.yaml is not valid stage config: stages.0.model: Required');
+            });
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+            await job.run({ cardId: '0002', stageName: 'implementing' });
+
+            const deferredCardIds = events.append.mock.calls.filter(c => c[0].type === 'dispatch.deferred').map(c => c[0].cardId);
+            expect(deferredCardIds).toEqual(['0001', '0002']);
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+            expect(boardRepo.write).not.toHaveBeenCalled();
         });
     });
 
