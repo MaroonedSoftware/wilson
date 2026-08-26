@@ -25,6 +25,20 @@ describe('wilson card release', () => {
         expect(logger.info).toHaveBeenCalledWith('the card itself has not moved; decide where it goes next with `wilson card move`.');
     });
 
+    // Card 0087: the two safe-to-cancel cases are different actions and get different lines — this
+    // is the other one, distinct from the "queued" case above.
+    it('reports an orphaned job differently from a queued one, when releasedAs is orphan', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({ id: '0004', title: 'x', stage: 'implementing', dependsOn: [], needsHuman: false, releasedAs: 'orphan' }),
+        );
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0004');
+
+        expect(result).toBe(0);
+        expect(logger.info).toHaveBeenCalledWith('0004: released — cancelled an orphaned job with no daemon running, claim cleared');
+    });
+
     it('prints the API-supplied reason and exits 1 for a card holding no claim, rather than an HTTP status line', async () => {
         fetchMock.mockResolvedValueOnce(reasonResponse(400, '0002 holds no claim — nothing to release'));
         const { ctx, logger } = buildCtx();

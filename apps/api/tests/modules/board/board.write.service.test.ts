@@ -699,5 +699,54 @@ describe('BoardWriteService', () => {
             const clearOrder = clearSpy.mock.invocationCallOrder[0];
             expect(cancelOrder).toBeLessThan(clearOrder);
         });
+
+        // Card 0087: a queued job — `created` or `retry` — is, by definition, one no worker has
+        // picked up, so cancelling it cannot interrupt anything even while this process is otherwise
+        // busy elsewhere. The response says so via `releasedAs`, rather than the one message that
+        // used to cover every cancel regardless of which case it was.
+        it("labels the response releasedAs: 'queued' when the broker still shows the job created — nothing has touched it yet", async () => {
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-101', name: 'card.stage', state: 'created', data: {} })) },
+            );
+            await board.create(card('0076', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0076', 'job-101');
+
+            const detail = await service.release('0076');
+
+            expect(detail.releasedAs).toBe('queued');
+            expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-101');
+            expect(await cardJobs.inFlight('0076')).toBeUndefined();
+        });
+
+        it("labels the response releasedAs: 'queued' for a job the broker shows retrying, the other LIVE_STATES member that has not started", async () => {
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-102', name: 'card.stage', state: 'retry', data: {} })) },
+            );
+            await board.create(card('0077', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0077', 'job-102');
+
+            const detail = await service.release('0077');
+
+            expect(detail.releasedAs).toBe('queued');
+            expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-102');
+        });
+
+        it("labels the response releasedAs: 'orphan' when the broker still shows the job active but this process is not the one running it", async () => {
+            const { board, broker, cardJobs, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-103', name: 'card.stage', state: 'active', data: {} })) },
+            );
+            await board.create(card('0078', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0078', 'job-103');
+            // No `RunningCards.add` for this card, same as the plain-cancel test above: this process
+            // is not mid-run on it, so the broker's `active` is left over from an earlier process.
+
+            const detail = await service.release('0078');
+
+            expect(detail.releasedAs).toBe('orphan');
+            expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-103');
+        });
     });
 });
