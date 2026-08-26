@@ -39,6 +39,19 @@ export interface AgentRunOutput {
      * (card 0092: out of scope).
      */
     resultDropped?: boolean;
+    /**
+     * The engine's own account of why its last message ended, when it said anything at all — the
+     * SDK `result` message's `subtype` and `stop_reason` (card 0118). Only `cli.stage.agent.ts` can
+     * set this: it is the only adapter that reads `query()`'s raw stream, and it is the SDK's own
+     * words, not this runner's inference — see `describeEngineStop` there for exactly which of a
+     * run's several ways of ending get one and which do not.
+     *
+     * Unset on an ordinary pass, and also unset on a run that ended without a `result` message ever
+     * arriving (the runner's own wall-clock/idle timeout firing first, or the stream simply closing)
+     * — in both of those the SDK told this adapter nothing, and this field says nothing rather than
+     * guess.
+     */
+    engineStopReason?: string;
 }
 
 /**

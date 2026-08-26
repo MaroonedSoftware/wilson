@@ -354,7 +354,16 @@ export class StageDispatcher {
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
-                    ...(outcome.passed ? {} : { patchPath: this.worktrees.failedAttemptPatchPath(cardId) }),
+                    ...(outcome.passed
+                        ? {}
+                        : {
+                              patchPath: this.worktrees.failedAttemptPatchPath(cardId),
+                              // Alongside `failures`/`usage`, not a new event (card 0118): the engine's
+                              // own account of why it ended, when it said anything at all. Absent when
+                              // `outcome.engineStopReason` is — a run whose `result` message never
+                              // arrived, where the SDK told the adapter nothing to carry here.
+                              ...(outcome.engineStopReason ? { engineStopReason: outcome.engineStopReason } : {}),
+                          }),
                 },
             });
 
@@ -739,6 +748,7 @@ export class StageDispatcher {
             usage: run.usage,
             unjudged,
             resultDropped: run.resultDropped,
+            engineStopReason: run.engineStopReason,
         };
     }
 }

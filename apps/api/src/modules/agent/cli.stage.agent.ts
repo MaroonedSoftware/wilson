@@ -368,6 +368,12 @@ export class CliStageAgent extends StageAgent {
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
+                    // No `engineStopReason` here, deliberately: the SDK has said nothing at all yet —
+                    // this fires because *our own* wall-clock or idle timer ran out before a `result`
+                    // message ever arrived, not because the SDK reported an ending. `engineFailure`/
+                    // `budgetFailure` below already say which of our timers it was; there is no SDK
+                    // reason to add alongside them, and inventing one would be worse than the gap
+                    // (card 0118's constraint: a confident wrong reason is worse than none).
                     return {
                         result: reported ?? (summary ? { summary } : undefined),
                         usage,
@@ -378,6 +384,13 @@ export class CliStageAgent extends StageAgent {
                         ...droppedField(),
                     };
                 }
+                // The iterator ending on its own, with no `result` message ever seen and no error
+                // thrown, is the stream closing under the run rather than the model choosing to stop
+                // or the process dying — card 0118's third cause, and the one the SDK gives no signal
+                // for at all: nothing here to read an `engineStopReason` from, which is exactly the
+                // limit `describeEngineStop` below exists to not paper over. The fallthrough return at
+                // the end of this method carries none, same as an ordinary pass — there is nothing
+                // truthful to put there.
                 if (next.done) break;
                 beat();
                 const message = next.value;
@@ -417,6 +430,12 @@ export class CliStageAgent extends StageAgent {
                             usage,
                             truncated: true,
                             budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                            // The one case this card is about: the SDK's own result message names why
+                            // the run ended, and that reason is worth more than the generic "ran out of
+                            // steps" text `stage.dispatcher.ts` falls back to when neither budgetFailure
+                            // nor engineFailure is set — e.g. `error_max_structured_output_retries` is
+                            // not a budget or an engine problem at all, and deserves its own name.
+                            engineStopReason: describeEngineStop(message),
                             ...droppedField(),
                         };
                         return output;
@@ -433,6 +452,13 @@ export class CliStageAgent extends StageAgent {
                         usage,
                         truncated: false,
                         budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                        // Set only when this "clean" ending still produced nothing: `reported` is
+                        // undefined, meaning the model finished its turn — subtype `success` — without
+                        // ever calling report_result. That is card 0118's clearest observed case (card
+                        // 0115): the SDK's own `stop_reason` is the one piece of evidence for *why* it
+                        // stopped there rather than reporting. Left off an ordinary pass so `stage.passed`
+                        // stays exactly as noisy as it was before this card.
+                        ...(reported === undefined ? { engineStopReason: describeEngineStop(message) } : {}),
                         ...droppedField(),
                     };
                 }
@@ -564,6 +590,23 @@ export class CliStageAgent extends StageAgent {
  * legitimate stream message by identity alone.
  */
 const STOPPED = Symbol('stopped');
+
+/**
+ * What the SDK itself says about why a `result` message's turn ended: its `subtype` (`'success'`,
+ * `'error_max_turns'`, `'error_during_execution'`, ...) plus, when the engine set one, the
+ * underlying model's own `stop_reason` (`'end_turn'`, `'max_tokens'`, `'tool_use'`,
+ * `'model_context_window_exceeded'`, ...). This is the one place `query()`'s stream volunteers a
+ * reason for anything (card 0118's constraint: "the SDK already knows... this card records it
+ * rather than inferring it") — every other `engineStopReason` site in this file has no `result`
+ * message to read one from, and says so instead of guessing.
+ *
+ * Distinguishing "the model finished its turn and stopped" from "the stream closed" is exactly
+ * what this cannot do beyond what `subtype`/`stop_reason` already say: a `success` subtype here
+ * means the SDK is certain the turn ended cleanly, not that the model chose to; there is no further
+ * signal in the message for that finer question, so none is invented.
+ */
+const describeEngineStop = (message: { subtype: string; stop_reason: string | null }): string =>
+    message.stop_reason ? `ended as '${message.subtype}' (stop_reason: ${message.stop_reason})` : `ended as '${message.subtype}'`;
 
 /**
  * Parses and validates the contents of the file `report_result` was pointed at, against this
