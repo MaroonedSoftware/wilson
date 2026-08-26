@@ -186,4 +186,37 @@ describe('EventLog.append publishing', () => {
             id: String(row.id),
         });
     });
+
+    /**
+     * The boundary the plan calls out explicitly: "a failed publish must never fail an append."
+     * Dropping `payload` from the envelope fixes the common case, but the envelope can still blow
+     * through Postgres's 8000-byte NOTIFY cap on its own if a caller-controlled field like
+     * `project` is big enough — proving the `try`/`catch` around the `pg_notify` call holds for
+     * more than just the case it was written for. The row must still land and `append` must still
+     * resolve, with the failure surfaced through the logger instead of thrown.
+     */
+    it('still appends the row and resolves, logging instead of throwing, when the notify envelope itself is too large to publish', async () => {
+        const project = `${uniqueProject()}-${'x'.repeat(8100)}`;
+        const cardId = '0005';
+        const errors: unknown[] = [];
+        const spyLogger: Logger = { ...silentLogger, error: err => errors.push(err) };
+        const eventLog = new EventLog(db, spyLogger);
+
+        await expect(
+            eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.dispatched', payload: {} }),
+        ).resolves.toBeUndefined();
+
+        const row = await db
+            .selectFrom('runner.cardEvents')
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .selectAll()
+            .executeTakeFirstOrThrow();
+        expect(row.type).toBe('stage.dispatched');
+        expect(errors).toHaveLength(1);
+
+        // The publish itself is what failed, so nothing should have reached the channel.
+        await new Promise(resolve => setTimeout(resolve, 300));
+        expect(notifications.some(n => n.project === project)).toBe(false);
+    });
 });

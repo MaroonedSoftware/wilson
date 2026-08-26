@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
 import { EventLog } from '#modules/events/event.log.js';
-import { cardFeed } from '#modules/feed/card.feed.js';
+import { CARD_FEED_CHANNEL, cardFeed } from '#modules/feed/card.feed.js';
 import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { DB } from '#modules/data/db.js';
@@ -137,5 +137,46 @@ describe('startCardFeedListener', () => {
 
         const [snapshot] = cardFeed.snapshot({ source: project, correlationId: cardId });
         expect(snapshot).toMatchObject({ source: project, message: 'transition.written', data: { stage: 'testing' } });
+    });
+
+    /**
+     * The other half of the plan's boundary: "a subscriber that cannot read the row does not cause
+     * the append to fail; the failure is logged." This drives a raw `NOTIFY` (bypassing
+     * `EventLog.append`, which always notifies a real row) that names an `id` no row has, the same
+     * shape the listener would see for a row deleted, or otherwise unreadable, between publish and
+     * read. The listener must log the failure and must not publish anything to the feed for it —
+     * and, since this uses the same shared connection every other test in this file relies on, it
+     * must not take that connection down either.
+     */
+    it('logs and drops the notification, without publishing to the feed, when the notified row cannot be found', async () => {
+        const project = uniqueProject();
+        const cardId = '0004';
+        const errors: unknown[] = [];
+        const spyLogger: Logger = {
+            error: err => errors.push(err),
+            warn: () => undefined,
+            info: () => undefined,
+            debug: () => undefined,
+            trace: () => undefined,
+        };
+        const spyController = new AbortController();
+        await startCardFeedListener(pool, spyLogger, spyController.signal);
+
+        try {
+            await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${JSON.stringify({
+                project,
+                cardId,
+                stage: 'implementing',
+                type: 'stage.dispatched',
+                id: '999999999999',
+            })})`.execute(db);
+
+            await waitFor(() => (errors.length > 0 ? true : undefined));
+
+            expect(errors).toHaveLength(1);
+            expect(cardFeed.snapshot({ source: project, correlationId: cardId })).toHaveLength(0);
+        } finally {
+            spyController.abort();
+        }
     });
 });
