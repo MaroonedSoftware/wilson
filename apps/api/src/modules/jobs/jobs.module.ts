@@ -256,7 +256,8 @@ export class AbandonedCardJobsError extends Error {
  * (`POLLER_INTERVAL_MS`, read fresh each cycle so it tracks the poller's own interval changes too),
  * whether the persisted `card-stage-concurrency` differs from what is currently applied. If
  * `RunningCards` is non-empty it defers to the next cycle — untouched, no matter how long that
- * takes. Only once the board is genuinely idle does it mutate `CARD_STAGE_WORKER.concurrency` (the
+ * takes; it re-checks the same way immediately after pausing the poller too, since that pause is
+ * itself an await a stage can start inside. Only once the board is genuinely idle does it mutate `CARD_STAGE_WORKER.concurrency` (the
  * live object `PgBossJobRegistryMap` already holds a reference to — see that constant's own doc)
  * and cycle `inner.stop()`/`inner.start()`, which is safe specifically because nothing is running
  * for pg-boss's 30-second window to matter: `stop()` has nothing to wait out. This is the plain
@@ -347,7 +348,6 @@ export class BoundedCardStageJobRunner extends JobRunner {
             if (desired === this.appliedConcurrency) return;
             if (this.running.snapshot().length > 0) return;
 
-            CARD_STAGE_WORKER.concurrency = desired;
             // Pausing the poller for this window is not for safety — nothing is running, so
             // `inner.stop()` has nothing to wait out either way — it only closes the narrow gap
             // where a tick could call `broker.send` against the connection `inner.stop()` is
@@ -356,6 +356,20 @@ export class BoundedCardStageJobRunner extends JobRunner {
             // different promise chain from `Poller.loop()`, so `poller.stop()` awaits a promise
             // this call is not itself part of.
             await this.poller.stop();
+
+            // Re-check: the await above is a gap the first check (line above) cannot see across —
+            // a tick already in flight when that check ran, or a stage re-enqueuing its own next
+            // stage, can still land a card.stage job on a worker that is still up and have it start
+            // (RunningCards.add) before this line runs. Restarting into that would silently catch
+            // it, exactly the "disturb a running stage" failure this class exists to avoid. Defer
+            // instead — same as the first check — and let the next cycle try again once idle.
+            if (this.running.snapshot().length > 0) {
+                await this.pollerSettings.applyCurrentValue();
+                this.logger.info(`card.stage concurrency: deferred ${desired} (a stage started while pausing the poller)`);
+                return;
+            }
+
+            CARD_STAGE_WORKER.concurrency = desired;
             await this.inner.stop();
             await this.inner.start();
             // `inner.start()` only re-registers pg-boss's workers; the poller's own on/off state is

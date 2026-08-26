@@ -98,6 +98,11 @@ function PollerIntervalControl() {
             queryClient.setQueryData(POLLER_INTERVAL_QUERY_KEY, result);
             setDraft(result.intervalMs);
         },
+        // A refusal must not leave the rejected draft on screen — revert to the setting's own
+        // current value, the same "only ever show what round-tripped" rule the query cache follows.
+        onError: () => {
+            if (setting.data) setDraft(setting.data.intervalMs);
+        },
     });
 
     if (setting.error) {
@@ -159,6 +164,11 @@ function CardStageConcurrencyControl() {
         onSuccess: result => {
             queryClient.setQueryData(CARD_STAGE_CONCURRENCY_QUERY_KEY, result);
             setDraft(result.concurrency);
+        },
+        // A refusal must not leave the rejected draft on screen — revert to the setting's own
+        // current value, the same "only ever show what round-tripped" rule the query cache follows.
+        onError: () => {
+            if (setting.data) setDraft(setting.data.concurrency);
         },
     });
 

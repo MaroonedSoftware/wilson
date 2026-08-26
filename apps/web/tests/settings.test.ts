@@ -213,7 +213,7 @@ describe('the poll interval control', () => {
         await waitFor(() => expect(input.value).toBe('60000'));
     });
 
-    it('leaves the previous value visible and shows the server\'s own sentence when a write is refused', async () => {
+    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
@@ -234,7 +234,7 @@ describe('the poll interval control', () => {
         });
 
         expect(await screen.findByText('poller interval must be between 5000 and 300000 ms')).toBeTruthy();
-        expect(input.value).toBe('1000'); // the draft the operator typed is still visible, unsaved
+        expect(input.value).toBe('30000'); // the rejected draft is gone; the last-known-good value is back
     });
 });
 
@@ -250,7 +250,7 @@ describe('the card stage concurrency control', () => {
         await waitFor(() => expect(input.value).toBe('5'));
     });
 
-    it('leaves the previous value visible and shows the server\'s own sentence when a write is refused', async () => {
+    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
@@ -271,7 +271,7 @@ describe('the card stage concurrency control', () => {
         });
 
         expect(await screen.findByText('card stage concurrency must be between 1 and 8')).toBeTruthy();
-        expect(input.value).toBe('20'); // the draft the operator typed is still visible, unsaved
+        expect(input.value).toBe('3'); // the rejected draft is gone; the last-known-good value is back
     });
 });
 
