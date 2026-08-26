@@ -1,11 +1,30 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { DateTime } from 'luxon';
+import type { CardEvent } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
 import { filesInScope, timeInCurrentStage } from '../../board-view.js';
 
 interface ShowOpts {
     json?: boolean;
 }
+
+/**
+ * Card 0100: every other event type reads fine as bare `type (stage)` — a reader already knows what
+ * `transition.written` or `stage.passed` means. `daemon.stale` does not: the entire point of
+ * recording it was "how far behind, and which two commits", and printing only the type name would
+ * make it indistinguishable from a passing check that never ran — exactly the "a log line nobody
+ * reads" failure the card exists to fix. So this one type gets its payload rendered; nothing else
+ * does, on purpose.
+ */
+const describeEvent = (event: CardEvent): string => {
+    const base = `${event.createdAt}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`;
+    if (event.type !== 'daemon.stale') return base;
+
+    const payload = event.payload as unknown as { daemonCommit?: string; baseCommit?: string; behindBy?: number } | null;
+    if (!payload || typeof payload.behindBy !== 'number') return base;
+
+    return `${base}  — daemon ${payload.behindBy} commit(s) behind (running ${payload.daemonCommit}, base ${payload.baseCommit})`;
+};
 
 /**
  * `retries` and `planVersionId` are frontmatter fields the board API's wire contract does not
@@ -60,7 +79,7 @@ const command: CommandModule<ShowOpts> = {
         if (events.length > 0) {
             ctx.logger.info('\nrecent events:');
             for (const event of events) {
-                ctx.logger.info(`  ${event.createdAt}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`);
+                ctx.logger.info(`  ${describeEvent(event)}`);
             }
         }
         return 0;
