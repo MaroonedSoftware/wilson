@@ -42,6 +42,19 @@ describe('HealthService', () => {
         expect(second.toMillis()).toBe(first.toMillis());
     });
 
+    it('reports the deployment roots from BoardConfig, not just the process facts', () => {
+        // Card 0114: the settings page renders these as read-only deployment facts, sourced
+        // straight from `/api/health`. Distinct values per root, rather than three copies of the
+        // same string, catches a service that accidentally wires two of them to the same field.
+        const config = new StaticBoardConfig('wilson', '/deploy/board', '/deploy/code', '/deploy/worktrees', '/run');
+
+        const result = new HealthService(config).get();
+
+        expect(result.boardRoot).toBe('/deploy/board');
+        expect(result.codeRoot).toBe('/deploy/code');
+        expect(result.worktreeRoot).toBe('/deploy/worktrees');
+    });
+
     it('serializes startedAt to an ISO string over the wire, the shape daemonCurrent parses back', () => {
         // `health.router.ts` hands this result straight to koa as `ctx.body`, which JSON-serializes
         // it for the actual HTTP response — the router never runs it back through the generated zod
