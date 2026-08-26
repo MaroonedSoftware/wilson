@@ -32,6 +32,15 @@ export type CardEventType =
     // and `detail` (the git error `rebaseOntoHead` aborted on), which is everything the reason on
     // the card itself is built from.
     | 'rebase.conflict'
+    // A stage's prompt exceeded the model's context window (card 0072). Appended once, by
+    // `CardStageJob`'s context-overflow flag, alongside the `needsHuman` flag it writes to the board
+    // — never retried and never poisoned, the same "one attempt, then flag" shape `rebase.conflict`
+    // gives a branch that cannot be rebased. Distinct from `stage.poisoned`: an overflow is a fact
+    // about how big this stage's turn got, not about the deployment, and it is recoverable by doing
+    // the stage differently — a fresh session on the same branch, or a smaller card — which is why
+    // this is its own type rather than being folded into a poisoning. Payload carries `reason`, the
+    // same text written to `needsHumanReason`.
+    | 'context.overflow'
     // "Not now", not "never": nothing on the card changed, and the same dispatch succeeds unchanged
     // once whatever it is waiting on clears. Several causes write this, told apart by the payload's
     // `reason` text and whether `outstanding` is present — not by a count, which goes stale the next

@@ -166,6 +166,61 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
+     * Flag a card for a human after its stage's prompt overflowed the model's context window (card
+     * 0072) — not poisoned, because unlike an exhausted balance or a missing credential this is a
+     * fact about how big this stage's turn got, not about the deployment, and it is recoverable by
+     * doing the stage differently: a fresh session on the same branch, or a smaller card. Shaped
+     * exactly like `flagRebaseConflict` for the same reason — `frontmatter.stage` is left exactly
+     * where it was, `retries` is untouched, and `writeWithEvent` commits the flag and the transition
+     * record together rather than as two writes a redelivered job could observe half-done.
+     */
+    private async flagContextOverflow(cardId: string, stageName: string, reason: string): Promise<void> {
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'context.overflow',
+            payload: { reason },
+        });
+
+        // Captured from the fresh row `writeWithEvent` reads inside its own transaction, the same
+        // redelivery guard `flagRebaseConflict`/`poisonCard` use: a job that lands here again after
+        // an earlier attempt already flagged this card has nothing new to report.
+        let title = cardId;
+        let alreadyFlagged = false;
+        await this.boardRepo.writeWithEvent(
+            cardId,
+            `Flag ${cardId}: context overflow`,
+            card => {
+                title = card.frontmatter.title;
+                alreadyFlagged = Boolean(card.frontmatter.needsHuman);
+                return {
+                    ...card,
+                    frontmatter: { ...card.frontmatter, needsHuman: true, needsHumanReason: reason },
+                };
+            },
+            {
+                project: this.board.project,
+                cardId,
+                stage: stageName,
+                type: 'transition.written',
+                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true },
+            },
+        );
+
+        if (this.board.notifyWebhookUrl && !alreadyFlagged) {
+            await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
+                project: this.board.project,
+                cardId,
+                title,
+                stage: stageName,
+                moment: 'needs-human',
+                reason,
+            });
+        }
+    }
+
+    /**
      * This job's dependencies as a plain object, for the collaborators that take them as an argument
      * rather than being injected with them — the pre-dispatch checks, and the three shared writes
      * `settle` routes to. Built per call rather than stored: a field holding a second reference to
@@ -204,6 +259,9 @@ export class CardStageJob extends Job<CardStagePayload> {
 
             case 'flag-rebase':
                 return flagRebaseConflict(this.deps(), { project: this.board.project, cardId, stageName, error: outcome.error });
+
+            case 'flag-context-overflow':
+                return this.flagContextOverflow(cardId, stageName, outcome.reason);
 
             case 'poison': {
                 const reason = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
