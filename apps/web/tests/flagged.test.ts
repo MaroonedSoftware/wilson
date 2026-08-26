@@ -16,11 +16,11 @@ import type { BoardColumns, CardSummary, Health } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
-const card = (id: string, stage: string, needsHuman = false): CardSummary => ({
+const card = (id: string, stage: string, needsHuman = false, dependsOn: string[] = []): CardSummary => ({
     id,
     title: `card ${id}`,
     stage,
-    dependsOn: [],
+    dependsOn,
     needsHuman,
 });
 
@@ -222,5 +222,34 @@ describe('the /flagged route', () => {
 
         await screen.findByText('card 0002');
         expect(screen.queryByText('card 0001')).toBeNull();
+    });
+
+    it('does not falsely mark a flagged card "blocked on" a dependency that merged but is not itself flagged', async () => {
+        // `/flagged` passes only the flagged subset to `Board` as `cards`, but a dependency that
+        // finished (`merged`) and was never flagged is absent from that subset. Board's dependency
+        // lookup (`stageById`, built by `lib/board.ts`'s `stagesById`) has to be built from the full
+        // card list — passed separately as `allCards` — or a merged-but-unflagged dependency reads
+        // as missing from the board, and `unfinishedDeps` treats "missing" the same as "unfinished".
+        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([
+            card('0001', 'merged', false),
+            card('0002', 'review', true, ['0001']),
+        ]);
+
+        renderApp('/flagged');
+
+        await screen.findByText('card 0002');
+        expect(screen.queryByText(/blocked on/)).toBeNull();
+    });
+
+    it('still flags a dependency that is genuinely unfinished, on the flagged card it belongs to', async () => {
+        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([
+            card('0001', 'implementing', false),
+            card('0002', 'review', true, ['0001']),
+        ]);
+
+        renderApp('/flagged');
+
+        await screen.findByText('card 0002');
+        expect(await screen.findByText('blocked on 0001')).toBeTruthy();
     });
 });
