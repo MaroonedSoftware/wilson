@@ -360,7 +360,7 @@ export class StageDispatcher {
     ): Promise<{ target: string; needsHuman: boolean }> {
         const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: card.frontmatter.retries }
-            : kickback(stage, card.frontmatter.retries, Boolean(outcome.unjudged));
+            : kickback(stage, card.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
         const findings = findingsFrom(outcome.result);
         const needsHuman = decision.needsHuman;
 
@@ -604,9 +604,15 @@ export class StageDispatcher {
             reported !== undefined && typeof resultSchema.safeParse === 'function' && !resultSchema.safeParse(reported).success;
 
         // A stage that never called the report tool never said it was finished. Whatever is in the
-        // tree is where it happened to stop, not what it set out to produce.
+        // tree is where it happened to stop, not what it set out to produce. A stage that *did* call
+        // it is a different sentence: the work is done and the runner lost the paperwork, not the
+        // agent's fault, which is exactly what `run.resultDropped` distinguishes (`stage.agent.ts`).
         if (reported === undefined) {
-            failures.unshift(`the stage ended without calling ${REPORT_TOOL}, so it never reported finishing`);
+            failures.unshift(
+                run.resultDropped
+                    ? `the stage called ${REPORT_TOOL} and the result did not arrive, so the runner never saw it`
+                    : `the stage ended without calling ${REPORT_TOOL}, so it never reported finishing`,
+            );
         }
 
         // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
@@ -650,6 +656,7 @@ export class StageDispatcher {
             result: reported,
             usage: run.usage,
             unjudged,
+            resultDropped: run.resultDropped,
         };
     }
 }

@@ -74,6 +74,10 @@ export class CliStageAgent extends StageAgent {
         // on a missing `verdict` and was kicked back to implementing for a defect no amount of
         // re-implementing could fix.
         let reported: unknown;
+        // A `report_result` tool_use block appearing in the stream is the model having called the
+        // tool, independent of whether the callback above ever ran to set `reported` — see
+        // `droppedField` below, near the returns, for why that gap matters and what it is charged as.
+        let reportToolSeen = false;
         // The api adapter's buildTools only exposes request_scope when worktreeMode === 'rw' — a
         // readonly or none stage can never write, so granting it the tool would let it log
         // scope.requested/granted events (or trip ScopeKickbackError under the kickback policy) for a
@@ -252,6 +256,15 @@ export class CliStageAgent extends StageAgent {
         let summary = '';
         let usage: AgentRunOutput['usage'];
 
+        // `reported` still undefined at the point a result is built, despite the report tool having
+        // been seen on the stream: the call was made but never reached the callback above (or
+        // reached it after this return already had to be built). That is the transport losing the
+        // result, not the stage failing to finish — `stage.dispatcher.ts` phrases the two failures
+        // differently and `kickback.ts` charges them differently, so the distinction has to survive
+        // past this function rather than collapse back into a plain missing result.
+        const droppedField = (): { resultDropped?: boolean } =>
+            reported === undefined && reportToolSeen ? { resultDropped: true } : {};
+
         try {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
@@ -266,6 +279,7 @@ export class CliStageAgent extends StageAgent {
                         ...(stoppedBecause === 'silent'
                             ? { engineFailure: engineSilent(stage.maxIdleMs) }
                             : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
+                        ...droppedField(),
                     };
                 }
                 if (next.done) break;
@@ -275,6 +289,14 @@ export class CliStageAgent extends StageAgent {
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                     if (text.trim()) summary = text.trim();
+
+                    // Sticky once seen: a later message in the same run carrying only a text block
+                    // must not erase that the report tool was already called earlier in this run.
+                    if (!reportToolSeen) {
+                        reportToolSeen = message.message.content.some(
+                            part => part.type === 'tool_use' && part.name === qualifiedReportTool(),
+                        );
+                    }
 
                     turns += 1;
                     // The credit a denial buys is capped at the budget itself. Uncapped, a run that
@@ -299,6 +321,7 @@ export class CliStageAgent extends StageAgent {
                             usage,
                             truncated: true,
                             budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                            ...droppedField(),
                         };
                         return output;
                     }
@@ -309,7 +332,13 @@ export class CliStageAgent extends StageAgent {
                     // reading the result it already has waits forever. Reported at
                     // BloopAI/vibe-kanban#2495, where sessions sat in `running` indefinitely and idle
                     // engine processes accumulated at 200MB each.
-                    return { result: reported, usage, truncated: false, budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens) };
+                    return {
+                        result: reported,
+                        usage,
+                        truncated: false,
+                        budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                        ...droppedField(),
+                    };
                 }
             }
         } catch (err) {
@@ -325,6 +354,7 @@ export class CliStageAgent extends StageAgent {
                     usage,
                     truncated: true,
                     budgetFailure: stepsExceeded(stage.maxSteps, denied),
+                    ...droppedField(),
                 };
             }
             if (stoppedBecause === 'wall-clock') {
@@ -334,6 +364,7 @@ export class CliStageAgent extends StageAgent {
                     usage,
                     truncated: true,
                     budgetFailure: wallClockExceeded(stage.maxWallClockMs),
+                    ...droppedField(),
                 };
             }
             if (stoppedBecause === 'silent') {
@@ -342,6 +373,7 @@ export class CliStageAgent extends StageAgent {
                     usage,
                     truncated: true,
                     engineFailure: engineSilent(stage.maxIdleMs),
+                    ...droppedField(),
                 };
             }
 
@@ -386,6 +418,7 @@ export class CliStageAgent extends StageAgent {
                 usage,
                 truncated: true,
                 engineFailure: `the engine aborted or exited on its own — none of the runner's wall-clock, idle or step controls fired — ${detail}`,
+                ...droppedField(),
             };
         } finally {
             clearTimeout(wallClock);
@@ -400,7 +433,13 @@ export class CliStageAgent extends StageAgent {
         // A stage that never called the report tool did not say it had finished, and the dispatcher
         // treats an absent result as exactly that. The prose summary is a fallback for the truncated
         // case only, never a substitute for a structured report.
-        const output = { result: reported, usage, truncated: false, budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens) };
+        const output = {
+            result: reported,
+            usage,
+            truncated: false,
+            budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+            ...droppedField(),
+        };
         return output;
     }
 }

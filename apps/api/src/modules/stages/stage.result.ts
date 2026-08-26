@@ -88,4 +88,14 @@ export interface StageOutcome {
      * own outcome, rather than in `kickback` itself.
      */
     unjudged?: boolean;
+    /**
+     * Set on a failing, `unjudged` outcome when the stage did call its report tool but the result
+     * never reached the runner — a transport loss, not a stage that stopped early. `unjudged` still
+     * routes the retry back to this stage the same way either way (see its own doc comment), but
+     * `kickback` charges the two differently: this one gets a small free allowance before it starts
+     * spending `retries[stage.name]` like a genuine failure (`kickback.ts`, `RESULT_DROPPED_ALLOWANCE`).
+     * Carried straight from `AgentRunOutput.resultDropped` (`stage.agent.ts`); only the `cli` adapter
+     * can ever set it.
+     */
+    resultDropped?: boolean;
 }

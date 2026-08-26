@@ -30,6 +30,15 @@ export interface AgentRunOutput {
      * that was never the problem, and so the caller does not also blame the step budget.
      */
     engineFailure?: string;
+    /**
+     * Set when `result` above is undefined but a `report_result` tool call was seen on the stream
+     * anyway: the stage did the whole job and the transport lost the result on the way back, rather
+     * than the stage never finishing at all. Distinct from `result` being undefined with this unset,
+     * which means the report tool was never called. Only `cli.stage.agent.ts` can tell the two apart,
+     * since only it watches the raw stream for the tool call — the `api` adapter has no equivalent
+     * (card 0092: out of scope).
+     */
+    resultDropped?: boolean;
 }
 
 /**
