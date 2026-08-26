@@ -1,8 +1,11 @@
+import { readFile, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { REPORT_RESULT_PATH } from './scope.guard.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { deleteFile } from './tools/delete.tool.js';
@@ -105,10 +108,12 @@ export class CliStageAgent extends StageAgent {
 
     async run({ stage, context, planPath, title, resultSchema }: AgentRunInput): Promise<AgentRunOutput> {
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
-        // in-process MCP server carrying this stage's own result schema. Without it a stage can only
-        // hand back prose, which the review verifier rightly refuses — card 0014 failed its review
-        // on a missing `verdict` and was kicked back to implementing for a defect no amount of
-        // re-implementing could fix.
+        // in-process MCP server. It takes only a path, not this stage's own result schema — see the
+        // tool's own definition below for why crossing that transport as tool arguments is exactly
+        // what this adapter cannot afford — and validates what it reads against `resultSchema`
+        // itself. Without it a stage can only hand back prose, which the review verifier rightly
+        // refuses — card 0014 failed its review on a missing `verdict` and was kicked back to
+        // implementing for a defect no amount of re-implementing could fix.
         let reported: unknown;
         // A `report_result` tool_use block appearing in the stream is the model having called the
         // tool, independent of whether the callback above ever ran to set `reported` — see
@@ -131,10 +136,36 @@ export class CliStageAgent extends StageAgent {
             tools: [
                 tool(
                     REPORT_TOOL,
-                    'Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes.',
-                    (resultSchema as z.ZodObject<z.ZodRawShape>).shape,
-                    async input => {
-                        reported = input;
+                    `Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes. Write the finished result to ${REPORT_RESULT_PATH} — that file, and only that file, is how the result is delivered — then call this with its path, or with no path since that is the default.`,
+                    z.object({
+                        path: z.string().optional().describe(`Worktree-relative path of the finished result file. Defaults to ${REPORT_RESULT_PATH}.`),
+                    }).shape,
+                    async ({ path }: { path?: string }) => {
+                        const target = path ?? REPORT_RESULT_PATH;
+                        const decision = await context.scope.checkRead(target);
+                        if (!decision.allowed) {
+                            const message = `error: ${decision.reason}`;
+                            this.logger.warn(`report_result: ${message}`);
+                            return { content: [{ type: 'text' as const, text: message }] };
+                        }
+
+                        let text: string;
+                        try {
+                            text = await readFile(join(context.worktreeRoot, decision.path), 'utf8');
+                        } catch (err) {
+                            const message = `error: could not read ${decision.path}: ${(err as Error).message}`;
+                            this.logger.warn(`report_result: ${message}`);
+                            return { content: [{ type: 'text' as const, text: message }] };
+                        }
+
+                        const outcome = parseReportedResult(text, resultSchema as z.ZodTypeAny);
+                        if (!outcome.ok) {
+                            const message = `error: ${decision.path} ${outcome.reason}`;
+                            this.logger.warn(`report_result: ${message}`);
+                            return { content: [{ type: 'text' as const, text: message }] };
+                        }
+
+                        reported = outcome.value;
                         return { content: [{ type: 'text' as const, text: 'reported' }] };
                     },
                 ),
@@ -275,7 +306,12 @@ export class CliStageAgent extends StageAgent {
                               : []),
                       ]
                     : []),
-                `When the work is done and the build passes, call ${qualifiedReportTool()} with your result.`,
+                `Write your finished result as JSON to ${REPORT_RESULT_PATH} in the worktree — that file, and`,
+                `only that file, is how the result is delivered. It must satisfy this schema:`,
+                JSON.stringify(z.toJSONSchema(resultSchema as z.ZodTypeAny)),
+                '',
+                `When the work is done and the build passes, call ${qualifiedReportTool()}; it defaults to`,
+                'that path, so no argument is needed unless you wrote the result somewhere else.',
                 'Work first, report last: that call ends the stage, and a result describing work you did',
                 'not do fails it, because the runner checks the diff and not your summary.',
             ].join('\n'),
@@ -488,6 +524,12 @@ export class CliStageAgent extends StageAgent {
             // a `for await` happens to trigger — that assumption is what leaves orphaned processes
             // behind. Inert when the run already ended on its own.
             abortController.abort();
+            // The fixed name only — not whatever `path` a call actually read from, which may be a
+            // file legitimately in scope and none of this adapter's business to delete. Unconditional
+            // and swallowed: absent is the common case (the file was never written, or report_result
+            // already read it), and this must run whether the stage passed, failed, was truncated, or
+            // aborted, so this file never reaches a diff.
+            await unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher
@@ -522,6 +564,26 @@ export class CliStageAgent extends StageAgent {
  * legitimate stream message by identity alone.
  */
 const STOPPED = Symbol('stopped');
+
+/**
+ * Parses and validates the contents of the file `report_result` was pointed at, against this
+ * stage's own result schema. The tool call itself carries only a path now (see the class doc
+ * comment for why), so this is the one place left that checks the result actually has the shape the
+ * stage promised — nothing upstream of it can any more.
+ */
+const parseReportedResult = (text: string, resultSchema: z.ZodTypeAny): { ok: true; value: unknown } | { ok: false; reason: string } => {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (err) {
+        return { ok: false, reason: `is not valid JSON: ${(err as Error).message}` };
+    }
+    const validated = resultSchema.safeParse(parsed);
+    if (!validated.success) {
+        return { ok: false, reason: `does not match this stage's result schema: ${validated.error.message}` };
+    }
+    return { ok: true, value: validated.data };
+};
 
 /** `2` -> `'2nd'`, `11` -> `'11th'`, `23` -> `'23rd'`. Used only to phrase the repeat count below. */
 const ordinal = (n: number): string => {
@@ -592,11 +654,16 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         };
 
         if (WRITE_TOOLS.includes(toolName)) {
-            if (writable !== 'rw') {
-                return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
-            }
             const path = String(input.file_path ?? input.path ?? '');
             const decision = await context.scope.check(path);
+            // REPORT_RESULT_PATH is let through regardless of `writable`, mirroring the unconditional
+            // allow already built into ScopeGuard.check/checkRead/grant for that same path (see
+            // scope.guard.ts). report_result's contract requires the stage to have written this file
+            // before calling the tool, and a readonly or none stage — review chief among them, the
+            // stage this card names as least able to afford a lost result — still has to deliver one.
+            if (writable !== 'rw' && decision.path !== REPORT_RESULT_PATH) {
+                return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
+            }
             if (!decision.allowed) return deny(decision.reason, { path });
             // The counterpart to the denial above: file.tools.ts/bash.tool.ts append tool.executed
             // for the api adapter, but Write/Edit here go through the engine's own built-in tools
@@ -639,8 +706,9 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         }
 
         // This adapter's own report tool, supplied as an in-process MCP server. Allowed
-        // unconditionally: it writes nothing and takes no path, and the schema it must satisfy is
-        // enforced by the stage's verifier rather than here.
+        // unconditionally: the path it takes is only ever read, never written, through this
+        // callback, and containment/denial for that read is `checkRead`'s job inside the tool's own
+        // handler above, not this guard's.
         if (toolName === qualifiedReportTool()) {
             return { behavior: 'allow' };
         }

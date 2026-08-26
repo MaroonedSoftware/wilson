@@ -47,6 +47,20 @@ const ALWAYS_DENIED = ['.runner/**', '.board/**', '**/stages.yaml', '**/stages.y
 const DENY_LIST_REASON = 'path is denied: the runner owns it, not the plan — request_scope cannot widen it, so work through a different path';
 
 /**
+ * Worktree-relative path `report_result` writes a stage's finished result to (see
+ * `cli.stage.agent.ts`) — the allow-side mirror of {@link ALWAYS_DENIED} above: a fixed, code-owned
+ * name, not a project's `alwaysAllowed` entry in `stages.yaml`, because this is the runner's own
+ * channel, not something a plan asked for or a project should have to declare. `check` allows a
+ * write to exactly this path unconditionally; `grant` refuses to let `request_scope` claim it, since
+ * a round trip through that tool can only ever land on the same unconditional allow.
+ */
+export const REPORT_RESULT_PATH = '.wilson-report.json';
+
+/** Refusal for a `request_scope` call naming {@link REPORT_RESULT_PATH}. */
+const REPORT_RESULT_GRANT_REASON =
+    'path is the runner’s own report channel, not the plan’s to request — it is already writable without a grant';
+
+/**
  * Decides whether an agent may write a path.
  *
  * This is the single enforcement point for scope. It is not a lint that runs after the fact: a write
@@ -84,6 +98,9 @@ export class ScopeGuard {
     async grant(candidate: string): Promise<ScopeDecision> {
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
+        if (contained.path === REPORT_RESULT_PATH) {
+            return { allowed: false, path: contained.path, reason: REPORT_RESULT_GRANT_REASON };
+        }
         if (this.matchDeny(contained.path)) {
             return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
         }
@@ -117,6 +134,14 @@ export class ScopeGuard {
 
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
+        // The runner's own channel, readable unconditionally — mirrors the same bypass in `check`
+        // below. Without it, a project deny glob matching REPORT_RESULT_PATH (e.g. a project that
+        // denies dotfiles) would refuse the read `report_result`'s own handler performs, even though
+        // `check` unconditionally allows writing that same path — breaking result reporting for that
+        // project with no path around it, since `grant` also refuses to widen the name.
+        if (contained.path === REPORT_RESULT_PATH) {
+            return { allowed: true, path: contained.path };
+        }
         if (this.matchDeny(contained.path)) {
             return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
         }
@@ -127,6 +152,13 @@ export class ScopeGuard {
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;
         const key = contained.path;
+
+        // The runner's own channel, allowed unconditionally — see REPORT_RESULT_PATH's own comment.
+        // Checked ahead of the deny list on purpose: it is not on ALWAYS_DENIED and never should be,
+        // but this keeps the two lists' precedence obviously non-overlapping rather than incidental.
+        if (key === REPORT_RESULT_PATH) {
+            return { allowed: true, path: key, via: 'scope' };
+        }
 
         if (this.matchDeny(key)) {
             return { allowed: false, path: key, reason: DENY_LIST_REASON };
