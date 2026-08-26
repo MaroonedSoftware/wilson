@@ -435,6 +435,22 @@ export class BoardWriteService {
      * the same sequential assignment {@link create} uses, applied in a loop because this creates more
      * than one. Dependencies are recorded in a second pass, once every piece has an id, so a piece
      * naming a dependency that sorts after it in `request.pieces` is not left unresolved.
+     *
+     * **Why this does not call {@link create} and {@link depend}, which card 0113's plan asked for.**
+     * Both would work and both would lose the version message. `create` writes its own, and neither
+     * takes one, so every piece's history would read as an ordinary card creation with nothing tying
+     * it to the card it came out of — where this writes `Split 0111 into 0114: <piece title>`, and
+     * the dependency pass writes which piece it was recorded for. On a card whose whole purpose is
+     * provenance, that link is the part worth keeping, and the duplication is four lines.
+     *
+     * The maintenance risk is real and stated rather than hidden: behaviour added to `create` or
+     * `depend` does not reach here. If a third caller ever needs the same thing, give those two an
+     * optional message and collapse this into them — that is the fix, not copying more of them.
+     *
+     * Validation runs before anything is written, unlike the piecemeal failures reusing `depend`
+     * would give: at least two pieces, unique titles, no piece depending on itself, and every
+     * `dependsOn` naming a piece in this same request. A split that cannot be completed writes no
+     * cards at all.
      */
     async split(id: string, request: SplitCardsRequest): Promise<SplitResult> {
         const origin = await this.readOrThrow(id);
