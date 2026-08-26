@@ -79,10 +79,23 @@ export interface CardDeps {
     dependsOnId: string;
 }
 
+/**
+ * Operational settings that can change without a restart — the poller's on/off switch first. One
+ * row per (project, key); `SettingsStore` (modules/settings) resolves database row -> environment
+ * variable -> coded default. `value` is JSONB so a new setting is a new row, never a new column.
+ */
+export interface Settings {
+    project: string;
+    key: string;
+    value: unknown;
+    updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string | undefined>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
     'runner.cardDeps': CardDeps;
     'runner.cardJobs': CardJobs;
     'runner.cardEvents': CardEvents;
+    'runner.settings': Settings;
 }

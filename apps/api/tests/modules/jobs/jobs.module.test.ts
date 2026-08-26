@@ -4,8 +4,12 @@ import { JobRunner } from '@maroonedsoftware/jobbroker';
 import { PgBossJobRegistryMap } from '@maroonedsoftware/jobbroker/pgboss';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import type { Container, Identifier, Registry } from 'injectkit';
-import { CARD_STAGE_DEAD_POLICY, CARD_STAGE_POLICY, CARD_STAGE_WORKER, JobsModule } from '#modules/jobs/jobs.module.js';
+import { BoundedCardStageJobRunner, CARD_STAGE_DEAD_POLICY, CARD_STAGE_POLICY, CARD_STAGE_WORKER, JobsModule } from '#modules/jobs/jobs.module.js';
 import { CARD_STAGE_CONCURRENCY } from '#modules/jobs/job.runner.config.js';
+import type { RunningCards } from '#modules/jobs/running.cards.js';
+import type { CardJobs } from '#modules/jobs/card.jobs.js';
+import type { Poller } from '#modules/jobs/poller.js';
+import type { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 
 /**
  * Card 0044: `retryLimit` moved from 2 to 3. pg-boss's own expiry sweep and its shutdown-while-active
@@ -171,5 +175,108 @@ describe('JobsModule.start', () => {
         await JobsModule.start!(fakeContainer(logger, jobRunner), new AbortController().signal);
 
         expect(start).toHaveBeenCalledTimes(1);
+    });
+});
+
+/**
+ * Card 0106: `Poller` moved from "constructed only when `POLLER_ENABLED` is on" to registered and
+ * constructed unconditionally, with `PollerSettingService` deciding whether it actually runs. These
+ * tests are why `BoundedCardStageJobRunner` is exported now — the same reason `stopCardStageJobs`
+ * and `AbandonedCardJobsError` already were.
+ */
+describe('BoundedCardStageJobRunner', () => {
+    const fakeRunning = (): RunningCards => ({ snapshot: vi.fn(() => []) }) as unknown as RunningCards;
+    const fakeCardJobs = (): CardJobs => ({ confirmInFlightAfterStop: vi.fn() }) as unknown as CardJobs;
+
+    it("start() applies the poller setting's current value before starting the inner runner, not after", async () => {
+        const order: string[] = [];
+        const inner = {
+            start: vi.fn(async () => {
+                order.push('inner-started');
+            }),
+            stop: vi.fn(async () => {}),
+        };
+        const poller = { start: vi.fn(), stop: vi.fn(async () => {}) };
+        const pollerSettings = {
+            applyCurrentValue: vi.fn(async () => {
+                order.push('applied');
+                return { enabled: true };
+            }),
+        };
+
+        const runner = new BoundedCardStageJobRunner(
+            inner as unknown as JobRunner,
+            fakeRunning(),
+            fakeCardJobs(),
+            poller as unknown as Poller,
+            pollerSettings as unknown as PollerSettingService,
+        );
+
+        await runner.start();
+
+        expect(order).toEqual(['applied', 'inner-started']);
+        expect(pollerSettings.applyCurrentValue).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * The property `jobs.module.ts`'s shutdown ordering depends on (see the comment on `stop()`):
+     * the poller stops before `stopCardStageJobs` asks what shutdown left abandoned, so a poller
+     * still ticking cannot enqueue a card behind that report's back.
+     */
+    it('stop() stops the poller before stopping the inner runner and reporting what shutdown left abandoned', async () => {
+        const order: string[] = [];
+        const inner = {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {
+                order.push('inner-stopped');
+            }),
+        };
+        const poller = {
+            start: vi.fn(),
+            stop: vi.fn(async () => {
+                order.push('poller-stopped');
+            }),
+        };
+        const pollerSettings = { applyCurrentValue: vi.fn(async () => ({ enabled: false })) };
+        const running = fakeRunning();
+        const cardJobs = fakeCardJobs();
+
+        const runner = new BoundedCardStageJobRunner(
+            inner as unknown as JobRunner,
+            running,
+            cardJobs,
+            poller as unknown as Poller,
+            pollerSettings as unknown as PollerSettingService,
+        );
+
+        await runner.stop();
+
+        expect(order).toEqual(['poller-stopped', 'inner-stopped']);
+    });
+
+    /**
+     * Card 0106's plan, verbatim: "Poller.stop() stops enqueueing; jobs already running are the
+     * queue's business and continue." `stop()` here calls the poller's `stop()` directly and
+     * unconditionally — it never asks `pollerSettings` first, and never touches `running`/`cardJobs`
+     * except through `stopCardStageJobs`, which is a question about the inner runner's own jobs, not
+     * about the poller.
+     */
+    it('stop() does not consult the poller setting at all — stopping is unconditional', async () => {
+        const inner = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+        const poller = { start: vi.fn(), stop: vi.fn(async () => {}) };
+        const pollerSettings = { applyCurrentValue: vi.fn(async () => ({ enabled: true })) };
+
+        const runner = new BoundedCardStageJobRunner(
+            inner as unknown as JobRunner,
+            fakeRunning(),
+            fakeCardJobs(),
+            poller as unknown as Poller,
+            pollerSettings as unknown as PollerSettingService,
+        );
+
+        await runner.stop();
+
+        expect(poller.stop).toHaveBeenCalledTimes(1);
+        expect(pollerSettings.applyCurrentValue).not.toHaveBeenCalled();
     });
 });

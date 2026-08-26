@@ -3,6 +3,7 @@ import { cardFeed } from '#modules/feed/card.feed.js';
 import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
 import { BoardRouter } from './board.router.js';
 import { HealthRouter } from './health.router.js';
+import { SettingsRouter } from './settings.router.js';
 
 /**
  * The live card feed: current stage and latest event per card, over SSE at `/api/feed`.
@@ -36,4 +37,4 @@ FeedRouter.get('/api/feed', async ctx => {
  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
  * unknown>`, so callers cast at the point they hand this to `setupRoutes` instead.
  */
-export const routers = [HealthRouter, BoardRouter, FeedRouter];
+export const routers = [HealthRouter, BoardRouter, SettingsRouter, FeedRouter];

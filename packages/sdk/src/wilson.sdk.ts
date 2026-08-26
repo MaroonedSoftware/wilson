@@ -1,14 +1,17 @@
 import type { SdkOptions } from './sdk-options.js';
 import { createSdkFetch } from './sdk-options.js';
+import { SettingsClient } from './settings.client.js';
 import { HealthClient } from './health.client.js';
 import { BoardClient } from './board.client.js';
 
 export class WilsonSdk {
+    readonly settings: SettingsClient;
     readonly health: HealthClient;
     readonly board: BoardClient;
 
     constructor(options: SdkOptions) {
         const sdkFetch = options.fetch ?? createSdkFetch(options);
+        this.settings = new SettingsClient(sdkFetch);
         this.health = new HealthClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
     }
