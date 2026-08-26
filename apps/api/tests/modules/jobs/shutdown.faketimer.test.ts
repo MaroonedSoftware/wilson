@@ -15,7 +15,7 @@ const delayMock = vi.fn(async () => undefined);
 vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
 
 const { AbandonedCardJobsError, JobsModule, SHUTDOWN_DEADLINE_MS, stopCardStageJobs } = await import('#modules/jobs/jobs.module.js');
-const { RunningCards } = await import('#modules/jobs/card.stage.job.js');
+const { RunningCards } = await import('#modules/jobs/running.cards.js');
 const { JobRunner: JobRunnerToken } = await import('@maroonedsoftware/jobbroker');
 
 /**

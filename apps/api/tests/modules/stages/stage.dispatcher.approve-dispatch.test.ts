@@ -12,7 +12,7 @@ import { PostgresBoardRepository } from '#modules/board/postgres.board.repositor
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
-import { RunningCards } from '#modules/jobs/card.stage.job.js';
+import { RunningCards } from '#modules/jobs/running.cards.js';
 import { StageAgentMap, type AgentRunInput, type AgentRunOutput } from '#modules/agent/stage.agent.js';
 import { StageVerifierMap, type StageVerifier } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';

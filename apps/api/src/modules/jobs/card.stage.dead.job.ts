@@ -6,7 +6,8 @@ import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { isTerminal } from '#modules/stages/terminal.js';
 import { CardJobs } from './card.jobs.js';
-import { poisonCard, type CardStagePayload } from './card.stage.job.js';
+import { type CardStagePayload } from './card.stage.job.js';
+import { poisonCard } from './poison.card.js';
 
 /** The shape pg-boss serializes a job's final failure into, and stores as that job's own `output`. */
 interface JobFailureOutput {

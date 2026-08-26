@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -203,13 +203,64 @@ export type ProjectStages = z.infer<typeof ProjectStagesSchema>;
 export class StageConfigError extends Error {}
 
 /**
+ * The last successfully loaded config per `stages.yaml` path, with the file identity it was read at.
+ *
+ * `loadStages` is on every dispatch twice over — `StageDispatcher.run` and `CardStageJob.runStage`
+ * each call it for the same file — plus every poller tick and several API routes, and each call was
+ * a read, a YAML parse, a zod validation and a route check for a file that changes when a human
+ * edits it and at no other time. The `stat` that replaces all of that is one syscall.
+ *
+ * Only successful loads are stored: an unreadable or invalid config must keep throwing on every
+ * call, since the operator fixing it is exactly the case that needs the next call to see the fix.
+ */
+interface LoadedStages {
+    mtimeMs: number;
+    size: number;
+    value: ProjectStages;
+}
+
+const loaded = new Map<string, LoadedStages>();
+
+/**
+ * Recursively freeze a parsed config so every caller can share one object.
+ *
+ * The cache hands the same instance to every caller, where each call used to return its own fresh
+ * parse. No caller mutates what it gets back today (`findStage` even returns a copy rather than the
+ * stage it found), so this changes nothing that happens now — it makes that a property of the value
+ * rather than a convention every future caller has to be told about, which is the difference between
+ * a shared object being safe and it being safe so far.
+ */
+const deepFreeze = <T>(value: T): T => {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+        Object.freeze(value);
+        for (const inner of Object.values(value)) deepFreeze(inner);
+    }
+    return value;
+};
+
+/**
  * Load `config/stages.yaml` from the board repo.
  *
  * Stage config lives on the board, not in the code repo, and the write tool denies it — an agent
  * that can edit its own exit condition passes every time (PROJECT.md decision 9).
+ *
+ * Reads through a `stat`-guarded cache (`loaded`, above). "Stages are config, not code" (PROJECT.md
+ * decision 7) means an operator edits this file on a running daemon and expects the next dispatch to
+ * see it, so the guard is the file's own mtime and size rather than a timeout: any editor's save
+ * moves mtime, and the next call re-reads. The stat is taken *before* the read and stored as-is, so
+ * a write landing between the two is recorded under the older identity and simply misses next call —
+ * an extra read, never a stale answer. Storing the post-read stat would invert that and could pin
+ * pre-write content under a post-write identity indefinitely.
  */
 export const loadStages = async (boardRoot: string): Promise<ProjectStages> => {
     const path = join(boardRoot, 'config', 'stages.yaml');
+
+    const stats = await stat(path).catch(() => undefined);
+    if (stats) {
+        const cached = loaded.get(path);
+        if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached.value;
+    }
+
     const raw = await readFile(path, 'utf8').catch((err: Error) => err);
     if (raw instanceof Error) {
         throw new StageConfigError(`could not read ${path}: ${raw.message}`);
@@ -223,7 +274,10 @@ export const loadStages = async (boardRoot: string): Promise<ProjectStages> => {
     }
 
     assertRoutesResolve(parsed.data, path);
-    return parsed.data;
+
+    const value = deepFreeze(parsed.data);
+    if (stats) loaded.set(path, { mtimeMs: stats.mtimeMs, size: stats.size, value });
+    return value;
 };
 
 /**

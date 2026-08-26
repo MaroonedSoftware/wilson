@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Mutex } from '#shared/mutex.js';
 
 const exec = promisify(execFile);
 
@@ -60,68 +61,13 @@ export const runConfiguredCommand = async (cwd: string, command: string, timeout
  * install` through the bash tool's allowlist (`agent/tools/bash.tool.ts`), which is on the
  * `implementing` stage's `allowedCommands`. Both paths import this one lock so either can hold it.
  *
- * In-process rather than a lockfile on disk: `job.runner.config.ts`'s `CARD_STAGE_CONCURRENCY` caps
- * how many `card.stage` jobs run at once *on this daemon process* — pg-boss's local worker
- * concurrency, not separate processes — so every install this bug can ever race lives in the same
- * Node event loop, and a plain in-memory queue is exactly as strong a guarantee as the problem
- * needs. It also gets "survives a killed process" for free: the lock lives in this module's memory,
- * so a process killed mid-install takes the lock down with it. There is no lockfile left on disk for
- * the next process to find still held, and no stale-lock timeout to get wrong.
+ * A module-level singleton so every caller shares it. The queueing itself is `Mutex`
+ * (`#shared/mutex.js`), which is where this class's body went once the code repo needed the same
+ * treatment for its worktree bookkeeping; what stays here is the part that is about pnpm rather
+ * than about locking.
  *
- * Only the install needs to be exclusive, not the stage around it — this class knows nothing about
+ * Only the install needs to be exclusive, not the stage around it — `Mutex` knows nothing about
  * stages, cards, or worktrees. Callers decide what's worth serializing: the dispatcher wraps only
  * `setupCommand`'s execution, and the bash tool wraps only requests that start with `pnpm install`.
  */
-class PnpmStoreLock {
-    /** The gate the next caller queues behind. Resolves when the current holder releases it. */
-    private queue: Promise<void> = Promise.resolve();
-    /** Label of whoever currently holds the lock (running `fn`, not just queued), for the wait log. */
-    private holder: string | undefined;
-
-    /**
-     * Run `fn` exclusively against every other call to `run`, queued FIFO.
-     *
-     * `log` fires twice on a contended acquire — once immediately, naming who is already holding the
-     * lock, and again once this call gets it, with how long it waited — so an operator watching a
-     * stage sit for a minute can read "waiting for the install lock" in real time rather than only
-     * after the fact, and tell that apart from the agent being stuck on something else entirely. An
-     * uncontended acquire (the common case, and the only case when just one stage is running) logs
-     * nothing at all.
-     *
-     * `onWaited`, when given, fires once with the same figure `log`'s second message names, only on a
-     * contended acquire — so a caller that keeps a durable record of what happened (an event, not
-     * just a log line) can put the wait there too. Optional and appended last so the two callers that
-     * only pass `log` (the bash tool, the testing baseline) do not have to change.
-     */
-    async run<T>(label: string, log: (message: string) => void, fn: () => Promise<T>, onWaited?: (waitedMs: number) => void): Promise<T> {
-        const contendedWith = this.holder;
-        if (contendedWith) {
-            log(`${label} waiting for the pnpm store lock, held by ${contendedWith}`);
-        }
-
-        const waitStart = Date.now();
-        const previous = this.queue;
-        let release!: () => void;
-        this.queue = new Promise<void>(resolve => {
-            release = resolve;
-        });
-
-        await previous;
-        this.holder = label;
-        if (contendedWith) {
-            const waitedMs = Date.now() - waitStart;
-            log(`${label} acquired the pnpm store lock after waiting ${waitedMs}ms`);
-            onWaited?.(waitedMs);
-        }
-
-        try {
-            return await fn();
-        } finally {
-            this.holder = undefined;
-            release();
-        }
-    }
-}
-
-/** The one store lock for this process. A module-level singleton so every caller shares it. */
-export const pnpmStoreLock = new PnpmStoreLock();
+export const pnpmStoreLock = new Mutex('pnpm store lock');

@@ -54,13 +54,43 @@ export class HealthService {
  * `HealthService` of its own to inject, only the `codeRoot` its existing `BoardConfig` already
  * carries, and this needs nothing else.
  */
+/**
+ * The last answer `commitsBehind` computed, per code repo.
+ *
+ * `head..ref` counts commits between two fixed points in a repo's history, so for a given
+ * `(codeRoot, head, ref)` the answer is immutable — not a value that ages, which is why this is a
+ * plain memo with no expiry rather than a cache with a staleness policy. `head` is `buildHead()`,
+ * captured once at boot and constant for the process's life; `ref` is the code repo's HEAD, which
+ * moves only on a merge.
+ *
+ * One slot per repo rather than an entry per sha, because the only caller (`CardStageJob`'s
+ * pre-dispatch check, card 0100) always asks about the *current* HEAD: every dispatch between two
+ * merges asks the identical question, and once HEAD moves the previous answer is never wanted
+ * again. Keeping every sha ever seen would grow without bound for no additional hit.
+ *
+ * `head` is stored alongside the answer even though it cannot change after capture. It is what makes
+ * the memo self-validating rather than dependent on that argument holding: an entry recorded under a
+ * different `head` is simply not a hit.
+ */
+const lastAnswer = new Map<string, { head: string; ref: string; count: number }>();
+
 export const commitsBehind = async (codeRoot: string, ref: string): Promise<number> => {
     const head = buildHead();
     if (head === 'unknown') return 0;
+
+    const cached = lastAnswer.get(codeRoot);
+    if (cached && cached.head === head && cached.ref === ref) return cached.count;
 
     const result = await git(codeRoot, ['rev-list', '--count', `${head}..${ref}`]).catch(() => undefined);
     if (!result) return 0;
 
     const count = Number(result.stdout.trim());
-    return Number.isFinite(count) ? count : 0;
+    // Only a real count is remembered. Both zeroes above are "cannot tell" — an unreachable
+    // `codeRoot`, a repo mid-operation, output that did not parse — and memoising one of those would
+    // turn a transient failure into a permanent "the daemon is current", which is the answer this
+    // check exists to be able to contradict.
+    if (!Number.isFinite(count)) return 0;
+
+    lastAnswer.set(codeRoot, { head, ref, count });
+    return count;
 };
