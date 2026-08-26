@@ -40,6 +40,31 @@ describe('nextCard', () => {
         expect(next?.frontmatter.id).toBe('0002');
     });
 
+    // Card 0117: the poller needs every workable card, in order, not just the single lowest-id one —
+    // it walks past a candidate whose stage it cannot dispatch instead of stopping at `next`. `next`
+    // must stay `candidates[0]` exactly, so a human's answer via `wilson card next` is untouched.
+    it('returns every workable candidate in id order via candidates, not only the lowest one via next', () => {
+        const cards = [card('0010', 'planning'), card('0002', 'implementing'), card('0100', 'testing')];
+
+        const { next, candidates } = nextCard(cards);
+
+        expect(candidates.map(c => c.frontmatter.id)).toEqual(['0002', '0010', '0100']);
+        expect(candidates[0]).toBe(next);
+    });
+
+    // A card sitting in a stage a human would still be told to do next (manual stages included —
+    // `nextCard` has no idea of stage modes at all, deliberately: that is stage config, and this is a
+    // pure function over the board) must still show up in `candidates`, exactly as it shows up as
+    // `next`. The poller is the one that knows which stages it cannot dispatch, and skips accordingly.
+    it('includes a manual-stage card as a workable candidate — nextCard has no notion of stage modes', () => {
+        const cards = [card('0001', 'review'), card('0002', 'implementing')];
+
+        const { next, candidates } = nextCard(cards);
+
+        expect(next?.frontmatter.id).toBe('0001');
+        expect(candidates.map(c => c.frontmatter.id)).toEqual(['0001', '0002']);
+    });
+
     it('ignores cards in every non-stage state, even when they would otherwise be the lowest id', () => {
         const cards = [card('0001', 'merged'), card('0002', 'parking-lot'), card('0004', 'poisoned'), card('0005', 'dropped'), card('0006', 'implementing')];
 

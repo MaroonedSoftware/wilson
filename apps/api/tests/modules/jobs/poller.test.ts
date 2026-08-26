@@ -56,9 +56,10 @@ const { POLLER_INTERVAL_MS_DEFAULT } = await import('#modules/jobs/job.runner.co
 const releaseTick = () => pending.shift()?.resolve();
 
 // A minimal but valid stages.yaml: `implementing` is an agent stage (dispatchable), `review` is
-// manual (never dispatched). `loadStages` reads this from disk for real — it is not mocked — so
-// `whyNotDispatchable`'s stage lookup inside `Poller.tick` is exercised exactly as it runs in
-// production.
+// manual (never dispatched), `triage` is a `command` stage (also never dispatched — card 0117's
+// poller treats any non-`agent` mode the same way). `loadStages` reads this from disk for real — it
+// is not mocked — so `whyNotDispatchable`'s stage lookup inside `Poller.tick` is exercised exactly as
+// it runs in production.
 const stagesYaml = `
 stages:
   - name: implementing
@@ -73,6 +74,12 @@ stages:
     instructions: review it
     onPass: merged
     onFail: implementing
+  - name: triage
+    mode: command
+    model: claude-opus
+    instructions: triage it
+    onPass: implementing
+    onFail: triage
 `;
 
 let boardRoot: string;
@@ -209,6 +216,103 @@ describe('Poller tick — what it will and will not enqueue', () => {
         await runOneTick(poller);
 
         expect(broker.send).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Card 0117's whole point: a manual-stage card at the head of the candidate list must not wedge
+     * the tick. `0001` is `wilson card next`'s honest answer for a human — the lowest-id workable
+     * card — but the queue can never dispatch a `manual` stage, so the tick must walk past it to
+     * `0002` instead of stopping.
+     */
+    it('skips a manual-stage card at the head of the candidate list and enqueues the dispatchable one behind it', async () => {
+        const cards = [card('0001', 'review'), card('0002', 'implementing')];
+        const { poller, broker, cardJobs, logger } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
+        expect(logger.info.mock.calls[0][0]).toContain('0002');
+    });
+
+    it('skips a command-stage card the same way as a manual one, and enqueues the dispatchable candidate behind it', async () => {
+        const cards = [card('0001', 'triage'), card('0002', 'implementing')];
+        const { poller, broker } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+    });
+
+    /**
+     * The in-flight check must be asked per candidate, not once against the head of the list: a card
+     * someone else already started should not stop the walk, it should just fall through to the next
+     * workable candidate.
+     */
+    it('falls through a candidate that already holds a live claim to the next workable candidate', async () => {
+        const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
+        const cards = [card('0001', 'implementing'), card('0002', 'implementing')];
+        const { poller, broker } = buildPoller(cards, { cardJobs });
+
+        await runOneTick(poller);
+
+        expect(cardJobs.inFlight).toHaveBeenCalledWith('0001');
+        expect(cardJobs.inFlight).toHaveBeenCalledWith('0002');
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+    });
+
+    /**
+     * A refusal that is not merely "the stage is manual/command" means something is actually wrong —
+     * a stage the config doesn't know, here — so the tick must stop exactly where a single-candidate
+     * tick always has, rather than routing around it to a dispatchable card behind it.
+     */
+    it('stops the tick at a candidate refused for a reason other than a non-agent stage, without trying candidates behind it', async () => {
+        const cards = [card('0001', 'no-such-stage'), card('0002', 'implementing')];
+        const { poller, broker, logger } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('a tick where every candidate sits in a manual or command stage enqueues nothing, writes nothing and logs nothing', async () => {
+        const cards = [card('0001', 'review'), card('0002', 'triage'), card('0003', 'review')];
+        const { poller, broker, cardJobs, logger } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(cardJobs.record).not.toHaveBeenCalled();
+        expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    describe('bounding the walk', () => {
+        // 50 manual-stage candidates ('0001'..'0050') ahead of one dispatchable candidate. `card`'s id
+        // is a zero-padded 4-digit string, so lexicographic sort matches numeric order up to '9999'.
+        const manualCandidates = (count: number, startId: number): Card[] =>
+            Array.from({ length: count }, (_, i) => card(String(startId + i).padStart(4, '0'), 'review'));
+
+        it('still reaches a dispatchable candidate sitting at the bound (the 50th candidate)', async () => {
+            const cards = [...manualCandidates(49, 1), card('0050', 'implementing')];
+            const { poller, broker } = buildPoller(cards);
+
+            await runOneTick(poller);
+
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0050', stageName: 'implementing' });
+        });
+
+        it('does not reach a dispatchable candidate sitting past the bound (the 51st candidate)', async () => {
+            const cards = [...manualCandidates(50, 1), card('0051', 'implementing')];
+            const { poller, broker, logger } = buildPoller(cards);
+
+            await runOneTick(poller);
+
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(logger.info).not.toHaveBeenCalled();
+        });
     });
 
     it('never enqueues a card whose dependency has not merged', async () => {
