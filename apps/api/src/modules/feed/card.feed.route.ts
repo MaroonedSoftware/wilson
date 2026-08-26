@@ -14,9 +14,15 @@ import type { ServerFeed } from '@maroonedsoftware/serverfeed';
  *
  * `openSseStream` is the same transport primitive `handleServerFeed` is built on, so this is still
  * the library's mechanism, just composed for latest-per-key rather than replay.
+ *
+ * `signal`, when given, is the server's lifecycle signal: it drains this stream on shutdown
+ * instead of leaving it to hold the socket open until the force-close grace period, and closing
+ * the stream (for this reason as for any other) releases the `feed.onEvent` subscription below.
+ * Optional so a caller with no server lifecycle — a test, or the CLI bootstrap, which skips
+ * `start` hooks — still works exactly as before.
  */
-export const openCardFeedStream = (ctx: SseContext, feed: ServerFeed): void => {
-    const stream = openSseStream(ctx);
+export const openCardFeedStream = (ctx: SseContext, feed: ServerFeed, signal?: AbortSignal): void => {
+    const stream = openSseStream(ctx, { signal });
 
     for (const event of feed.snapshot()) {
         stream.event({ event: 'card', data: event });

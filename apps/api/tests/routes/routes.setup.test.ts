@@ -21,7 +21,36 @@ import { SettingsRouter } from '#src/routes/settings.router.js';
  */
 describe('routers', () => {
     it('mounts the generated health, board and settings routers plus the hand-written feed router, and nothing else', () => {
-        expect(routers).toEqual([HealthRouter, BoardRouter, SettingsRouter, FeedRouter]);
+        const mounted = routers();
+
+        expect(mounted).toHaveLength(4);
+        expect(mounted[0]).toBe(HealthRouter);
+        expect(mounted[1]).toBe(BoardRouter);
+        expect(mounted[2]).toBe(SettingsRouter);
+        // FeedRouter (card 0042) is a factory, not a constant: each call builds a fresh router, so
+        // this checks it mounts a working `/api/feed` route rather than comparing object identity
+        // against another freshly-built instance.
+        expect(mounted[3].match('/api/feed', 'GET').route).toBe(true);
+    });
+
+    // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
+    // signal, so shutdown can drain an open `/api/feed` stream instead of waiting out the
+    // force-close grace period. The other three routers have no long-lived connection to drain and
+    // must come back untouched regardless of whether a signal is given.
+    it('accepts a lifecycle signal and still mounts the same three routers plus a working feed router', () => {
+        const controller = new AbortController();
+        const mounted = routers(controller.signal);
+
+        expect(mounted).toHaveLength(4);
+        expect(mounted[0]).toBe(HealthRouter);
+        expect(mounted[1]).toBe(BoardRouter);
+        expect(mounted[2]).toBe(SettingsRouter);
+        expect(mounted[3].match('/api/feed', 'GET').route).toBe(true);
+    });
+
+    it('builds a working feed router whether or not a signal is given', () => {
+        expect(FeedRouter().match('/api/feed', 'GET').route).toBe(true);
+        expect(FeedRouter(new AbortController().signal).match('/api/feed', 'GET').route).toBe(true);
     });
 
     /**
@@ -55,7 +84,7 @@ describe('routers', () => {
     });
 
     it('routes GET /api/feed to the feed router', () => {
-        expect(FeedRouter.match('/api/feed', 'GET').route).toBe(true);
+        expect(FeedRouter().match('/api/feed', 'GET').route).toBe(true);
     });
 
     // Card 0075 gave the board a write surface — create, move, edit — so "read-only" no longer
