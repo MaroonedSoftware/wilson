@@ -172,6 +172,18 @@ export class WorktreeManager {
     }
 
     /**
+     * The code repo's current HEAD.
+     *
+     * Exists so a caller that gets `{ ok: false }` back from `rebaseOntoHead` can name the exact
+     * commit the rebase was attempted against, without `rebaseOntoHead` itself having to return it —
+     * that function's contract is deliberately left alone (its failure case already explains itself
+     * in `reason`); this is a second, independent read for a caller that wants the raw sha too.
+     */
+    async headSha(): Promise<string> {
+        return (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+    }
+
+    /**
      * Paths this stage has touched but not committed, relative to the worktree root.
      *
      * Distinct from `changedPaths`, which measures from the fork point and therefore describes the

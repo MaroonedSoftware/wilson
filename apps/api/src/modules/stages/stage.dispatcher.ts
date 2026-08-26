@@ -61,6 +61,33 @@ export class NotDispatchableError extends Error {
     }
 }
 
+/**
+ * Thrown when `WorktreeManager.rebaseOntoHead` reports a genuine conflict.
+ *
+ * A conflict is a fact about the board's scheduling — two branches touched the same lines — not a
+ * judgment about this card's code, which has not even run yet. It is also not something a retry
+ * fixes: the same two branches conflict identically on every attempt. `rebaseOntoHead` already knows
+ * this (its own doc comment says so) and aborts rather than leaving a half-rebased worktree behind;
+ * this carries that knowledge out as a type, the way `NotDispatchableError` does for
+ * `assertDispatchable`'s refusals, so `CardStageJob` routes it on a discriminant instead of falling
+ * through to `isPermanentFailure`'s message matching (which is tuned for provider errors, not this
+ * codebase's own).
+ *
+ * `message` is composed once, here, so there is a single place that turns "a rebase conflicted" into
+ * the one sentence an operator needs: what to do about it. `branch`, `targetSha` and `detail` stay
+ * available as fields so a caller can also record them structurally, without re-parsing the message.
+ */
+export class RebaseConflictError extends Error {
+    constructor(
+        public readonly branch: string,
+        public readonly targetSha: string,
+        public readonly detail: string,
+    ) {
+        super(`${detail} Rebase it onto ${targetSha.slice(0, 8)} by hand, then run \`wilson card start\`.`);
+        this.name = 'RebaseConflictError';
+    }
+}
+
 /** The stage's own summary, for the commit message body. */
 const describe = (result: unknown): string => {
     const summary = (result as { summary?: string } | undefined)?.summary;
@@ -163,7 +190,10 @@ export class StageDispatcher {
         if (resumable) {
             const rebased = await this.worktrees.rebaseOntoHead(worktree);
             if (!rebased.ok) {
-                throw new Error(`card ${cardId} cannot be brought up to date: ${rebased.reason}`);
+                // Not thrown as a bare Error: a conflict is not this card's code failing, and
+                // `CardStageJob` needs a discriminant to route it to a flag instead of a retry.
+                const targetSha = await this.worktrees.headSha();
+                throw new RebaseConflictError(branch, targetSha, rebased.reason);
             }
             worktree = { ...worktree, baseSha: rebased.baseSha };
         }

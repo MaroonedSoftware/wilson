@@ -19,6 +19,13 @@ export type CardEventType =
     // Informational only: dispatch proceeds regardless, on the constraint that a daemon one commit
     // behind is the normal state of a running board, not an exceptional one to halt on.
     | 'daemon.stale'
+    // A card's branch could not be rebased onto the code repo's HEAD without a conflict (card 0103).
+    // Appended once, by `CardStageJob`'s `flagRebaseConflict`, alongside the `needsHuman` flag it
+    // writes to the board — never retried and never poisoned, so this is the only record of the
+    // conflict a human gets without reading the daemon's log. Payload carries `branch`, `targetSha`
+    // and `detail` (the git error `rebaseOntoHead` aborted on), which is everything the reason on
+    // the card itself is built from.
+    | 'rebase.conflict'
     | 'dispatch.deferred'
     | 'engine.failed'
     | 'tool.denied'
