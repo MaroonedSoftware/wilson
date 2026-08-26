@@ -37,8 +37,34 @@
  * out of memory for. At 1 the lock cannot be contended by two stages at all; it stays because it
  * also covers the agent's own installs, and because it is exactly what is needed the moment this
  * number moves.
+ *
+ * Card 0115 turns "edit this constant" into "write a `card-stage-concurrency` row" — this is now
+ * the coded default at the bottom of `SettingsStore`'s resolution order, not the value in force.
+ * See `CARD_STAGE_CONCURRENCY` (`settings/card.stage.concurrency.setting.ts`) for the setting
+ * itself, and `BoundedCardStageJobRunner` (jobs.module.ts) for what makes a write actually reach
+ * the running pg-boss worker.
  */
-export const CARD_STAGE_CONCURRENCY = 3;
+export const CARD_STAGE_CONCURRENCY_DEFAULT = 3;
+
+/**
+ * Floor for the `card-stage-concurrency` setting (card 0115): 1, not 0. Zero would mean this
+ * daemon runs no stages at all — already expressible, more legibly, as `POLLER_ENABLED=false` for
+ * the poller's own enqueueing — and would additionally block `POST .../start` (`wilson card
+ * start`, `BoardWriteService.start`), which shares this same queue and worker and is out of this
+ * card's scope to touch. A setting that can silently disable a different surface than the one an
+ * operator meant to slow down is worse than no floor at all.
+ */
+export const CARD_STAGE_CONCURRENCY_MIN = 1;
+
+/**
+ * Ceiling for the `card-stage-concurrency` setting (card 0115): 8. Each unit of concurrency is a
+ * git worktree, a `pnpm install`, and a live agent process on this host, per the disk/memory
+ * headroom paragraph above — this bound exists to catch a fat-fingered value (an extra zero, say),
+ * not to claim 8 is measured safe on any given host. "Raising it is a separate call from being
+ * able to raise it" still holds exactly as written above; this only widens what is reachable
+ * without a code change, never what is recommended.
+ */
+export const CARD_STAGE_CONCURRENCY_MAX = 8;
 
 /**
  * How often the poller (`poller.ts`) checks the board for a card to enqueue.
@@ -51,9 +77,26 @@ export const CARD_STAGE_CONCURRENCY = 3;
  * up" is true on a timescale nobody waits on, and long enough that idle polling is noise next to
  * the database's normal load.
  *
- * Not a config value: like `CARD_STAGE_CONCURRENCY`, this is a call about the daemon's own
- * steady-state cost rather than something a deployment should need to tune, so it stays a constant
- * beside it rather than growing an env var of its own. Whether the poller runs at all is the actual
- * per-deployment choice — see `POLLER_ENABLED` in `jobs.module.ts`.
+ * Card 0115 turns this into a `poller-interval-ms` row rather than a constant a change requires a
+ * deploy for — this is now the coded default at the bottom of `SettingsStore`'s resolution order.
+ * `Poller.loop` reads the setting fresh every tick (`settings/poller.interval.setting.ts`), so a
+ * write reaches a running daemon before its next tick, no restart involved — unlike
+ * `CARD_STAGE_CONCURRENCY`, which pg-boss cannot reconfigure on a running worker at all.
  */
-export const POLLER_INTERVAL_MS = 30_000;
+export const POLLER_INTERVAL_MS_DEFAULT = 30_000;
+
+/**
+ * Floor for the `poller-interval-ms` setting (card 0115): 5 seconds. Every tick is a full-board
+ * read plus, when a candidate exists, a `loadStages` and a `CardJobs.inFlight` check — cheap once,
+ * but this runs forever, so the floor exists to stop an operator from turning "poll more often"
+ * into "hammer Postgres" with one fat-fingered value.
+ */
+export const POLLER_INTERVAL_MS_MIN = 5_000;
+
+/**
+ * Ceiling for the `poller-interval-ms` setting (card 0115): 5 minutes. Past that, "the poller will
+ * pick it up" stops being a timescale nobody waits on — a card sitting ready for five minutes
+ * after its blocking dependency merges is already a worse experience than running `wilson card
+ * start` by hand.
+ */
+export const POLLER_INTERVAL_MS_MAX = 300_000;
