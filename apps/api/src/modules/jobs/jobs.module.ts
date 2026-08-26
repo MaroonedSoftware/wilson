@@ -7,8 +7,9 @@ import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy, type Job
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
-import { configBoolean, configNumber, requireConfigString } from '#shared/require.config.js';
+import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
+import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
@@ -212,30 +213,39 @@ export class AbandonedCardJobsError extends Error {
 
 /**
  * The `JobRunner` every consumer actually resolves from the container: `start()` passes straight
- * through (and starts the poller, when one is configured), and `stop()` is `stopCardStageJobs`
- * wearing the plain `JobRunner` interface so a caller doesn't need to know `RunningCards` or
- * `CardJobs` exist to benefit from what they make possible. A clean stop resolves exactly as
- * `PgBossJobRunner.stop()` always has; a stop with something abandoned rejects with
+ * through (after applying whatever the poller setting currently resolves to), and `stop()` is
+ * `stopCardStageJobs` wearing the plain `JobRunner` interface so a caller doesn't need to know
+ * `RunningCards` or `CardJobs` exist to benefit from what they make possible. A clean stop resolves
+ * exactly as `PgBossJobRunner.stop()` always has; a stop with something abandoned rejects with
  * `AbandonedCardJobsError` instead of silently resolving, so "the promise settled" can no longer be
  * mistaken for "everything finished" — which is the whole defect this card fixes.
  *
- * `poller` is `undefined` when `POLLER_ENABLED` is off (the default) — this is the whole mechanism
- * behind "off by default and killable": nothing about `start`/`stop` changes shape, there is just
- * nothing to start or stop, exactly as before this card existed.
+ * `poller` is registered and constructed unconditionally now (card 0106) — whether it actually
+ * runs is `PollerSettingService`'s question, not this class's constructor's. Off by default still
+ * holds: `PollerSettingService` resolves to `POLLER_ENABLED` (default `false`) absent a
+ * `runner.settings` row, and `Poller.stop()` (called on every `start()` when the answer is "off")
+ * is safe on a poller that was never running.
+ *
+ * Exported so a test can construct one directly against fakes, the same way `stopCardStageJobs`
+ * and `AbandonedCardJobsError` already are.
  */
-class BoundedCardStageJobRunner extends JobRunner {
+export class BoundedCardStageJobRunner extends JobRunner {
     constructor(
         private readonly inner: JobRunner,
         private readonly running: RunningCards,
         private readonly cardJobs: CardJobs,
-        private readonly poller: Poller | undefined,
+        private readonly poller: Poller,
+        private readonly pollerSettings: PollerSettingService,
     ) {
         super();
     }
 
-    start(): Promise<void> {
-        this.poller?.start();
-        return this.inner.start();
+    async start(): Promise<void> {
+        // What used to be a one-time, boot-only `pollerEnabled` check in `setup` below is this
+        // instead — asked again every time `start()` runs, so a database row already in place
+        // takes effect the same way a write made after boot does (PollerSettingService.set).
+        await this.pollerSettings.applyCurrentValue();
+        await this.inner.start();
     }
 
     async stop(): Promise<void> {
@@ -243,7 +253,7 @@ class BoundedCardStageJobRunner extends JobRunner {
         // during shutdown could enqueue a card behind `stopCardStageJobs`'s back, and the whole
         // point of that report is to be the truth about in-flight work at the moment it is
         // written (card 0066), not a snapshot something else keeps changing underneath it.
-        await this.poller?.stop();
+        await this.poller.stop();
         const report = await stopCardStageJobs(this.inner, this.running, this.cardJobs);
         if (report.abandoned.length > 0 || report.unconfirmed.length > 0) {
             throw new AbandonedCardJobsError(report.abandoned, report.unconfirmed);
@@ -271,12 +281,6 @@ export const JobsModule: ServerKitModule = {
             password: requireConfigString(config, 'DATABASE_PASSWORD'),
             database: requireConfigString(config, 'DATABASE_NAME'),
         };
-
-        // Off by default: an operator runs the daemon as a pure drainer, exactly as before this
-        // card, until this is deliberately turned on — and can turn it back off, with no code
-        // change, the moment a poller misbehaves. See `Poller` (poller.ts) for what "misbehaves"
-        // cannot mean: it enqueues nothing `whyNotDispatchable`/`CardJobs.inFlight` would refuse.
-        const pollerEnabled = configBoolean(config, 'POLLER_ENABLED', false);
 
         registry
             .register(PgBoss)
@@ -309,7 +313,8 @@ export const JobsModule: ServerKitModule = {
         // `BoardRepository` are BoardModule's tokens, already registered by the time this runs
         // (module order in modules.ts) — resolved here the same way `RunningCards` and `CardJobs`
         // are below, not re-registered. Registered unconditionally — cheap, and constructing it does
-        // no I/O — so the on/off decision lives in one place, the `pollerEnabled` check below.
+        // no I/O — so the on/off decision lives in one place: `PollerSettingService`, asked by
+        // `BoundedCardStageJobRunner.start()` below rather than decided once, here, at setup time.
         registry.register(Poller).useClass(Poller).asSingleton();
 
         // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding
@@ -331,7 +336,8 @@ export const JobsModule: ServerKitModule = {
                     pgBossRunner,
                     container.get(RunningCards),
                     container.get(CardJobs),
-                    pollerEnabled ? container.get(Poller) : undefined,
+                    container.get(Poller),
+                    container.get(PollerSettingService),
                 );
             })
             .asSingleton();
@@ -355,7 +361,7 @@ export const JobsModule: ServerKitModule = {
     // The broker call *this hook itself* used to make after `runner.stop()` was `CardJobs.inFlight`,
     // called from `stopCardStageJobs` and now `CardJobs.confirmInFlightAfterStop`, which reads
     // `pgboss.job` over the app's own connection instead. `Poller.tick`'s `inFlight`/`broker.send`
-    // are not a problem either: `poller?.stop()` runs above `stopCardStageJobs` in
+    // are not a problem either: `poller.stop()` runs above `stopCardStageJobs` in
     // `BoundedCardStageJobRunner.stop()`.
     //
     // That is not the same as saying nothing else can reach the broker on a closed connection.
