@@ -1,15 +1,68 @@
-import { Anchor, Badge, Code, Divider, Group, List, Loader, Paper, Stack, Text, Timeline, Title } from '@mantine/core';
+import { Anchor, Badge, Button, Code, Divider, Group, List, Loader, Paper, Select, Stack, Text, Timeline, Title } from '@mantine/core';
 import { Link } from '@tanstack/react-router';
-import type { CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { useMoveCard, useStartCard } from '#src/lib/mutations.js';
 
 function StageBadge({ stage }: { stage: string }) {
     return (
         <Badge color={TONE[stage] ?? 'gray'} variant="light" radius="sm">
             {stage}
         </Badge>
+    );
+}
+
+/**
+ * Where an operator sends the card next. Options are the board's own configured stages plus its
+ * non-stages (`GET /api/stages`) — never a hard-coded list, since stages are config (card 0037's
+ * plan). The value always reads from `card.stage`, never from what was picked: this is a request,
+ * not a transition rendered ahead of it (PROJECT.md, Architecture) — the runner is sole writer and
+ * may refuse it, so the select only moves once the query that fed it has actually re-fetched.
+ */
+function MoveControl({ card, columns, columnsError }: { card: CardDetail; columns: BoardColumns | undefined; columnsError: Error | null | undefined }) {
+    const moveCard = useMoveCard(card.id);
+
+    if (columnsError) {
+        return (
+            <Text size="sm" c="red">
+                Could not load stages: {columnsError.message}
+            </Text>
+        );
+    }
+    if (!columns) return <Loader size="xs" />;
+
+    const targets = [...columns.stages, ...columns.nonStages];
+
+    return (
+        <Select
+            aria-label="Move to stage"
+            data={targets}
+            value={card.stage}
+            onChange={stage => {
+                if (stage && stage !== card.stage) moveCard.mutate(stage);
+            }}
+            disabled={moveCard.isPending}
+            allowDeselect={false}
+            w={200}
+        />
+    );
+}
+
+/**
+ * Enqueues the card for its stage (`POST .../start`) — the same two refusals `wilson card start`
+ * makes, not re-implemented here: `whyNotDispatchable`, and a card a job is already carrying. Either
+ * arrives as a notification (`useStartCard`), not inline, since there is nowhere on a button to put
+ * a sentence.
+ */
+function EnqueueButton({ card }: { card: CardDetail }) {
+    const startCard = useStartCard(card.id);
+
+    return (
+        <Button size="xs" variant="light" onClick={() => startCard.mutate()} loading={startCard.isPending}>
+            Enqueue
+        </Button>
     );
 }
 
@@ -104,7 +157,9 @@ function VersionsList({ versions, limit, error }: { versions: CardVersion[] | un
 
 /**
  * A card, in full: what it is (title, stage, branch, plan) and what has happened to it (events,
- * versions). Read-only, matching the card 0036 contract — no editing the plan, no moving the card.
+ * versions) — plus, since card 0037, its two operator actions: move it to another stage, and
+ * enqueue it for the one it's in. The plan itself stays read-only, matching the card 0036 contract —
+ * no editing the plan, no approving it, no cancelling a running job.
  */
 export function CardDetailView({
     card,
@@ -114,6 +169,8 @@ export function CardDetailView({
     versions,
     versionsLimit,
     versionsError,
+    columns,
+    columnsError,
 }: {
     card: CardDetail;
     events: CardEvent[] | undefined;
@@ -122,6 +179,8 @@ export function CardDetailView({
     versions: CardVersion[] | undefined;
     versionsLimit: number;
     versionsError: Error | null | undefined;
+    columns: BoardColumns | undefined;
+    columnsError: Error | null | undefined;
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
 
@@ -149,6 +208,10 @@ export function CardDetailView({
                             {card.branch}
                         </Badge>
                     )}
+                </Group>
+                <Group gap="xs" align="center">
+                    <MoveControl card={card} columns={columns} columnsError={columnsError} />
+                    <EnqueueButton card={card} />
                 </Group>
             </Stack>
 

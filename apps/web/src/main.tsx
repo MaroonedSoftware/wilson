@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MantineProvider } from '@mantine/core';
 
 import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
 import './styles.css';
 
 import { routeTree } from './routeTree.gen';
