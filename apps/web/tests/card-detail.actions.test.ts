@@ -1,0 +1,277 @@
+// @vitest-environment jsdom
+//
+// Card 0037: the card detail page gains its two operator actions — move the card to another
+// stage, and enqueue it for the one it's in. Both endpoints (card 0080) and the SDK methods
+// already existed before this card; what's new is `lib/mutations.ts`'s `useMoveCard`/`useStartCard`
+// and the `MoveControl`/`EnqueueButton` this card adds to `CardDetail.tsx`. These tests render the
+// real route tree at `/cards/$cardId` (the same approach flagged.test.ts and settings.test.ts take)
+// with `wilson`'s SDK calls mocked, so the mutation wiring, the invalidate-not-patch rule, and the
+// refusal-surfacing are all exercised as actually written.
+//
+// Files are `.test.ts`, not `.test.tsx`, to match `apps/web/vitest.config.ts`'s
+// `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead.
+import { createElement } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
+import { MantineProvider } from '@mantine/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SdkError } from '@wilson/sdk';
+import type { BoardColumns, CardDetail } from '@wilson/sdk';
+import { wilson } from '#src/lib/sdk.js';
+import { routeTree } from '#src/routeTree.gen.js';
+
+const columns: BoardColumns = {
+    stages: ['planning', 'implementing', 'testing'],
+    nonStages: ['parking-lot', 'merged'],
+};
+
+const card = (stage: string): CardDetail => ({
+    id: '0007',
+    title: 'Do the thing',
+    stage,
+    dependsOn: [],
+    needsHuman: false,
+    sections: {},
+    body: 'the plan',
+});
+
+/**
+ * The root layout mounts `useCardFeed` on every route — jsdom has no `EventSource`, so without a
+ * stand-in the shell throws before `/cards/$cardId` ever renders. Not the behaviour under test.
+ */
+class FakeEventSource {
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    addEventListener() {}
+    close() {}
+}
+
+/**
+ * `AppShell.Main` renders inside Mantine's `ScrollArea`, which measures itself with
+ * `ResizeObserver` on mount — jsdom does not implement it, and every test here renders the app
+ * shell (via `/cards/$cardId`), not just ones about scrolling. Same stand-in flagged.test.ts uses.
+ */
+class FakeResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
+/** Renders the real app router (root layout + whichever route the path resolves to). */
+function renderApp(path: string) {
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
+    const queryClient = new QueryClient();
+    render(
+        createElement(
+            MantineProvider,
+            null,
+            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
+        ),
+    );
+    return { router };
+}
+
+beforeEach(() => {
+    vi.spyOn(wilson.board, 'listCardEvents').mockResolvedValue([]);
+    vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
+    vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    // jsdom has no layout engine, so floating-ui's own `scrollIntoView` call on the active option
+    // (part of Mantine's Combobox opening its dropdown) throws without a stand-in — nothing to do
+    // with the behaviour under test, just what opening a `Select` drags in under jsdom.
+    Element.prototype.scrollIntoView = vi.fn();
+
+    // jsdom does not implement matchMedia; MantineProvider reads it (colour-scheme detection) on
+    // mount regardless of what this test renders.
+    vi.stubGlobal(
+        'matchMedia',
+        vi.fn().mockImplementation((query: string) => ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+        })),
+    );
+    // TanStack Router's scroll restoration calls this on navigation; jsdom does not implement it.
+    vi.stubGlobal('scrollTo', vi.fn());
+});
+
+afterEach(() => {
+    // `apps/web/vitest.config.ts` does not set `test.globals: true`, so `@testing-library/react`'s
+    // own auto-cleanup never registers — without this, each test's `render()` piles onto the
+    // previous test's DOM instead of replacing it.
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
+
+describe('the move control', () => {
+    it("offers the board's configured stages and non-stages, not a hard-coded list", async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const select = await screen.findByRole('combobox', { name: 'Move to stage' });
+        fireEvent.click(select);
+
+        // Both a configured stage and a configured non-stage show up as options — proof the list
+        // came from `GET /api/stages`, not something CardDetail.tsx invented. `hidden: true`
+        // because Mantine's Combobox keeps its dropdown mounted (toggling `display: none`) rather
+        // than mounting/unmounting it, and jsdom's floating-ui position check always reports the
+        // target as clipped (no real layout engine) — the dropdown is genuinely open, but
+        // `getByRole`'s default visibility filter can't tell that apart from still-closed.
+        expect(await screen.findByRole('option', { name: 'testing', hidden: true })).toBeTruthy();
+        expect(await screen.findByRole('option', { name: 'parking-lot', hidden: true })).toBeTruthy();
+    });
+
+    it('requests a move but does not render the new stage until the query re-fetches', async () => {
+        const getCard = vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        let resolveMove: ((card: CardDetail) => void) | undefined;
+        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockImplementation(
+            () =>
+                new Promise<CardDetail>(resolve => {
+                    resolveMove = resolve;
+                }),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+        // Scoped to the badge's own class: the closed `Select` keeps every option's text mounted
+        // (hidden) in the DOM too, so an unscoped `getByText('planning')` would find both.
+        expect(screen.getByText('planning', { selector: '.mantine-Badge-label' })).toBeTruthy();
+
+        const select = await screen.findByRole('combobox', { name: 'Move to stage' });
+        fireEvent.click(select);
+        const option = await screen.findByRole('option', { name: 'testing', hidden: true });
+        await act(async () => {
+            fireEvent.click(option);
+        });
+
+        expect(moveCard).toHaveBeenCalledWith('0007', { stage: 'testing' });
+        // The request is in flight; the runner hasn't answered yet, so the badge — and the query
+        // it reads from — must still say the old stage. Rendering `testing` here would be exactly
+        // the optimistic transition the plan forbids.
+        expect(screen.getByText('planning', { selector: '.mantine-Badge-label' })).toBeTruthy();
+        expect(screen.queryByText('testing', { selector: '.mantine-Badge-label' })).toBeNull();
+
+        // The runner answers, and only now does the mutation invalidate the card query. Point the
+        // mock at what a real re-fetch would return before resolving, so the badge's new value can
+        // only have come from that re-fetch — never from the mutation's own response body.
+        getCard.mockResolvedValue(card('testing'));
+        await act(async () => {
+            resolveMove?.(card('testing'));
+        });
+
+        expect(await screen.findByText('testing', { selector: '.mantine-Badge-label' })).toBeTruthy();
+        expect(screen.queryByText('planning', { selector: '.mantine-Badge-label' })).toBeNull();
+    });
+
+    it("shows the API's reason when a move is refused, rather than swallowing it", async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: '"merged" is not a valid target for this card' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const select = await screen.findByRole('combobox', { name: 'Move to stage' });
+        fireEvent.click(select);
+        const option = await screen.findByRole('option', { name: 'merged', hidden: true });
+        await act(async () => {
+            fireEvent.click(option);
+        });
+
+        expect(await screen.findByText('"merged" is not a valid target for this card')).toBeTruthy();
+        // The generic SDK message would be a regression — the runner's own sentence must render.
+        expect(screen.queryByText('400 Bad Request')).toBeNull();
+        // No optimistic write survives the refusal either.
+        expect(screen.getByText('planning', { selector: '.mantine-Badge-label' })).toBeTruthy();
+    });
+});
+
+describe('the enqueue button', () => {
+    it('enqueues the card and disables itself while the request is in flight', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+        let resolveStart: ((card: CardDetail) => void) | undefined;
+        const startCard = vi.spyOn(wilson.board, 'startCard').mockImplementation(
+            () =>
+                new Promise<CardDetail>(resolve => {
+                    resolveStart = resolve;
+                }),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = (await screen.findByRole('button', { name: 'Enqueue' })) as HTMLButtonElement;
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(startCard).toHaveBeenCalledWith('0007');
+        await waitFor(() => expect(button.disabled).toBe(true));
+
+        await act(async () => {
+            resolveStart?.(card('testing'));
+        });
+    });
+
+    it('refuses a card a job is already carrying, and shows the reason', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+        const startCard = vi.spyOn(wilson.board, 'startCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is already carried by job job-42' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Enqueue' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(startCard).toHaveBeenCalledWith('0007');
+        expect(await screen.findByText('card 0007 is already carried by job job-42')).toBeTruthy();
+    });
+
+    it('refuses a card whyNotDispatchable rejects, and shows the reason the same way', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+        const startCard = vi.spyOn(wilson.board, 'startCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Enqueue' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(startCard).toHaveBeenCalledWith('0007');
+        expect(await screen.findByText('plan is missing "Acceptance criteria"')).toBeTruthy();
+    });
+});
