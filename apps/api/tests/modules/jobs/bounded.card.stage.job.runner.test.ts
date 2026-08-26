@@ -16,8 +16,9 @@ import type { JobRunner } from '@maroonedsoftware/jobbroker';
 const delayMock = vi.fn(async () => undefined);
 vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
 
-const { AbandonedCardJobsError, BoundedCardStageJobRunner } = await import('#modules/jobs/jobs.module.js');
+const { AbandonedCardJobsError, BoundedCardStageJobRunner, CARD_STAGE_WORKER } = await import('#modules/jobs/jobs.module.js');
 const { RunningCards } = await import('#modules/jobs/running.cards.js');
+const { CARD_STAGE_CONCURRENCY } = await import('#modules/settings/card.stage.concurrency.setting.js');
 
 type FakeCardJobs = { confirmInFlightAfterStop: ReturnType<typeof vi.fn> };
 const fakeCardJobs = (outcomes: Record<string, string | undefined> = {}): FakeCardJobs => ({
@@ -61,6 +62,20 @@ const fakeSettings = (): import('#modules/settings/settings.store.js').SettingsS
 
 const fakeLogger = (): import('@maroonedsoftware/logger').Logger =>
     ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) as unknown as import('@maroonedsoftware/logger').Logger;
+
+/**
+ * A `SettingsStore` fake keyed by `overrides`, falling back to each definition's own coded default
+ * otherwise — lets a test pin `CARD_STAGE_CONCURRENCY` to a specific "desired" value while
+ * `POLLER_INTERVAL_MS` (also read by this class, for the watcher's own cadence) still resolves to
+ * something sane.
+ */
+const fakeSettingsFor = (overrides: Record<string, unknown>): import('#modules/settings/settings.store.js').SettingsStore =>
+    ({
+        get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+            Object.prototype.hasOwnProperty.call(overrides, definition.key) ? overrides[definition.key] : definition.defaultValue,
+        ),
+        set: vi.fn(async () => undefined),
+    }) as unknown as import('#modules/settings/settings.store.js').SettingsStore;
 
 /**
  * `BoundedCardStageJobRunner` is exported now (card 0106), specifically so a test can construct one
@@ -169,5 +184,109 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), fakePollerSettings(), fakeSettings(), fakeLogger());
 
         await expect(runner.stop()).resolves.toBeUndefined();
+    });
+});
+
+/**
+ * Constraint: "Changing concurrency must not disturb running stages ... Lowering it while three
+ * stages run must let those three finish; it governs what starts next, not what is already going."
+ * Acceptance criterion: "Setting concurrency below the number of running stages leaves those stages
+ * running to completion — asserted, not assumed."
+ *
+ * `reconcileConcurrency` is the private method `watchConcurrency`'s own loop calls on every tick
+ * (jobs.module.ts) — reached directly here, the same way `poller.test.ts` reaches `Poller`'s private
+ * `tick()`, for a deterministic, single-shot check instead of racing the mocked `delay` loop
+ * `start()`/`stop()` drive. `appliedConcurrency` is likewise poked directly: it is a private field
+ * this class initialises from the shared, module-level `CARD_STAGE_WORKER` object, so setting it
+ * (and that object's `.concurrency`) explicitly up front is what makes each test's "currently
+ * applied" starting point exact rather than whatever an earlier test in this file left behind.
+ */
+describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)', () => {
+    const reconcile = (runner: InstanceType<typeof BoundedCardStageJobRunner>): Promise<void> =>
+        (runner as unknown as { reconcileConcurrency: () => Promise<void> }).reconcileConcurrency();
+    const applied = (runner: InstanceType<typeof BoundedCardStageJobRunner>): number =>
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency;
+
+    it('leaves a running stage alone and defers the change when RunningCards is non-empty', async () => {
+        const inner = fakeInnerRunner();
+        const poller = fakePoller();
+        const running = new RunningCards();
+        running.add('0099');
+        const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, running, fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+        CARD_STAGE_WORKER.concurrency = 3;
+
+        await reconcile(runner);
+
+        // Nothing touched: no restart of the (still busy) inner runner, no poller pause, and the
+        // desired value of 1 is not yet in force — 0099 is still running at the concurrency it
+        // started under.
+        expect(inner.stop).not.toHaveBeenCalled();
+        expect(inner.start).not.toHaveBeenCalled();
+        expect(poller.stop).not.toHaveBeenCalled();
+        expect(CARD_STAGE_WORKER.concurrency).toBe(3);
+        expect(applied(runner)).toBe(3);
+        expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('applies a changed concurrency once the queue is genuinely idle', async () => {
+        const order: string[] = [];
+        const inner = fakeInnerRunner(order);
+        const poller = fakePoller(order);
+        const pollerSettings = fakePollerSettings(order);
+        const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, pollerSettings, settings, logger);
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+        CARD_STAGE_WORKER.concurrency = 3;
+
+        await reconcile(runner);
+
+        // The only moment this class treats a restart as safe: pause the poller, cycle the inner
+        // runner (which is what makes pg-boss re-read CARD_STAGE_WORKER.concurrency), then restore
+        // the poller's own on/off state — in that order.
+        expect(order).toEqual(['poller.stop', 'inner.stop', 'inner.start', 'pollerSettings.applyCurrentValue']);
+        expect(CARD_STAGE_WORKER.concurrency).toBe(1);
+        expect(applied(runner)).toBe(1);
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('applied 1'));
+    });
+
+    it('does nothing at all when the setting has not actually changed', async () => {
+        const inner = fakeInnerRunner();
+        const poller = fakePoller();
+        const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 3 });
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+        CARD_STAGE_WORKER.concurrency = 3;
+
+        await reconcile(runner);
+
+        expect(inner.stop).not.toHaveBeenCalled();
+        expect(inner.start).not.toHaveBeenCalled();
+        expect(poller.stop).not.toHaveBeenCalled();
+        expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('catches a settings-read failure and logs it, rather than throwing out of the watcher loop', async () => {
+        const inner = fakeInnerRunner();
+        const poller = fakePoller();
+        const settings = {
+            get: vi.fn(async () => {
+                throw new Error('settings table unreachable');
+            }),
+            set: vi.fn(async () => undefined),
+        } as unknown as import('#modules/settings/settings.store.js').SettingsStore;
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+
+        await expect(reconcile(runner)).resolves.toBeUndefined();
+
+        expect(logger.error).toHaveBeenCalledWith(expect.any(Error));
+        expect(inner.stop).not.toHaveBeenCalled();
+        expect(poller.stop).not.toHaveBeenCalled();
     });
 });
