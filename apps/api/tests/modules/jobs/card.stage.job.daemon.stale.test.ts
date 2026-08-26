@@ -56,6 +56,53 @@ const commit = async (codeRoot: string, contents: string, message: string): Prom
 };
 
 /**
+ * Card 0100. Deliberately the first describe in this file to touch `buildHead`: like
+ * `commitsBehind`'s own "before capture" case in health.service.test.ts, `head` in build.info.ts is a
+ * module-scoped, process-lifetime cache that nothing resets, and this file runs isolated per test
+ * file (vitest's `pool: 'forks'`, apps/api/vitest.config.ts) — so `buildHead()` is genuinely
+ * `'unknown'` here, before the describe below ever calls `captureBuildHead` in its `beforeAll`. This
+ * covers `checkDaemonCurrent`'s own guard (`if (buildHead() === 'unknown') return;`,
+ * card.stage.job.ts) directly: before this process has captured its own commit — the window between
+ * boot and `captureBuildHead` resolving — dispatch must proceed with no staleness claim, since there
+ * is nothing yet to compare `codeRoot`'s HEAD against.
+ */
+describe('CardStageJob before the daemon has captured its own commit (card 0100)', () => {
+    it('appends no daemon.stale event and dispatches anyway', async () => {
+        const base = await mkdtemp(join(tmpdir(), 'card-stage-job-daemon-unknown-'));
+        const codeRoot = join(base, 'code');
+        await mkdir(codeRoot, { recursive: true });
+        await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+        await commit(codeRoot, 'one\n', 'first');
+
+        const boardRoot = join(base, 'board');
+        await mkdir(join(boardRoot, 'config'), { recursive: true });
+        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
+
+        const board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        const dispatcher = { run: vi.fn(async () => outcome()) };
+        const broker = { send: vi.fn(async () => 'job-1') };
+        const events = { append: vi.fn(async () => {}) };
+        const boardRepo = { write: vi.fn(async () => 'sha') };
+        const cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
+
+        const job = new CardStageJob(
+            dispatcher as unknown as StageDispatcher,
+            broker as unknown as JobBroker,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(events.append.mock.calls.map(c => c[0]).filter((e: { type: string }) => e.type === 'daemon.stale')).toEqual([]);
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
+    });
+});
+
+/**
  * Card 0100. Nothing checked, at the moment it actually mattered, whether this process was running
  * current code before it dispatched a card — `wilson doctor`'s `daemonCurrent` only ever caught it
  * when a human happened to run it, and a merge (the moment staleness is created) is the steady state
@@ -162,5 +209,31 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(daemonStaleEvents()).toEqual([]);
+    });
+
+    it('appends nothing and dispatches anyway when codeRoot cannot answer the git question at all', async () => {
+        // A `codeRoot` `git rev-parse HEAD` can't answer — not a git repo — must fail the same way
+        // `commitsBehind`'s own unreachable-`codeRoot` case does: "cannot tell" is not "stale", so
+        // `checkDaemonCurrent`'s `baseSha` guard swallows it and dispatch proceeds untouched.
+        const base = await mkdtemp(join(tmpdir(), 'card-stage-job-daemon-stale-nogit-'));
+        const notGitCodeRoot = join(base, 'not-a-repo');
+        await mkdir(notGitCodeRoot, { recursive: true });
+
+        const noGitBoard = new StaticBoardConfig(
+            'test',
+            board.boardRoot,
+            notGitCodeRoot,
+            join(base, 'worktrees'),
+            join(base, 'run'),
+        );
+
+        dispatcher = { run: vi.fn(async () => outcome()) };
+        events = { append: vi.fn(async () => {}) };
+        board = noGitBoard;
+        const job = buildJob();
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(daemonStaleEvents()).toEqual([]);
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
     });
 });
