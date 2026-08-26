@@ -28,7 +28,7 @@ export class ApiStageAgent extends StageAgent {
         super();
     }
 
-    async run({ stage, context, planPath, title, resultSchema }: AgentRunInput): Promise<AgentRunOutput> {
+    async run({ stage, context, planPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
         const canWrite = stage.worktree === 'rw';
         // Same signal `TestingVerifier.checkCounts` itself keys off — see the matching comment in
         // `cli.stage.agent.ts`. Gates the "don't leave an it.skip behind" warning below, which only
@@ -69,6 +69,9 @@ export class ApiStageAgent extends StageAgent {
                     `change, and its "Out of scope" is binding even where you could technically make the change.`,
                     '',
                     `You are working in a git worktree at ${context.worktreeRoot}. Every other tool path is relative to it.`,
+                    '',
+                    `\`git diff ${baseSha}\` is the card's whole diff across every stage — this is what the`,
+                    `verifier measures and what a finding must cite.`,
                     '',
                     'Implement the plan, then return the structured result.',
                 ].join('\n'),

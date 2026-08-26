@@ -305,4 +305,30 @@ export class WorktreeManager {
 
         return [...new Set([...tracked, ...untracked])].sort();
     }
+
+    /**
+     * Paths *added* since the branch was cut, relative to the worktree root — tracked adds from
+     * `git diff --name-status` plus untracked files, excluding a pre-existing file this card only
+     * modified. Distinct from `changedPaths`, which is every kind of change; this narrower list is
+     * what `TestingVerifier` needs to judge the test files this card actually wrote, as opposed to
+     * one it touched. Kept here rather than left as a direct `git` call in `testing.verifier.ts` so
+     * `worktree.baseSha` is dereferenced in one file, not two (PROJECT.md: one basis for the diff).
+     */
+    async addedPaths(worktree: Worktree): Promise<string[]> {
+        const { stdout } = await git(worktree.path, ['diff', '--name-status', worktree.baseSha, '--']);
+        const added = stdout
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .filter(line => line.startsWith('A'))
+            .map(line => line.split('\t').pop() as string);
+
+        const { stdout: untrackedOut } = await git(worktree.path, ['ls-files', '--others', '--exclude-standard']);
+        const untracked = untrackedOut
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+
+        return [...added, ...untracked];
+    }
 }

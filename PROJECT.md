@@ -405,6 +405,13 @@ Two different questions, and conflating them strands cards.
 it has changed across every stage. That is the right basis for a review's finding
 provenance, which is a claim about the card's diff.
 
+The fork point is `Worktree.baseSha`: the commit `create` cut the branch from, kept
+current on a resumed branch by `rebaseOntoHead`. It is the one basis every verifier
+measures a card's diff against, and it is what the runner tells the agent to run
+`git diff` against — a two-dot `git diff main` is not the same thing on a branch whose
+base has moved, since main's newer commits then render as deletions on the card's own
+branch rather than as the unrelated changes they are.
+
 `uncommittedPaths` describes **this stage's own work**. Since a stage only commits on
 pass, at verification time what it wrote is exactly what is uncommitted. That is the
 right basis for scope enforcement.

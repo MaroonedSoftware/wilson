@@ -671,7 +671,7 @@ export class StageDispatcher {
             );
         }
 
-        const run = await adapter.run({ stage, context, planPath, title: card.frontmatter.title, resultSchema });
+        const run = await adapter.run({ stage, context, planPath, title: card.frontmatter.title, resultSchema, baseSha: worktree.baseSha });
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
         if (!verifier) {
