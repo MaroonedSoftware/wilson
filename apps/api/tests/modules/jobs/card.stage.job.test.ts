@@ -126,6 +126,59 @@ describe('CardStageJob', () => {
         expect(cardJobs.clear).toHaveBeenCalledWith('0001');
     });
 
+    /**
+     * Card 0102. A handler can still be running after `runner.stop()` has already returned, and
+     * `broker.send` throws against pg-boss's now-closed connection on the exact path every
+     * multi-stage card takes on every transition. The stage above already passed and its transition
+     * is already written by this point, so the job must not be retried and the card must not be
+     * touched — only the failed handoff gets recorded, in a state the poller (or a human) can see
+     * and recover from.
+     */
+    describe('the next job cannot be enqueued (card 0102)', () => {
+        it('does not throw when broker.send fails to hand off the chain, so the queue does not retry it', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
+            broker.send.mockRejectedValue(new Error('Database connection is not opened'));
+
+            await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+        });
+
+        it('records a chain.orphaned event naming the stage the card landed on and why the handoff failed', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
+            broker.send.mockRejectedValue(new Error('Database connection is not opened'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    project: 'test',
+                    cardId: '0001',
+                    stage: 'implementing',
+                    type: 'chain.orphaned',
+                    payload: { target: 'testing', reason: 'Database connection is not opened' },
+                }),
+            );
+        });
+
+        it('does not record a claim for a job that was never enqueued', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
+            broker.send.mockRejectedValue(new Error('Database connection is not opened'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(cardJobs.record).not.toHaveBeenCalled();
+        });
+
+        it('does not poison the card or write the board when the handoff fails', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
+            broker.send.mockRejectedValue(new Error('Database connection is not opened'));
+
+            await job.run({ cardId: '0001', stageName: 'implementing' });
+
+            expect(boardRepo.write).not.toHaveBeenCalled();
+            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.poisoned');
+        });
+    });
+
     it('re-enqueues on a kickback to an earlier agent stage rather than treating it as terminal', async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'implementing' }));
 

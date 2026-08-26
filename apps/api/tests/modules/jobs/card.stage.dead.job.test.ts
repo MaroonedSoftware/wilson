@@ -110,6 +110,52 @@ describe('CardStageDeadJob', () => {
 
             expect(cardJobs.clear).toHaveBeenCalledWith('0001');
         });
+
+        /**
+         * Card 0102. This job can itself be running past `runner.stop()`, the same way `CardStageJob`
+         * can, so `getJobById` can throw on a connection pg-boss already closed. That loses the
+         * failure reason, not the chain: the card still gets poisoned, but with a reason that says
+         * the output could not be read rather than one that reads like the dispatcher's own failure.
+         */
+        describe('getJobById fails to read the dead-letter output (card 0102)', () => {
+            beforeEach(() => {
+                pgboss.getJobById.mockRejectedValue(new Error('Database connection is not opened'));
+            });
+
+            it('does not throw, so the dead-letter job still completes', async () => {
+                await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
+            });
+
+            it('still appends stage.dead, with a reason that says the output could not be read', async () => {
+                await job.run({ cardId: '0001', stageName: 'implementing' });
+
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        type: 'stage.dead',
+                        payload: {
+                            jobId: 'dead-job-1',
+                            reason: 'could not read the dead-letter output: Database connection is not opened',
+                        },
+                    }),
+                );
+            });
+
+            it('still poisons the card, with the same could-not-read reason rather than a fabricated one', async () => {
+                await job.run({ cardId: '0001', stageName: 'implementing' });
+
+                expect(boardRepo.write).toHaveBeenCalledTimes(1);
+                const mutate = boardRepo.write.mock.calls[0][2];
+                const written = await mutate(card('implementing'));
+                expect(written.frontmatter.stage).toBe('poisoned');
+                expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
+            });
+
+            it('still releases the claim', async () => {
+                await job.run({ cardId: '0001', stageName: 'implementing' });
+
+                expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+            });
+        });
     });
 
     describe('card that already moved on before the dead row was read', () => {
