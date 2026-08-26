@@ -59,7 +59,7 @@ describe('startCardFeedListener', () => {
     it('republishes an appended event onto the card feed, as the type/stage/payload the route needs', async () => {
         const project = uniqueProject();
         const cardId = '0001';
-        const eventLog = new EventLog(db);
+        const eventLog = new EventLog(db, silentLogger);
 
         // Filtered by `source` (the project — unique per test call) as well as `correlationId`:
         // the underlying Postgres channel is shared by the whole test database, so another test
@@ -87,6 +87,40 @@ describe('startCardFeedListener', () => {
     });
 
     /**
+     * The case card 0105 hit: a `stage.passed` payload large enough to blow through Postgres's
+     * 8000-byte NOTIFY cap. `EventLog.append` now puts only identity on the channel (see its
+     * `pg_notify` call), and this listener reads the row back by id — so the bridged event carries
+     * the payload in full, not the truncated stand-in the old stopgap produced.
+     */
+    it('carries a payload well past the old 8000-byte NOTIFY limit onto the card feed, in full', async () => {
+        const project = uniqueProject();
+        const cardId = '0003';
+        const eventLog = new EventLog(db, silentLogger);
+        const bigPayload = { result: 'x'.repeat(20000) };
+
+        const seen = new Promise(resolve => {
+            const unsubscribe = cardFeed.onEvent({ source: project, correlationId: cardId }, event => {
+                unsubscribe();
+                resolve(event);
+            });
+        });
+
+        await eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.passed', payload: bigPayload });
+
+        const event = await Promise.race([
+            seen,
+            new Promise((_resolve, reject) => setTimeout(() => reject(new Error('bridged event never arrived')), 3000)),
+        ]);
+
+        expect(event).toMatchObject({
+            source: project,
+            correlationId: cardId,
+            message: 'stage.passed',
+            data: { stage: 'implementing', payload: bigPayload },
+        });
+    });
+
+    /**
      * The acceptance criterion in the plan's own words: "a client connecting after a transition
      * receives current state without replaying earlier events." This is what makes that possible
      * — the bridged event has to land in the feed's latest-per-key snapshot, not just fire past
@@ -95,7 +129,7 @@ describe('startCardFeedListener', () => {
     it('updates the feed snapshot for the card, so a late subscriber sees the transition without replay', async () => {
         const project = uniqueProject();
         const cardId = '0002';
-        const eventLog = new EventLog(db);
+        const eventLog = new EventLog(db, silentLogger);
 
         await eventLog.append({ project, cardId, stage: 'testing', type: 'transition.written', payload: {} });
 
