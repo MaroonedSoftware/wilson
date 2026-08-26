@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import type { CardEvent, CardSummary } from '@wilson/sdk';
-import { filesInScope, nextCard, timeInCurrentStage, unsatisfiedDependencies } from '../../../../packages/cli/src/board-view.js';
+import {
+    deadDependencies,
+    deadStages,
+    describeDependency,
+    filesInScope,
+    nextCard,
+    timeInCurrentStage,
+    unsatisfiedDependencies,
+} from '../../../../packages/cli/src/board-view.js';
 
 // Card 0078 gives the CLI its own copy of a handful of pure functions it used to import from
 // `@wilson/api/cli-bootstrap` (`unsatisfiedDependencies`/`nextCard` from
@@ -43,6 +51,73 @@ describe('unsatisfiedDependencies', () => {
     it('preserves the order dependencies are listed in, filtering out only the finished ones', () => {
         const cards = [card({ id: '0002', stage: 'merged' }), card({ id: '0003', stage: 'implementing' })];
         expect(unsatisfiedDependencies(card({ dependsOn: ['0003', '0002', '0099'] }), cards)).toEqual(['0003', '0099']);
+    });
+});
+
+describe('deadStages', () => {
+    it('keeps a terminal-but-not-merged state, given the board’s real non-stage list', () => {
+        expect(deadStages(['parking-lot', 'merged', 'poisoned', 'dropped'])).toEqual(['poisoned', 'dropped']);
+    });
+
+    it('excludes merged — a dependency there is satisfied, not dead', () => {
+        expect(deadStages(['merged'])).toEqual([]);
+    });
+
+    it('excludes parking-lot — a card there can still move on, so it is not terminal', () => {
+        expect(deadStages(['parking-lot'])).toEqual([]);
+    });
+
+    it('does not hard-code the set — a differently-named terminal state passes through untouched', () => {
+        expect(deadStages(['parking-lot', 'merged', 'abandoned'])).toEqual(['abandoned']);
+    });
+});
+
+describe('deadDependencies', () => {
+    const nonStages = ['parking-lot', 'merged', 'poisoned', 'dropped'];
+
+    it('reports a dependency sitting in dropped', () => {
+        const dep = card({ id: '0085', stage: 'dropped' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual(['0085']);
+    });
+
+    it('reports a dependency sitting in poisoned', () => {
+        const dep = card({ id: '0085', stage: 'poisoned' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual(['0085']);
+    });
+
+    it('does not report a dependency still in progress — unsatisfied is not dead', () => {
+        const dep = card({ id: '0085', stage: 'implementing' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual([]);
+    });
+
+    it('does not report a merged dependency', () => {
+        const dep = card({ id: '0085', stage: 'merged' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual([]);
+    });
+
+    it('does not report a dependency missing from the board entirely', () => {
+        expect(deadDependencies(card({ dependsOn: ['0099'] }), [], nonStages)).toEqual([]);
+    });
+
+    it('picks only the dead ones out of a mix, preserving dependsOn order', () => {
+        const cards = [
+            card({ id: '0002', stage: 'merged' }),
+            card({ id: '0003', stage: 'dropped' }),
+            card({ id: '0004', stage: 'implementing' }),
+        ];
+        expect(deadDependencies(card({ dependsOn: ['0004', '0003', '0002'] }), cards, nonStages)).toEqual(['0003']);
+    });
+});
+
+describe('describeDependency', () => {
+    it('names the stage on a dead dependency', () => {
+        const dep = card({ id: '0085', stage: 'dropped' });
+        expect(describeDependency('0085', [dep], ['0085'])).toBe('0085 (dropped — will never merge)');
+    });
+
+    it('returns the bare id for a dependency that is not dead', () => {
+        const dep = card({ id: '0085', stage: 'implementing' });
+        expect(describeDependency('0085', [dep], [])).toBe('0085');
     });
 });
 
