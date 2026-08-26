@@ -48,7 +48,10 @@ const makeStage = (overrides = {}) => ({
     ...overrides,
 });
 
-const fakeContext = { worktreeRoot: '/tmp/worktree' };
+// `events` is a required stub, not an unused one: card 0126's turn.empty detection appends an
+// event whenever a run ends cleanly with no tool call and nothing reported, which several of this
+// file's fixtures do on purpose to exercise the budget wiring in isolation.
+const fakeContext = { worktreeRoot: '/tmp/worktree', events: { append: async () => {} } };
 const resultSchema = z.object({ summary: z.string().optional() });
 
 const runInput = (stage: ReturnType<typeof makeStage>) => ({

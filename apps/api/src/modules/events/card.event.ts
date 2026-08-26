@@ -83,6 +83,23 @@ export type CardEventType =
     // event is the only signal an operator gets that the chain did not carry itself forward.
     | 'chain.orphaned'
     | 'engine.failed'
+    // Card 0126. The `cli` adapter's engine ended its turn cleanly (`subtype: 'success'`) having
+    // called no tool at all — not even its own `report_result` — the shape shared by fifteen prior
+    // instances (cards 0010 through 0117) that a stage ended its turn without calling
+    // `report_result` and left an empty diff, most of them with no recorded reason at all until
+    // card 0118 added `engineStopReason`. Appended by `CliStageAgent.run` itself, from inside the
+    // run, rather than reconstructed afterwards from an empty diff and a missing report — see
+    // `cli.stage.agent.ts`'s detection of it for why this one shape gets its own event instead of
+    // being left to the generic `engineStopReason` text already carried on `stage.failed`: a count
+    // of this type answers "how many times has exactly this happened" without re-parsing that
+    // string off every card it appears on. Distinct from a stage that ran tools (wrote files, ran
+    // a build) and merely forgot the final report call — that stage's `engineStopReason` looks the
+    // same but `anyToolSeen` does not, and only the zero-tool-calls shape is recorded here, per
+    // card 0126's "one reason so far" constraint. Payload carries `engineStopReason`, the same
+    // SDK subtype/stop_reason text `describeEngineStop` produces. Never retried from here — the
+    // stage still fails exactly as it did before this card (exit conditions are unchanged); this
+    // is visibility recorded sooner, not a recovery attempt.
+    | 'turn.empty'
     | 'tool.denied'
     // The counterpart to `tool.denied`: a mutation or command that was allowed and actually ran,
     // carrying the same `tool` key plus `path` or `command` so the two read as one stream. One type
