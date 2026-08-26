@@ -7,7 +7,7 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { loadStages, findStage, validTargets } from '#modules/stages/stage.config.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
-import { RunningCards } from '#modules/jobs/card.stage.job.js';
+import { RunningCards } from '#modules/jobs/running.cards.js';
 import type { CardDetail, CreateCardRequest, MoveCardRequest, EditCardRequest, DependCardRequest, ReleaseResult } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';

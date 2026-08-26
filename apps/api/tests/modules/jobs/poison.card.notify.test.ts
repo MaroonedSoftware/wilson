@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { poisonCard } from '#modules/jobs/card.stage.job.js';
+import { poisonCard } from '#modules/jobs/poison.card.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';

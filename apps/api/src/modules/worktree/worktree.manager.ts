@@ -4,6 +4,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { git } from '#modules/board/git.js';
+import { codeRootLock } from './code.root.lock.js';
 
 export interface Worktree {
     /** Absolute path to the worktree root. Every agent tool is confined to this. */
@@ -51,16 +52,22 @@ export class WorktreeManager {
      * card branched from rather than whatever HEAD has moved to since.
      */
     async create(cardId: string, branch: string, at?: string): Promise<Worktree> {
-        await this.reclaim(cardId);
-        await mkdir(this.config.worktreeRoot, { recursive: true });
+        return codeRootLock.run(
+            `${cardId} worktree create`,
+            message => this.logger.info(message),
+            async () => {
+                await this.reclaimUnlocked(cardId);
+                await mkdir(this.config.worktreeRoot, { recursive: true });
 
-        const path = this.path(cardId);
-        const baseSha = at ?? (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+                const path = this.path(cardId);
+                const baseSha = at ?? (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
 
-        // -B so a leftover branch from a prior attempt is reset to the base rather than colliding.
-        await git(this.config.codeRoot, ['worktree', 'add', '-B', branch, path, baseSha]);
-        this.logger.info(`worktree ${path} on ${branch} at ${baseSha.slice(0, 8)}`);
-        return { path, branch, baseSha };
+                // -B so a leftover branch from a prior attempt is reset to the base rather than colliding.
+                await git(this.config.codeRoot, ['worktree', 'add', '-B', branch, path, baseSha]);
+                this.logger.info(`worktree ${path} on ${branch} at ${baseSha.slice(0, 8)}`);
+                return { path, branch, baseSha };
+            },
+        );
     }
 
     /**
@@ -79,16 +86,22 @@ export class WorktreeManager {
             throw new Error(`this stage resumes the card's branch, but ${branch} has no work on it — has an earlier stage run for this card?`);
         }
 
-        await this.reclaim(cardId);
-        await mkdir(this.config.worktreeRoot, { recursive: true });
+        return codeRootLock.run(
+            `${cardId} worktree resume`,
+            message => this.logger.info(message),
+            async () => {
+                await this.reclaimUnlocked(cardId);
+                await mkdir(this.config.worktreeRoot, { recursive: true });
 
-        const path = this.path(cardId);
-        const baseSha = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
+                const path = this.path(cardId);
+                const baseSha = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
 
-        // No -B: the branch stays exactly where the previous stage left it.
-        await git(this.config.codeRoot, ['worktree', 'add', path, branch]);
-        this.logger.info(`worktree ${path} resumed on ${branch}, forked at ${baseSha.slice(0, 8)}`);
-        return { path, branch, baseSha };
+                // No -B: the branch stays exactly where the previous stage left it.
+                await git(this.config.codeRoot, ['worktree', 'add', path, branch]);
+                this.logger.info(`worktree ${path} resumed on ${branch}, forked at ${baseSha.slice(0, 8)}`);
+                return { path, branch, baseSha };
+            },
+        );
     }
 
     /**
@@ -111,6 +124,22 @@ export class WorktreeManager {
 
     /** Remove a card's worktree and its git bookkeeping. Safe to call when there is nothing there. */
     async reclaim(cardId: string): Promise<void> {
+        await codeRootLock.run(
+            `${cardId} worktree reclaim`,
+            message => this.logger.info(message),
+            () => this.reclaimUnlocked(cardId),
+        );
+    }
+
+    /**
+     * `reclaim`'s body, without taking `codeRootLock`.
+     *
+     * `create` and `resume` both start by reclaiming, and both already hold the lock by the time
+     * they do — `Mutex` is deliberately not reentrant (see its doc comment), so calling the public
+     * `reclaim` from inside them would deadlock rather than nest. Splitting it is the whole cost of
+     * that choice, and it buys the lock the ability to tell a second caller from its own holder.
+     */
+    private async reclaimUnlocked(cardId: string): Promise<void> {
         const path = this.path(cardId);
         await git(this.config.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);
         await rm(path, { recursive: true, force: true });

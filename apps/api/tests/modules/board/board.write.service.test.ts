@@ -10,7 +10,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
-import { RunningCards } from '#modules/jobs/card.stage.job.js';
+import { RunningCards } from '#modules/jobs/running.cards.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
