@@ -5,7 +5,7 @@ import { PgBossJobRegistryMap } from '@maroonedsoftware/jobbroker/pgboss';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import type { Container, Identifier, Registry } from 'injectkit';
 import { CARD_STAGE_DEAD_POLICY, CARD_STAGE_POLICY, CARD_STAGE_WORKER, JobsModule } from '#modules/jobs/jobs.module.js';
-import { CARD_STAGE_CONCURRENCY } from '#modules/jobs/job.runner.config.js';
+import { CARD_STAGE_CONCURRENCY_DEFAULT } from '#modules/jobs/job.runner.config.js';
 
 /**
  * Card 0044: `retryLimit` moved from 2 to 3. pg-boss's own expiry sweep and its shutdown-while-active
@@ -53,21 +53,27 @@ describe('CARD_STAGE_DEAD_POLICY', () => {
  * Now 2, deliberately, once the two things that made concurrency unsafe were fixed: card 0045
  * stopped stage commands inheriting the server's environment, and card 0081 locked every `pnpm
  * install`. Pinned here so the number moves on purpose rather than by accident.
+ *
+ * Card 0115 turned this from a constant a change required a deploy for into `card-stage-concurrency`,
+ * a `SettingsStore` row falling back to environment then coded default — that coded default is
+ * `CARD_STAGE_CONCURRENCY_DEFAULT`, still 3, still what a fresh database and an unset environment
+ * resolve to.
  */
-describe('CARD_STAGE_CONCURRENCY', () => {
-    it('is 3, the number of stages this runner runs at once', () => {
-        expect(CARD_STAGE_CONCURRENCY).toBe(3);
+describe('CARD_STAGE_CONCURRENCY_DEFAULT', () => {
+    it('is 3, the number of stages this runner runs at once absent a database row or environment override', () => {
+        expect(CARD_STAGE_CONCURRENCY_DEFAULT).toBe(3);
     });
 });
 
 /**
- * The worker policy is what makes `CARD_STAGE_CONCURRENCY` load-bearing instead of descriptive:
- * jobbroker passes it to `pgboss.work` as `localConcurrency`. If these two ever drift apart, the
- * constant goes back to being a comment about a number nothing reads — so this pins them together.
+ * The worker policy is what makes `CARD_STAGE_CONCURRENCY_DEFAULT` load-bearing instead of
+ * descriptive: jobbroker passes it to `pgboss.work` as `localConcurrency`. If these two ever drift
+ * apart, the constant goes back to being a comment about a number nothing reads — so this pins them
+ * together.
  */
 describe('CARD_STAGE_WORKER', () => {
-    it('runs card.stage at CARD_STAGE_CONCURRENCY, so the constant is the number the queue uses', () => {
-        expect(CARD_STAGE_WORKER.concurrency).toBe(CARD_STAGE_CONCURRENCY);
+    it('runs card.stage at CARD_STAGE_CONCURRENCY_DEFAULT, so the constant is the number the queue starts with', () => {
+        expect(CARD_STAGE_WORKER.concurrency).toBe(CARD_STAGE_CONCURRENCY_DEFAULT);
     });
 
     it('leaves batchSize and pollInterval to pg-boss defaults, since only concurrency is a deliberate call here', () => {
@@ -145,10 +151,10 @@ describe('JobsModule.start', () => {
 
         await JobsModule.start!(fakeContainer(logger, jobRunner), new AbortController().signal);
 
-        expect(info).toHaveBeenCalledWith(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY}`);
+        expect(info).toHaveBeenCalledWith(`card.stage concurrency: ${CARD_STAGE_CONCURRENCY_DEFAULT}`);
     });
 
-    it('logs the concurrency before starting the runner, not after', async () => {
+    it('logs the concurrency after starting the runner, not before', async () => {
         const order: string[] = [];
         const logger = { info: () => order.push('logged'), warn: () => {}, error: () => {}, debug: () => {} };
         const jobRunner = {
@@ -160,10 +166,14 @@ describe('JobsModule.start', () => {
 
         await JobsModule.start!(fakeContainer(logger, jobRunner), new AbortController().signal);
 
-        expect(order).toEqual(['logged', 'started']);
+        // Card 0115: only after `BoundedCardStageJobRunner.start()` returns has it resolved the
+        // `card-stage-concurrency` setting and written it onto `CARD_STAGE_WORKER`, so logging before
+        // that would report what the constant defaults to rather than what this daemon actually
+        // chose.
+        expect(order).toEqual(['started', 'logged']);
     });
 
-    it('still starts the runner even though logging happens first', async () => {
+    it('still starts the runner even though logging happens after', async () => {
         const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
         const start = vi.fn(async () => {});
         const jobRunner = { start, stop: vi.fn(async () => {}) };

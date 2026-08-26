@@ -7,6 +7,11 @@ import type { JobRunner } from '@maroonedsoftware/jobbroker';
  * a real 35s `delay(SHUTDOWN_DEADLINE_MS)` — every fake `inner.stop()` below resolves immediately, so
  * that race is never actually decided by the timer, but leaving the real `setTimeout` unmocked would
  * still schedule a genuine 35s timer in the background of every test in this file.
+ *
+ * Card 0115's `startConcurrencyWatcher`/`watchConcurrency` also call this same `delay` on its own
+ * loop, resolving instantly here too — a `start()` test that never calls `stop()` afterwards would
+ * otherwise leave that loop spinning in the background for the rest of the suite, so every test below
+ * that calls `start()` also calls `stop()` before it ends.
  */
 const delayMock = vi.fn(async () => undefined);
 vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
@@ -44,6 +49,20 @@ const fakePollerSettings = (order?: string[]) =>
     }) as unknown as import('#modules/settings/poller.setting.service.js').PollerSettingService;
 
 /**
+ * A `SettingsStore` fake for the two settings `BoundedCardStageJobRunner` reads
+ * (`CARD_STAGE_CONCURRENCY`, `POLLER_INTERVAL_MS`, card 0115): resolves each to its own coded
+ * default, keyed by `key` so the two never collide.
+ */
+const fakeSettings = (): import('#modules/settings/settings.store.js').SettingsStore =>
+    ({
+        get: vi.fn(async (definition: { defaultValue: unknown }) => definition.defaultValue),
+        set: vi.fn(async () => undefined),
+    }) as unknown as import('#modules/settings/settings.store.js').SettingsStore;
+
+const fakeLogger = (): import('@maroonedsoftware/logger').Logger =>
+    ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) as unknown as import('@maroonedsoftware/logger').Logger;
+
+/**
  * `BoundedCardStageJobRunner` is exported now (card 0106), specifically so a test can construct one
  * directly against fakes — the comment on the class in `jobs.module.ts` says so explicitly.
  */
@@ -52,11 +71,24 @@ describe('BoundedCardStageJobRunner.start', () => {
         const order: string[] = [];
         const inner = fakeInnerRunner(order);
         const pollerSettings = fakePollerSettings(order);
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), pollerSettings);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            fakePoller(),
+            pollerSettings,
+            fakeSettings(),
+            fakeLogger(),
+        );
 
         await runner.start();
 
         expect(order).toEqual(['pollerSettings.applyCurrentValue', 'inner.start']);
+
+        // start() also kicks off card 0115's concurrency-watcher loop in the background — stop it
+        // here so it does not keep spinning (on the mocked, instantly-resolving delay) after this
+        // test ends. See the file-level comment on `delayMock`.
+        await runner.stop();
     });
 
     /**
@@ -70,7 +102,15 @@ describe('BoundedCardStageJobRunner.start', () => {
                 throw new Error('settings table unreachable');
             }),
         } as unknown as import('#modules/settings/poller.setting.service.js').PollerSettingService;
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), pollerSettings);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            fakePoller(),
+            pollerSettings,
+            fakeSettings(),
+            fakeLogger(),
+        );
 
         await expect(runner.start()).rejects.toThrow('settings table unreachable');
         expect(inner.start).not.toHaveBeenCalled();
@@ -82,7 +122,7 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const order: string[] = [];
         const inner = fakeInnerRunner(order);
         const poller = fakePoller(order);
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings());
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
 
         await runner.stop();
 
@@ -98,7 +138,7 @@ describe('BoundedCardStageJobRunner.stop', () => {
     it('always stops the poller, unconditionally — not only when something is running', async () => {
         const inner = fakeInnerRunner();
         const poller = fakePoller();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings());
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
 
         await runner.stop();
 
@@ -117,7 +157,7 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const running = new RunningCards();
         running.add('0099');
         const cardJobs = fakeCardJobs({ '0099': 'job-77' });
-        const runner = new BoundedCardStageJobRunner(inner, running, cardJobs as never, poller, fakePollerSettings());
+        const runner = new BoundedCardStageJobRunner(inner, running, cardJobs as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
 
         await expect(runner.stop()).rejects.toThrow(AbandonedCardJobsError);
         expect(poller.stop).toHaveBeenCalledTimes(1);
@@ -126,7 +166,7 @@ describe('BoundedCardStageJobRunner.stop', () => {
 
     it('resolves cleanly when nothing was abandoned', async () => {
         const inner = fakeInnerRunner();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), fakePollerSettings());
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), fakePollerSettings(), fakeSettings(), fakeLogger());
 
         await expect(runner.stop()).resolves.toBeUndefined();
     });
