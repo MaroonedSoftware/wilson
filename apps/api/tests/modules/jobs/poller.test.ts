@@ -486,6 +486,42 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         expect(board.writeWithEvent).not.toHaveBeenCalled();
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
     });
+
+    /**
+     * "One candidate per tick, never more" applies to `backlog` exactly as it does to the ordinary
+     * enqueue path: advancing `0001` must `return` immediately rather than falling through and also
+     * advancing `0002` in the same tick, even though both are free, workable backlog candidates.
+     */
+    it('advances only the lowest-id backlog candidate per tick, leaving a second free one behind it untouched', async () => {
+        const cards = [card('0001', 'backlog'), card('0002', 'backlog')];
+        const { poller, board, broker } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).toHaveBeenCalledTimes(1);
+        expect(board.writeWithEvent).toHaveBeenCalledWith('0001', expect.any(String), expect.any(Function), expect.anything());
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check' });
+    });
+
+    /**
+     * The in-flight fallthrough (`does not advance a backlog card something already holds a claim
+     * on`, above) is proven there against a non-backlog card behind it. This proves the same
+     * `continue` also reaches a *second* backlog candidate correctly — advancing it, at its own
+     * `onPass` target, rather than stopping the walk once the first backlog card is skipped.
+     */
+    it('falls through an in-flight backlog card to a second, free backlog candidate behind it', async () => {
+        const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
+        const cards = [card('0001', 'backlog'), card('0002', 'backlog')];
+        const { poller, board, broker, cardJobs: jobs } = buildPoller(cards, { cardJobs });
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).toHaveBeenCalledTimes(1);
+        expect(board.writeWithEvent).toHaveBeenCalledWith('0002', expect.any(String), expect.any(Function), expect.anything());
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'scope-check' });
+        expect(jobs.record).toHaveBeenCalledWith('0002', 'job-1');
+    });
 });
 
 describe('Poller start/stop', () => {

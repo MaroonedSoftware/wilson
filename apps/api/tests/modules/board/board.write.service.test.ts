@@ -627,6 +627,31 @@ describe('BoardWriteService', () => {
             });
         });
 
+        /**
+         * The plan draws this boundary explicitly: "A `parking-lot` → `backlog` promotion... is not
+         * 'approving a plan' in the same sense, [and] goes through plain `wilson card move` instead."
+         * `approve` must refuse a parking-lot card exactly as it refuses any other non-`planning`
+         * stage — the promotion path is `move`, not this thin front door onto it.
+         */
+        it('refuses a parking-lot card too — its promotion into backlog goes through plain `move`, not this front door', async () => {
+            const { board, service } = freshBoard();
+            const planVersion = await board.create(withScope('0056', 'parking-lot'), 'seed');
+
+            await expect(service.approve('0056')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"parking-lot", not "planning"') },
+            });
+            const stored = await board.read('0056');
+            expect(stored.frontmatter.stage).toBe('parking-lot');
+            expect(stored.frontmatter.planVersionId).toBeUndefined();
+
+            // The same card is still promotable — just not through `approve`: plain `move` pins it,
+            // exactly as it does for any other source stage entering `backlog`.
+            const detail = await service.move('0056', { stage: 'backlog' });
+            expect(detail.stage).toBe('backlog');
+            expect((await board.read('0056')).frontmatter.planVersionId).toBe(planVersion);
+        });
+
         it('refuses a planning card whose plan has an empty "Files in scope", writing nothing — the refusal now lives in `move`', async () => {
             const { board, service } = freshBoard();
             await board.create(withScope('0051', 'planning', '## Goal\n\nDo it.\n\n## Files in scope\n\n'), 'seed');
