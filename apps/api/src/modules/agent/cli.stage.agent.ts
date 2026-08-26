@@ -4,7 +4,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH } from './scope.guard.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
@@ -246,7 +246,12 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | undefined;
+        // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
+        // reported at the moment it crossed — the one piece of information the generic
+        // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
+        // figures rather than just "budget exceeded".
+        let contextFailure: string | undefined;
         let stop!: () => void;
         const stopped = new Promise<typeof STOPPED>(resolve => {
             stop = () => resolve(STOPPED);
@@ -268,7 +273,46 @@ export class CliStageAgent extends StageAgent {
         // break and a worse attribution when it wins one.
         const idleGuards = stage.maxIdleMs < stage.maxWallClockMs;
         let idle: NodeJS.Timeout | undefined;
+
+        // Read on the same beat the idle guard uses, rather than plumbing a separate hook: a
+        // message off the stream and a tool call starting are already the only signs of life this
+        // adapter watches for, and a request about to overflow the window is exactly as detectable
+        // at either of those points as an idle engine is. `getContextUsage()` is a control
+        // round-trip, so this fires it without awaiting from `beat()` itself — a stage moving
+        // through many tool calls before the model's next turn must not stack up overlapping
+        // requests on top of one another while the first is still in flight, hence `contextChecking`.
+        let contextChecking = false;
+        const checkContext = (): void => {
+            if (contextChecking || stoppedBecause) return;
+            contextChecking = true;
+            // Called through a resolved promise rather than invoked directly: that turns a call the
+            // running engine itself rejects into the same `.catch()` path below as a stream that
+            // throws synchronously because it does not carry this method at all — a signal `beat()`
+            // must survive either way, since it is invoked from inside the tool guard's callback.
+            Promise.resolve()
+                .then(() => stream.getContextUsage())
+                .then(({ percentage }) => {
+                    const failure = contextBudgetExceeded(stage.maxContextWindowFraction, percentage);
+                    if (failure && !stoppedBecause) {
+                        stoppedBecause = 'context';
+                        contextFailure = failure;
+                        abortController.abort();
+                        stop();
+                    }
+                })
+                .catch(() => {
+                    // The engine may already be tearing down by the time this resolves — an abort or
+                    // a dead stream races this exact call. Nothing to act on either way: a run that
+                    // is already stopping does not need a second reason, and one that is not stopping
+                    // just missed a beat and gets checked again on the next one.
+                })
+                .finally(() => {
+                    contextChecking = false;
+                });
+        };
+
         const beat = (): void => {
+            checkContext();
             if (!idleGuards) return;
             clearTimeout(idle);
             idle = setTimeout(() => {
@@ -278,7 +322,6 @@ export class CliStageAgent extends StageAgent {
             }, stage.maxIdleMs);
             idle.unref();
         };
-        beat();
 
         const stream = query({
             prompt: [
@@ -356,6 +399,9 @@ export class CliStageAgent extends StageAgent {
                 abortController,
             },
         });
+        // Called only now, rather than before `query()`: `beat()` reads context usage off `stream`
+        // itself (`checkContext` above), so the first beat has to follow the assignment above it.
+        beat();
 
         let summary = '';
         let usage: AgentRunOutput['usage'];
@@ -377,18 +423,21 @@ export class CliStageAgent extends StageAgent {
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
                     // No `engineStopReason` here, deliberately: the SDK has said nothing at all yet —
-                    // this fires because *our own* wall-clock or idle timer ran out before a `result`
-                    // message ever arrived, not because the SDK reported an ending. `engineFailure`/
-                    // `budgetFailure` below already say which of our timers it was; there is no SDK
-                    // reason to add alongside them, and inventing one would be worse than the gap
-                    // (card 0118's constraint: a confident wrong reason is worse than none).
+                    // this fires because *our own* wall-clock, idle or context guard ran out before a
+                    // `result` message ever arrived, not because the SDK reported an ending.
+                    // `engineFailure`/`budgetFailure` below already say which of our own controls it
+                    // was; there is no SDK reason to add alongside them, and inventing one would be
+                    // worse than the gap (card 0118's constraint: a confident wrong reason is worse
+                    // than none).
                     return {
                         result: reported ?? (summary ? { summary } : undefined),
                         usage,
                         truncated: true,
                         ...(stoppedBecause === 'silent'
                             ? { engineFailure: engineSilent(stage.maxIdleMs) }
-                            : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
+                            : stoppedBecause === 'context'
+                              ? { budgetFailure: contextFailure }
+                              : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
                         ...droppedField(),
                     };
                 }
@@ -529,6 +578,19 @@ export class CliStageAgent extends StageAgent {
                     usage,
                     truncated: true,
                     engineFailure: engineSilent(stage.maxIdleMs),
+                    ...droppedField(),
+                };
+            }
+            // `abort()` alone was already shown not to reliably unblock a parked read (the comment
+            // by `stoppedBecause`'s declaration above), so this mirrors that same race for the
+            // context guard: usually the `STOPPED` branch above wins it, but should the abort itself
+            // be what unblocks `messages.next()` instead, the reason must not be lost here either.
+            if (stoppedBecause === 'context') {
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    budgetFailure: contextFailure,
                     ...droppedField(),
                 };
             }
