@@ -12,6 +12,17 @@ import { withApi } from '../../api-client.js';
  * the only process that holds a `JobRunner` now (card 0079) — `JobsModule.start` runs it whenever the
  * server boots — and that is what actually picks the job up and runs it; this command does not have
  * to stay alive for that to happen, and the wire contract no longer carries a job id to report back.
+ *
+ * No scope-overlap warning fires here before enqueueing, and none should be added. Card 0069 once had
+ * one in this file, advisory and early; card 0078 removed it converting the CLI to an API client, and
+ * card 0085 then dropped the CLI's `@wilson/api` dependency entirely, so this package cannot import
+ * `patternsOverlap` (`apps/api/src/modules/board/scope.overlap.ts`) even to try. The sharper reason is
+ * the wire contract itself: `CardSummary`/`CardDetail` (`packages/sdk/src/types/board.ts`) carry
+ * neither another card's "Files in scope" nor any in-flight indicator, so there is nothing here to
+ * recompute an overlap *from* without changing that contract, which is a different card. Enqueuing
+ * still always succeeds; a real conflict is caught server-side at dispatch by card 0104's deferral
+ * (`CardStageJob.deferOnScopeConflict`, `apps/api/src/modules/jobs/card.stage.job.ts`), which covers
+ * this command and the poller alike since both arrive as one `card.stage` job.
  */
 const command: CommandModule = {
     description: "Enqueue a card's current stage on the job queue",

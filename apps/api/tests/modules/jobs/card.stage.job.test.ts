@@ -48,7 +48,7 @@ describe('CardStageJob', () => {
     let dispatcher: { run: ReturnType<typeof vi.fn> };
     let broker: { send: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn> };
-    let boardRepo: { write: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn>; read: ReturnType<typeof vi.fn> };
     let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
     let job: CardStageJob;
 
@@ -62,7 +62,11 @@ describe('CardStageJob', () => {
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
-        boardRepo = { write: vi.fn(async () => 'sha') };
+        // Card 0104: `deferOnScopeConflict` reads the card before it does anything else. A rejected
+        // read is treated the same as "nothing to defer" (see the method's own doc comment), so a
+        // test double that never cares about scope conflicts can leave this unstubbed further and
+        // the new check falls straight through to the behaviour these tests were written against.
+        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
         // Card 0030: the job now hands its claim to the next job in a chain, and releases it when the
         // chain stops, so a card is never briefly un-carried in a way a poller could enqueue into.
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
@@ -595,13 +599,16 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
         expect('reason' in body).toBe(false);
     });
 
-    it('makes no HTTP call, and never re-reads the card, when no webhook URL is configured', async () => {
+    it('makes no HTTP call, and does not re-read the card for notification, when no webhook URL is configured', async () => {
         const job = await buildJob(undefined);
 
         await job.run({ cardId: '0001', stageName: 'testing' });
 
         expect(fetchMock).not.toHaveBeenCalled();
-        expect(boardRepo.read).not.toHaveBeenCalled();
+        // Card 0104: `deferOnScopeConflict` now reads the card once before every dispatch, regardless
+        // of notification config, so "never reads the card" no longer holds — what this still pins
+        // down is that `notifyManualGate` does not read it a second time when no webhook is set.
+        expect(boardRepo.read).toHaveBeenCalledTimes(1);
     });
 
     // `decideChain` checks `needsHuman` before it ever looks at the target stage's mode, so a card
@@ -646,5 +653,122 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
         await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
         // The chain-stop bookkeeping still happened; the notification failure did not unwind it.
         expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'chain.stopped' }));
+    });
+});
+
+/**
+ * Card 0104. Two cards whose plans (or `request_scope` grants) name the same file could both
+ * dispatch, because nothing before this asked what else was running before cutting a worktree.
+ * `deferOnScopeConflict` is the fix: it runs ahead of `this.dispatcher.run`, on the one path every
+ * dispatch — poller or `wilson card start` — arrives at, so it is exercised here directly against
+ * `boardRepo.scopeConflict` rather than against `StageDispatcher`, which never sees a deferred card
+ * at all.
+ */
+describe('CardStageJob defers on a scope conflict before dispatching (card 0104)', () => {
+    let board: BoardConfig;
+    let dispatcher: { run: ReturnType<typeof vi.fn> };
+    let broker: { send: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn>; read: ReturnType<typeof vi.fn>; scopeConflict: ReturnType<typeof vi.fn> };
+    let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
+
+    const dispatchingCard = {
+        frontmatter: { id: '0001', title: 'a card that might collide', stage: 'implementing', dependsOn: [], retries: {} },
+        sections: {},
+        body: '',
+    };
+
+    beforeEach(async () => {
+        const base = await mkdtemp(join(tmpdir(), 'card-stage-job-scope-conflict-'));
+        const boardRoot = join(base, 'board');
+        await mkdir(join(boardRoot, 'config'), { recursive: true });
+        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
+
+        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        dispatcher = { run: vi.fn(async () => outcome()) };
+        broker = { send: vi.fn(async () => 'job-1') };
+        events = { append: vi.fn(async () => {}) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => dispatchingCard),
+            scopeConflict: vi.fn(async () => undefined),
+        };
+        cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
+    });
+
+    const buildJob = () =>
+        new CardStageJob(
+            dispatcher as unknown as StageDispatcher,
+            broker as unknown as JobBroker,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+
+    it('defers, naming the other card and the overlapping paths, without ever calling the dispatcher', async () => {
+        boardRepo.scopeConflict.mockResolvedValue({
+            cardId: '0089',
+            overlap: [{ ours: 'apps/api/src/modules/events/card.event.ts', theirs: 'apps/api/src/modules/events/card.event.ts' }],
+        });
+        const job = buildJob();
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(dispatcher.run).not.toHaveBeenCalled();
+        expect(broker.send).not.toHaveBeenCalled();
+        // Card 0104's own doc comment on `deferOnScopeConflict` promises "no board write, no retry
+        // charged, no flag" — this is what pins that down: a scope-conflict defer never touches
+        // `boardRepo.write`, so nothing about the card's stage, retries, or flags changes underneath
+        // it, the same as an unsatisfied-dependency defer.
+        expect(boardRepo.write).not.toHaveBeenCalled();
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({
+                project: 'test',
+                cardId: '0001',
+                stage: 'implementing',
+                type: 'dispatch.deferred',
+                payload: {
+                    outstanding: ['0089'],
+                    reason: '0001 deferred: apps/api/src/modules/events/card.event.ts is in flight on 0089',
+                },
+            }),
+        );
+    });
+
+    it('releases the claim after deferring on a scope conflict, so a poller can enqueue the card again later', async () => {
+        boardRepo.scopeConflict.mockResolvedValue({
+            cardId: '0089',
+            overlap: [{ ours: 'apps/api/src/modules/events/card.event.ts', theirs: 'apps/api/src/modules/events/card.event.ts' }],
+        });
+        const job = buildJob();
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+        expect(cardJobs.record).not.toHaveBeenCalled();
+    });
+
+    it('does not defer, and dispatches normally, when boardRepo.scopeConflict reports no conflict', async () => {
+        const job = buildJob();
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(boardRepo.scopeConflict).toHaveBeenCalledWith(events, 'test', dispatchingCard, expect.anything());
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
+        expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('dispatch.deferred');
+    });
+
+    it('skips the check, and dispatches normally, when the card has already moved off the dispatched stage', async () => {
+        boardRepo.read.mockResolvedValue({
+            ...dispatchingCard,
+            frontmatter: { ...dispatchingCard.frontmatter, stage: 'testing' },
+        });
+        const job = buildJob();
+
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(boardRepo.scopeConflict).not.toHaveBeenCalled();
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
     });
 });

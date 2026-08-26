@@ -223,6 +223,8 @@ export class CardStageJob extends Job<CardStagePayload> {
     private async runStage(cardId: string, stageName: string): Promise<void> {
         await this.checkDaemonCurrent(cardId, stageName);
 
+        if (await this.deferOnScopeConflict(cardId, stageName)) return;
+
         let outcome;
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
@@ -396,6 +398,43 @@ export class CardStageJob extends Job<CardStagePayload> {
             type: 'dispatch.deferred',
             payload: { reason },
         });
+    }
+
+    /**
+     * Card 0104. Two cards whose plans (or `request_scope` grants) name the same file could both
+     * dispatch — nothing before this asked what else was running before cutting a worktree. This is
+     * the same deferral `defer` already gives an unsatisfied dependency, reused rather than
+     * duplicated: no board write, no retry charged, no flag, just a `dispatch.deferred` event and an
+     * early return.
+     *
+     * Runs ahead of `this.dispatcher.run`, not inside `StageDispatcher.assertDispatchable`
+     * (`apps/api/src/modules/stages/stage.dispatcher.ts` and `card.event.ts` are outside this card's
+     * "Files in scope") — every dispatch still reaches it, because every dispatch, poller or `wilson
+     * card start`, arrives here as one `card.stage` job (see the note on `whyNotDispatchable` in
+     * `dispatchable.ts`, which is the CLI/poller-facing half of this same question).
+     *
+     * Best-effort, the same as `checkDaemonCurrent`: `boardRepo.read`, `loadStages` or
+     * `boardRepo.scopeConflict` failing is treated the same as "no conflict found" rather than
+     * thrown — this check exists to defer a dispatch early, not to become a second, less complete
+     * place for `dispatcher.run` below to fail. `dispatcher.run` reads the same stage config and the
+     * same card itself, and reports a genuine problem with either through its own, already-covered
+     * error handling. Also skipped entirely when the card has already moved off `stageName` — a
+     * stale dispatch is `stage.stale`'s problem, not a scope conflict.
+     */
+    private async deferOnScopeConflict(cardId: string, stageName: string): Promise<boolean> {
+        const card = await this.boardRepo.read(cardId).catch(() => undefined);
+        if (!card || card.frontmatter.stage !== stageName) return false;
+
+        const stages = await loadStages(this.board.boardRoot).catch(() => undefined);
+        if (!stages) return false;
+
+        const conflict = await this.boardRepo.scopeConflict(this.events, this.board.project, card, stages).catch(() => undefined);
+        if (!conflict) return false;
+
+        const paths = [...new Set(conflict.overlap.flatMap(o => [o.ours, o.theirs]))].join(', ');
+        await this.defer(cardId, stageName, [conflict.cardId], `${cardId} deferred: ${paths} is in flight on ${conflict.cardId}`);
+        await this.cardJobs.clear(cardId);
+        return true;
     }
 
     /**

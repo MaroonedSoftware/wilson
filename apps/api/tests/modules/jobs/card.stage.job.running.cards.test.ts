@@ -55,7 +55,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
     let dispatcher: { run: ReturnType<typeof vi.fn> };
     let broker: { send: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn> };
-    let boardRepo: { write: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn>; read: ReturnType<typeof vi.fn> };
     let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
     let running: RunningCards;
 
@@ -69,7 +69,10 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
-        boardRepo = { write: vi.fn(async () => 'sha') };
+        // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the same
+        // as "nothing to defer" (see its doc comment in card.stage.job.ts), so the new check falls
+        // straight through and these tests exercise `RunningCards` exactly as before.
+        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
         running = new RunningCards();
     });
