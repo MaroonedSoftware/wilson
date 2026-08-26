@@ -302,4 +302,27 @@ describe('WorktreeManager', () => {
             expect(stdout).not.toContain('rebase');
         });
     });
+
+    describe('headSha', () => {
+        // Card 0103: a caller that gets `{ ok: false }` back from `rebaseOntoHead` needs the exact
+        // commit the rebase was attempted against, without `rebaseOntoHead` itself having to return
+        // it — this is that second, independent read.
+        it("reports the code repo's current HEAD", async () => {
+            const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            await expect(manager.headSha()).resolves.toBe(head);
+        });
+
+        it('moves with HEAD once another commit lands on the code repo', async () => {
+            const before = await manager.headSha();
+
+            await writeFile(join(codeRoot, 'src', 'later.ts'), 'export const later = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'later'], { cwd: codeRoot });
+
+            const after = await manager.headSha();
+            const headNow = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            expect(after).not.toBe(before);
+            expect(after).toBe(headNow);
+        });
+    });
 });
