@@ -654,11 +654,16 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
         };
 
         if (WRITE_TOOLS.includes(toolName)) {
-            if (writable !== 'rw') {
-                return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
-            }
             const path = String(input.file_path ?? input.path ?? '');
             const decision = await context.scope.check(path);
+            // REPORT_RESULT_PATH is let through regardless of `writable`, mirroring the unconditional
+            // allow already built into ScopeGuard.check/checkRead/grant for that same path (see
+            // scope.guard.ts). report_result's contract requires the stage to have written this file
+            // before calling the tool, and a readonly or none stage — review chief among them, the
+            // stage this card names as least able to afford a lost result — still has to deliver one.
+            if (writable !== 'rw' && decision.path !== REPORT_RESULT_PATH) {
+                return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
+            }
             if (!decision.allowed) return deny(decision.reason, { path });
             // The counterpart to the denial above: file.tools.ts/bash.tool.ts append tool.executed
             // for the api adapter, but Write/Edit here go through the engine's own built-in tools
