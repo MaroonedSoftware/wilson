@@ -266,6 +266,19 @@ describe('ScopeGuard', () => {
             await g.grant(REPORT_RESULT_PATH);
             await expect(g.check(REPORT_RESULT_PATH)).resolves.toMatchObject({ allowed: true });
         });
+
+        it('allows checkRead of the report path even when a project deny glob matches it, mirroring check()’s bypass', async () => {
+            // The read side has to carry the same unconditional bypass as the write side: the
+            // handler behind report_result reads this exact path back after writing it, through
+            // checkRead — not check() — so a project deny glob that happens to match it (e.g. one
+            // denying dotfiles) must not be able to refuse that read even though check() always
+            // allows the write. Without the bypass this leaves result reporting permanently broken
+            // for such a project, since grant() also refuses to widen the name.
+            await expect(guard(['**'], [], ['.*']).checkRead(REPORT_RESULT_PATH)).resolves.toMatchObject({
+                allowed: true,
+                path: REPORT_RESULT_PATH,
+            });
+        });
     });
 
     describe('checkRead', () => {
