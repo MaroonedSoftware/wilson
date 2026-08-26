@@ -10,9 +10,10 @@ const HISTORY_LIMIT = 50;
 /**
  * A card's own page: `/cards/$cardId`, reachable and reloadable by URL.
  *
- * Three separate queries rather than one combined endpoint, matching the API's own shape
- * (`/api/cards/:id`, `/events`, `/versions`) — the plan can render as soon as it arrives without
- * waiting on the event or version history.
+ * Separate queries rather than one combined endpoint, matching the API's own shape
+ * (`/api/cards/:id`, `/events`, `/versions`, `/api/stages`) — the plan can render as soon as it
+ * arrives without waiting on the event or version history, or on the columns card 0037's move
+ * control needs.
  */
 function CardDetailRoute() {
     const { cardId } = Route.useParams();
@@ -26,6 +27,9 @@ function CardDetailRoute() {
         queryKey: ['card', cardId, 'versions'],
         queryFn: () => wilson.board.listCardVersions(cardId, { limit: HISTORY_LIMIT }),
     });
+    // Same `['columns']` key `/` and `/flagged` already use — the board's configured stages, for
+    // the move control's options. Config, not a list this route hard-codes (card 0037).
+    const columns = useQuery({ queryKey: ['columns'], queryFn: () => wilson.board.listBoardColumns() });
 
     if (card.error) {
         return (
@@ -51,6 +55,8 @@ function CardDetailRoute() {
             versions={versions.data}
             versionsLimit={HISTORY_LIMIT}
             versionsError={versions.error}
+            columns={columns.data}
+            columnsError={columns.error}
         />
     );
 }
