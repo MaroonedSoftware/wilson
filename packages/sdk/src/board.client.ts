@@ -12,6 +12,7 @@ import type {
     ListQuery,
     MoveCardRequest,
     PlanSession,
+    ReleaseResult,
     SaveDraftRequest,
 } from './types/board.js';
 import type { SdkFetch } from './sdk-options.js';
@@ -112,9 +113,9 @@ export class BoardClient {
     }
 
     /** @name Release card */
-    async releaseCard(id: string): Promise<CardDetail> {
+    async releaseCard(id: string): Promise<ReleaseResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
-        return await parseJson<CardDetail>(result);
+        return await parseJson<ReleaseResult>(result);
     }
 
     /**
