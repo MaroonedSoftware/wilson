@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
+import { Logger } from '@maroonedsoftware/logger';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { ReviewResultSchema } from './stage.result.js';
 import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
@@ -14,7 +15,10 @@ import type { StageVerifier, VerificationInput, VerificationOutcome } from './st
  */
 @Injectable()
 export class ReviewVerifier implements StageVerifier {
-    constructor(private readonly worktrees: WorktreeManager) {}
+    constructor(
+        private readonly worktrees: WorktreeManager,
+        private readonly logger: Logger,
+    ) {}
 
     async verify({ worktree, result }: VerificationInput): Promise<VerificationOutcome> {
         const failures: string[] = [];
@@ -63,6 +67,20 @@ export class ReviewVerifier implements StageVerifier {
             }
 
             if (!changedPaths.includes(finding.file)) {
+                // A `defect` outside the diff is only a hallucination if the file it names doesn't
+                // exist either. When the file is real, the reviewer just picked the wrong label for
+                // a true finding: this is exactly what an "omission" is, so it is corrected rather
+                // than failed. The line number stops meaning anything once the finding is no longer
+                // about a diff line — it is left on the finding untouched rather than validated or
+                // stripped, since mutating what reaches the card is outside this stage's job
+                // (provenance, not presentation) and outside this card's scope.
+                if (lineCount !== undefined) {
+                    this.logger.warn(
+                        `finding cites ${finding.file} as kind "defect", but that file is outside this card's diff; ` +
+                            `treating it as kind "omission" instead of failing the stage`,
+                    );
+                    continue;
+                }
                 failures.push(
                     `finding cites ${finding.file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'}). ` +
                         `If the point is that the card should have changed it and did not, report it as kind "omission".`,
