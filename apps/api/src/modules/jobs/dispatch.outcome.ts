@@ -1,4 +1,4 @@
-import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
+import { CONTEXT_OVERFLOW_REASON, isContextOverflow, isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
 import { isTerminal } from '#modules/stages/terminal.js';
@@ -62,6 +62,16 @@ export type DispatchOutcome =
      * stage never ran and failed nothing.
      */
     | { readonly kind: 'flag-rebase'; readonly error: RebaseConflictError }
+    /**
+     * One attempt, then flag — not poisoned, not retried, same shape as `flag-rebase` (card 0072).
+     *
+     * A context-window overflow shares `isPermanentFailure`'s `invalid_request_error` class but is
+     * not the same kind of never as the other things that flag poisons: it is a fact about how big
+     * this stage's turn got, not about the deployment, and it is recoverable by doing the stage
+     * differently — a fresh session on the same branch, or a smaller card. That choice is a human's
+     * to make, not the runner's, so this flags and stops rather than guessing.
+     */
+    | { readonly kind: 'flag-context-overflow'; readonly reason: string }
     /** Retrying cannot fix this. Terminal, and deliberately not a kickback — see `poisonCard`. */
     | { readonly kind: 'poison'; readonly error: unknown };
 
@@ -88,6 +98,11 @@ export type SettledDispatch = Exclude<DispatchOutcome, { kind: 'retry' }>;
  * a terminal one, which is loud rather than silent. Adding a kind there means adding it here — the
  * `never` check in `CardStageJob.settle` makes the second half of that a compile error, but only
  * once a matching arm exists on `DispatchOutcome`.
+ *
+ * **`isContextOverflow` is checked ahead of `isPermanentFailure`, for the same reason the typed
+ * errors above it are** (card 0072): `isPermanentFailure`'s `PERMANENT` list already matches a
+ * context overflow's `invalid_request_error` class, and if that broader, message-based pattern got
+ * first look it would poison a card that a fresh session or a smaller card can actually recover.
  */
 export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
     if (error instanceof NotDispatchableError) {
@@ -116,6 +131,10 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
             return { kind: 'poison', error };
         }
         return { kind: 'defer', reason: error.message };
+    }
+
+    if (isContextOverflow(error)) {
+        return { kind: 'flag-context-overflow', reason: CONTEXT_OVERFLOW_REASON };
     }
 
     if (!isPermanentFailure(error)) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
+import { CONTEXT_OVERFLOW_REASON } from '#modules/stages/permanent.failure.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
 
@@ -65,6 +66,29 @@ describe('classifyDispatchFailure', () => {
 
         expect(outcome).toEqual({ kind: 'flag-rebase', error });
         expect(outcome.kind === 'flag-rebase' && outcome.error.branch).toBe('card/0042-thing');
+    });
+
+    /**
+     * Card 0072. Before this card, an overflow's `invalid_request_error` class fell all the way
+     * through to `isPermanentFailure` and poisoned the card — terminal, even though the stage is
+     * recoverable by doing it differently next time. `isContextOverflow` is now checked ahead of
+     * `isPermanentFailure`, so this must flag rather than poison, and every other malformed request
+     * must still poison exactly as it did before.
+     */
+    describe('context-window overflow, routed ahead of isPermanentFailure', () => {
+        it('flags a context overflow, naming the context window rather than the request', () => {
+            const error = new Error(
+                '{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220000 tokens > 200000 maximum"}}',
+            );
+
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'flag-context-overflow', reason: CONTEXT_OVERFLOW_REASON });
+        });
+
+        it('still poisons an invalid_request_error that is not an overflow', () => {
+            const error = new Error('{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}');
+
+            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison', error });
+        });
     });
 
     /**
