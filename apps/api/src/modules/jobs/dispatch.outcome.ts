@@ -1,4 +1,5 @@
 import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
 import { isTerminal } from '#modules/stages/terminal.js';
 
@@ -20,15 +21,23 @@ export type DispatchOutcome =
      */
     | { readonly kind: 'retry' }
     /**
-     * Leave a dependency-blocked card exactly where it is.
+     * Leave a card exactly where it is — not just a dependency-blocked one.
      *
      * "Not now", not "never" (unlike `poison`): the outstanding cards may simply not have merged
      * yet, and poisoning here is precisely the false positive `permanent.failure.ts` warns against —
      * a card that would have recovered gets stranded. Nothing is written to the board: the card's
      * stage and retries are untouched, and the same dispatch that failed today succeeds unchanged
      * once something enqueues it again.
+     *
+     * Also carries a `StageConfigError` whose `stages.yaml` will not load: that failure is not about
+     * this card at all, it is true for every card that would load the same file, so poisoning each as
+     * it arrives would turn one config typo into a board full of poisoned cards a human then walks
+     * back one at a time. `outstanding` is omitted (not written as an empty array) for that case — the
+     * field means "these cards are in the way", and an unsatisfied dependency always has at least one;
+     * its absence is what keeps `dispatch.deferred` distinguishing a broken config from a dependency
+     * list that happens to be empty.
      */
-    | { readonly kind: 'defer'; readonly outstanding: string[]; readonly reason: string }
+    | { readonly kind: 'defer'; readonly reason: string; readonly outstanding?: string[] }
     /**
      * Leave a card the dispatcher found already flagged for a human exactly where it is.
      *
@@ -68,11 +77,11 @@ export type SettledDispatch = Exclude<DispatchOutcome, { kind: 'retry' }>;
  * a pure decision with its own tests, so `runStage` stops being the file a new failure mode has to
  * be threaded through.
  *
- * **The order below is the contract, not an implementation detail.** `NotDispatchableError` and
- * `RebaseConflictError` are both checked ahead of `isPermanentFailure` because this codebase throws
- * them and gives them a discriminant; `isPermanentFailure` stays message-based because neither the
- * SDK nor the provider offers anything better for a provider error, and that pattern matching must
- * never get first look at an error that already carries its own type.
+ * **The order below is the contract, not an implementation detail.** `NotDispatchableError`,
+ * `RebaseConflictError` and `StageConfigError` are all checked ahead of `isPermanentFailure` because
+ * this codebase throws them and gives them a discriminant; `isPermanentFailure` stays message-based
+ * because neither the SDK nor the provider offers anything better for a provider error, and that
+ * pattern matching must never get first look at an error that already carries its own type.
  *
  * **An unrecognised `NotDispatchableReason` poisons.** That is an allowlist, deliberately: a new
  * reason kind added to `stage.dispatcher.ts` without a branch here turns the card it describes into
@@ -96,6 +105,17 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
 
     if (error instanceof RebaseConflictError) {
         return { kind: 'flag-rebase', error };
+    }
+
+    if (error instanceof StageConfigError) {
+        // `stage-not-found` is deterministic for this job — no action on this card changes it, so it
+        // poisons exactly as wrong-stage does. `config-invalid` means `stages.yaml` itself is missing
+        // or malformed, which is true for every card that would load it, not this one — that defers,
+        // same "not now, not never" shape as an unsatisfied dependency.
+        if (error.kind === 'stage-not-found') {
+            return { kind: 'poison', error };
+        }
+        return { kind: 'defer', reason: error.message };
     }
 
     if (!isPermanentFailure(error)) {
