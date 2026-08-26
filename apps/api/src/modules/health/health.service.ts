@@ -28,7 +28,15 @@ export class HealthService {
     constructor(private readonly config: BoardConfig) {}
 
     get(): Health {
-        return { ok: true, project: this.config.project, head: buildHead(), startedAt };
+        return {
+            ok: true,
+            project: this.config.project,
+            head: buildHead(),
+            startedAt,
+            boardRoot: this.config.boardRoot,
+            codeRoot: this.config.codeRoot,
+            worktreeRoot: this.config.worktreeRoot,
+        };
     }
 }
 

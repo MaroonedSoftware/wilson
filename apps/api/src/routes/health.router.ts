@@ -8,7 +8,7 @@ import { Health } from '../generated/health.js';
 export const HealthRouter = ServerKitRouter();
 
 /**
- * from [health.ck](file://./../../data/contracts/health.ck#L24)
+ * from [health.ck](file://./../../data/contracts/health.ck#L31)
  * anonymous access, no security required
  */
 HealthRouter.get('/api/health', async ctx => {

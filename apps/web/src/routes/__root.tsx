@@ -1,5 +1,6 @@
-import { Outlet, createRootRoute } from '@tanstack/react-router';
-import { AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
+import { Link, Outlet, createRootRoute } from '@tanstack/react-router';
+import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
+import { IconSettings } from '@tabler/icons-react';
 import { useCardFeed } from '#src/lib/feed.js';
 
 /**
@@ -18,11 +19,18 @@ function Root() {
             <AppShell.Header>
                 <Group h="100%" px="md" justify="space-between">
                     <Title order={4}>wilson</Title>
-                    <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
-                        <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
-                            {feedStatus === 'live' ? 'live' : 'snapshot'}
-                        </Badge>
-                    </Tooltip>
+                    <Group gap="xs">
+                        <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
+                            <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
+                                {feedStatus === 'live' ? 'live' : 'snapshot'}
+                            </Badge>
+                        </Tooltip>
+                        <Tooltip label="Settings">
+                            <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
+                                <IconSettings size={18} />
+                            </ActionIcon>
+                        </Tooltip>
+                    </Group>
                 </Group>
             </AppShell.Header>
             <AppShell.Main>
