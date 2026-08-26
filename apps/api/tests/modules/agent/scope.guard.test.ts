@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 
 /**
  * The guard is the single enforcement point for scope, and everything downstream trusts it
@@ -233,6 +233,38 @@ describe('ScopeGuard', () => {
 
             expect(decision.allowed).toBe(false);
             expect(g.collateralHits()).toEqual([]);
+        });
+    });
+
+    describe('the report_result channel (card 0073)', () => {
+        // `report_result` now carries only a path — the file it points at is the whole of the
+        // stage's result — so `ScopeGuard` has to let that one fixed, code-owned name through a
+        // write without the plan ever having declared it, while still refusing to let a plan claim
+        // the same name for itself through request_scope.
+
+        it('allows a write to the report path even though no scope glob covers it', async () => {
+            // An empty allow list denies everything else (see the test above), which is exactly why
+            // this has to be a special case rather than something a project could achieve by adding
+            // the name to `alwaysAllowed`.
+            await expect(guard([]).check(REPORT_RESULT_PATH)).resolves.toMatchObject({ allowed: true, path: REPORT_RESULT_PATH, via: 'scope' });
+        });
+
+        it('allows the report path even where the deny list would otherwise be checked first', async () => {
+            await expect(guard(['**']).check(REPORT_RESULT_PATH)).resolves.toMatchObject({ allowed: true });
+        });
+
+        it('refuses to grant the report path to request_scope, since it is already writable without one', async () => {
+            const g = guard([]);
+            const decision = await g.grant(REPORT_RESULT_PATH);
+            expect(decision).toMatchObject({ allowed: false, path: REPORT_RESULT_PATH });
+            expect((decision as { reason: string }).reason).toContain('already writable without a grant');
+            expect(g.grants()).toEqual([]);
+        });
+
+        it('leaves check() unaffected by a refused grant of the report path — it was already allowed', async () => {
+            const g = guard([]);
+            await g.grant(REPORT_RESULT_PATH);
+            await expect(g.check(REPORT_RESULT_PATH)).resolves.toMatchObject({ allowed: true });
         });
     });
 
