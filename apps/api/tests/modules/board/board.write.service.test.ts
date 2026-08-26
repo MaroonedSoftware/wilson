@@ -11,6 +11,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
+import { POSITION_GAP } from '#modules/board/card.position.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
@@ -423,6 +424,138 @@ describe('BoardWriteService', () => {
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('0013'));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('boom: directory busy'));
+        });
+    });
+
+    describe('reposition', () => {
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.reposition('missing', {})).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses a card outside parking-lot with a 400 naming its actual stage, writing nothing', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(card('0080', { stage: 'implementing' }), 'seed');
+            const versionBefore = await board.currentVersion('0080');
+
+            await expect(service.reposition('0080', {})).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('it is in "implementing", not "parking-lot"') },
+            });
+            expect(await board.currentVersion('0080')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('refuses when beforeId names a card that does not exist, with a 404', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+
+            await expect(service.reposition('0080', { beforeId: 'missing' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses when the named neighbour is not itself in parking-lot, with a 400', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'implementing' }), 'seed');
+
+            await expect(service.reposition('0080', { afterId: '0081' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"0081" is not a card in "parking-lot"') },
+            });
+        });
+
+        it('refuses a card named as its own neighbour, with a 400', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+
+            await expect(service.reposition('0080', { beforeId: '0080' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('cannot be its own neighbour') },
+            });
+        });
+
+        it('positions the only card in an empty column a full gap above zero, persisting through the repository', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+
+            const detail = await service.reposition('0080', {});
+
+            expect(detail.position).toBe(POSITION_GAP);
+            const stored = await board.read('0080');
+            expect(stored.frontmatter.position).toBe(POSITION_GAP);
+        });
+
+        it('ranks a card at the integer midpoint of two already-positioned neighbours', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+            // `create` never persists `position` (it is set only through `setPosition`), so give the
+            // neighbours real values the way an earlier drag actually would.
+            await board.setPosition('0080', 1000);
+            await board.setPosition('0081', 2000);
+
+            const detail = await service.reposition('0089', { beforeId: '0080', afterId: '0081' });
+
+            expect(detail.position).toBe(1500);
+        });
+
+        it('writes no card version and appends no event — ordering is not runner state', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            const versionBefore = await board.currentVersion('0080');
+
+            await service.reposition('0080', {});
+
+            expect(await board.currentVersion('0080')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('renormalises the column when the neighbours are adjacent integers with no room between them, then ranks against the fresh values', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0082', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+            await board.setPosition('0080', 1000);
+            await board.setPosition('0081', 1001);
+
+            const detail = await service.reposition('0089', { beforeId: '0080', afterId: '0081' });
+
+            // The whole column was renormalised in its existing `position, id` order — 0080, 0081,
+            // then 0082 (unpositioned, so it sorted last) — before ranking against the fresh values.
+            expect((await board.read('0080')).frontmatter.position).toBe(POSITION_GAP);
+            expect((await board.read('0081')).frontmatter.position).toBe(POSITION_GAP * 2);
+            expect((await board.read('0082')).frontmatter.position).toBe(POSITION_GAP * 3);
+            expect(detail.position).toBe(Math.floor((POSITION_GAP + POSITION_GAP * 2) / 2));
+        });
+
+        it('renormalises when a named neighbour exists but has never itself been positioned, since there is nothing to rank against', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+
+            const detail = await service.reposition('0089', { beforeId: '0080' });
+
+            expect((await board.read('0080')).frontmatter.position).toBe(POSITION_GAP);
+            // Landing after the sole (now-positioned) neighbour, with nothing below it.
+            expect(detail.position).toBe(POSITION_GAP * 2);
+        });
+
+        it('does not disturb a card outside the parking lot when renormalising the column', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0099', { stage: 'implementing' }), 'seed');
+            await board.setPosition('0080', 1000);
+            await board.setPosition('0081', 1001);
+            await board.setPosition('0099', 500);
+
+            await service.reposition('0089', { beforeId: '0080', afterId: '0081' });
+
+            expect((await board.read('0099')).frontmatter.position).toBe(500);
         });
     });
 
