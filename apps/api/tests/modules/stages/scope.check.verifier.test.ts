@@ -196,6 +196,36 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures[0]).toContain('no group repeats');
     });
 
+    it('accepts a division piece that depends on another piece in the same division', async () => {
+        const outcome = await verify({
+            ...card0075,
+            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[0].title] }],
+        });
+
+        expect(outcome.passed).toBe(false); // still routes to "refuse" (see class doc comment), not a stage failure
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('rejects a division piece that names itself as a dependency', async () => {
+        const outcome = await verify({
+            ...card0075,
+            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[1].title] }],
+        });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.some(f => f.includes('lists itself as a dependency'))).toBe(true);
+    });
+
+    it('rejects a division piece whose dependency is not one of this division’s own pieces', async () => {
+        const outcome = await verify({
+            ...card0075,
+            division: [card0075.division[0], { ...card0075.division[1], dependsOn: ['a piece nobody proposed'] }],
+        });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.some(f => f.includes('a piece nobody proposed'))).toBe(true);
+    });
+
     it('rejects a refusal whose division cites a task no group reported', async () => {
         const outcome = await verify({
             ...card0075,

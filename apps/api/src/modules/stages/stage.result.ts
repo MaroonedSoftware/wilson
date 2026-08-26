@@ -77,12 +77,21 @@ export const ScopeGroupSchema = z.object({
  * Not itself a split — dividing a card is `planning`'s decision (card 0105's Goal) — but concrete
  * enough that a human or `wilson card plan` has seams to start from instead of "this card is too
  * large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
- * on its own.
+ * on its own. `dependsOn` is the third thing card 0105's Constraints requires the refusal to name —
+ * "which tasks group together, what each piece would deliver on its own, what depends on what" — kept
+ * optional and defaulted to `[]` so a division where every piece is independent (the common case)
+ * costs the model nothing extra to report.
  */
 export const ScopeDivisionPieceSchema = z.object({
     title: z.string().describe('A short name for this piece.'),
     tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry.'),
     delivers: z.string().describe('What this piece would deliver on its own, if built alone.'),
+    dependsOn: z
+        .array(z.string())
+        .default([])
+        .describe(
+            'Titles of other pieces in this same division that must land first, if any — by piece title. Empty when this piece can be built independently of the rest.',
+        ),
 });
 
 /**

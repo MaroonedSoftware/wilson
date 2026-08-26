@@ -26,8 +26,9 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * the model's business, the same division of labor `ReviewVerifier`'s doc comment draws for review
  * findings. What this checks is provenance and internal consistency: does the reported verdict follow
  * from the model's own reported evidence (`groups`), and — when refusing — is the division concrete
- * (at least two pieces, each naming what it delivers alone, each built only from tasks the model
- * itself reported). A model that says "pass" while its own `groups` show an eight-wide repeat, or
+ * (at least two pieces, each naming what it delivers alone and what it depends on, each built only
+ * from tasks — and citing only dependencies on other pieces — the model itself reported). A model
+ * that says "pass" while its own `groups` show an eight-wide repeat, or
  * says "refuse" while reporting none, has produced an inconsistent report regardless of which way it
  * leans, and this stage's whole value is in not passing that through uncaught.
  *
@@ -84,6 +85,7 @@ export class ScopeCheckVerifier implements StageVerifier {
             // Not full-coverage checked (a piece is free to leave shared plumbing ungrouped) — only
             // that nothing it names is invented.
             const namedTasks = new Set(groups.flatMap(g => g.tasks));
+            const pieceTitles = new Set(division.map(p => p.title));
             for (const piece of division) {
                 for (const task of piece.tasks) {
                     if (!namedTasks.has(task)) {
@@ -92,6 +94,16 @@ export class ScopeCheckVerifier implements StageVerifier {
                 }
                 if (piece.delivers.trim().length === 0) {
                     failures.push(`division piece "${piece.title}" does not say what it would deliver on its own`);
+                }
+                // Same provenance reasoning as `tasks` above, applied to the third thing a division
+                // must name (card 0105's Constraints: "what depends on what") — a dependency is only
+                // real if it points at another piece this same division actually proposed.
+                for (const dep of piece.dependsOn) {
+                    if (dep === piece.title) {
+                        failures.push(`division piece "${piece.title}" lists itself as a dependency`);
+                    } else if (!pieceTitles.has(dep)) {
+                        failures.push(`division piece "${piece.title}" depends on "${dep}", which is not one of this division's own pieces`);
+                    }
                 }
             }
         } else if (division.length > 0) {
