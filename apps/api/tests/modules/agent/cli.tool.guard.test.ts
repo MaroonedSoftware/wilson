@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createToolGuard } from '#modules/agent/cli.stage.agent.js';
-import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
 
@@ -83,6 +83,27 @@ describe('createToolGuard', () => {
             // it reviews would be the scope globs, which the card's own plan sets.
             const { guard } = build('readonly');
             await expect(guard('Write', { file_path: '/tmp/src/runner/new.ts' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('still lets a readonly stage write the report_result path, since that stage must deliver a result too', async () => {
+            // Card 0073's review finding: report_result now requires the stage to have written
+            // REPORT_RESULT_PATH itself before calling the tool, but the writable check used to fire
+            // before the path was even inspected, so review — a readonly stage, and the very stage the
+            // card names as least able to afford a lost result — could never write it.
+            const { guard } = build('readonly');
+            await expect(guard('Write', { file_path: `/tmp/${REPORT_RESULT_PATH}` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+        });
+
+        it('denies a readonly stage writing anywhere else even with the report_result exception in place', async () => {
+            // The exception above must be narrow: it names one fixed path, not a hole in the
+            // writable check generally.
+            const { guard } = build('readonly');
+            await expect(guard('Write', { file_path: '/tmp/src/other/new.ts' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('extends the same report_result exception to Edit, since WRITE_TOOLS treats it the same as Write', async () => {
+            const { guard } = build('readonly');
+            await expect(guard('Edit', { file_path: `/tmp/${REPORT_RESULT_PATH}` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
         });
     });
 
