@@ -74,6 +74,20 @@ describe('routers', () => {
         expect(BoardRouter.match('/api/cards/0001', 'PUT').route).toBe(false);
     });
 
+    // Card 0113: reading a card's recorded scope-check division, and turning it into cards.
+    it('routes GET /api/cards/0001/division to the board router', () => {
+        expect(BoardRouter.match('/api/cards/0001/division', 'GET').route).toBe(true);
+    });
+
+    it('routes POST /api/cards/0001/split to the board router', () => {
+        expect(BoardRouter.match('/api/cards/0001/split', 'POST').route).toBe(true);
+    });
+
+    it('does not route an undeclared method to either of the card 0113 paths', () => {
+        expect(BoardRouter.match('/api/cards/0001/division', 'POST').route).toBe(false);
+        expect(BoardRouter.match('/api/cards/0001/split', 'GET').route).toBe(false);
+    });
+
     // Card 0106: the poller's on/off switch, read and written over the API.
     it.each([['GET'], ['PUT']])('routes %s /api/settings/poller-enabled to the settings router', method => {
         expect(SettingsRouter.match('/api/settings/poller-enabled', method).route).toBe(true);

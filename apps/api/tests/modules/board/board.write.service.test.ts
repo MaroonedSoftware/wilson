@@ -75,6 +75,19 @@ afterAll(async () => {
     await db.destroy();
 });
 
+/** A `ScopeCheckResult`-shaped refusal, the exact payload a scope-check `stage.failed` event carries. */
+const scopeCheckRefusal = (overrides: Partial<{ reason: string; division: unknown[] }> = {}) => ({
+    summary: 'the plan repeats the same kind of work several times',
+    groups: [{ title: 'endpoint', tasks: ['task 1', 'task 2'] }],
+    verdict: 'refuse' as const,
+    reason: 'the plan repeats "endpoint" five times',
+    division: [
+        { title: 'Piece A', tasks: ['task 1'], delivers: 'delivers A on its own', dependsOn: [] },
+        { title: 'Piece B', tasks: ['task 2'], delivers: 'delivers B on its own', dependsOn: ['Piece A'] },
+    ],
+    ...overrides,
+});
+
 /**
  * A fresh project + board repository + write service for one test, isolated from every other by a
  * unique project name — the same idiom `move.command.test.ts` uses for the CLI command this service
@@ -116,6 +129,35 @@ const freshBoard = (
         runningCards,
     );
     return { board, config, events, worktrees, logger, cardJobs, broker, runningCards, service };
+};
+
+/**
+ * `division` reads its own `eventLog.tail(...)` directly (it is not routed through `board`'s faked
+ * `events`), so `freshBoard`'s stubbed `{ append: vi.fn() }` cannot stand in for it — a fake `tail`
+ * would only prove the test agrees with itself about which rows come back. This wires a real
+ * `EventLog` against the same test db, so a test can `eventLog.append` a genuine `stage.failed` row
+ * and `service.division` reads it back exactly as it would in production.
+ */
+const freshBoardWithRealEvents = () => {
+    const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const eventLog = new EventLog(db, fakeLogger());
+    const board = new PostgresBoardRepository(config, db, eventLog);
+    const logger = fakeLogger();
+    const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+    const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+    const worktrees = { reclaim: vi.fn(async () => {}) };
+    const runningCards = new RunningCards();
+    const service = new BoardWriteService(
+        board,
+        config,
+        worktrees as unknown as WorktreeManager,
+        eventLog,
+        logger,
+        cardJobs,
+        broker as unknown as JobBroker,
+        runningCards,
+    );
+    return { board, config, eventLog, service };
 };
 
 describe('BoardWriteService', () => {
@@ -747,6 +789,258 @@ describe('BoardWriteService', () => {
 
             expect(detail.releasedAs).toBe('orphan');
             expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-103');
+        });
+    });
+
+    describe('division', () => {
+        it("reads the most recent scope-check refusal's division from the event log, not a fresh run", async () => {
+            const { board, config, eventLog, service } = freshBoardWithRealEvents();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+            await eventLog.append({
+                project: config.project,
+                cardId: '0111',
+                stage: 'scope-check',
+                type: 'stage.failed',
+                payload: { result: scopeCheckRefusal() },
+            });
+
+            const division = await service.division('0111');
+
+            expect(division.reason).toBe('the plan repeats "endpoint" five times');
+            expect(division.pieces).toEqual([
+                { title: 'Piece A', tasks: ['task 1'], delivers: 'delivers A on its own', dependsOn: [] },
+                { title: 'Piece B', tasks: ['task 2'], delivers: 'delivers B on its own', dependsOn: ['Piece A'] },
+            ]);
+        });
+
+        it('takes the most recent refusal on record when scope-check has refused the same card more than once', async () => {
+            const { board, config, eventLog, service } = freshBoardWithRealEvents();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+            await eventLog.append({
+                project: config.project,
+                cardId: '0111',
+                stage: 'scope-check',
+                type: 'stage.failed',
+                payload: { result: scopeCheckRefusal({ reason: 'stale refusal' }) },
+            });
+            await eventLog.append({
+                project: config.project,
+                cardId: '0111',
+                stage: 'scope-check',
+                type: 'stage.failed',
+                payload: { result: scopeCheckRefusal({ reason: 'current refusal' }) },
+            });
+
+            const division = await service.division('0111');
+
+            expect(division.reason).toBe('current refusal');
+        });
+
+        it('ignores stage.failed events from other stages, only ever matching scope-check', async () => {
+            const { board, config, eventLog, service } = freshBoardWithRealEvents();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+            await eventLog.append({
+                project: config.project,
+                cardId: '0111',
+                stage: 'implementing',
+                type: 'stage.failed',
+                payload: { error: 'something else went wrong' },
+            });
+
+            await expect(service.division('0111')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('no scope-check refusal on record') },
+            });
+        });
+
+        it('refuses with a 400 naming the card when there is no scope-check refusal on record at all', async () => {
+            const { board, service } = freshBoardWithRealEvents();
+            await board.create(card('0112', { stage: 'planning' }), 'seed');
+
+            await expect(service.division('0112')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('0112') },
+            });
+        });
+
+        it('refuses with a 400 when the most recent refusal carried no division — an empty confirmation prompt is not the fallback', async () => {
+            const { board, config, eventLog, service } = freshBoardWithRealEvents();
+            await board.create(card('0113', { stage: 'planning' }), 'seed');
+            await eventLog.append({
+                project: config.project,
+                cardId: '0113',
+                stage: 'scope-check',
+                type: 'stage.failed',
+                // A "pass" carries no division — `ScopeCheckResultSchema` defaults it to `[]`.
+                payload: { result: scopeCheckRefusal({ division: [] }) },
+            });
+
+            await expect(service.division('0113')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('no division') },
+            });
+        });
+
+        it('refuses with a 400 when the recorded result does not survive re-parsing as a ScopeCheckResult', async () => {
+            const { board, config, eventLog, service } = freshBoardWithRealEvents();
+            await board.create(card('0114', { stage: 'planning' }), 'seed');
+            await eventLog.append({
+                project: config.project,
+                cardId: '0114',
+                stage: 'scope-check',
+                type: 'stage.failed',
+                payload: { result: { not: 'a scope-check result' } },
+            });
+
+            await expect(service.division('0114')).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoardWithRealEvents();
+
+            await expect(service.division('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    describe('split', () => {
+        const twoPieces = (overrides: Partial<{ dependsOnB: string[] }> = {}) => [
+            { title: 'Piece A', tasks: ['task 1'], delivers: 'delivers A on its own', dependsOn: [] },
+            { title: 'Piece B', tasks: ['task 2'], delivers: 'delivers B on its own', dependsOn: overrides.dependsOnB ?? [] },
+        ];
+
+        it('creates one card per piece in planning, seeded with its tasks, delivers, and a pointer back to the origin', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning', title: 'Big refused card' }), 'seed');
+
+            const result = await service.split('0111', { pieces: twoPieces() });
+
+            expect(result.pieces).toHaveLength(2);
+            const pieceA = result.pieces.find(p => p.title === 'Piece A')!;
+            expect(pieceA.stage).toBe('planning');
+            expect(pieceA.body).toContain('Split from 0111');
+            expect(pieceA.body).toContain('Big refused card');
+            expect(pieceA.body).toContain('delivers A on its own');
+            expect(pieceA.body).toContain('- task 1');
+
+            const stored = await board.read(pieceA.id);
+            expect(stored.frontmatter.stage).toBe('planning');
+            expect(stored.frontmatter.title).toBe('Piece A');
+        });
+
+        it('records the dependency named in dependsOn between the created cards, resolving titles to the new ids', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+
+            const result = await service.split('0111', { pieces: twoPieces({ dependsOnB: ['Piece A'] }) });
+
+            const pieceA = result.pieces.find(p => p.title === 'Piece A')!;
+            const pieceB = result.pieces.find(p => p.title === 'Piece B')!;
+            const storedB = await board.read(pieceB.id);
+            expect(storedB.frontmatter.dependsOn).toEqual([pieceA.id]);
+        });
+
+        it('creates no dependency for a piece whose dependsOn is empty', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+
+            const result = await service.split('0111', { pieces: twoPieces() });
+
+            const pieceA = result.pieces.find(p => p.title === 'Piece A')!;
+            const stored = await board.read(pieceA.id);
+            expect(stored.frontmatter.dependsOn).toEqual([]);
+        });
+
+        it('returns the origin and pieces in the same order the request sent them, not creation order or alphabetical', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+
+            const result = await service.split('0111', {
+                pieces: [
+                    { title: 'Zed piece', tasks: ['z'], delivers: 'z', dependsOn: [] },
+                    { title: 'Alpha piece', tasks: ['a'], delivers: 'a', dependsOn: [] },
+                ],
+            });
+
+            expect(result.pieces.map(p => p.title)).toEqual(['Zed piece', 'Alpha piece']);
+        });
+
+        it('annotates the origin card with the ids it was split into, without moving it or dropping it', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+
+            const result = await service.split('0111', { pieces: twoPieces() });
+
+            expect(result.origin.id).toBe('0111');
+            expect(result.origin.stage).toBe('planning');
+            expect(result.origin.body).toContain(`Split into: ${result.pieces.map(p => p.id).join(', ')}`);
+
+            const stored = await board.read('0111');
+            expect(stored.frontmatter.stage).toBe('planning');
+        });
+
+        it('refuses fewer than two pieces with a 400, creating nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0112', { stage: 'planning' }), 'seed');
+
+            await expect(
+                service.split('0112', { pieces: [{ title: 'Only piece', tasks: ['task 1'], delivers: 'delivers it all', dependsOn: [] }] }),
+            ).rejects.toMatchObject({ statusCode: 400, details: { reason: expect.stringContaining('at least two pieces') } });
+
+            expect(await board.list()).toHaveLength(1);
+        });
+
+        it('refuses duplicate piece titles with a 400, creating nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0113', { stage: 'planning' }), 'seed');
+
+            await expect(
+                service.split('0113', {
+                    pieces: [
+                        { title: 'Same title', tasks: ['task 1'], delivers: 'd1', dependsOn: [] },
+                        { title: 'Same title', tasks: ['task 2'], delivers: 'd2', dependsOn: [] },
+                    ],
+                }),
+            ).rejects.toMatchObject({ statusCode: 400, details: { reason: expect.stringContaining('unique') } });
+
+            expect(await board.list()).toHaveLength(1);
+        });
+
+        it('refuses a piece that lists itself as a dependency with a 400, creating nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0114', { stage: 'planning' }), 'seed');
+
+            await expect(
+                service.split('0114', {
+                    pieces: [
+                        { title: 'Piece A', tasks: ['task 1'], delivers: 'd1', dependsOn: ['Piece A'] },
+                        { title: 'Piece B', tasks: ['task 2'], delivers: 'd2', dependsOn: [] },
+                    ],
+                }),
+            ).rejects.toMatchObject({ statusCode: 400, details: { reason: expect.stringContaining('itself') } });
+
+            expect(await board.list()).toHaveLength(1);
+        });
+
+        it('refuses a piece depending on a title that is not among the pieces being created, with a 400, creating nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0115', { stage: 'planning' }), 'seed');
+
+            await expect(
+                service.split('0115', {
+                    pieces: [
+                        { title: 'Piece A', tasks: ['task 1'], delivers: 'd1', dependsOn: ['Not a real piece'] },
+                        { title: 'Piece B', tasks: ['task 2'], delivers: 'd2', dependsOn: [] },
+                    ],
+                }),
+            ).rejects.toMatchObject({ statusCode: 400, details: { reason: expect.stringContaining('Not a real piece') } });
+
+            expect(await board.list()).toHaveLength(1);
+        });
+
+        it('answers an origin card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.split('missing', { pieces: twoPieces() })).rejects.toMatchObject({ statusCode: 404 });
         });
     });
 });
