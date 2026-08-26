@@ -60,6 +60,30 @@ const EXEC_TOOLS = ['Bash'];
  * them. Measured, not assumed: with Write allowed, a probe wrote a file outside the declared scope
  * and the guard was never called once. Permission comes solely from the callback, whose final
  * branch denies any tool it does not recognise.
+ *
+ * **`settingSources` is deliberately set to `[]`, and `strictMcpConfig` to `true`.** Left unset,
+ * `query()` does not mean "no filesystem settings" — the installed SDK's own type declaration says
+ * so plainly: "When omitted, all sources are loaded (matches CLI defaults)." A probe on 2026-08-25
+ * confirmed it loads for real: the `init` message's tool list carried every built-in the host CLI
+ * ships (`Task`, `Workflow`, `Artifact`, `WebFetch`, …) plus every MCP server configured in the
+ * *operator's* `~/.claude` — on that machine, sixteen `mcp__codebase-memory-mcp__*` tools, none of
+ * which this stage can use. `createToolGuard`'s default-deny means none of it was ever reachable,
+ * but a runner whose visible tool surface depends on whose laptop the daemon happens to run on is
+ * not reproducible, and every one of those definitions is resent as input tokens on every turn.
+ * `settingSources: []` is the CLI's own name for this — "SDK isolation mode" — and stops the
+ * user/project/local `settings.json` files from loading at all. That schema has no `mcpServers` key
+ * of its own, though — an operator's `mcp__codebase-memory-mcp__*` server (the one the probe found)
+ * is registered by `claude mcp add --scope user` into `~/.claude.json` instead, a different file
+ * `settingSources` does not reach. `strictMcpConfig: true` is what closes that: it restricts the
+ * engine to only the MCP servers passed via this call's own `mcpServers` option — the `wilson` server
+ * below — ignoring `~/.claude.json`, a project's `.mcp.json`, plugin-declared servers and subagent
+ * frontmatter MCP alike. Confirmed against a live engine, not assumed from either option's docs:
+ * with both set, a decoy server named in a fixture `~/.claude.json` does not appear on the `init`
+ * message at all; with them unset, its tool appears the same as `codebase-memory-mcp`'s did. Together
+ * the two make the tool surface a function of this adapter's own code, not of the machine it happens
+ * to run on. `wilson card plan` is a different call site: it spawns `claude` directly for an
+ * interactive planning session, where the operator sitting at the terminal arguably should see their
+ * own setup, and it is not changed here.
  */
 @Injectable()
 export class CliStageAgent extends StageAgent {
@@ -229,6 +253,11 @@ export class CliStageAgent extends StageAgent {
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
+                // Together these pin the tool surface to this adapter's own code — see the class
+                // doc comment above for why each is needed and what it stops. Neither is a denial;
+                // the guard's default-deny stays exactly as it is, unmoved.
+                settingSources: [],
+                strictMcpConfig: true,
                 canUseTool: createToolGuard(
                     context,
                     stage.worktree,
