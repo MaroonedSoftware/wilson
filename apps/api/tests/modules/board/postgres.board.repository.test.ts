@@ -1,11 +1,24 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Logger } from '@maroonedsoftware/logger';
 import { PostgresBoardRepository, CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { EventLog } from '#modules/events/event.log.js';
+import { loadStages, type ProjectStages } from '#modules/stages/stage.config.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
-import type { EventLog } from '#modules/events/event.log.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
+
+const silentLogger: Logger = {
+    error: () => undefined,
+    warn: () => undefined,
+    info: () => undefined,
+    debug: () => undefined,
+    trace: () => undefined,
+};
 
 let db: Kysely<DB>;
 beforeAll(() => {
@@ -193,5 +206,159 @@ describe('PostgresBoardRepository', () => {
 
         // The move did not survive the event failing, which is the whole point of the pairing.
         expect((await board.read('0001')).frontmatter.stage).toBe('implementing');
+    });
+});
+
+/**
+ * Card 0104. Two cards whose plans dispatch into the same files, with nothing deferring either.
+ * `scopeConflict` is the check: exercised here against a real repository and a real `EventLog`,
+ * rather than mocks, so `scope.granted` events (card 0069's `request_scope`) actually round-trip
+ * through the same `EventLog.tail` a running dispatch would use.
+ */
+describe('PostgresBoardRepository.scopeConflict (card 0104)', () => {
+    let board: PostgresBoardRepository;
+    let config: StaticBoardConfig;
+    let events: EventLog;
+    let stages: ProjectStages;
+
+    beforeEach(async () => {
+        events = new EventLog(db, silentLogger);
+
+        const boardRoot = await mkdtemp(join(tmpdir(), 'board-repository-scope-'));
+        await mkdir(join(boardRoot, 'config'), { recursive: true });
+        await writeFile(
+            join(boardRoot, 'config', 'stages.yaml'),
+            `
+stages:
+  - name: implementing
+    mode: agent
+    model: claude-opus
+    instructions: implement it
+    onPass: testing
+    onFail: implementing
+  - name: testing
+    mode: agent
+    model: claude-opus
+    instructions: test it
+    onPass: review
+    onFail: implementing
+  - name: review
+    mode: manual
+    model: claude-opus
+    instructions: review it
+    onPass: merged
+    onFail: implementing
+`,
+            'utf8',
+        );
+        stages = await loadStages(boardRoot);
+
+        config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        board = new PostgresBoardRepository(config, db, events);
+    });
+
+    it('finds nothing when no other card is on the board', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/a.ts\n'), 'create');
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
+    });
+
+    it("defers on two cards' declared scope overlapping while both sit in an agent stage", async () => {
+        await board.create(
+            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
+
+        expect(conflict?.cardId).toBe('0001');
+        expect(conflict?.overlap).toEqual([
+            { ours: 'apps/api/src/modules/events/card.event.ts', theirs: 'apps/api/src/modules/events/card.event.ts' },
+        ]);
+    });
+
+    it('does not defer against a card sitting in parking-lot or a terminal stage', async () => {
+        await board.create(
+            card('0001', { stage: 'parking-lot' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'merged' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0003'), stages)).toBeUndefined();
+    });
+
+    it('does not defer against a card sitting in a manual (non-agent) stage', async () => {
+        await board.create(
+            card('0001', { stage: 'review' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
+            'create',
+        );
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
+    });
+
+    // The 0090/0100 incident: two cards colliding entirely through a path neither plan named,
+    // acquired mid-run via `request_scope` and recorded as a `scope.granted` event.
+    it('defers when the collision exists only through a scope.granted path, not a declared one', async () => {
+        await board.create(card('0001', { stage: 'implementing' }), 'create');
+        await board.create(card('0002', { stage: 'implementing' }), 'create');
+
+        await events.append({
+            project: config.project,
+            cardId: '0001',
+            stage: 'implementing',
+            type: 'scope.granted',
+            payload: { path: 'apps/api/src/board-view.ts', reason: 'needed it' },
+        });
+        await events.append({
+            project: config.project,
+            cardId: '0002',
+            stage: 'implementing',
+            type: 'scope.granted',
+            payload: { path: 'apps/api/src/board-view.ts', reason: 'needed it too' },
+        });
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
+
+        expect(conflict?.cardId).toBe('0001');
+        expect(conflict?.overlap).toEqual([{ ours: 'apps/api/src/board-view.ts', theirs: 'apps/api/src/board-view.ts' }]);
+    });
+
+    // `patternsOverlap` (scope.overlap.ts), reused rather than reimplemented — a directory glob
+    // overlaps a specific file beneath it even though the glob never spells the file out.
+    it('defers on a glob overlapping a literal path beneath it, via the shared patternsOverlap matcher', async () => {
+        await board.create(
+            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/**\n'),
+            'create',
+        );
+        await board.create(
+            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/types.ts\n'),
+            'create',
+        );
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
+
+        expect(conflict?.cardId).toBe('0001');
+    });
+
+    it('does not defer when the two scopes are entirely disjoint', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/web/src/a.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/b.ts\n'), 'create');
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
     });
 });

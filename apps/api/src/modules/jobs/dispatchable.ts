@@ -17,6 +17,13 @@ export interface NotDispatchable {
  * The `needsHuman` flag is checked first, ahead of terminal and parking-lot, because it can be set on
  * a card sitting in any stage — a card flagged in `implementing` is blocked on a person, not on its
  * stage, and the refusal should say so rather than describing the stage as if that were the problem.
+ *
+ * Deliberately does not check `Files in scope` against whatever else is currently in flight — card
+ * 0104's answer to that lives in `CardStageJob.deferOnScopeConflict`
+ * (`apps/api/src/modules/jobs/card.stage.job.ts`), on the dispatch path every dispatch reaches
+ * (poller or `wilson card start`), not here. `BoardRepository.scopeConflict` is the shared matcher
+ * both this file's callers and that check are meant to agree with — see the note there before
+ * changing either.
  */
 export const whyNotDispatchable = (card: Card, stages: ProjectStages): NotDispatchable | undefined => {
     if (card.frontmatter.needsHuman) {

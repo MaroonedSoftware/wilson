@@ -1,9 +1,11 @@
 import { Injectable } from 'injectkit';
 import type { DateTime } from 'luxon';
 import type { AppendableCardEvent, EventLog } from '#modules/events/event.log.js';
+import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { isTerminal } from '#modules/stages/terminal.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { Card } from './card.js';
+import { filesInScope, type Card } from './card.js';
+import { scopeOverlap, type OverlappingPatterns } from './scope.overlap.js';
 
 /** One row of a card's version history — what `git log` on the board repo used to answer. */
 export interface CardVersionSummary {
@@ -11,6 +13,59 @@ export interface CardVersionSummary {
     message: string;
     createdAt: DateTime;
 }
+
+/**
+ * Cap on how much of a card's event history {@link scopeConflict} scans for `scope.granted` rows.
+ *
+ * `EventLog.tail` only ever returns the most recent `limit` rows (event.log.ts), and there is no
+ * type-filtered query to fall back to — `event.log.ts` is outside this card's (0104) "Files in
+ * scope". Generous rather than exact: a card whose event history runs past this before a grant would
+ * still miss it, but that is the same shape of best-effort every other caller of `tail` already
+ * accepts, not a new kind of gap.
+ */
+const GRANTED_PATHS_LOOKBACK = 2000;
+
+/**
+ * Every path granted to `cardId` via `request_scope`, across whatever of its history {@link
+ * GRANTED_PATHS_LOOKBACK} reaches — the `scope.granted` events card 0069's `ScopeGuard` records.
+ */
+const grantedPaths = async (events: EventLog, project: string, cardId: string): Promise<string[]> => {
+    const rows = await events.tail(project, cardId, GRANTED_PATHS_LOOKBACK);
+    return rows.filter(row => row.type === 'scope.granted').map(row => String((row.payload as { path?: unknown }).path));
+};
+
+/**
+ * A card's effective scope for a scope-overlap comparison: its plan's declared "Files in scope"
+ * patterns, plus every path granted to it via `request_scope` and not already covered by a declared
+ * pattern.
+ *
+ * Declared scope alone misses exactly the case that motivated this (card 0104, the 0090/0100
+ * incident): two cards colliding entirely through paths neither plan named, acquired mid-run instead.
+ */
+export const effectiveScope = (card: Card, granted: readonly string[]): string[] => {
+    const declared = filesInScope(card);
+    const extra = granted.filter(path => !declared.includes(path));
+    return [...declared, ...extra];
+};
+
+/**
+ * Whether `card` currently sits in a stage the runner treats as "in flight" for a scope-conflict
+ * comparison — an agent-mode stage. `ready`/`backlog`-shaped stages, `parking-lot`, and every
+ * terminal stage hold nothing (card 0104): comparing against them would degenerate this check into
+ * the lock it is deliberately not. Mirrors the stage classification `whyNotDispatchable`
+ * (jobs/dispatchable.ts) applies to the card being dispatched, applied here to every *other* card on
+ * the board — deliberately not `needsHuman`-aware, unlike `whyNotDispatchable`: a card flagged mid-
+ * `implementing` still has an unmerged worktree holding those files, so it still counts.
+ */
+const isRunningStage = (card: Card, stages: ProjectStages): boolean => {
+    const stageName = card.frontmatter.stage;
+    if (isTerminal(stageName) || stageName === 'parking-lot') return false;
+    try {
+        return findStage(stages, stageName).mode === 'agent';
+    } catch {
+        return false;
+    }
+};
 
 /**
  * The board.
@@ -111,5 +166,41 @@ export abstract class BoardRepository {
         } catch (err) {
             return { error: (err as Error).message };
         }
+    }
+
+    /**
+     * Card 0104. Whether `card`'s effective scope collides with a card currently in flight elsewhere
+     * on the board, and if so, which card and which patterns.
+     *
+     * `events` and `stages` are taken as parameters for the same reason `reclaimIfTerminal`'s
+     * `worktrees`/`events` are: this class has no `EventLog` or stage-config dependency of its own,
+     * and a caller that already holds both (`CardStageJob`) can share this one decision without the
+     * abstract class growing dependencies neither its contract nor its Postgres implementation
+     * otherwise needs.
+     *
+     * Compares `effectiveScope` — declared plus granted — on both sides, via `scopeOverlap`
+     * (card 0069's proven matcher, reused rather than reimplemented) against every other card whose
+     * stage `isRunningStage` counts as in flight. Returns the first collision found, not every one:
+     * "which card and which files" is enough to act on, and a card can only be deferred once per
+     * dispatch anyway.
+     */
+    async scopeConflict(
+        events: EventLog,
+        project: string,
+        card: Card,
+        stages: ProjectStages,
+    ): Promise<{ cardId: string; overlap: OverlappingPatterns[] } | undefined> {
+        const mine = effectiveScope(card, await grantedPaths(events, project, card.frontmatter.id));
+
+        for (const other of await this.list()) {
+            if (other.frontmatter.id === card.frontmatter.id) continue;
+            if (!isRunningStage(other, stages)) continue;
+
+            const theirs = effectiveScope(other, await grantedPaths(events, project, other.frontmatter.id));
+            const overlap = scopeOverlap(mine, theirs);
+            if (overlap.length > 0) return { cardId: other.frontmatter.id, overlap };
+        }
+
+        return undefined;
     }
 }
