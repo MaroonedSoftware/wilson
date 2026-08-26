@@ -119,6 +119,14 @@ export class CliStageAgent extends StageAgent {
         // tool, independent of whether the callback above ever ran to set `reported` — see
         // `droppedField` below, near the returns, for why that gap matters and what it is charged as.
         let reportToolSeen = false;
+        // Card 0126: whether *any* tool_use block — this MCP server's or one of the engine's own
+        // built-ins — has appeared anywhere in the run, not just the report tool. This is the
+        // detail `reportToolSeen` alone cannot give: a run that wrote files and ran the build but
+        // forgot the final report call, and a run that never called a single tool and simply
+        // stopped, both leave `reported` undefined with the same `engineStopReason` text — only
+        // this flag tells them apart. Sticky for the same reason `reportToolSeen` is: a later
+        // message carrying only text must not erase that a tool ran earlier in this run.
+        let anyToolSeen = false;
         // The api adapter's buildTools only exposes request_scope when worktreeMode === 'rw' — a
         // readonly or none stage can never write, so granting it the tool would let it log
         // scope.requested/granted events (or trip ScopeKickbackError under the kickback policy) for a
@@ -406,6 +414,9 @@ export class CliStageAgent extends StageAgent {
                             part => part.type === 'tool_use' && part.name === qualifiedReportTool(),
                         );
                     }
+                    if (!anyToolSeen) {
+                        anyToolSeen = message.message.content.some(part => part.type === 'tool_use');
+                    }
 
                     turns += 1;
                     // The credit a denial buys is capped at the budget itself. Uncapped, a run that
@@ -439,6 +450,29 @@ export class CliStageAgent extends StageAgent {
                             ...droppedField(),
                         };
                         return output;
+                    }
+                    // Card 0126: the turn ended cleanly and nothing was ever reported, with no tool
+                    // call of any kind along the way — the shape all fifteen prior instances (cards
+                    // 0010 through 0117) shared, and the only one this card has evidence for (its
+                    // "one reason so far" constraint). Recorded as its own event, from inside this
+                    // run rather than reconstructed afterwards from an empty diff and a missing
+                    // report, so a count of `turn.empty` answers "how many times has exactly this
+                    // happened" without re-parsing `engineStopReason` text off every card. Not
+                    // nudged: retrying inside this same call would mean turning this adapter from a
+                    // plain-string prompt into streaming input so a follow-up message could be
+                    // injected mid-session — the same rework the class doc comment already declines
+                    // for a narrower defect (card 0097) — and the exit condition is deliberately
+                    // unchanged (this card's constraint): a missing report still fails the stage the
+                    // same way it always has, on the very next lines. This just makes sure the next
+                    // instance is counted rather than rediscovered from scratch.
+                    if (reported === undefined && !anyToolSeen) {
+                        await context.events.append({
+                            project: context.project,
+                            cardId: context.cardId,
+                            stage: context.stage,
+                            type: 'turn.empty',
+                            payload: { engineStopReason: describeEngineStop(message) },
+                        });
                     }
                     // The result *is* the completion signal, so act on it rather than iterating on in
                     // the hope the stream closes by itself. Claude Code under `-p

@@ -53,7 +53,10 @@ const makeStage = (overrides = {}) => ({
 
 const runInput = (stage: ReturnType<typeof makeStage>) => ({
     stage,
-    context: { worktreeRoot: '/tmp/worktree' },
+    // `events` is a required stub, not an unused one: card 0126's turn.empty detection appends an
+    // event whenever a run ends cleanly with no tool call and nothing reported — exactly the shape
+    // of this file's "report tool never seen at all" fixture below.
+    context: { worktreeRoot: '/tmp/worktree', events: { append: async () => {} } },
     planPath: '/run/plan.md',
     title: 'a card',
     resultSchema: z.object({ summary: z.string().optional() }),
