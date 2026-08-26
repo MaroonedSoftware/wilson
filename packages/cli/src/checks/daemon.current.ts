@@ -25,7 +25,7 @@ const exec = promisify(execFile);
  *
  * Card 0100: this is now the manual view of a check the runner also makes on its own, automatically,
  * at the moment staleness actually matters — the instant before it dispatches a stage, in
- * `CardStageJob.checkDaemonCurrent` (`apps/api/src/modules/jobs/card.stage.job.ts`). Nothing here
+ * `checkDaemonCurrent` (`apps/api/src/modules/jobs/predispatch/daemon.current.ts`). Nothing here
  * runs unless a human happens to run `wilson doctor`; that check runs on every dispatch, which is
  * why it exists rather than this one being taught to run more often. The two do not share an
  * implementation — this one asks over HTTP, from outside the process, whether the daemon's start

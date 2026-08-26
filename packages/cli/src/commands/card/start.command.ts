@@ -21,7 +21,7 @@ import { withApi } from '../../api-client.js';
  * neither another card's "Files in scope" nor any in-flight indicator, so there is nothing here to
  * recompute an overlap *from* without changing that contract, which is a different card. Enqueuing
  * still always succeeds; a real conflict is caught server-side at dispatch by card 0104's deferral
- * (`CardStageJob.deferOnScopeConflict`, `apps/api/src/modules/jobs/card.stage.job.ts`), which covers
+ * (`deferOnScopeConflict`, `apps/api/src/modules/jobs/predispatch/scope.conflict.ts`), which covers
  * this command and the poller alike since both arrive as one `card.stage` job.
  */
 const command: CommandModule = {

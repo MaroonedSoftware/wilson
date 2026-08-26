@@ -717,10 +717,10 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
 
         expect(dispatcher.run).not.toHaveBeenCalled();
         expect(broker.send).not.toHaveBeenCalled();
-        // Card 0104's own doc comment on `deferOnScopeConflict` promises "no board write, no retry
-        // charged, no flag" — this is what pins that down: a scope-conflict defer never touches
-        // `boardRepo.write`, so nothing about the card's stage, retries, or flags changes underneath
-        // it, the same as an unsatisfied-dependency defer.
+        // Card 0104's doc comment on `deferOnScopeConflict` (predispatch/scope.conflict.ts)
+        // promises "no board write, no retry charged, no flag" — this is what pins that down: a
+        // scope-conflict defer never touches `boardRepo.write`, so nothing about the card's stage,
+        // retries, or flags changes underneath it, the same as an unsatisfied-dependency defer.
         expect(boardRepo.write).not.toHaveBeenCalled();
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({

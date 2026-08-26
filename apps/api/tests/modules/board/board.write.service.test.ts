@@ -86,7 +86,7 @@ const freshBoard = (
     brokerOverrides: Partial<{ send: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> }> = {},
     // Card 0079: `release`'s in-flight disambiguation used to shell out to `pgrep -f 'index.ts run'`;
     // now that the API is the only daemon, it asks `RunningCards` — this process's own record of
-    // which cards its `CardStageJob` handler is mid-run on (see card.stage.job.ts). Real, not a
+    // which cards its `CardStageJob` handler is mid-run on (see running.cards.ts). Real, not a
     // double: it's a plain in-memory set, and using the real thing exercises the actual `.add`/
     // `.snapshot` contract `release` depends on rather than a stand-in for it.
     runningCards: RunningCards = new RunningCards(),

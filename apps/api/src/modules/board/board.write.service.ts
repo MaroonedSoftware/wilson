@@ -339,7 +339,7 @@ export class BoardWriteService {
         // still be on it". Now the API is the only daemon, and this method only ever runs inside it —
         // asking "is a daemon up" from in here is always true, so it answers nothing. What still
         // genuinely varies is `RunningCards`: whether *this* process's own `CardStageJob` handler is
-        // mid-run on *this* card right now (see its doc in card.stage.job.ts — the same tracker
+        // mid-run on *this* card right now (see its doc in running.cards.ts — the same tracker
         // `stopCardStageJobs` reads to report shutdown abandonment). A claim `inFlight` still calls
         // live but that this process is not currently running is exactly a claim left behind by an
         // earlier process that crashed before it could clear or hand off — safe to release.

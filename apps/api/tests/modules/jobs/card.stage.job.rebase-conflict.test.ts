@@ -18,7 +18,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 
 // A real board in the test database, the same way stage.dispatcher.test.ts and
-// stage.dispatcher.budget.test.ts exercise `writeWithEvent`: `flagRebaseConflict` (card.stage.job.ts)
+// stage.dispatcher.budget.test.ts exercise `writeWithEvent`: `flagRebaseConflict` (flag.rebase.conflict.ts)
 // writes through it, and a mock standing in for it would only prove this test agrees with itself
 // about what the write does, not that the card on disk actually ends up flagged, in place, with its
 // retries untouched.

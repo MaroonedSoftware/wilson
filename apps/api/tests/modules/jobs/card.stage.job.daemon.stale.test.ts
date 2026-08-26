@@ -61,8 +61,8 @@ const commit = async (codeRoot: string, contents: string, message: string): Prom
  * module-scoped, process-lifetime cache that nothing resets, and this file runs isolated per test
  * file (vitest's `pool: 'forks'`, apps/api/vitest.config.ts) — so `buildHead()` is genuinely
  * `'unknown'` here, before the describe below ever calls `captureBuildHead` in its `beforeAll`. This
- * covers `checkDaemonCurrent`'s own guard (`if (buildHead() === 'unknown') return;`,
- * card.stage.job.ts) directly: before this process has captured its own commit — the window between
+ * covers `checkDaemonCurrent`'s own guard (`if (buildHead() === 'unknown') return false;`,
+ * predispatch/daemon.current.ts) directly: before this process has captured its own commit — the window between
  * boot and `captureBuildHead` resolving — dispatch must proceed with no staleness claim, since there
  * is nothing yet to compare `codeRoot`'s HEAD against.
  */
@@ -85,7 +85,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         const broker = { send: vi.fn(async () => 'job-1') };
         const events = { append: vi.fn(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
-        // same as "nothing to defer" (see its doc comment in card.stage.job.ts), so the new check
+        // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and this test exercises `checkDaemonCurrent` exactly as before.
         const boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
         const cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
@@ -109,7 +109,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
  * Card 0100. Nothing checked, at the moment it actually mattered, whether this process was running
  * current code before it dispatched a card — `wilson doctor`'s `daemonCurrent` only ever caught it
  * when a human happened to run it, and a merge (the moment staleness is created) is the steady state
- * of a running board, not an occasional event. `CardStageJob.checkDaemonCurrent` now asks on every
+ * of a running board, not an occasional event. `checkDaemonCurrent` (predispatch/) now asks on every
  * dispatch instead.
  *
  * `captureBuildHead` pins the process's own commit once, at "boot" — module-scoped and never reset
@@ -172,7 +172,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
-        // same as "nothing to defer" (see its doc comment in card.stage.job.ts), so the new check
+        // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and these tests exercise `checkDaemonCurrent` exactly as before.
         boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
