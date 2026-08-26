@@ -53,6 +53,22 @@ describe('ScopeGuard', () => {
         expect((decision as { reason: string }).reason).toContain('denied');
     });
 
+    it('says request_scope cannot widen the deny list, so an agent does not waste a round trip asking', async () => {
+        const decision = await guard(['**']).check('.runner/state.json');
+        expect(decision).toMatchObject({ allowed: false });
+        expect((decision as { reason: string }).reason).toBe(
+            'path is denied: the runner owns it, not the plan — request_scope cannot widen it, so work through a different path',
+        );
+    });
+
+    it('tells the caller to call request_scope, in the out-of-scope fallback refusal', async () => {
+        const decision = await guard(['src/runner/**']).check('src/other/thing.ts');
+        expect(decision).toMatchObject({ allowed: false });
+        expect((decision as { reason: string }).reason).toBe(
+            'path is outside the plan’s files in scope — call request_scope with this path if the work genuinely needs it',
+        );
+    });
+
     it('denies stage config even when a glob would allow it', async () => {
         await expect(guard(['**']).check('config/stages.yaml')).resolves.toMatchObject({ allowed: false });
     });
@@ -100,6 +116,12 @@ describe('ScopeGuard', () => {
             await expect(g.grant('.runner/state.json')).resolves.toMatchObject({ allowed: false });
             await expect(g.check('.runner/state.json')).resolves.toMatchObject({ allowed: false });
             expect(g.grants()).toEqual([]);
+        });
+
+        it('says request_scope cannot widen the deny list from grant() too', async () => {
+            const decision = await guard(['**']).grant('.runner/state.json');
+            expect(decision).toMatchObject({ allowed: false });
+            expect((decision as { reason: string }).reason).toContain('request_scope cannot widen it');
         });
 
         it('refuses to grant a path outside the worktree, rather than recording a lie', async () => {
@@ -225,6 +247,12 @@ describe('ScopeGuard', () => {
 
         it('still refuses to read the machinery', async () => {
             await expect(guard(['**']).checkRead('.runner/state.json')).resolves.toMatchObject({ allowed: false });
+        });
+
+        it('says request_scope cannot widen the deny list from checkRead() too', async () => {
+            const decision = await guard(['**']).checkRead('.runner/state.json');
+            expect(decision).toMatchObject({ allowed: false });
+            expect((decision as { reason: string }).reason).toContain('request_scope cannot widen it');
         });
     });
 });
