@@ -361,7 +361,7 @@ export const JobsModule: ServerKitModule = {
     // That is not the same as saying nothing else can reach the broker on a closed connection.
     // `stop()` gives up and returns once its own timeout elapses **while a handler keeps running** —
     // that is the whole premise of card 0066 and of the report above. A `CardStageJob.run` that
-    // reaches its chain point after that returns calls `broker.send` (card.stage.job.ts:192) on a
+    // reaches its chain point after that returns calls `broker.send` (card.stage.job.ts:107) on a
     // closed connection, and `CardStageDeadJob.run` calls `pgboss.getJobById`
     // (card.stage.dead.job.ts:64) the same way. Both throw the same assertion this card fixed here,
     // from a job handler rather than from shutdown. Card 0102 covers them; do not read this comment

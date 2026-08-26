@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
+import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
+
+/**
+ * This was an `instanceof` ladder inside `CardStageJob.runStage` — the region four of the last ten
+ * cards to touch that file edited. As a pure function it is testable without a live pg-boss, a board
+ * or a dispatcher, the same way `chain.decision.ts` and `dispatchable.ts` already are.
+ *
+ * The order of the checks is the part worth pinning: `isPermanentFailure` matches on message text
+ * because provider errors offer nothing better, and it must never get first look at an error this
+ * codebase threw with a discriminant on it.
+ */
+describe('classifyDispatchFailure', () => {
+    describe('NotDispatchableError, routed on its typed reason', () => {
+        it('defers an unsatisfied dependency, carrying what it is waiting on', () => {
+            const error = new NotDispatchableError({ kind: 'unsatisfied-dependency', outstanding: ['0007', '0008'] }, 'waiting on 0007, 0008');
+
+            expect(classifyDispatchFailure(error)).toEqual({
+                kind: 'defer',
+                outstanding: ['0007', '0008'],
+                reason: 'waiting on 0007, 0008',
+            });
+        });
+
+        it('defers a card already flagged for a human without naming another card', () => {
+            const error = new NotDispatchableError({ kind: 'needs-human' }, 'flagged for a human: scope too wide');
+
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'defer-flagged', reason: 'flagged for a human: scope too wide' });
+        });
+
+        it('calls a job that arrived after the card finished stale, not poisoned', () => {
+            const error = new NotDispatchableError({ kind: 'wrong-stage', actualStage: 'merged' }, 'card is on merged');
+
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'stale', actualStage: 'merged' });
+        });
+
+        /**
+         * `stale` is only right once the card is *finished*. A card sitting on some other live stage
+         * is a genuine mismatch, and treating it as a stale arrival would silently drop it.
+         */
+        it('poisons a wrong-stage refusal when the stage the card is actually on is not terminal', () => {
+            const error = new NotDispatchableError({ kind: 'wrong-stage', actualStage: 'implementing' }, 'card is on implementing');
+
+            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison' });
+        });
+
+        /**
+         * The allowlist card 0101's review warned about: a reason kind added to `stage.dispatcher.ts`
+         * without a branch here turns its card terminal. That is deliberate — loud rather than
+         * silent — and this pins it so the behaviour cannot drift by accident.
+         */
+        it('poisons a reason kind it does not recognise', () => {
+            const error = new NotDispatchableError({ kind: 'empty-scope' }, 'the plan names no files');
+
+            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison', error });
+        });
+    });
+
+    it('flags a rebase conflict, carrying the typed error its record needs', () => {
+        const error = new RebaseConflictError('card/0042-thing', 'abc1234', 'src/a.ts');
+
+        const outcome = classifyDispatchFailure(error);
+
+        expect(outcome).toEqual({ kind: 'flag-rebase', error });
+        expect(outcome.kind === 'flag-rebase' && outcome.error.branch).toBe('card/0042-thing');
+    });
+
+    describe('errors this codebase did not throw', () => {
+        it('retries anything isPermanentFailure does not recognise', () => {
+            expect(classifyDispatchFailure(new Error('socket hang up'))).toEqual({ kind: 'retry' });
+        });
+
+        it('poisons a permanent provider failure', () => {
+            expect(classifyDispatchFailure(new Error('Your credit balance is too low'))).toMatchObject({ kind: 'poison' });
+        });
+
+        it('retries a thrown non-Error rather than assuming the worst about it', () => {
+            expect(classifyDispatchFailure('just a string')).toEqual({ kind: 'retry' });
+        });
+    });
+
+    /**
+     * The ordering contract. A `NotDispatchableError` whose *message* would match
+     * `isPermanentFailure` must still route on its discriminant: message matching is tuned for
+     * provider errors and must never outrank a type this codebase attached itself.
+     */
+    it('routes a typed refusal on its type even when its message looks like a permanent failure', () => {
+        const error = new NotDispatchableError(
+            { kind: 'unsatisfied-dependency', outstanding: ['0009'] },
+            'waiting on 0009 — your credit balance is too low',
+        );
+
+        expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'defer' });
+    });
+});

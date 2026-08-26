@@ -2,19 +2,17 @@ import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
-import { git } from '#modules/board/git.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { commitsBehind } from '#modules/health/health.service.js';
 import { Notifier } from '#modules/notify/notifier.js';
-import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
+import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { loadStages } from '#modules/stages/stage.config.js';
-import { NotDispatchableError, RebaseConflictError, StageDispatcher } from '#modules/stages/stage.dispatcher.js';
-import { isTerminal } from '#modules/stages/terminal.js';
-import { buildHead } from '#src/server/build.info.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
+import { recordDeferral } from './dispatch.deferred.js';
+import { classifyDispatchFailure, type SettledDispatch } from './dispatch.outcome.js';
 import { flagRebaseConflict } from './flag.rebase.conflict.js';
 import { poisonCard } from './poison.card.js';
+import { PRE_DISPATCH_CHECKS } from './predispatch/index.js';
 import { RunningCards } from './running.cards.js';
 
 export interface CardStagePayload {
@@ -59,48 +57,19 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     private async runStage(cardId: string, stageName: string): Promise<void> {
-        await this.checkDaemonCurrent(cardId, stageName);
-
-        if (await this.deferOnScopeConflict(cardId, stageName)) return;
+        for (const check of PRE_DISPATCH_CHECKS) {
+            if (await check(this.deps(), cardId, stageName)) return;
+        }
 
         let outcome;
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
         } catch (error) {
-            // Checked before isPermanentFailure, which stays message-based for provider errors:
-            // assertDispatchable's refusals are typed, so they are routed on their discriminant
-            // rather than falling through to pattern matching.
-            if (error instanceof NotDispatchableError) {
-                if (error.reason.kind === 'unsatisfied-dependency') {
-                    await this.defer(cardId, stageName, error.reason.outstanding, error.message);
-                } else if (error.reason.kind === 'needs-human') {
-                    await this.deferFlagged(cardId, stageName, error.message);
-                } else if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {
-                    await this.stale(cardId, stageName, error.reason.actualStage);
-                } else {
-                    await this.poison(cardId, stageName, error);
-                }
-                await this.cardJobs.clear(cardId);
-                return;
-            }
-            if (error instanceof RebaseConflictError) {
-                // Checked ahead of isPermanentFailure for the same reason NotDispatchableError is:
-                // this is raised by this codebase and carries a type, so it is routed on that rather
-                // than falling through to message matching tuned for provider errors. One attempt,
-                // then flag — not poisoned, not retried, and `kickback` never sees it, because the
-                // stage never ran and failed nothing.
-                await flagRebaseConflict(
-                    { boardRepo: this.boardRepo, events: this.events, board: this.board },
-                    { project: this.board.project, cardId, stageName, error },
-                );
-                await this.cardJobs.clear(cardId);
-                return;
-            }
-            if (!isPermanentFailure(error)) {
-                // Transient: let it throw so the queue retries under its policy.
-                throw error;
-            }
-            await this.poison(cardId, stageName, error);
+            const failure = classifyDispatchFailure(error);
+            // The only outcome that does not settle: rethrown so the queue retries under its policy.
+            if (failure.kind === 'retry') throw error;
+
+            await this.settle(cardId, stageName, failure);
             await this.cardJobs.clear(cardId);
             return;
         }
@@ -197,153 +166,56 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
-     * Leave a dependency-blocked card exactly where it is.
-     *
-     * "Not now", not "never" (unlike `poison`): the outstanding cards may simply not have merged
-     * yet, and poisoning here is precisely the false positive `permanent.failure.ts` warns against —
-     * a card that would have recovered gets stranded. So this writes nothing to the board: the
-     * card's stage and retries are untouched, and the same dispatch that failed today succeeds
-     * unchanged once something enqueues it again. Recorded so an operator can see why the chain did
-     * not move without reconstructing it from the board.
+     * This job's dependencies as a plain object, for the collaborators that take them as an argument
+     * rather than being injected with them — the pre-dispatch checks, and the three shared writes
+     * `settle` routes to. Built per call rather than stored: a field holding a second reference to
+     * the same four things would be one more thing to keep in step with the constructor.
      */
-    private async defer(cardId: string, stageName: string, outstanding: string[], reason: string): Promise<void> {
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: stageName,
-            type: 'dispatch.deferred',
-            payload: { outstanding, reason },
-        });
+    private deps() {
+        return { board: this.board, boardRepo: this.boardRepo, events: this.events, cardJobs: this.cardJobs };
     }
 
     /**
-     * Leave a card the dispatcher found already flagged for a human exactly where it is.
+     * Carry out what `classifyDispatchFailure` decided.
      *
-     * `assertDispatchable`'s `needs-human` check (card 0109) exists for the race between a job being
-     * enqueued and dispatched: something else already wrote the flag, its reason, and its
-     * notification before this job ever reached `dispatcher.run`. There is nothing new to write or
-     * notify here, and `poison` would be wrong twice over — a flagged card is not broken, and a human
-     * clearing the flag makes it dispatchable again with no other change, the same "not now, not
-     * never" shape `defer` above gives an unsatisfied dependency. So this only records that the
-     * arrival happened, the same as `stale` does for a job that arrives after the card already moved
-     * on.
+     * The `switch` is exhaustive by construction: every arm returns, and the `never` assignment in
+     * `default` makes a new `DispatchOutcome` arm a compile error here rather than a card silently
+     * falling through to no handling at all. That is the half of card 0101's warning a type can
+     * enforce — the other half, a new `NotDispatchableReason` that no arm describes, still lands on
+     * `poison` by design (see `classifyDispatchFailure`).
      */
-    private async deferFlagged(cardId: string, stageName: string, reason: string): Promise<void> {
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: stageName,
-            type: 'dispatch.deferred',
-            payload: { reason },
-        });
-    }
+    private async settle(cardId: string, stageName: string, outcome: SettledDispatch): Promise<void> {
+        switch (outcome.kind) {
+            case 'defer':
+                return recordDeferral(this.deps(), { cardId, stageName, outstanding: outcome.outstanding, reason: outcome.reason });
 
-    /**
-     * Card 0104. Two cards whose plans (or `request_scope` grants) name the same file could both
-     * dispatch — nothing before this asked what else was running before cutting a worktree. This is
-     * the same deferral `defer` already gives an unsatisfied dependency, reused rather than
-     * duplicated: no board write, no retry charged, no flag, just a `dispatch.deferred` event and an
-     * early return.
-     *
-     * Runs ahead of `this.dispatcher.run`, not inside `StageDispatcher.assertDispatchable`
-     * (`apps/api/src/modules/stages/stage.dispatcher.ts` and `card.event.ts` are outside this card's
-     * "Files in scope") — every dispatch still reaches it, because every dispatch, poller or `wilson
-     * card start`, arrives here as one `card.stage` job (see the note on `whyNotDispatchable` in
-     * `dispatchable.ts`, which is the CLI/poller-facing half of this same question).
-     *
-     * Best-effort, the same as `checkDaemonCurrent`: `boardRepo.read`, `loadStages` or
-     * `boardRepo.scopeConflict` failing is treated the same as "no conflict found" rather than
-     * thrown — this check exists to defer a dispatch early, not to become a second, less complete
-     * place for `dispatcher.run` below to fail. `dispatcher.run` reads the same stage config and the
-     * same card itself, and reports a genuine problem with either through its own, already-covered
-     * error handling. Also skipped entirely when the card has already moved off `stageName` — a
-     * stale dispatch is `stage.stale`'s problem, not a scope conflict.
-     */
-    private async deferOnScopeConflict(cardId: string, stageName: string): Promise<boolean> {
-        const card = await this.boardRepo.read(cardId).catch(() => undefined);
-        if (!card || card.frontmatter.stage !== stageName) return false;
+            case 'defer-flagged':
+                return recordDeferral(this.deps(), { cardId, stageName, reason: outcome.reason });
 
-        const stages = await loadStages(this.board.boardRoot).catch(() => undefined);
-        if (!stages) return false;
+            case 'stale':
+                await this.events.append({
+                    project: this.board.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'stage.stale',
+                    payload: { wantedStage: stageName, actualStage: outcome.actualStage },
+                });
+                return;
 
-        const conflict = await this.boardRepo.scopeConflict(this.events, this.board.project, card, stages).catch(() => undefined);
-        if (!conflict) return false;
+            case 'flag-rebase':
+                return flagRebaseConflict(this.deps(), { project: this.board.project, cardId, stageName, error: outcome.error });
 
-        const paths = [...new Set(conflict.overlap.flatMap(o => [o.ours, o.theirs]))].join(', ');
-        await this.defer(cardId, stageName, [conflict.cardId], `${cardId} deferred: ${paths} is in flight on ${conflict.cardId}`);
-        await this.cardJobs.clear(cardId);
-        return true;
-    }
+            case 'poison': {
+                const reason = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+                // The job returns normally afterwards so the queue does not retry it either — the
+                // whole point is that the next attempt fails identically.
+                return poisonCard(this.deps(), { project: this.board.project, cardId, stageName, reason });
+            }
 
-    /**
-     * A job arrived for a card that has already finished — not a bug, once the card's current stage
-     * is terminal. A card reaches `merged` (or `dropped`/`poisoned`) while a job for its last stage
-     * is still queued, `wilson card move` reclaims the worktree on the human's transition, and this
-     * job then dispatches into a card that is done. Poisoning it here would be card 0066/0082's bug:
-     * undoing a human's completed merge because a stale job showed up after the fact.
-     *
-     * So this changes nothing about the card — no transition, no worktree touch — and only records
-     * that the arrival happened, the same reasoning card 0051 already applies to a dead-lettered job
-     * landing on a card a human resolved by hand.
-     */
-    private async stale(cardId: string, wantedStage: string, actualStage: string): Promise<void> {
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: wantedStage,
-            type: 'stage.stale',
-            payload: { wantedStage, actualStage },
-        });
-    }
-
-    /**
-     * Stop a card whose failure retrying cannot fix. See {@link poisonCard} for the shared write.
-     *
-     * The job returns normally afterwards so the queue does not retry it either — the whole point is
-     * that the next attempt fails identically.
-     */
-    private async poison(cardId: string, stageName: string, error: unknown): Promise<void> {
-        const reason = error instanceof Error ? error.message : String(error);
-        await poisonCard(
-            { boardRepo: this.boardRepo, events: this.events, board: this.board },
-            { project: this.board.project, cardId, stageName, reason },
-        );
-    }
-
-    /**
-     * Card 0100. Nothing used to check that this process was running current code before it
-     * dispatched a card — `daemonCurrent` (packages/cli/src/checks/daemon.current.ts) only ever ran
-     * when a human happened to run `wilson doctor`, and a merge (the moment staleness is created) is
-     * a normal part of running the board, not an occasional event a manual check will reliably catch.
-     * This runs on every dispatch instead, which is the moment it actually matters.
-     *
-     * `codeRoot`'s current HEAD is "the commit the card's worktree is about to be cut from": every
-     * path through `WorktreeManager` — a fresh `create()`, or a `resume()` immediately followed by
-     * `rebaseOntoHead()` — ends with the worktree's `baseSha` equal to that HEAD, so reading it here,
-     * before `StageDispatcher.run` ever cuts the tree, needs no change to `StageDispatcher` and no
-     * second mechanism for reading the daemon's own commit (`HealthService`'s `buildHead`/
-     * `commitsBehind`, card 0079, already answer that).
-     *
-     * Deliberately never blocks: a daemon one commit behind is the steady state of a running board,
-     * not an exceptional one, so this only records what it found and lets the stage dispatch anyway.
-     */
-    private async checkDaemonCurrent(cardId: string, stageName: string): Promise<void> {
-        if (buildHead() === 'unknown') return;
-
-        const baseSha = await git(this.board.codeRoot, ['rev-parse', 'HEAD'])
-            .then(result => result.stdout.trim())
-            .catch(() => undefined);
-        if (!baseSha) return;
-
-        const behindBy = await commitsBehind(this.board.codeRoot, baseSha);
-        if (behindBy <= 0) return;
-
-        await this.events.append({
-            project: this.board.project,
-            cardId,
-            stage: stageName,
-            type: 'daemon.stale',
-            payload: { daemonCommit: buildHead(), baseCommit: baseSha, behindBy },
-        });
+            default: {
+                const unhandled: never = outcome;
+                throw new Error(`unhandled dispatch outcome: ${JSON.stringify(unhandled)}`);
+            }
+        }
     }
 }

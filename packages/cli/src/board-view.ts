@@ -113,7 +113,7 @@ export const nextCard = (cards: CardSummary[], nonStages: string[]): NextCard =>
  *
  * Deliberately not folded into `nextCard` itself: that function is pure over `CardSummary[]`, cheap
  * to call with nothing but the two board-list responses `next.command.ts` already fetches, and card
- * 0100 only ever recorded `daemon.stale` as an *event* (`CardStageJob.checkDaemonCurrent`, apps/api)
+ * 0100 only ever recorded `daemon.stale` as an *event* (`checkDaemonCurrent`, apps/api)
  * rather than a field on the card — reading it needs each card's event tail, a call per card the
  * caller controls the cost of by choosing which cards to ask for, not something this helper should
  * force on every `nextCard` caller.
