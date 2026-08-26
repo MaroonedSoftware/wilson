@@ -1,9 +1,9 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
-import { git } from '#modules/board/git.js';
+import { git, isClean } from '#modules/board/git.js';
 import { codeRootLock } from './code.root.lock.js';
 
 export interface Worktree {
@@ -19,6 +19,12 @@ export interface Worktree {
  *
  * The worktree is cut from the *code* repo, which contains no board files at all — that is what
  * makes "a card branch never touches board state" structural rather than merely enforced.
+ *
+ * A failed stage's work is uncommitted, not lost. Only a passing stage commits (see `commit`), so
+ * a failed attempt's work lives only as uncommitted changes in the worktree — and `reclaim` deletes
+ * that worktree before the next attempt, on every route in (`create`, `resume`, a terminal card's
+ * own reclaim). Before it deletes, it saves whatever is dirty as a patch at
+ * `failedAttemptPatchPath(cardId)`, so "uncommitted" never quietly becomes "gone" (card 0089).
  */
 @Injectable()
 export class WorktreeManager {
@@ -29,6 +35,18 @@ export class WorktreeManager {
 
     private path(cardId: string): string {
         return join(this.config.worktreeRoot, cardId);
+    }
+
+    /**
+     * Where `reclaim` saves a card's last failed attempt, if it found uncommitted work to save.
+     *
+     * One path per card, not one per attempt: each `reclaim` overwrites it, so it names the most
+     * recent failure only. It lives under the per-card scratch directory `stage.dispatcher.ts`
+     * already materializes plans into — outside every worktree, so it is never mistaken for part
+     * of the tree a resumed or verified stage is working from.
+     */
+    failedAttemptPatchPath(cardId: string): string {
+        return join(this.config.runRoot, 'cards', cardId, 'last-failed-attempt.patch');
     }
 
     branchName(cardId: string, title: string): string {
@@ -141,10 +159,47 @@ export class WorktreeManager {
      */
     private async reclaimUnlocked(cardId: string): Promise<void> {
         const path = this.path(cardId);
+        // Never lets a preservation failure block the reclaim itself: a card that cannot be
+        // reclaimed is worse than an attempt that goes unpreserved.
+        await this.preserveUncommitted(cardId, path).catch(err => {
+            this.logger.warn(`could not preserve uncommitted work for ${cardId} before reclaim: ${(err as Error).message}`);
+        });
         await git(this.config.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);
         await rm(path, { recursive: true, force: true });
         // Drops records for directories already gone, which is what a killed run leaves behind.
         await git(this.config.codeRoot, ['worktree', 'prune']).catch(() => undefined);
+    }
+
+    /**
+     * Save a dirty worktree's uncommitted changes as a patch before `reclaimUnlocked` deletes the
+     * tree — the mechanism card 0089 settles on, and deliberately not a stash or an event: a
+     * `git stash` on a linked worktree writes `refs/stash` in the *common* git dir (the operator's
+     * own repo), unbounded; an event recording which paths changed describes that work existed
+     * without keeping it.
+     *
+     * `git add -A` before diffing, not `git diff HEAD`: the work card 0078 lost — new test files —
+     * was untracked, and invisible to a diff against HEAD. Staging is safe here because nothing is
+     * committed; the tree is deleted immediately after this returns. Same idiom `commit` already
+     * uses one method away.
+     *
+     * Skips silently when there is no directory to look at, or nothing dirty in it — a passing
+     * stage's clean tree leaves no patch, so the success path is unaffected.
+     */
+    private async preserveUncommitted(cardId: string, path: string): Promise<void> {
+        const exists = await stat(path).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) return;
+        if (await isClean(path)) return;
+
+        await git(path, ['add', '-A']);
+        const { stdout } = await git(path, ['diff', '--cached', '--binary']);
+
+        const patchPath = this.failedAttemptPatchPath(cardId);
+        await mkdir(join(this.config.runRoot, 'cards', cardId), { recursive: true });
+        await writeFile(patchPath, stdout, 'utf8');
+        this.logger.info(`preserved uncommitted work for ${cardId} at ${patchPath}`);
     }
 
     /**
