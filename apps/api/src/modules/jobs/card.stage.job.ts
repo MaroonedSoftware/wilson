@@ -2,12 +2,15 @@ import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { git } from '#modules/board/git.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { commitsBehind } from '#modules/health/health.service.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { loadStages } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { isTerminal } from '#modules/stages/terminal.js';
+import { buildHead } from '#src/server/build.info.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
 
@@ -148,6 +151,8 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     private async runStage(cardId: string, stageName: string): Promise<void> {
+        await this.checkDaemonCurrent(cardId, stageName);
+
         let outcome;
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
@@ -290,5 +295,42 @@ export class CardStageJob extends Job<CardStagePayload> {
             { boardRepo: this.boardRepo, events: this.events, board: this.board },
             { project: this.board.project, cardId, stageName, reason },
         );
+    }
+
+    /**
+     * Card 0100. Nothing used to check that this process was running current code before it
+     * dispatched a card — `daemonCurrent` (packages/cli/src/checks/daemon.current.ts) only ever ran
+     * when a human happened to run `wilson doctor`, and a merge (the moment staleness is created) is
+     * a normal part of running the board, not an occasional event a manual check will reliably catch.
+     * This runs on every dispatch instead, which is the moment it actually matters.
+     *
+     * `codeRoot`'s current HEAD is "the commit the card's worktree is about to be cut from": every
+     * path through `WorktreeManager` — a fresh `create()`, or a `resume()` immediately followed by
+     * `rebaseOntoHead()` — ends with the worktree's `baseSha` equal to that HEAD, so reading it here,
+     * before `StageDispatcher.run` ever cuts the tree, needs no change to `StageDispatcher` and no
+     * second mechanism for reading the daemon's own commit (`HealthService`'s `buildHead`/
+     * `commitsBehind`, card 0079, already answer that).
+     *
+     * Deliberately never blocks: a daemon one commit behind is the steady state of a running board,
+     * not an exceptional one, so this only records what it found and lets the stage dispatch anyway.
+     */
+    private async checkDaemonCurrent(cardId: string, stageName: string): Promise<void> {
+        if (buildHead() === 'unknown') return;
+
+        const baseSha = await git(this.board.codeRoot, ['rev-parse', 'HEAD'])
+            .then(result => result.stdout.trim())
+            .catch(() => undefined);
+        if (!baseSha) return;
+
+        const behindBy = await commitsBehind(this.board.codeRoot, baseSha);
+        if (behindBy <= 0) return;
+
+        await this.events.append({
+            project: this.board.project,
+            cardId,
+            stage: stageName,
+            type: 'daemon.stale',
+            payload: { daemonCommit: buildHead(), baseCommit: baseSha, behindBy },
+        });
     }
 }

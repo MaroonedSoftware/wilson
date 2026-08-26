@@ -22,6 +22,17 @@ const exec = promisify(execFile);
  *
  * PROJECT.md's Bootstrapping section already required this: the daemon runs from an installed build,
  * and redeploying is a deliberate act between cards. This makes forgetting visible.
+ *
+ * Card 0100: this is now the manual view of a check the runner also makes on its own, automatically,
+ * at the moment staleness actually matters — the instant before it dispatches a stage, in
+ * `CardStageJob.checkDaemonCurrent` (`apps/api/src/modules/jobs/card.stage.job.ts`). Nothing here
+ * runs unless a human happens to run `wilson doctor`; that check runs on every dispatch, which is
+ * why it exists rather than this one being taught to run more often. The two do not share an
+ * implementation — this one asks over HTTP, from outside the process, whether the daemon's start
+ * time trails the code repo's HEAD commit time; the runner asks from inside the process, by commit
+ * ancestry, whether the daemon's own commit is behind the exact commit the card's worktree is about
+ * to be cut from (`HealthService.commitsBehind`) — but both exist to answer the same question, so a
+ * change to what "stale" means on one side is worth checking against the other.
  */
 export const daemonCurrent: Check = {
     name: 'daemon not stale',
