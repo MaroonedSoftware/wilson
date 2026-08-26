@@ -156,7 +156,21 @@ export class ScopeGuard {
 
         const rel = relative(root, resolved);
         if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
-            return { allowed: false, path: candidate, reason: 'path resolves outside the worktree' };
+            // The root is named here, not just in the prompt, because this refusal is where an agent
+            // that guessed a wrong absolute prefix finds out — and a refusal it cannot act on is a
+            // step it spends twice. 53 denials on this board carried the bare message; card 0104's
+            // implementing stage read `/Users/robert/.worktrees/0104/...` when the tree was at
+            // `/Users/robert/projects/.worktrees/0104/...`, was refused twice with nothing to
+            // correct against, and ended having changed nothing. Relative is the form every scoped
+            // path in a plan already takes, and what `contain` resolves against, so it is the remedy
+            // worth naming rather than a corrected absolute path.
+            return {
+                allowed: false,
+                path: candidate,
+                reason:
+                    `path resolves outside the worktree. This worktree's root is ${root} — ` +
+                    `give a path relative to it (for example "apps/api/src/index.ts"), not an absolute path`,
+            };
         }
 
         // Normalise to forward slashes so the globs in a plan are platform-independent.
