@@ -4,7 +4,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import { loadStages, findStage, validTargets } from '#modules/stages/stage.config.js';
+import { loadStages, validTargets } from '#modules/stages/stage.config.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
@@ -83,6 +83,13 @@ export class BoardWriteService {
      * including its two edge cases: a move to the card's current stage still clears a `needsHuman`
      * flag rather than being a no-op, and a terminal target reclaims the card's worktree
      * (best-effort, never unwinding the transition that already committed).
+     *
+     * Card 0127: entering `backlog` — from anywhere, `planning`, `parking-lot`, or a `scope-check`
+     * refusal routed back through `planning` — is now the approval gate `approve` used to be. This
+     * is the one place that pins the plan version and refuses an empty "Files in scope", so a card
+     * this lets into `backlog` is always both approved and workable, whatever the source. Re-moving
+     * a card already in `backlog` (the flag-clearing no-op-that-writes case below) does not re-pin —
+     * it is not *entering* `backlog`, it is already there.
      */
     async move(id: string, request: MoveCardRequest): Promise<CardDetail> {
         const target = request.stage;
@@ -105,20 +112,41 @@ export class BoardWriteService {
             return toCardDetail(before);
         }
 
+        const enteringBacklog = target === 'backlog' && before.frontmatter.stage !== target;
+
+        // Same refusal `approve` always made, carried to the new gate: an empty "Files in scope"
+        // would dispatch straight into `NotDispatchableError`'s `empty-scope` case later, with
+        // nothing writable for the stage to act on.
+        if (enteringBacklog && filesInScope(before).length === 0) {
+            throw httpError(400).withDetails({ reason: `cannot approve ${id}: its plan's "Files in scope" is empty — nothing would be writable` });
+        }
+
+        const payload: Record<string, unknown> = { from: before.frontmatter.stage, to: target, by: 'human' };
+
         // The move and the event recording it commit together.
         await this.boardRepository.writeWithEvent(
             id,
             `Move ${id} to ${target}`,
-            card => {
+            async card => {
                 const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = card.frontmatter;
-                return { ...card, frontmatter: { ...rest, stage: target } };
+                if (!enteringBacklog) {
+                    return { ...card, frontmatter: { ...rest, stage: target } };
+                }
+
+                // `writeIn` snapshots after this mutate returns, so `currentVersion` read from in
+                // here still answers with the version *before* this write — the plan text just
+                // approved, not the row this approval itself is about to create. That looks off by
+                // one and is not. Leave it (this is `approve`'s own comment, carried here unchanged).
+                const pinnedVersion = await this.boardRepository.currentVersion(id);
+                payload.planVersionId = pinnedVersion;
+                return { ...card, frontmatter: { ...rest, stage: target, planVersionId: pinnedVersion } };
             },
             {
                 project: this.boardConfig.project,
                 cardId: id,
                 stage: target,
                 type: 'transition.written',
-                payload: { from: before.frontmatter.stage, to: target, by: 'human' },
+                payload,
             },
         );
 
@@ -239,52 +267,27 @@ export class BoardWriteService {
     }
 
     /**
-     * Approve a card's plan, pinning it and moving the card out of `backlog`. Mirrors `wilson card
-     * approve`, including the version it pins: `writeIn` snapshots the card *after* the mutate
-     * callback returns, so `currentVersion` read from inside it still returns the version from
-     * *before* this write — the one holding the plan text just approved, not the version this
-     * approval itself is about to create. That looks off by one and is not. Leave it.
+     * Approve a card's plan: pin its current version and move it from `planning` into `backlog`.
+     *
+     * Card 0127 reconciled this. `approve` used to move `backlog` → `backlog`'s `onPass` and pin on
+     * the way out; now entering `backlog` is what pins (see {@link move}'s doc comment), from
+     * whichever stage a card reaches it from — `planning`, `parking-lot`, or a `scope-check`
+     * refusal routed back through `planning`. Keeping two ways to approve (this method's old
+     * behaviour alongside the new gate) is exactly the drift the card called out, so this is not
+     * retired — `POST /api/cards/:id/approve` is generated from the board contract, outside this
+     * card's "Files in scope", and `board.router.ts` still calls `service.approve(id)` by that name
+     * — it is repointed: `wilson card approve` is now the name for the everyday `planning` →
+     * `backlog` move, a thin `planning`-only front door onto `move`, which does the actual pinning
+     * and empty-scope refusal. A `parking-lot` → `backlog` promotion, which is not "approving a
+     * plan" in the same sense, goes through plain `wilson card move` instead, as it already did.
      */
     async approve(id: string): Promise<CardDetail> {
         const card = await this.readOrThrow(id);
-        if (card.frontmatter.stage !== 'backlog') {
-            throw httpError(400).withDetails({ reason: `cannot approve ${id}: it is in "${card.frontmatter.stage}", not "backlog"` });
+        if (card.frontmatter.stage !== 'planning') {
+            throw httpError(400).withDetails({ reason: `cannot approve ${id}: it is in "${card.frontmatter.stage}", not "planning"` });
         }
 
-        // An empty "Files in scope" would dispatch straight into `NotDispatchableError`'s
-        // `empty-scope` case later, with nothing writable for the stage to act on.
-        if (filesInScope(card).length === 0) {
-            throw httpError(400).withDetails({ reason: `cannot approve ${id}: its plan's "Files in scope" is empty — nothing would be writable` });
-        }
-
-        // Where approval sends the card: `backlog`'s own `onPass` target, not a hard-coded
-        // `implementing`. Stages are config, not code (PROJECT.md decision 8).
-        const stages = await loadStages(this.boardConfig.boardRoot);
-        const target = findStage(stages, 'backlog').onPass;
-
-        const payload: Record<string, unknown> = { from: 'backlog', to: target, by: 'human' };
-
-        await this.boardRepository.writeWithEvent(
-            id,
-            `Approve ${id}`,
-            async current => {
-                const pinnedVersion = await this.boardRepository.currentVersion(id);
-                payload.planVersionId = pinnedVersion;
-                return {
-                    ...current,
-                    frontmatter: { ...current.frontmatter, stage: target, planVersionId: pinnedVersion },
-                };
-            },
-            {
-                project: this.boardConfig.project,
-                cardId: id,
-                stage: target,
-                type: 'transition.written',
-                payload,
-            },
-        );
-
-        return toCardDetail(await this.boardRepository.read(id));
+        return this.move(id, { stage: 'backlog' });
     }
 
     /**

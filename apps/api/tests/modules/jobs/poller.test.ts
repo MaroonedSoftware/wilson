@@ -55,13 +55,29 @@ const { POLLER_INTERVAL_MS_DEFAULT } = await import('#modules/jobs/job.runner.co
 /** Release the oldest outstanding interval wait, letting the loop run one more tick. */
 const releaseTick = () => pending.shift()?.resolve();
 
-// A minimal but valid stages.yaml: `implementing` is an agent stage (dispatchable), `review` is
-// manual (never dispatched), `triage` is a `command` stage (also never dispatched — card 0117's
-// poller treats any non-`agent` mode the same way). `loadStages` reads this from disk for real — it
-// is not mocked — so `whyNotDispatchable`'s stage lookup inside `Poller.tick` is exercised exactly as
-// it runs in production.
+// A minimal but valid stages.yaml: `implementing` is an agent stage (dispatchable), `review` and
+// `ready` are manual (never dispatched), `triage` is a `command` stage (also never dispatched —
+// card 0117's poller treats any non-`agent` mode the same way, `ready` included). `backlog` and
+// `scope-check` exist for card 0127: `backlog` is manual with `onPass: scope-check` — deliberately
+// not the more obvious `implementing`, so a poller that hard-coded a target instead of reading
+// `onPass` from config would still pass every other test here but fail the ones that check it lands
+// on `scope-check`. `loadStages` reads this from disk for real — it is not mocked — so
+// `whyNotDispatchable`'s stage lookup and `findStage(stages, 'backlog').onPass` inside `Poller.tick`
+// are both exercised exactly as they run in production.
 const stagesYaml = `
 stages:
+  - name: backlog
+    mode: manual
+    model: claude-opus
+    instructions: read the plan
+    onPass: scope-check
+    onFail: backlog
+  - name: scope-check
+    mode: agent
+    model: claude-opus
+    instructions: check the scope
+    onPass: implementing
+    onFail: backlog
   - name: implementing
     mode: agent
     model: claude-opus
@@ -74,6 +90,12 @@ stages:
     instructions: review it
     onPass: merged
     onFail: implementing
+  - name: ready
+    mode: manual
+    model: claude-opus
+    instructions: ready to merge
+    onPass: merged
+    onFail: ready
   - name: triage
     mode: command
     model: claude-opus
@@ -134,7 +156,7 @@ const buildPoller = (
     deps: Partial<{ cardJobs: FakeCardJobs; broker: ReturnType<typeof fakeBroker>; logger: ReturnType<typeof fakeLogger>; settings: SettingsStore }> = {},
 ) => {
     const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
-    const board = { list: vi.fn(async () => cards) };
+    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1') };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
@@ -370,6 +392,99 @@ describe('Poller tick — what it will and will not enqueue', () => {
         await expect(runOneTick(poller)).resolves.toBeUndefined();
 
         expect(logger.error).toHaveBeenCalledWith(boom);
+    });
+});
+
+describe('Poller tick — the backlog queue (card 0127)', () => {
+    /**
+     * The whole point of this card: a card already approved and pinned on entry to `backlog`
+     * (`BoardWriteService.move`) is queue work now — the poller carries it to `backlog`'s own
+     * `onPass` target (read from config, not `implementing`, the more obvious hard-coded guess) and
+     * enqueues it there, without a human touching it.
+     */
+    it('advances a backlog card to its onPass target from config, writing the transition and enqueuing it there', async () => {
+        const { poller, board, broker, cardJobs, logger } = buildPoller([card('0001', 'backlog')]);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).toHaveBeenCalledWith(
+            '0001',
+            expect.any(String),
+            expect.any(Function),
+            expect.objectContaining({
+                cardId: '0001',
+                stage: 'scope-check',
+                type: 'transition.written',
+                payload: { from: 'backlog', to: 'scope-check', by: 'runner' },
+            }),
+        );
+        // The mutate callback itself lands the card on the onPass target.
+        const mutate = board.writeWithEvent.mock.calls[0]![2] as (c: Card) => Card;
+        expect(mutate(card('0001', 'backlog')).frontmatter.stage).toBe('scope-check');
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check' });
+        expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
+        expect(logger.info.mock.calls[0][0]).toContain('0001');
+    });
+
+    /**
+     * Constraint: only `backlog`, never derived from `mode: manual`. `ready` is manual too, with
+     * `onPass: merged` — a poller that advanced it the same way `backlog` gets advanced would merge
+     * a card to main with nobody having looked. This is the direct assertion the plan calls for.
+     */
+    it('never advances a card in ready, even though it is also a manual stage', async () => {
+        const { poller, board, broker } = buildPoller([card('0001', 'ready')]);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).not.toHaveBeenCalled();
+        expect(broker.send).not.toHaveBeenCalled();
+    });
+
+    it('never advances a card in planning either — its onPass is backlog, not something to skip straight past', async () => {
+        const { poller, board, broker } = buildPoller([card('0001', 'planning')]);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).not.toHaveBeenCalled();
+        expect(broker.send).not.toHaveBeenCalled();
+    });
+
+    it('does not advance a backlog card something already holds a claim on, falling through to the next candidate', async () => {
+        const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
+        const cards = [card('0001', 'backlog'), card('0002', 'implementing')];
+        const { poller, board, broker } = buildPoller(cards, { cardJobs });
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).not.toHaveBeenCalled();
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+    });
+
+    /**
+     * `nextCard` already excludes flagged and dependency-blocked cards from `candidates` (see
+     * next.card.ts) — a backlog card that is either never reaches the poller's walk at all. These
+     * prove the acceptance criterion directly, at the level the plan asked for, rather than only
+     * trusting that upstream filter.
+     */
+    it('never advances a backlog card flagged for a human', async () => {
+        const cards = [card('0001', 'backlog', { needsHuman: true }), card('0002', 'implementing')];
+        const { poller, board, broker } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).not.toHaveBeenCalled();
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+    });
+
+    it('never advances a backlog card blocked on an unmet dependency', async () => {
+        const cards = [card('0001', 'backlog', { dependsOn: ['0099'] }), card('0002', 'implementing')];
+        const { poller, board, broker } = buildPoller(cards);
+
+        await runOneTick(poller);
+
+        expect(board.writeWithEvent).not.toHaveBeenCalled();
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
     });
 });
 
