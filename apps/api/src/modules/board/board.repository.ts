@@ -126,6 +126,18 @@ export abstract class BoardRepository {
     abstract create(card: Card, message: string): Promise<string>;
 
     /**
+     * Card 0091. Set a card's `position` and nothing else.
+     *
+     * Deliberately not `write`: `write`/`writeWithEvent` snapshot frontmatter and body into
+     * `runner.card_versions` on every call, which is right for a plan edit and wrong for a
+     * reposition — a few minutes of tidying a column would bury the card's real history under
+     * version rows whose body never changed. This updates the one column, mints no version, and
+     * writes no event, matching ordering's status as not runner state (see the constraint on
+     * `BoardWriteService.reposition`).
+     */
+    abstract setPosition(id: string, position: number): Promise<void>;
+
+    /**
      * Reclaim a card's worktree once a transition has landed it on a terminal stage, and record that
      * it happened.
      *

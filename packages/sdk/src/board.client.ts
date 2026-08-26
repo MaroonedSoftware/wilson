@@ -14,6 +14,7 @@ import type {
     MoveCardRequest,
     PlanSession,
     ReleaseResult,
+    RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
     SplitResult,
@@ -74,6 +75,25 @@ export class BoardClient {
      */
     async moveCard(id: string, body: MoveCardRequest): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /**
+     * @name Reposition card
+     * @description Card 0091. Carries the drag an operator made in the parking lot down to a stored `position` — the
+     * one other thing this surface lets an operator set that is not runner state (see the comment on
+     * `options.security` and decision 5: the runner owns stage, branch, retries; this owns nothing the
+     * runner reads). Persists through `BoardRepository.setPosition`, not `write`/`writeWithEvent`: a
+     * reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
+     * card three rows down did not change what the runner will do with it. Follows the same sub-resource
+     * shape `move` established above.
+     */
+    async repositionCard(id: string, body: RepositionCardRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/reposition`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
