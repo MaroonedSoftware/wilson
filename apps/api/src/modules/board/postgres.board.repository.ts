@@ -137,6 +137,29 @@ export class PostgresBoardRepository extends BoardRepository {
         });
     }
 
+    /**
+     * Card 0128. Whether a job is currently carrying `cardId` — read directly from `runner.card_jobs`
+     * rather than through `CardJobs` (`modules/jobs/card.jobs.ts`): this class has no dependency on the
+     * jobs module and must not grow one just for this question, the same reasoning `BoardRepository`
+     * gives for declaring this abstract instead of importing `CardJobs` itself.
+     *
+     * Row existence only, not `CardJobs.inFlight`'s broker reconciliation — a claim a crashed worker
+     * abandoned without clearing is a narrower, pre-existing problem with its own eventual resolution
+     * (the same job's redelivery, or whichever caller next asks `CardJobs.inFlight` about that one
+     * card) and is not the deadlock this card fixes: that deadlock was cards holding *no* claim row at
+     * all — deferred, or their chain stopped, `clear`ed the moment they settled — being treated as if
+     * they held one because of the stage they happened to sit in.
+     */
+    async hasLiveClaim(project: string, cardId: string): Promise<boolean> {
+        const row = await this.db
+            .selectFrom('runner.cardJobs')
+            .select('cardId')
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .executeTakeFirst();
+        return row !== undefined;
+    }
+
     private async readWith(executor: Executor, id: string): Promise<Card> {
         const row = await executor
             .selectFrom('runner.cards')
