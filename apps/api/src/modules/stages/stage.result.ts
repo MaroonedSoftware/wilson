@@ -176,4 +176,13 @@ export interface StageOutcome {
      * can ever set it.
      */
     resultDropped?: boolean;
+    /**
+     * The engine's own account of why its last message ended, carried straight from
+     * `AgentRunOutput.engineStopReason` (`stage.agent.ts`) — see that field's doc comment for exactly
+     * what it can and cannot say. `StageDispatcher` puts this on `stage.failed` alongside `failures`
+     * and `usage` (card 0118) rather than a new event, so a pass that produced nothing says why
+     * without changing what happens next: this is evidence attached to the existing failure, not a
+     * routing signal — `kickback`/`shouldAdvance` never read it. Unset on a passing outcome.
+     */
+    engineStopReason?: string;
 }

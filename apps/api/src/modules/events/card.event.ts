@@ -14,6 +14,17 @@ export type CardEventType =
     // worktree is reclaimed. Named here regardless of *why* the stage failed — a thrown error or a
     // verification that simply did not pass, both leave work uncommitted the same way — and before
     // `reclaim` has necessarily run, since the path does not depend on that.
+    //
+    // Also carries `engineStopReason` (card 0118) when the `cli` adapter's engine said anything about
+    // why its last message ended: the SDK `result` message's `subtype` and, when set, its
+    // `stop_reason` — e.g. a turn that ended cleanly (`success`) without ever calling report_result,
+    // or a subtype other than `success` naming its own cause instead of the generic "ran out of
+    // steps" text. Absent whenever the SDK gave the adapter nothing to read one from: the runner's own
+    // wall-clock/idle timeout firing before any `result` message arrived, or the stream closing with
+    // no `result` message at all — both real, and neither guessed at (`cli.stage.agent.ts`,
+    // `describeEngineStop`). Never present on `stage.passed`. A dead engine process is a different
+    // signal entirely, carried on its own `errorClass`/`exitCode`/`signal` shape by `engine.failed`
+    // below, not by this field.
     | 'stage.failed'
     | 'stage.poisoned'
     | 'stage.dead'
