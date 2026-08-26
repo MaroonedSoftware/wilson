@@ -1,6 +1,7 @@
 import type {
     BoardColumns,
     CardDetail,
+    CardDivision,
     CardEvent,
     CardSummary,
     CardVersion,
@@ -14,6 +15,8 @@ import type {
     PlanSession,
     ReleaseResult,
     SaveDraftRequest,
+    SplitCardsRequest,
+    SplitResult,
 } from './types/board.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
@@ -116,6 +119,35 @@ export class BoardClient {
     async releaseCard(id: string): Promise<ReleaseResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
         return await parseJson<ReleaseResult>(result);
+    }
+
+    /**
+     * @name Get card division
+     * @description Card 0113. Reads without writing: renders the division a client would confirm, before anything is
+     * created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
+     * empty confirmation prompt.
+     */
+    async getCardDivision(id: string): Promise<CardDivision> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/division`, { method: 'GET' });
+        return await parseJson<CardDivision>(result);
+    }
+
+    /**
+     * @name Split card
+     * @description Card 0113. Creates one card per confirmed piece, in `planning`, records the dependencies named in
+     * each piece's `dependsOn`, and annotates the origin card with the ids it produced. Never moves or
+     * drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
+     * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
+     * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
+     * already confirmed.
+     */
+    async splitCard(id: string, body: SplitCardsRequest): Promise<SplitResult> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/split`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<SplitResult>(result);
     }
 
     /**

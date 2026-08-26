@@ -204,6 +204,26 @@ export const SaveDraftRequest = z.strictObject({
 export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
 
 /**
+ * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
+ * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
+ * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+ * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+ * of.
+ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L172)
+ */
+export const DivisionPiece = z.strictObject({
+    title: z.string(),
+    tasks: z.array(z.string()),
+    delivers: z.string(),
+    dependsOn: z
+        .array(z.string())
+        .describe(
+            'Titles of other pieces in the same division this piece\'s own report named as blocking it.\n`ScopeDivisionPieceSchema` defaults this to `[]` whether the model said "independent" or simply\ndid not say — an empty array here is not proof of independence. A client must show this field\nas reported and let an operator add to it before anything is created; it must not try to infer\na missing dependency from `delivers` prose.',
+        ),
+});
+export type DivisionPiece = z.infer<typeof DivisionPiece>;
+
+/**
  * generated from [CardDetail](file://./../../data/contracts/board.ck#L42)
  */
 export const CardDetail = CardSummary.extend({
@@ -211,6 +231,36 @@ export const CardDetail = CardSummary.extend({
     sections: z.record(z.string(), z.string()),
 });
 export type CardDetail = z.infer<typeof CardDetail>;
+
+/**
+ * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a
+ * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+ * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+ * spend, not this endpoint's.
+ * generated from [CardDivision](file://./../../data/contracts/board.ck#L188)
+ */
+export const CardDivision = z.strictObject({
+    reason: z
+        .string()
+        .describe(
+            'The refusal\'s own stated reason (`ScopeCheckResultSchema.reason`) — repetition, named in the\nmodel\'s own words, not merely "refused".',
+        ),
+    pieces: z.array(DivisionPiece),
+});
+export type CardDivision = z.infer<typeof CardDivision>;
+
+/**
+ * `POST /api/cards/{id}/split`'s request: every piece to create, exactly as an operator confirmed
+ * it — `title`/`tasks`/`delivers` as `scope-check` reported them, `dependsOn` as the operator left it
+ * after being shown what was reported and given the chance to add to it. The endpoint does not go
+ * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+ * acts on.
+ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L200)
+ */
+export const SplitCardsRequest = z.strictObject({
+    pieces: z.array(DivisionPiece),
+});
+export type SplitCardsRequest = z.infer<typeof SplitCardsRequest>;
 
 /**
  * `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
@@ -225,3 +275,16 @@ export const ReleaseResult = CardDetail.extend({
     releasedAs: z.enum(['queued', 'orphan']),
 });
 export type ReleaseResult = z.infer<typeof ReleaseResult>;
+
+/**
+ * `POST /api/cards/{id}/split`'s response: the origin card, re-read after being annotated with the
+ * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+ * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+ * sentence, not a plan with all six headings filled in.
+ * generated from [SplitResult](file://./../../data/contracts/board.ck#L208)
+ */
+export const SplitResult = z.strictObject({
+    origin: CardDetail,
+    pieces: z.array(CardDetail),
+});
+export type SplitResult = z.infer<typeof SplitResult>;
