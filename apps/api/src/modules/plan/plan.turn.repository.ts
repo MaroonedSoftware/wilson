@@ -1,4 +1,4 @@
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import type { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
@@ -31,12 +31,19 @@ export class PlanTurnRepository {
     ) {}
 
     /**
-     * Append one turn, assigning it the next `seq` for this card. Locks the card's most recent row
-     * (if any) for the duration, the same `forUpdate` idiom `postgres.board.repository.ts`'s
-     * `writeIn` uses, so two turns for the same card cannot race onto the same `seq`.
+     * Append one turn, assigning it the next `seq` for this card.
+     *
+     * `postgres.board.repository.ts`'s `writeIn` serializes writers by locking the row being
+     * written, but a brand-new card has no row yet — a first turn is exactly the case `forUpdate`
+     * cannot cover, since there is nothing to lock until after the seq it would protect is already
+     * chosen. `pg_advisory_xact_lock`, keyed by hashing `project` and `cardId` into the two int4
+     * key slots that overload takes, locks the *card* rather than a row, so it also covers the
+     * first turn; it is released automatically when the transaction ends.
      */
     async append(cardId: string, role: PlanTurnRole, content: string, engineSessionId?: string): Promise<PlanTurn> {
         return this.db.transaction().execute(async trx => {
+            await sql`select pg_advisory_xact_lock(hashtext(${this.config.project}), hashtext(${cardId}))`.execute(trx);
+
             const last = await trx
                 .selectFrom('runner.planTurns')
                 .select('seq')
@@ -44,7 +51,6 @@ export class PlanTurnRepository {
                 .where('cardId', '=', cardId)
                 .orderBy('seq', 'desc')
                 .limit(1)
-                .forUpdate()
                 .executeTakeFirst();
             const seq = (last?.seq ?? 0) + 1;
 
