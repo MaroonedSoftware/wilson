@@ -91,6 +91,24 @@ export interface Settings {
     updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string | undefined>;
 }
 
+/**
+ * The append-only transcript of a planning conversation — what `PlanTurnRepository` appends to and
+ * reads from. `seq` is a monotonic per-(project, card_id) counter, not a timestamp, and is what
+ * `Last-Event-ID` replay resumes from. Deliberately not the record of the model's own context; see
+ * the migration's header comment for why the two are kept apart.
+ */
+export interface PlanTurns {
+    project: string;
+    cardId: string;
+    seq: number;
+    /** 'user' or 'assistant'. Left as `string` here, like `Cards.stage`, for the same reason: hand-written database types cannot enforce a check constraint. */
+    role: string;
+    content: string;
+    /** The engine's own session id, set on the assistant turn that produced it; null on a user turn. */
+    engineSessionId: string | null;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -98,4 +116,5 @@ export interface DB {
     'runner.cardJobs': CardJobs;
     'runner.cardEvents': CardEvents;
     'runner.settings': Settings;
+    'runner.planTurns': PlanTurns;
 }
