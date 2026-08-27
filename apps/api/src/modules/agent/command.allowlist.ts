@@ -14,6 +14,13 @@
  * binaries by habit — so reaching for a workaround is a deliberate act, not bounding what is
  * possible. `ScopeGuard` (`scope.guard.ts`) is the real constraint on what an agent can change,
  * and it has the same limit: it guards the write tools, not the process.
+ *
+ * The sharpest cost of mistaking this list for a boundary is credentials, not files: whatever
+ * env an allowed command inherits is reachable by whatever project code it runs, allowlist or
+ * not — refusing `curl` here does nothing once a build script it was already permitted to run
+ * can read the environment itself. Card 0045 scrubs the runner's git credentials and provider
+ * API keys out of that env for exactly this reason. Restoring an inherited env because "the
+ * allowlist already covers what a command can reach" would undo that.
  */
 export type CommandDecision = { allowed: true; argv: string[] } | { allowed: false; reason: string };
 
