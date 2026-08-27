@@ -14,8 +14,8 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
-import { PlanTurnRepository, type PlanTurn } from './plan.turn.repository.js';
-import type { CardDetail, PlanSession, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
+import { PlanTurnRepository, type PlanTurn as StoredPlanTurn } from './plan.turn.repository.js';
+import type { CardDetail, PlanSession, PlanTurn, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
 
 /** The same six headings `card create` seeds, built from the shared constant so the two cannot drift. */
 const SKELETON = PLAN_SECTIONS.map(section => `## ${section}\n`).join('\n');
@@ -94,6 +94,17 @@ export class PlanService {
      * session).
      */
     async turn(id: string, request: PlanTurnRequest): Promise<PlanTurn> {
+        return this.toGeneratedTurn(await this.appendTurn(id, request));
+    }
+
+    /**
+     * `turn`'s actual work, kept separate from the shape it hands back over HTTP: `PlanTurnRepository`
+     * rows carry `engineSessionId` — the live engine's own session id, needed to rehydrate a
+     * conversation after a restart — but that is an internal implementation detail of this service,
+     * never part of the contract `board.ck` declares for `POST .../plan/turn`. `toGeneratedTurn`
+     * strips it before anything is handed to a caller, so the wire response can never leak it.
+     */
+    private async appendTurn(id: string, request: PlanTurnRequest): Promise<StoredPlanTurn> {
         const card = await this.readOrThrow(id);
         await this.assertPlannable(id, card);
         const text = request.text;
@@ -135,6 +146,15 @@ export class PlanService {
         }
 
         return this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+    }
+
+    /**
+     * The generated contract's `PlanTurn` — `seq`, `role`, `content`, `createdAt` — never the stored
+     * row's `engineSessionId`, which exists only so this class can rehydrate the engine's own
+     * conversation and has no business on the wire.
+     */
+    private toGeneratedTurn(stored: StoredPlanTurn): PlanTurn {
+        return { seq: stored.seq, role: stored.role, content: stored.content, createdAt: stored.createdAt };
     }
 
     /**
