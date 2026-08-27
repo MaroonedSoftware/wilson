@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
-import { SdkError, type CardSummary } from '@wilson/sdk';
+import { SdkError, type CardSummary, type PlanTurn } from '@wilson/sdk';
 import { wilson } from './sdk.js';
 
 /**
@@ -9,8 +9,11 @@ import { wilson } from './sdk.js';
  * (`@maroonedsoftware/errors`' `httpError(...).withDetails({ reason })`, see
  * `BoardWriteService.move`/`.start`). The same place the CLI's `describeApiError`
  * (`packages/cli/src/api-client.ts`) reads it from, so an operator sees the same sentence either way.
+ *
+ * Exported for `PlanningSession.tsx`'s composer, which shows a refused turn's reason inline next to
+ * the send control rather than as a notification — the same sentence, read the same way.
  */
-const reasonFor = (err: unknown): string => {
+export const reasonFor = (err: unknown): string => {
     if (err instanceof SdkError) {
         const body = err.body as { details?: { reason?: string }; message?: string } | undefined;
         return body?.details?.reason ?? body?.message ?? err.message;
@@ -90,5 +93,20 @@ export function useStartCard(id: string) {
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not enqueue the card', message: reasonFor(err) });
         },
+    });
+}
+
+/**
+ * Sends one turn of a card's planning conversation (card 0133's `POST .../plan/turn`), card 0137's
+ * composer. Unlike the mutations above, a refusal is not a notification: `PlanningSession.tsx`
+ * reads `error` itself and shows the server's own sentence inline next to the composer, the same
+ * way `settings.tsx`'s controls do, since a notification would vanish before an operator mid-typing
+ * necessarily saw it. Success hands back the newly appended assistant `PlanTurn` (never the user's
+ * own — the endpoint only ever returns the reply), which the caller folds into the transcript kept
+ * by `usePlanTranscript` (`lib/plan.ts`) via its `commitTurn`.
+ */
+export function useSendPlanTurn(id: string) {
+    return useMutation({
+        mutationFn: (text: string): Promise<PlanTurn> => wilson.board.sendAPlanTurn(id, { text }),
     });
 }

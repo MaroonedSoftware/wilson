@@ -1,10 +1,68 @@
-import { Anchor, Badge, Button, Code, Divider, Group, List, Loader, Paper, Select, Stack, Text, Timeline, Title } from '@mantine/core';
+import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, ScrollArea, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { Markdown } from '#src/components/Markdown.js';
+import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
 import { useMoveCard, useStartCard } from '#src/lib/mutations.js';
+
+/** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
+const NARROW_BREAKPOINT = '(max-width: 62em)';
+
+/** A fixed height for both `planning` panes — otherwise a `ScrollArea` inside a `Stack` has nothing
+ * to bound its own growth against and never actually scrolls. */
+const PANE_HEIGHT = 520;
+
+/**
+ * Card 0137: a card in `planning` gets a two-pane session — the conversation
+ * (`PlanningSessionPane`) beside the card's current body, read-only, standing in for the draft pane
+ * [[0138]] builds. `Tabs` when the viewport is too narrow for both side by side, `Grid` otherwise;
+ * either way the same two panes, never a third layout that could drift from what each renders alone.
+ */
+function PlanningPanes({ card }: { card: CardDetail }) {
+    const narrow = useMediaQuery(NARROW_BREAKPOINT);
+
+    const conversation = (
+        <Stack gap={6} h={PANE_HEIGHT}>
+            <Title order={5}>Conversation</Title>
+            <PlanningSessionPane card={card} />
+        </Stack>
+    );
+    const draft = (
+        <Stack gap={6}>
+            <Title order={5}>Plan</Title>
+            <ScrollArea h={PANE_HEIGHT} type="auto">
+                <Markdown body={card.body} />
+            </ScrollArea>
+        </Stack>
+    );
+
+    if (narrow) {
+        return (
+            <Tabs defaultValue="conversation">
+                <Tabs.List>
+                    <Tabs.Tab value="conversation">Conversation</Tabs.Tab>
+                    <Tabs.Tab value="plan">Plan</Tabs.Tab>
+                </Tabs.List>
+                <Tabs.Panel value="conversation" pt="sm">
+                    {conversation}
+                </Tabs.Panel>
+                <Tabs.Panel value="plan" pt="sm">
+                    {draft}
+                </Tabs.Panel>
+            </Tabs>
+        );
+    }
+
+    return (
+        <Grid>
+            <Grid.Col span={6}>{conversation}</Grid.Col>
+            <Grid.Col span={6}>{draft}</Grid.Col>
+        </Grid>
+    );
+}
 
 function StageBadge({ stage }: { stage: string }) {
     return (
@@ -159,7 +217,10 @@ function VersionsList({ versions, limit, error }: { versions: CardVersion[] | un
  * A card, in full: what it is (title, stage, branch, plan) and what has happened to it (events,
  * versions) — plus, since card 0037, its two operator actions: move it to another stage, and
  * enqueue it for the one it's in. The plan itself stays read-only, matching the card 0036 contract —
- * no editing the plan, no approving it, no cancelling a running job.
+ * no editing the plan, no approving it, no cancelling a running job — except in `planning` itself
+ * (card 0137), where an operator can hold the planning conversation from here instead of only from
+ * a terminal; the body shown there is still the card's current one, read-only, standing in for the
+ * draft pane [[0138]] builds.
  */
 export function CardDetailView({
     card,
@@ -241,10 +302,14 @@ export function CardDetailView({
                 </Stack>
             )}
 
-            <Stack gap={6}>
-                <Title order={4}>Plan</Title>
-                <Markdown body={card.body} />
-            </Stack>
+            {card.stage === 'planning' ? (
+                <PlanningPanes card={card} />
+            ) : (
+                <Stack gap={6}>
+                    <Title order={4}>Plan</Title>
+                    <Markdown body={card.body} />
+                </Stack>
+            )}
 
             <Divider />
 
