@@ -62,7 +62,7 @@ export class PlanService {
             });
         }
 
-        const cardBranch = this.worktrees.branchName(id, card.frontmatter.title);
+        const cardBranch = this.worktrees.resolveBranch(card);
         if (await this.worktrees.hasWork(cardBranch)) {
             throw httpError(400).withDetails({
                 reason: `${id} already has work on ${cardBranch} — re-planning a card with code is a different, more dangerous operation`,
