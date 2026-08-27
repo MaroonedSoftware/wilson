@@ -194,17 +194,78 @@ describe('PlanService', () => {
             expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
         });
 
-        it('seeds the six-heading skeleton when the card has no sections', async () => {
+        it('seeds the card\'s own prose plus the full six-heading skeleton when the card has no sections, discarding nothing', async () => {
             const { board, service } = await freshEnv();
-            await board.create(card('0002', { stage: 'planning', title: 'Blank card' }, 'just some notes, no headings'), 'seed');
+            const body = '## Note\n\njust some notes, no headings\n';
+            await board.create(card('0002', { stage: 'planning', title: 'Blank card' }, body), 'seed');
 
             const session = await service.open('0002');
 
             const seed = await readFile(session.draftPath, 'utf8');
+            // Card 0124: the old behaviour discarded a note-shaped card's prose for a blank skeleton
+            // the moment it had zero of the six plan headings. The prose — and the card's own
+            // non-plan heading — must now survive into the draft, not just the skeleton.
+            expect(seed).toContain('## Note');
+            expect(seed).toContain('just some notes, no headings');
             for (const section of PLAN_SECTIONS) {
                 expect(seed).toContain(`## ${section}`);
             }
-            expect(seed).not.toContain('just some notes');
+            // The appended headings are the ones to fill in, not pre-filled with anything.
+            for (const section of PLAN_SECTIONS) {
+                expect(seed).toMatch(new RegExp(`## ${section}\\n(\\n## |$)`));
+            }
+        });
+
+        it('seeds the card\'s own headings where they are and appends only the ones it lacks, in PLAN_SECTIONS order, when it has some but not all', async () => {
+            const { board, service } = await freshEnv();
+            const body = ['## Out of scope', 'Nothing outside the API.', '', '## Goal', 'Ship the seed fix.', ''].join('\n');
+            await board.create(card('0013', { stage: 'planning', title: 'Partial card' }, body), 'seed');
+
+            const session = await service.open('0013');
+
+            const seed = await readFile(session.draftPath, 'utf8');
+            // The two headings the card already had keep their own order and wording — "Out of
+            // scope" before "Goal", exactly as written, not moved to canonical position.
+            const outOfScopeIndex = seed.indexOf('## Out of scope');
+            const goalIndex = seed.indexOf('## Goal');
+            expect(outOfScopeIndex).toBeGreaterThanOrEqual(0);
+            expect(goalIndex).toBeGreaterThan(outOfScopeIndex);
+            expect(seed).toContain('Nothing outside the API.');
+            expect(seed).toContain('Ship the seed fix.');
+
+            // Only the four missing headings were appended, each after the card's own content, in
+            // PLAN_SECTIONS order among themselves.
+            const missing = PLAN_SECTIONS.filter(s => s !== 'Out of scope' && s !== 'Goal');
+            let cursor = goalIndex;
+            for (const section of missing) {
+                const idx = seed.indexOf(`## ${section}`, cursor);
+                expect(idx).toBeGreaterThan(cursor);
+                cursor = idx;
+            }
+        });
+
+        it('leaves a card with all six headings byte-identical, and says so in the instructions, even though completeSections now runs on every card', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0014', { stage: 'planning', title: 'Full card' }, FULL_BODY), 'seed');
+
+            const session = await service.open('0014');
+
+            expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
+            expect(session.instructions).toContain("this card's existing body");
+            expect(session.instructions).not.toContain('empty six-heading skeleton');
+        });
+
+        it('tells the agent the draft holds the card\'s own notes plus the headings it was missing, not that it is an empty skeleton, when sections are incomplete', async () => {
+            const { board, service } = await freshEnv();
+            const body = '## Note\n\ncaptured mid-review\n';
+            await board.create(card('0015', { stage: 'planning', title: 'Note card' }, body), 'seed');
+
+            const session = await service.open('0015');
+
+            expect(session.instructions).toContain("the card's own notes above");
+            expect(session.instructions).toContain('plan-contract headings it was missing');
+            expect(session.instructions).not.toContain('empty six-heading skeleton');
+            expect(session.instructions).not.toBe("this card's existing body");
         });
 
         it('refuses a card outside "planning", and cuts nothing', async () => {
@@ -342,6 +403,30 @@ describe('PlanService', () => {
 
             expect(detail.body).toBe(FULL_BODY);
             expect(await board.versions('0009', 10)).toHaveLength(1);
+        });
+
+        /**
+         * Card 0124: `open` now seeds a note-shaped card with its own prose plus the headings it was
+         * missing, instead of a blank skeleton — `save`'s own validation must not have loosened to
+         * match. The appended headings arrive empty; submitting the seed back unedited must still be
+         * refused for exactly the reason an untouched skeleton always was.
+         */
+        it('refuses the seed `open` produces for a note-shaped card, unedited, the same as it always refused an empty skeleton', async () => {
+            const { board, service } = await freshEnv();
+            const body = '## Note\n\ncaptured mid-review, no plan headings yet\n';
+            await board.create(card('0016', { stage: 'planning', title: 'Note card' }, body), 'seed');
+
+            const session = await service.open('0016');
+            const seed = await readFile(session.draftPath, 'utf8');
+
+            await expect(service.save('0016', { body: seed })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('Goal') },
+            });
+
+            const stored = await board.read('0016');
+            expect(stored.body).toBe(body);
+            expect(await board.versions('0016', 10)).toHaveLength(1);
         });
     });
 

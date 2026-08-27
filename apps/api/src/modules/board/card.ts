@@ -98,6 +98,25 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
 };
 
 /**
+ * A card body completed with whichever of the six `PLAN_SECTIONS` headings it lacks, each
+ * appended at the end as its own empty section, in `PLAN_SECTIONS` order. A body that already has
+ * all six is returned unchanged, byte for byte; a heading the body does have keeps its own
+ * position and wording — this only adds what is missing, it never reorders or rewrites what is
+ * already there.
+ *
+ * Seeds a planning draft from a card's own prose — a `## Note` card promoted out of the parking
+ * lot, say — instead of discarding it for a blank skeleton just because the plan-contract
+ * headings are not there yet.
+ */
+export const completeSections = (body: string): string => {
+    const sections = sectionsOf(body);
+    const missing = PLAN_SECTIONS.filter(section => !(section in sections));
+    if (missing.length === 0) return body;
+    const skeleton = missing.map(section => `## ${section}\n`).join('\n');
+    return `${body.trimEnd()}\n\n${skeleton}`;
+};
+
+/**
  * The globs a stage may write to, read from the `Files in scope` section.
  *
  * Globs, not paths, so a plan does not have to predict every file it will create. Bullet markers,

@@ -7,7 +7,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
-import { PLAN_SECTIONS, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
+import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
 import { findStage, loadStages, type StageConfig } from '#modules/stages/stage.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -16,9 +16,6 @@ import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
 import { PlanTurnRepository, type PlanTurn as StoredPlanTurn } from './plan.turn.repository.js';
 import type { CardDetail, PlanSession, PlanTurn, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
-
-/** The same six headings `card create` seeds, built from the shared constant so the two cannot drift. */
-const SKELETON = PLAN_SECTIONS.map(section => `## ${section}\n`).join('\n');
 
 /**
  * A path that is not `worktreeRoot/<cardId>` — `WorktreeManager.create`/`reclaim` key on whatever id
@@ -244,8 +241,8 @@ export class PlanService {
         await mkdir(draftDir, { recursive: true });
         const draftPath = join(draftDir, 'draft.md');
 
-        const hasSections = Object.keys(sectionsOf(card.body)).length > 0;
-        const seed = hasSections ? card.body : SKELETON;
+        const seed = completeSections(card.body);
+        const complete = seed === card.body;
         await writeFile(draftPath, seed, 'utf8');
 
         const worktree = await this.worktrees.create(planId(id), planBranch(id));
@@ -258,7 +255,9 @@ export class PlanService {
             '',
             `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
             `delivered. It currently holds ${
-                hasSections ? "this card's existing body" : 'an empty six-heading skeleton'
+                complete
+                    ? "this card's existing body"
+                    : "the card's own notes above, followed by the plan-contract headings it was missing, each left empty for you to fill in"
             }; read it before anything else.`,
         ].join('\n');
 
