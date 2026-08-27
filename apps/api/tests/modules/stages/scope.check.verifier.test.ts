@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { BREADTH_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
+import { BREADTH_THRESHOLD, DEPTH_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
 import type { ScopeCheckResult } from '#modules/stages/stage.result.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 
@@ -143,6 +143,30 @@ describe('ScopeCheckVerifier', () => {
         reason:
             'three different things, each done once — one health check rewritten, one command deleted, one set of comments fixed. ' +
             'Twenty-one bullets and 12,036 characters come from how much each is spelled out, not from doing any of them more than once.',
+        division: [],
+    };
+
+    /**
+     * Card 0120: the case that motivated `DEPTH_THRESHOLD` (see that constant's doc comment) — nine
+     * groups, each holding exactly one task, so `largestGroup` never comes close to
+     * `BREADTH_THRESHOLD`. Schema migration, DB type binding, repository, conversation agent, session
+     * registry, SSE feed, service integration, contract declaration, route mounting.
+     */
+    const card0120: ScopeCheckResult = {
+        summary: 'nine distinct pieces: schema, DB binding, repository, agent, registry, SSE feed, service, contract, route',
+        groups: [
+            { title: 'schema migration', tasks: ['add the new columns'] },
+            { title: 'DB type binding', tasks: ['bind the new columns to db types'] },
+            { title: 'repository', tasks: ['add repository methods for the new columns'] },
+            { title: 'conversation agent', tasks: ['wire the agent prompt'] },
+            { title: 'session registry', tasks: ['register the new session kind'] },
+            { title: 'SSE feed', tasks: ['stream the new events over SSE'] },
+            { title: 'service integration', tasks: ['integrate the new service'] },
+            { title: 'contract declaration', tasks: ['declare the new contract'] },
+            { title: 'route mounting', tasks: ['mount the new route'] },
+        ],
+        verdict: 'pass',
+        reason: 'nine different pieces, each done once — no group repeats.',
         division: [],
     };
 
@@ -314,5 +338,117 @@ describe('ScopeCheckVerifier', () => {
 
         expect(outcome.passed).toBe(false);
         expect(outcome.failures.some(f => f.includes('read-only judge must not do'))).toBe(true);
+    });
+
+    /**
+     * Card 0120's shape: nine groups, none of them wide (breadth never fires), collected into one
+     * "pass". Depth is what has to catch this — the whole reason `DEPTH_THRESHOLD` exists.
+     */
+    it('rejects a "pass" backed by card 0120\'s nine-group shape, naming depth rather than breadth', async () => {
+        const outcome = await verify(card0120);
+
+        expect(outcome.passed).toBe(false);
+        // Only the depth signal fired (no group repeats), so exactly one failure, and it must name
+        // depth/groups, not breadth — a message blaming breadth here would send `planning` after the
+        // wrong thing (Constraints: "each failure message must name whichever signal actually fired").
+        expect(outcome.failures).toHaveLength(1);
+        expect(outcome.failures[0]).toContain(`${card0120.groups.length} distinct groups`);
+        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('"pass"');
+        expect(outcome.failures[0]).not.toContain('repeats across');
+    });
+
+    it('accepts a "refuse" on card 0120\'s nine-group shape, with no consistency failure beyond the routing one', async () => {
+        const division = [
+            {
+                title: 'data layer',
+                tasks: ['add the new columns', 'bind the new columns to db types', 'add repository methods for the new columns'],
+                delivers: 'the schema, DB binding and repository, working together',
+            },
+            {
+                title: 'runtime wiring',
+                tasks: [
+                    'wire the agent prompt',
+                    'register the new session kind',
+                    'stream the new events over SSE',
+                    'integrate the new service',
+                    'declare the new contract',
+                    'mount the new route',
+                ],
+                delivers: 'the agent, registry, SSE feed, service, contract and route, working together',
+                dependsOn: ['data layer'],
+            },
+        ];
+        const outcome = await verify({ ...card0120, verdict: 'refuse', reason: 'nine distinct pieces collected into one card.', division });
+
+        expect(outcome.passed).toBe(false);
+        // No breadth/depth consistency failure — depth fired and the verdict is "refuse", so that
+        // signal agrees with the report. The only entry is the unconditional routing failure every
+        // well-formed "refuse" carries (see the class doc comment).
+        expect(outcome.failures).toEqual(['refusing: nine distinct pieces collected into one card.']);
+    });
+
+    it('names both signals when a "pass" is both too broad and too deep', async () => {
+        const bothTooLarge: ScopeCheckResult = {
+            ...card0120,
+            groups: [
+                { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'] },
+                ...card0120.groups.slice(1, 5),
+            ],
+        };
+
+        const outcome = await verify(bothTooLarge);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toHaveLength(2);
+        expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('repeats across');
+        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
+        expect(outcome.failures[1]).toContain('distinct groups');
+    });
+
+    /**
+     * `DEPTH_THRESHOLD` (5) is the exact line, the same way the existing breadth boundary tests check
+     * `BREADTH_THRESHOLD`: one group below it must not force a refusal, exactly at it must.
+     */
+    it('passes a "pass" whose group count sits one below the depth threshold', async () => {
+        const belowThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD - 1) };
+        expect(belowThreshold.groups).toHaveLength(4);
+
+        const outcome = await verify(belowThreshold);
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('requires "refuse" once the group count reaches the depth threshold exactly', async () => {
+        const atThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD) };
+        expect(atThreshold.groups).toHaveLength(5);
+
+        const outcome = await verify(atThreshold);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toHaveLength(1);
+        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('distinct groups');
+    });
+
+    it('still passes card 0079\'s three-group shape now that depth is checked too', async () => {
+        const outcome = await verify(card0079);
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('rejects a "refuse" on card 0079\'s shape, naming that neither breadth nor depth was reported', async () => {
+        const division = [
+            { title: 'health', tasks: ['rewrite board.ready'], delivers: 'the rewritten health check alone' },
+            { title: 'cleanup', tasks: ['delete run.command.ts and its two tombstone tests'], delivers: 'the deletion alone' },
+        ];
+        const outcome = await verify({ ...card0079, verdict: 'refuse', division });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures[0]).toContain('neither breadth nor depth');
+        expect(outcome.failures[1]).toBe(`refusing: ${card0079.reason}`);
     });
 });
