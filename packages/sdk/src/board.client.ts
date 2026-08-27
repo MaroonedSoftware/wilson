@@ -13,6 +13,8 @@ import type {
     ListQuery,
     MoveCardRequest,
     PlanSession,
+    PlanTurn,
+    PlanTurnRequest,
     ReleaseResult,
     RenameCardRequest,
     RepositionCardRequest,
@@ -231,6 +233,24 @@ export class BoardClient {
      */
     async closeAPlanningSession(id: string): Promise<void> {
         await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/close`, { method: 'POST' });
+    }
+
+    /**
+     * @name Send a plan turn
+     * @description Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead
+     * of that conversation existing only inside an operator's terminal (`wilson card plan`). This is the
+     * ordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not
+     * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
+     * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
+     * real branch already has work.
+     */
+    async sendAPlanTurn(id: string, body: PlanTurnRequest): Promise<PlanTurn> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/turn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<PlanTurn>(result);
     }
 
     /** @name List card events */

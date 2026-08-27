@@ -186,6 +186,24 @@ contract SaveDraftRequest: {
     body: string
 }
 
+# Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
+# request — one message in that conversation.
+contract PlanTurnRequest: {
+    text: string
+}
+
+# One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
+# `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
+# `GET .../plan/stream` replays after a client's `Last-Event-ID`.
+contract PlanTurn: {
+    # `Last-Event-ID`'s resume key: monotonic per card, so a reconnecting client asks for every turn
+    # with `seq` greater than the last one it saw.
+    seq: int
+    role: enum(user, assistant)
+    content: string
+    createdAt: datetime
+}
+
 # Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
 # apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
 # `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
@@ -595,6 +613,32 @@ operation /api/cards/{id}/plan/close: {
         service: PlanService.close
         response: {
             204:
+        }
+    }
+}
+
+# Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead
+# of that conversation existing only inside an operator's terminal (`wilson card plan`). This is the
+# ordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not
+# generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
+# written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
+# real branch already has work.
+operation /api/cards/{id}/plan/turn: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Send a plan turn
+        service: PlanService.turn
+        request: {
+            application/json: PlanTurnRequest
+        }
+        response: {
+            200: {
+                application/json: PlanTurn
+            }
+            400:
+            404:
         }
     }
 }
