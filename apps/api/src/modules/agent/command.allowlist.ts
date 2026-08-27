@@ -5,15 +5,17 @@
  * `pnpm exec vitest run` — can be made to run arbitrary code, because project code can reach
  * any Node API: the filesystem, the network, a dev database. Refusing `psql` here does not
  * refuse what a test file executed by `pnpm exec vitest run` can do once it runs, and that
- * command is on every stage's allowlist. Card 0083's agent needed to query the database and
- * delete two files; neither had a tool yet, so it wrote both into a throwaway vitest file and
- * ran it with the one allowed command that would execute anything — not a bypass of this list,
- * but the list working as designed. (Card 0086 has since given deletes a proper tool, which
- * closes that one instance without changing the property: the next gap will find the same
- * door.) What this list actually does is shape the easy path — refuse a shell and the named
- * binaries by habit — so reaching for a workaround is a deliberate act, not bounding what is
- * possible. `ScopeGuard` (`scope.guard.ts`) is the real constraint on what an agent can change,
- * and it has the same limit: it guards the write tools, not the process.
+ * command sits on the allowlist of every stage whose job is to build or test code — not a
+ * read-only stage like `scope-check`, which carries no allowed commands at all. Card 0083's
+ * agent needed to query the database and delete two files; neither had a tool yet, so it wrote
+ * both into a throwaway vitest file and ran it with the one allowed command that would execute
+ * anything — not a bypass of this list, but the list working as designed. (Card 0086 has since
+ * given deletes a proper tool, which closes that one instance without changing the property:
+ * the next gap will find the same door.) What this list actually does is shape the easy path —
+ * refuse a shell and the named binaries by habit — so reaching for a workaround is a deliberate
+ * act, not bounding what is possible. `ScopeGuard` (`scope.guard.ts`) is the real constraint on
+ * what an agent can change, and it has the same limit: it guards the write tools, not the
+ * process.
  *
  * The sharpest cost of mistaking this list for a boundary is credentials, not files: whatever
  * env an allowed command inherits is reachable by whatever project code it runs, allowlist or
