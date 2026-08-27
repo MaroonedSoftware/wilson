@@ -102,7 +102,18 @@ export const EditCardRequest = z.strictObject({
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
 
 /**
- * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L100)
+ * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
+ * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
+ * for no behavioural gain, where `POST .../rename` is purely additive.
+ * generated from [RenameCardRequest](file://./../../data/contracts/board.ck#L103)
+ */
+export const RenameCardRequest = z.strictObject({
+    title: z.string(),
+});
+export type RenameCardRequest = z.infer<typeof RenameCardRequest>;
+
+/**
+ * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L107)
  */
 export const DependCardRequest = z.strictObject({
     dependsOnId: z.string(),
@@ -114,7 +125,7 @@ export const DependCardRequest = z.strictObject({
 export type DependCardRequest = z.infer<typeof DependCardRequest>;
 
 /**
- * generated from [CardEvent](file://./../../data/contracts/board.ck#L107)
+ * generated from [CardEvent](file://./../../data/contracts/board.ck#L114)
  */
 export const CardEvent = z.strictObject({
     id: z.string(),
@@ -126,7 +137,7 @@ export const CardEvent = z.strictObject({
 export type CardEvent = z.infer<typeof CardEvent>;
 
 /**
- * generated from [CardVersion](file://./../../data/contracts/board.ck#L115)
+ * generated from [CardVersion](file://./../../data/contracts/board.ck#L122)
  */
 export const CardVersion = z.strictObject({
     id: z.string(),
@@ -138,7 +149,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../data/contracts/board.ck#L123)
+ * generated from [ListQuery](file://./../../data/contracts/board.ck#L130)
  */
 export const ListQuery = z.strictObject({
     limit: z.coerce.number().int().optional(),
@@ -149,7 +160,7 @@ export type ListQuery = z.infer<typeof ListQuery>;
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L130)
+ * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L137)
  */
 export const ImportBoardRequest = z.strictObject({
     dryRun: z
@@ -162,7 +173,7 @@ export const ImportBoardRequest = z.strictObject({
 export type ImportBoardRequest = z.infer<typeof ImportBoardRequest>;
 
 /**
- * generated from [ImportReport](file://./../../data/contracts/board.ck#L136)
+ * generated from [ImportReport](file://./../../data/contracts/board.ck#L143)
  */
 export const ImportReport = z.strictObject({
     cards: z.coerce.number().int(),
@@ -185,7 +196,7 @@ export type ImportReport = z.infer<typeof ImportReport>;
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../data/contracts/board.ck#L152)
+ * generated from [PlanSession](file://./../../data/contracts/board.ck#L159)
  */
 export const PlanSession = z.strictObject({
     sessionId: z
@@ -209,7 +220,7 @@ export const PlanSession = z.strictObject({
 export type PlanSession = z.infer<typeof PlanSession>;
 
 /**
- * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L175)
+ * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L182)
  */
 export const SaveDraftRequest = z.strictObject({
     body: z
@@ -226,7 +237,7 @@ export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L187)
+ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L194)
  */
 export const DivisionPiece = z.strictObject({
     title: z.string(),
@@ -254,7 +265,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../data/contracts/board.ck#L203)
+ * generated from [CardDivision](file://./../../data/contracts/board.ck#L210)
  */
 export const CardDivision = z.strictObject({
     reason: z
@@ -272,7 +283,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L215)
+ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L222)
  */
 export const SplitCardsRequest = z.strictObject({
     pieces: z.array(DivisionPiece),
@@ -298,7 +309,7 @@ export type ReleaseResult = z.infer<typeof ReleaseResult>;
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../data/contracts/board.ck#L223)
+ * generated from [SplitResult](file://./../../data/contracts/board.ck#L230)
  */
 export const SplitResult = z.strictObject({
     origin: CardDetail,

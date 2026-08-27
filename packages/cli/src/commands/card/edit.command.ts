@@ -8,7 +8,9 @@ import { editBody } from './editor.js';
  * The operator's escape hatch. With the board behind the API there is no file to open when a card is
  * wedged and the web app is not up, and a runner you cannot unstick by hand is a runner that strands
  * work. Frontmatter is deliberately not editable here: stage, branch and retries are runner state
- * (decision 5), and `wilson card move` is the recorded way to override one.
+ * (decision 5), and `wilson card move` is the recorded way to override one. A title is none of those
+ * three — it is authored content, the same as the body — and has its own command, `wilson card
+ * rename` (card 0094), rather than being folded into this one.
  *
  * Saving appends a version rather than overwriting, so the previous text is still there.
  */

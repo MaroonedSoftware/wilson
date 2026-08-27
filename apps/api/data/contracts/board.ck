@@ -97,6 +97,13 @@ contract EditCardRequest: {
     body: string
 }
 
+# Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
+# would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
+# for no behavioural gain, where `POST .../rename` is purely additive.
+contract RenameCardRequest: {
+    title: string
+}
+
 contract DependCardRequest: {
     dependsOnId: string
     # Absent (the default) records the dependency; `true` drops it instead — mirroring `wilson card
@@ -276,6 +283,44 @@ operation /api/cards/{id}: {
             200: {
                 application/json: CardDetail
             }
+            404:
+        }
+    }
+}
+
+# Card 0094. A sub-resource action, not `title` added to `EditCardRequest` (see the contract above):
+# renaming is still the same *kind* of act `PATCH .../id` already does — a human edits stored
+# content, no stage reads the field as input, nothing transitions — which is why this goes through
+# `board.write` in `BoardWriteService.rename`, not `writeWithEvent` the way `move` below does. It is
+# not part of `PATCH .../id` itself only because the contractkit-generated SDK method name for that
+# route (`editCardBody`) is pinned to "body", and a second field would force renaming it and every
+# caller for no behavioural gain.
+#
+# The title is not the runner state decision 5 protects, either: stage, branch and retries are
+# recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
+# them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
+# above is allowed to touch `body` freely.
+operation /api/cards/{id}/rename: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Rename card
+        service: BoardWriteService.rename
+        request: {
+            application/json: RenameCardRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # An empty or whitespace-only title, or one whose current-title branch
+            # (`WorktreeManager.branchName`) already carries commits — renaming would silently strand
+            # them, since the dispatcher slugs a card's title into the branch a stage resumes.
+            # Renaming to the card's current title is not an error; it is the no-op `edit` and
+            # `depend` already make for their own unchanged requests. Carried via `details`, as every
+            # other refusal on this surface is.
+            400:
             404:
         }
     }
