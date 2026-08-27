@@ -76,6 +76,16 @@ describe('card 0088 — the allowlist and ScopeGuard say what they actually guar
         expect(source).toContain('See the guardrail-vs-boundary note atop `command.allowlist.ts` for why that gap is accepted rather than closed.');
     });
 
+    it('names the consequence for secrets on command.allowlist.ts, connecting it to card 0045 scrubbing the runner env', () => {
+        const source = normalize(read('../../../src/modules/agent/command.allowlist.ts'));
+
+        expect(source).toContain(
+            'The sharpest cost of mistaking this list for a boundary is credentials, not files: whatever env an allowed command inherits is reachable by whatever project code it runs, allowlist or not',
+        );
+        expect(source).toContain('Card 0045 scrubs the runner\'s git credentials and provider API keys out of that env for exactly this reason.');
+        expect(source).toContain('Restoring an inherited env because "the allowlist already covers what a command can reach" would undo that.');
+    });
+
     it("distinguishes in PROJECT.md's decision 8 what actually enforces the machinery boundary from what merely discourages tampering with it", () => {
         const projectMd = normalize(read('../../../../../PROJECT.md'));
 
