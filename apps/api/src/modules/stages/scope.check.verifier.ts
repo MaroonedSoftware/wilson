@@ -30,12 +30,22 @@ export const BREADTH_THRESHOLD = 4;
  * exhaust the testing stage's step budget three times over. A depth threshold of 9 or below would have
  * caught it. Card 0079 is the case it must not catch: 21 Tasks-section bullets that are "three distinct
  * things each done once" — three groups — the lane's own doc comment names this as the false positive
- * to avoid, so the threshold must clear 3. Set at 5: well above 0079's three and well below 0120's
- * nine, so an ordinary plan with an incidental couple of distinct pieces is not caught by a threshold
- * tuned to the card that actually blew its step budget. Cards 0075 and 0078 — the breadth cases
- * `BREADTH_THRESHOLD` was calibrated against — report a single group each (all the repeated work is
- * one kind, per `ScopeGroupSchema`'s own doc comment) and are unaffected by a depth threshold at any
- * setting.
+ * to avoid, so the threshold must clear 3.
+ *
+ * Set at 5, and what that costs is on the record rather than left to the two easy cases above. Every
+ * scope-check the board has run reports a group count; sorted, exactly four cards reach 5 or more.
+ * 0120 (nine) is the true positive. 0046 (five) is the other one worth catching — it also exhausted
+ * the testing stage's step budget three times and was parked unfinished. The remaining two, 0024 and
+ * 0115 (five each), **merged cleanly as single cards** and would now be refused and sent back to
+ * `planning` to be split for nothing. That is the trade this number makes, deliberately: a needless
+ * split costs one planning round, a missed oversize card costs three testing passes and a human, so
+ * two false positives are worth catching 0046. A threshold of 6 would take only 0120 and spare all
+ * three — choose that instead if the wrongful splits ever start outnumbering the catches. Thirteen
+ * cards sit at four groups and twelve of them merged, which is why the line is not drawn lower.
+ *
+ * Cards 0075 and 0078 — the breadth cases `BREADTH_THRESHOLD` was calibrated against — report a single
+ * group each (all the repeated work is one kind, per `ScopeGroupSchema`'s own doc comment) and are
+ * unaffected by a depth threshold at any setting.
  */
 export const DEPTH_THRESHOLD = 5;
 
