@@ -160,6 +160,35 @@ describe('PlanStreamRouter', () => {
         expect(turns.some(t => t.seq === 1)).toBe(false);
     });
 
+    /**
+     * Review finding on `routes.setup.ts:75`: a replayed row was sent to the wire straight from
+     * `PlanTurnRepository.since` with no field selection, leaking `engineSessionId` — the Claude
+     * Agent SDK's internal engine session id — the same class of bug already fixed for
+     * `POST .../plan/turn` via `PlanService.toGeneratedTurn`, but not yet applied here. Asserts on
+     * the raw parsed JSON rather than a typed subset, since a type ascription would hide an extra
+     * field a real client would still receive.
+     */
+    it('never leaks a stored turn\'s engineSessionId over the wire when replaying', async () => {
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const repo = new PlanTurnRepository(config, db);
+        const id = randomUUID();
+        await repo.append(id, 'user', 'hello');
+        await repo.append(id, 'assistant', 'hi there', 'top-secret-engine-session-id');
+
+        const router = PlanStreamRouter();
+        const { frames } = await dispatch(router, { path: `/api/cards/${id}/plan/stream`, container: containerFor(config) });
+
+        const rawTurns = parseFrames(frames())
+            .filter(f => f.event === 'turn')
+            .map(f => JSON.parse(f.rawData) as Record<string, unknown>);
+        expect(rawTurns).toHaveLength(2);
+        for (const turn of rawTurns) {
+            expect(turn).not.toHaveProperty('engineSessionId');
+            expect(Object.keys(turn).sort()).toEqual(['content', 'createdAt', 'role', 'seq']);
+        }
+        expect(JSON.stringify(rawTurns)).not.toContain('top-secret-engine-session-id');
+    });
+
     it('falls back to a ?lastEventId= query parameter when no header is given', async () => {
         const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
