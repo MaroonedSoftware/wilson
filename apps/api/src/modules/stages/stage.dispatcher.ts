@@ -454,7 +454,7 @@ export class StageDispatcher {
         const findings = findingsFrom(outcome.result);
         const needsHuman = decision.needsHuman;
 
-        await this.board.writeWithEvent(
+        const writtenVersionId = await this.board.writeWithEvent(
             cardId,
             `${cardId}: ${stageName} -> ${decision.target}`,
             current => ({
@@ -481,6 +481,29 @@ export class StageDispatcher {
                 },
             },
         );
+
+        // The write above just rewrote the plan contract, not just runner state: a non-empty
+        // `findings` means `withFindings` folded a `## Review findings` section into the body of
+        // the version `writtenVersionId` now names. A pinned card's `planVersionId` otherwise holds
+        // still against everything that lands on the board — that is the whole point of pinning
+        // (see the "Two reads" comment at the top of `run`, above) — and a human editing the card
+        // body must keep not moving it. But the runner rewriting its
+        // own contract is the one case where the pin legitimately advances: left where it was, the
+        // pin would keep pointing at a version that predates the very findings this stage was kicked
+        // back to fix, which is card 0091's bug — three implementing passes reading a plan with no
+        // findings section because the pin still named the version from before the kickback wrote
+        // them. Gated on `head.frontmatter.planVersionId`, not `current`'s: a card with no pin coming
+        // in gets none out (117 of 128 cards read live `head` today and must keep doing so), and the
+        // inner check against `current.frontmatter.planVersionId` mirrors the branch-recording guard
+        // above — `write`'s re-read inside its own transaction is what actually guards the race, this
+        // is only the common-case short-circuit.
+        if (findings && findings.length > 0 && head.frontmatter.planVersionId) {
+            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName} findings`, current =>
+                current.frontmatter.planVersionId
+                    ? { ...current, frontmatter: { ...current.frontmatter, planVersionId: writtenVersionId } }
+                    : current,
+            );
+        }
 
         // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the
         // one place "the card is done" turns into "the worktree goes away" — shared with a human's
