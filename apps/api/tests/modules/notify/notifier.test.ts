@@ -3,6 +3,11 @@ import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import type { Logger } from '@maroonedsoftware/logger';
 
+// Captured before any test installs fake timers, so it stays the genuine, un-fake-able timer —
+// used only to wait out `Notifier.notify`'s real DNS lookup (card 0107's `checkWebhookDestination`)
+// in the one test below that mocks time.
+const realSetTimeout = globalThis.setTimeout;
+
 const fakeLogger = (): Logger & { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } =>
     ({
         warn: vi.fn(),
@@ -161,6 +166,13 @@ describe('Notifier', () => {
             const logger = fakeLogger();
 
             const pending = new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' }));
+
+            // Card 0107: `notify()` now awaits a real DNS lookup (`checkWebhookDestination`) before
+            // it ever creates the abort timeout `advanceTimersByTimeAsync` below is meant to fire —
+            // that lookup is genuine OS-level I/O, not a fake timer, so it needs a real (not
+            // simulated) tick to resolve. Without this, the abort timeout does not exist yet when
+            // fake time is advanced, and `pending` hangs until vitest's own real test timeout.
+            await new Promise(resolve => realSetTimeout(resolve, 50));
             await vi.advanceTimersByTimeAsync(5_000);
             await pending;
 

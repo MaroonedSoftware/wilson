@@ -12,17 +12,29 @@
  * (BoardConfig/server startup) and has no auth boundary yet (card 0019). Anything that can reach
  * this port could already flip the poller on directly if it were a plain code change, so exposing
  * it here is the same accepted risk restated as an HTTP call: worst case the runner works the
- * board unattended, which costs money but reaches nothing outward. `NOTIFY_WEBHOOK_URL` is a
- * different question, because it does reach outward, and stays out of this table for exactly that
- * reason — card 0107.
- * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L26)
+ * board unattended, which costs money but reaches nothing outward. `NOTIFY_WEBHOOK_URL` used to stay
+ * out of this table for exactly the opposite reason: unlike the poller switch, it reaches outward,
+ * so exposing it the same way turns this unauthenticated surface into a general-purpose request
+ * primitive — anything that can reach this port could make the daemon POST JSON of its choosing at
+ * an address of its choosing.
+ *
+ * Card 0107 adds it anyway, below, but not the same way: `NotifyWebhookSettingService` runs
+ * `checkWebhookDestination` (apps/api/src/modules/notify/webhook.destination.ts) against the write,
+ * refusing anything that is not `https` or that resolves to a loopback, link-local (including the
+ * cloud metadata address `169.254.169.254`), private, or unspecified address — and again on every
+ * use, since a name that resolves safely at write can resolve unsafely later. Read that file's own
+ * doc for exactly what this does and does not stop: in short, it narrows *where* this daemon can be
+ * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
+ * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
+ * absence, not a substitute for it.
+ * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L39)
  */
 export interface PollerSetting {
     enabled: boolean;
 }
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L30)
+ * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L43)
  */
 export interface SetPollerSettingRequest {
     enabled: boolean;
@@ -31,14 +43,14 @@ export interface SetPollerSettingRequest {
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L36)
+ * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L49)
  */
 export interface PollerInterval {
     intervalMs: number;
 }
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L40)
+ * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L53)
  */
 export interface SetPollerIntervalRequest {
     intervalMs: number;
@@ -47,15 +59,35 @@ export interface SetPollerIntervalRequest {
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L46)
+ * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L59)
  */
 export interface CardStageConcurrency {
     concurrency: number;
 }
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L50)
+ * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L63)
  */
 export interface SetCardStageConcurrencyRequest {
     concurrency: number;
+}
+
+/**
+ * `null` means unset — off, exactly like the environment variables these fields replace being
+ * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
+ * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
+ * card in its payload (`board.config.ts`'s own comment on the pair).
+ * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L137)
+ */
+export interface NotifyWebhookSetting {
+    webhookUrl: string | null;
+    baseUrl: string | null;
+}
+
+/**
+ * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L142)
+ */
+export interface SetNotifyWebhookSettingRequest {
+    webhookUrl: string | null;
+    baseUrl: string | null;
 }

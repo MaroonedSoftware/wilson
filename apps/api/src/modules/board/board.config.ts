@@ -22,14 +22,27 @@ export abstract class BoardConfig {
     /**
      * Where to POST a notification when a card needs a human (card 0050). Undefined means
      * notifications are off — no second channel, no webhook attempted, nothing logged.
+     *
+     * Not `readonly` as of card 0107: this became a `runner.settings`-backed setting, and both its
+     * readers (`StageDispatcher`, `CardStageJob`) already read it fresh on every notification rather
+     * than caching it anywhere — so making it settable at runtime needed nothing from them. The
+     * settings module owns writing it: `NotifyWebhookSettingService` mutates this field in place on
+     * every `set` and once at boot, the same way `PollerSettingService` pushes `POLLER_ENABLED`
+     * into the live `Poller` instead of caching it somewhere new. Never assign to this field from
+     * anywhere else — a second writer would race the settings store's own idea of the current value.
      */
-    abstract readonly notifyWebhookUrl: string | undefined;
+    abstract notifyWebhookUrl: string | undefined;
     /**
      * Base URL of the web app, for building a deep link to the card in a notification. Beside
      * `notifyWebhookUrl` rather than its own config, since a link with nothing to post it to is
      * as useless as a webhook with no way to name the card it is about.
+     *
+     * Also settings-backed as of card 0107 (`NotifyWebhookSettingService` again), and also not
+     * `readonly` for the same reason — but it is a link inside a payload, not an outbound
+     * destination, so unlike `notifyWebhookUrl` it carries none of `checkWebhookDestination`'s
+     * validation.
      */
-    abstract readonly notifyBaseUrl: string | undefined;
+    abstract notifyBaseUrl: string | undefined;
 }
 
 export class StaticBoardConfig extends BoardConfig {
@@ -39,8 +52,8 @@ export class StaticBoardConfig extends BoardConfig {
         readonly codeRoot: string,
         readonly worktreeRoot: string,
         readonly runRoot: string,
-        readonly notifyWebhookUrl: string | undefined = undefined,
-        readonly notifyBaseUrl: string | undefined = undefined,
+        public notifyWebhookUrl: string | undefined = undefined,
+        public notifyBaseUrl: string | undefined = undefined,
     ) {
         super();
     }

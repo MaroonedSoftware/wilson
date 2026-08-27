@@ -1,8 +1,10 @@
 import type {
     CardStageConcurrency,
+    NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
+    SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
 } from './types/settings.js';
@@ -61,5 +63,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<CardStageConcurrency>(result);
+    }
+
+    /** @name Get notify webhook setting */
+    async getNotifyWebhookSetting(): Promise<NotifyWebhookSetting> {
+        const result = await this.fetch(`/api/settings/notify-webhook`, { method: 'GET' });
+        return await parseJson<NotifyWebhookSetting>(result);
+    }
+
+    /** @name Set notify webhook setting */
+    async setNotifyWebhookSetting(body: SetNotifyWebhookSettingRequest): Promise<NotifyWebhookSetting> {
+        const result = await this.fetch(`/api/settings/notify-webhook`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<NotifyWebhookSetting>(result);
     }
 }
