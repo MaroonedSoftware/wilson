@@ -96,7 +96,19 @@ const scopeCheckRefusal = (overrides: Partial<{ reason: string; division: unknow
  * not in how the two test files are wired up.
  */
 const freshBoard = (
-    worktrees: { reclaim: ReturnType<typeof vi.fn> } = { reclaim: vi.fn(async () => {}) },
+    worktrees: {
+        reclaim: ReturnType<typeof vi.fn>;
+        branchName?: ReturnType<typeof vi.fn>;
+        hasWork?: ReturnType<typeof vi.fn>;
+    } = {
+        reclaim: vi.fn(async () => {}),
+        // `rename` (card 0094) always calls these two; a card with no history has no work on any
+        // branch, so a default that answers `false` lets every test that isn't about `rename`'s own
+        // guard ignore it entirely — only the guard's own tests below pass a worktrees double that
+        // says otherwise.
+        branchName: vi.fn((cardId: string, title: string) => `card/${cardId}-${title}`),
+        hasWork: vi.fn(async () => false),
+    },
     brokerOverrides: Partial<{ send: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> }> = {},
     // Card 0079: `release`'s in-flight disambiguation used to shell out to `pgrep -f 'index.ts run'`;
     // now that the API is the only daemon, it asks `RunningCards` — this process's own record of
@@ -638,6 +650,142 @@ describe('BoardWriteService', () => {
             const { service } = freshBoard();
 
             await expect(service.edit('missing', { body: 'x' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    describe('rename', () => {
+        it('renames the title and records "Rename {id}: "{old}" → "{new}"" as the version message', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'implementing', title: 'Old title' }), 'seed');
+
+            const detail = await service.rename('0080', { title: 'New title' });
+
+            expect(detail.title).toBe('New title');
+            const stored = await board.read('0080');
+            expect(stored.frontmatter.title).toBe('New title');
+            const versions = await board.versions('0080', 10);
+            expect(versions[0].message).toBe('Rename 0080: "Old title" → "New title"');
+        });
+
+        it('touches only the title — stage, branch and retries are untouched, and no event is appended', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(
+                card('0081', { stage: 'implementing', title: 'Old title', branch: 'card/0081-old', retries: { implementing: 1 } }),
+                'seed',
+            );
+
+            await service.rename('0081', { title: 'New title' });
+
+            const stored = await board.read('0081');
+            expect(stored.frontmatter.stage).toBe('implementing');
+            expect(stored.frontmatter.branch).toBe('card/0081-old');
+            expect(stored.frontmatter.retries).toEqual({ implementing: 1 });
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('is a no-op — no write — when the title is unchanged', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0082', { title: 'Same title' }), 'seed');
+            const versionBefore = await board.currentVersion('0082');
+
+            const detail = await service.rename('0082', { title: 'Same title' });
+
+            expect(detail.title).toBe('Same title');
+            expect(await board.currentVersion('0082')).toBe(versionBefore);
+        });
+
+        it('trims surrounding whitespace before comparing and before storing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0083', { title: 'Trimmed title' }), 'seed');
+            const versionBefore = await board.currentVersion('0083');
+
+            // Whitespace-padded but the same title underneath: still a no-op.
+            const sameDetail = await service.rename('0083', { title: '  Trimmed title  ' });
+            expect(sameDetail.title).toBe('Trimmed title');
+            expect(await board.currentVersion('0083')).toBe(versionBefore);
+
+            const changedDetail = await service.rename('0083', { title: '  Actually new  ' });
+            expect(changedDetail.title).toBe('Actually new');
+            const stored = await board.read('0083');
+            expect(stored.frontmatter.title).toBe('Actually new');
+        });
+
+        it('refuses an empty title with a 400, writing nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0084', { title: 'Keep me' }), 'seed');
+            const versionBefore = await board.currentVersion('0084');
+
+            await expect(service.rename('0084', { title: '' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('cannot be empty') },
+            });
+            expect(await board.currentVersion('0084')).toBe(versionBefore);
+        });
+
+        it('refuses a whitespace-only title with a 400, writing nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0085', { title: 'Keep me' }), 'seed');
+            const versionBefore = await board.currentVersion('0085');
+
+            await expect(service.rename('0085', { title: '   ' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('cannot be empty') },
+            });
+            expect(await board.currentVersion('0085')).toBe(versionBefore);
+        });
+
+        it('answers a card that does not exist with a 404, matching getById', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.rename('missing', { title: 'New title' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it(
+            "refuses a rename when the current title's branch already carries commits, naming the branch and that renaming " +
+                'would strand it, and writes nothing',
+            async () => {
+                const worktrees = {
+                    reclaim: vi.fn(async () => {}),
+                    branchName: vi.fn(() => 'card/0086-old-title'),
+                    hasWork: vi.fn(async () => true),
+                };
+                const { board, service } = freshBoard(worktrees);
+                await board.create(card('0086', { stage: 'implementing', title: 'Old title' }), 'seed');
+                const versionBefore = await board.currentVersion('0086');
+
+                await expect(service.rename('0086', { title: 'New title' })).rejects.toMatchObject({
+                    statusCode: 400,
+                    details: { reason: expect.stringContaining('card/0086-old-title') },
+                });
+                await expect(service.rename('0086', { title: 'New title' })).rejects.toMatchObject({
+                    statusCode: 400,
+                    details: { reason: expect.stringContaining('strand') },
+                });
+
+                // Computed from the card's *current* title, not the requested one.
+                expect(worktrees.branchName).toHaveBeenCalledWith('0086', 'Old title');
+                expect(worktrees.hasWork).toHaveBeenCalledWith('card/0086-old-title');
+
+                expect(await board.currentVersion('0086')).toBe(versionBefore);
+                const stored = await board.read('0086');
+                expect(stored.frontmatter.title).toBe('Old title');
+            },
+        );
+
+        it('allows renaming when the branch exists but carries no commits of its own', async () => {
+            const worktrees = {
+                reclaim: vi.fn(async () => {}),
+                branchName: vi.fn(() => 'card/0087-old-title'),
+                hasWork: vi.fn(async () => false),
+            };
+            const { board, service } = freshBoard(worktrees);
+            await board.create(card('0087', { stage: 'backlog', title: 'Old title' }), 'seed');
+
+            const detail = await service.rename('0087', { title: 'New title' });
+
+            expect(detail.title).toBe('New title');
+            const stored = await board.read('0087');
+            expect(stored.frontmatter.title).toBe('New title');
         });
     });
 

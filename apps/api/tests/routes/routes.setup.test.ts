@@ -93,6 +93,7 @@ describe('routers', () => {
     it.each([
         ['POST', '/api/cards'],
         ['PATCH', '/api/cards/0001'],
+        ['POST', '/api/cards/0001/rename'],
         ['POST', '/api/cards/0001/move'],
         // Card 0091: the parking lot's reposition endpoint, following the sub-resource shape `move`
         // established.
@@ -109,6 +110,14 @@ describe('routers', () => {
     it('does not route an undeclared method to the reposition path', () => {
         expect(BoardRouter.match('/api/cards/0001/reposition', 'GET').route).toBe(false);
         expect(BoardRouter.match('/api/cards/0001/reposition', 'DELETE').route).toBe(false);
+    });
+
+    // Card 0094: renaming is a sub-resource POST, not a `title` field folded into `PATCH .../id` —
+    // an undeclared method on the rename path must not match, the same way it does not for any other
+    // board write path.
+    it('does not route an undeclared method to the rename path', () => {
+        expect(BoardRouter.match('/api/cards/0001/rename', 'GET').route).toBe(false);
+        expect(BoardRouter.match('/api/cards/0001/rename', 'PATCH').route).toBe(false);
     });
 
     // Card 0113: reading a card's recorded scope-check division, and turning it into cards.
