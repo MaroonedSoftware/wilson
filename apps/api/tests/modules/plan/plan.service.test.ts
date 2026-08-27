@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { PlanService } from '#modules/plan/plan.service.js';
@@ -15,10 +15,86 @@ import { PLAN_SECTIONS, type Card } from '#modules/board/card.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { DB } from '#modules/data/db.js';
+import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
+import { planFeed } from '#modules/plan/plan.session.feed.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} } as unknown as Logger;
 const fakeEvents = { append: vi.fn(async () => {}) } as unknown as EventLog;
+
+/**
+ * Card 0133: `PlanService.turn` drives a live engine through `PlanSessionAgent`, so the SDK is
+ * mocked here the same way `plan.session.agent.test.ts` mocks it — what is under test is
+ * `PlanService`'s own wiring (guards, storage, the registry, the feed), not the engine's judgement.
+ * `mockImplementationOnce` receives the exact call `query()` was invoked with, so each fake engine
+ * reads the real `TurnInbox` it was handed rather than a canned one.
+ */
+const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn() }));
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+    query: queryMock,
+    createSdkMcpServer: vi.fn(() => ({})),
+    tool: vi.fn(() => ({})),
+}));
+
+interface FakePromptMessage {
+    message: { content: string };
+}
+
+/**
+ * Arms the next `query()` call with a fake engine that streams back the running history of every
+ * turn pushed to it, one assistant message per turn followed by a result message — proving
+ * conversation continuity the same way `plan.session.agent.test.ts`'s own fake engine does. Returns
+ * the array of raw prompt text this engine actually received, in order, so a test can assert on
+ * exactly what `PlanService.turn` sent (e.g. the stage instructions on turn one only).
+ */
+const armEngine = (sessionId = 'sess-plan'): string[] => {
+    const history: string[] = [];
+    queryMock.mockImplementationOnce((callArgs: { prompt: AsyncIterable<FakePromptMessage> }) => {
+        let gen: AsyncGenerator<unknown> | undefined;
+        async function* engine() {
+            const promptIterator = callArgs.prompt[Symbol.asyncIterator]();
+            for (;;) {
+                const next = await promptIterator.next();
+                if (next.done) return;
+                history.push(next.value.message.content);
+                yield {
+                    type: 'assistant',
+                    message: { content: [{ type: 'text', text: `reply:${history.join('|')}` }] },
+                    session_id: sessionId,
+                } as never;
+                yield { type: 'result', subtype: 'success', session_id: sessionId } as never;
+            }
+        }
+        return {
+            [Symbol.asyncIterator]: () => (gen ??= engine()),
+            return: async () => ({ value: undefined, done: true as const }),
+        };
+    });
+    return history;
+};
+
+/** Arms the next `query()` call with an engine that replies to one turn as two separate assistant
+ * messages, so a test can assert the caller published each as its own delta rather than only the
+ * concatenation once the turn completes. */
+const armTwoChunkEngine = (sessionId = 'sess-two-chunk'): void => {
+    queryMock.mockImplementationOnce((callArgs: { prompt: AsyncIterable<FakePromptMessage> }) => {
+        let gen: AsyncGenerator<unknown> | undefined;
+        async function* engine() {
+            const promptIterator = callArgs.prompt[Symbol.asyncIterator]();
+            for (;;) {
+                const next = await promptIterator.next();
+                if (next.done) return;
+                yield { type: 'assistant', message: { content: [{ type: 'text', text: 'chunk-one ' }] }, session_id: sessionId } as never;
+                yield { type: 'assistant', message: { content: [{ type: 'text', text: 'chunk-two' }] }, session_id: sessionId } as never;
+                yield { type: 'result', subtype: 'success', session_id: sessionId } as never;
+            }
+        }
+        return {
+            [Symbol.asyncIterator]: () => (gen ??= engine()),
+            return: async () => ({ value: undefined, done: true as const }),
+        };
+    });
+};
 
 const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, body = 'body text'): Card => ({
     frontmatter: { id, title: `card ${id}`, stage: 'implementing', dependsOn: [], retries: {}, ...overrides },
@@ -124,12 +200,16 @@ const freshEnv = async () => {
     const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, worktreeRoot, runRoot);
     const board = new PostgresBoardRepository(config, db, fakeEvents);
     const worktrees = new WorktreeManager(config, silentLogger);
-    const service = new PlanService(board, config, worktrees);
+    const service = new PlanService(board, config, worktrees, db);
 
     return { config, board, worktrees, service, codeRoot, worktreeRoot, runRoot };
 };
 
 describe('PlanService', () => {
+    afterEach(() => {
+        queryMock.mockReset();
+    });
+
     describe('open', () => {
         it('returns a real worktree path, the planning stage\'s model and instructions, and seeds the draft with the card body when it has sections', async () => {
             const { board, service } = await freshEnv();
@@ -325,5 +405,134 @@ describe('PlanService', () => {
             const { service } = await freshEnv();
             await expect(service.close('9999')).resolves.toBeUndefined();
         });
+    });
+
+    describe('turn', () => {
+        it('holds one conversation across two turns: the second reply demonstrates the model saw the first exchange', async () => {
+            const { board, service, config } = await freshEnv();
+            await board.create(card('0201', { stage: 'planning', title: 'Turn card' }, FULL_BODY), 'seed');
+            armEngine();
+
+            const first = await service.turn('0201', { text: 'remember the number 7' });
+            expect(first.role).toBe('assistant');
+            expect(first.content).toContain('remember the number 7');
+
+            const second = await service.turn('0201', { text: 'what number did I say?' });
+            expect(second.content).toContain('remember the number 7');
+            expect(second.content).toContain('what number did I say?');
+
+            // One engine call served both turns — the mechanism the conversation depends on.
+            expect(queryMock).toHaveBeenCalledTimes(1);
+
+            // The full transcript reads back in order: user, assistant, user, assistant.
+            const stored = await new PlanTurnRepository(config, db).since('0201', 0);
+            expect(stored.map(t => t.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+
+            await service.close('0201');
+        });
+
+        it('prepends the planning stage instructions to only the very first turn, never to a later one', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0206', { stage: 'planning', title: 'Instructs once' }, FULL_BODY), 'seed');
+            const history = armEngine();
+
+            await service.turn('0206', { text: 'first message' });
+            await service.turn('0206', { text: 'second message' });
+
+            expect(history[0]).toContain('Write a plan for this card');
+            expect(history[0]).toContain('first message');
+            // No repeated instructions on the second turn — just the raw text sent.
+            expect(history[1]).toBe('second message');
+
+            await service.close('0206');
+        });
+
+        it('publishes assistant text to planFeed as separate deltas as they are produced, and appends their concatenation as one stored turn', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0203', { stage: 'planning', title: 'Streaming' }, FULL_BODY), 'seed');
+            armTwoChunkEngine();
+
+            const received: unknown[] = [];
+            const unsubscribe = planFeed.onEvent({ correlationId: '0203' }, event => received.push(event.message));
+            try {
+                const turn = await service.turn('0203', { text: 'hello' });
+
+                expect(received).toEqual(['chunk-one ', 'chunk-two']);
+                expect(turn.content).toBe('chunk-one chunk-two');
+            } finally {
+                unsubscribe();
+            }
+
+            await service.close('0203');
+        });
+
+        it('refuses a turn for a card outside "planning", appending no turn and never touching the engine', async () => {
+            const { board, service, config } = await freshEnv();
+            await board.create(card('0204', { stage: 'implementing', title: 'Not planning' }), 'seed');
+
+            await expect(service.turn('0204', { text: 'hi' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('not "planning"') },
+            });
+
+            expect(await new PlanTurnRepository(config, db).since('0204', 0)).toEqual([]);
+            expect(queryMock).not.toHaveBeenCalled();
+        });
+
+        it('refuses a turn for a card whose real branch already has work, appending no turn', async () => {
+            const { board, service, worktrees, config } = await freshEnv();
+            const title = 'Has code already';
+            await board.create(card('0205', { stage: 'planning', title }), 'seed');
+
+            const cardBranch = worktrees.branchName('0205', title);
+            const cardWorktree = await worktrees.create('0205', cardBranch);
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const f = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, 'implementing');
+
+            await expect(service.turn('0205', { text: 'hi' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining(cardBranch) },
+            });
+
+            expect(await new PlanTurnRepository(config, db).since('0205', 0)).toEqual([]);
+            expect(queryMock).not.toHaveBeenCalled();
+        });
+
+        it('404s for a card that does not exist', async () => {
+            const { service } = await freshEnv();
+            await expect(service.turn('9999', { text: 'hi' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('close disposes the live session while leaving the stored transcript in place, and a further turn resumes the recorded engine session rather than starting fresh', async () => {
+            const { board, service, config } = await freshEnv();
+            await board.create(card('0202', { stage: 'planning', title: 'Close mid-conversation' }, FULL_BODY), 'seed');
+            armEngine('sess-first');
+
+            await service.turn('0202', { text: 'first message' });
+            expect(queryMock).toHaveBeenCalledTimes(1);
+
+            await service.close('0202');
+
+            // The transcript survives close — only the in-memory engine is torn down.
+            const planTurns = new PlanTurnRepository(config, db);
+            const stored = await planTurns.since('0202', 0);
+            expect(stored).toHaveLength(2);
+            expect(stored[0]).toMatchObject({ role: 'user', content: 'first message' });
+            expect(stored[1]).toMatchObject({ role: 'assistant', engineSessionId: 'sess-first' });
+
+            // A later turn — standing in for the same card being resumed after an API restart, since
+            // `planSessions` is exactly the in-process state a restart loses — gets a brand-new
+            // engine call (proving the old one was really disposed) that resumes the last recorded
+            // engine session rather than starting a fresh conversation.
+            armEngine('sess-second');
+            await service.turn('0202', { text: 'second message' });
+
+            expect(queryMock).toHaveBeenCalledTimes(2);
+            const secondCallOptions = queryMock.mock.calls[1]?.[0] as { options: { resume?: string } };
+            expect(secondCallOptions.options.resume).toBe('sess-first');
+
+            await service.close('0202');
+        });
+
     });
 });
