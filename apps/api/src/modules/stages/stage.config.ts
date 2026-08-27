@@ -101,6 +101,22 @@ export const StageConfigSchema = z.object({
     /** Cumulative input tokens a single run may consume before it is cut off as a budget failure. */
     maxInputTokens: z.number().int().min(1000).default(2_000_000),
     /**
+     * Fraction of the model's context window a run's usage may reach before it is stopped as a
+     * budget failure.
+     *
+     * Distinct from `maxInputTokens`, worth stating plainly: that one bounds the cumulative input
+     * tokens a run has already spent across every turn so far. This bounds the request the *next*
+     * turn is about to build on top of what the context window already holds — a run can be well
+     * under its token budget and still overflow on a single turn, because a turn's prompt carries
+     * the whole conversation so far, tools and memory files included, not just what that one turn
+     * spends. Compared against `Query.getContextUsage()`'s own `percentage` (`cli.stage.agent.ts`)
+     * rather than derived from token counts — the api adapter has no equivalent and is out of scope.
+     * 0.9 leaves a turn's worth of headroom below the window the engine itself resolves (already
+     * autocompaction-adjusted, per `getContextUsage`), rather than stopping exactly at the edge,
+     * which would be stopping one turn too late.
+     */
+    maxContextWindowFraction: z.number().gt(0).max(1).default(0.9),
+    /**
      * Wall-clock a single run may take before it is aborted as a budget failure.
      *
      * Capped at `MAX_STAGE_WALL_CLOCK_MS`, because a stage that can outlive the job carrying it gets

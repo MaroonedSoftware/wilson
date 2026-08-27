@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
+import { contextBudgetExceeded, overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
 
 /**
  * Card 0015: nothing bounded input tokens before this. One stage consumed 6.3M input tokens while
@@ -74,6 +74,45 @@ describe('overBudget', () => {
 
     it('names both figures, so an operator does not have to go dig for them', () => {
         expect(overBudget(2_500_000, 2_000_000)).toBe('input token budget exceeded: used 2500000, cap 2000000');
+    });
+});
+
+/**
+ * Card 0093: nothing stopped a stage before it overflowed the context window. `overBudget` only
+ * ever sees input tokens a run has already spent; this compares `Query.getContextUsage()`'s own
+ * `percentage` — the one number the engine reports that already accounts for what the *next* turn's
+ * prompt would carry — against a configured fraction of the window.
+ */
+describe('contextBudgetExceeded', () => {
+    it('is undefined while percentage sits under the cap fraction', () => {
+        expect(contextBudgetExceeded(0.9, 89)).toBeUndefined();
+    });
+
+    it('fires the moment percentage meets the cap fraction exactly', () => {
+        // A check that only fired once already past the cap would let one more beat's worth of
+        // usage through before stopping — the same off-by-one `overBudget` guards against.
+        expect(contextBudgetExceeded(0.9, 90)).toBeDefined();
+    });
+
+    it('fires once percentage exceeds the cap fraction', () => {
+        expect(contextBudgetExceeded(0.9, 95)).toBeDefined();
+    });
+
+    it('names both the configured cap and the observed percentage', () => {
+        expect(contextBudgetExceeded(0.9, 95)).toBe('context window budget exceeded: cap 90% of window, observed 95%');
+    });
+
+    it('reflects whatever cap fraction it is given, not a fixed figure', () => {
+        expect(contextBudgetExceeded(0.5, 50)).toBe('context window budget exceeded: cap 50% of window, observed 50%');
+    });
+
+    it('is worded distinctly from overBudget and wallClockExceeded, so the three causes never read the same', () => {
+        const context = contextBudgetExceeded(0.9, 95);
+        const tokenBudget = overBudget(1000, 1000);
+        const wallClock = wallClockExceeded(1000);
+        expect(context).toContain('context window');
+        expect(context).not.toBe(tokenBudget);
+        expect(context).not.toBe(wallClock);
     });
 });
 

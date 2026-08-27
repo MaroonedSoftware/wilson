@@ -35,6 +35,23 @@ export const overBudget = (used: number | undefined, cap: number): string | unde
 };
 
 /**
+ * A failure string naming the configured context-window fraction and the usage the engine
+ * reported, or `undefined` when `percentage` is still under `capFraction`.
+ *
+ * Differs from `overBudget` in what it bounds. `overBudget` sums input tokens a run has already
+ * spent across every turn so far; this reads a single live number — `Query.getContextUsage()`'s
+ * `percentage` — which already accounts for the whole conversation the *next* turn's prompt would
+ * carry, tools and memory files included. A run can be comfortably under `maxInputTokens` and
+ * still be one turn away from overflowing the window, because that cap only ever sees what has
+ * already been spent, not what the next request is about to build on top of it.
+ */
+export const contextBudgetExceeded = (capFraction: number, percentage: number): string | undefined => {
+    const capPercentage = capFraction * 100;
+    if (percentage < capPercentage) return undefined;
+    return `context window budget exceeded: cap ${capPercentage}% of window, observed ${percentage}%`;
+};
+
+/**
  * A failure string for a run aborted after exceeding its wall-clock budget.
  *
  * Distinct from `overBudget`: the abort fires at the cap itself, so there is no smaller "actual"

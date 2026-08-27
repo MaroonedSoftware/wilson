@@ -93,6 +93,40 @@ describe('StageConfigSchema budget fields', () => {
 });
 
 /**
+ * Card 0093 added `maxContextWindowFraction`: a stage stops itself once `Query.getContextUsage()`'s
+ * `percentage` crosses this fraction of the model's context window, distinct from `maxInputTokens`
+ * because a run can be well under its cumulative token budget and still overflow on a single turn.
+ */
+describe('StageConfigSchema maxContextWindowFraction', () => {
+    it('defaults to 0.9 when omitted', () => {
+        const stage = StageConfigSchema.parse(minimalStage);
+        expect(stage.maxContextWindowFraction).toBe(0.9);
+    });
+
+    it('accepts an explicit fraction', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, maxContextWindowFraction: 0.5 });
+        expect(stage.maxContextWindowFraction).toBe(0.5);
+    });
+
+    it('accepts a fraction of exactly 1, the top of the window', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, maxContextWindowFraction: 1 });
+        expect(stage.maxContextWindowFraction).toBe(1);
+    });
+
+    it('rejects a fraction of zero, since it must be strictly positive', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxContextWindowFraction: 0 })).toThrow();
+    });
+
+    it('rejects a negative fraction', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxContextWindowFraction: -0.1 })).toThrow();
+    });
+
+    it('rejects a fraction above 1, since it names a fraction of the window, not a percentage', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, maxContextWindowFraction: 1.1 })).toThrow();
+    });
+});
+
+/**
  * Card 0018 added `maxCardInputTokens`: a ceiling on everything a card has ever spent, across every
  * stage and every attempt — distinct from `maxInputTokens`, which bounds one run. Absent config must
  * mean unbounded, exactly as every other budget field here already behaves.
