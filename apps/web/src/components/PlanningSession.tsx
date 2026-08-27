@@ -98,8 +98,12 @@ function Composer({
     const send = () => {
         const trimmed = text.trim();
         if (!trimmed || sendTurn.isPending) return;
-        sendTurn.mutate(trimmed, { onSuccess: onSent });
-        setText('');
+        sendTurn.mutate(trimmed, {
+            onSuccess: turn => {
+                setText('');
+                onSent(turn);
+            },
+        });
     };
 
     return (
