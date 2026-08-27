@@ -100,6 +100,16 @@ beforeEach(() => {
     );
     // TanStack Router's scroll restoration calls this on navigation; jsdom does not implement it.
     vi.stubGlobal('scrollTo', vi.fn());
+
+    // jsdom has no Font Loading API. Since card 0137, a `planning`-stage card (several tests below
+    // use `card('planning')`, incidentally to this file's own MoveControl assertions) renders
+    // `PlanningSessionPane`, whose composer is a Mantine `Textarea autosize` — it listens for
+    // `document.fonts`'s `loadingdone` event to re-measure itself. Stubbed here, not shimmed in
+    // production code, since this is purely a test-environment gap.
+    Object.defineProperty(document, 'fonts', {
+        value: { addEventListener: vi.fn(), removeEventListener: vi.fn() },
+        configurable: true,
+    });
 });
 
 afterEach(() => {
