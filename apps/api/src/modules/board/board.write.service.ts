@@ -17,6 +17,7 @@ import type {
     EditCardRequest,
     DependCardRequest,
     ReleaseResult,
+    RepositionCardRequest,
     SplitCardsRequest,
     SplitResult,
 } from '../../generated/board.js';
@@ -24,6 +25,7 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
 
 /**
@@ -165,6 +167,92 @@ export class BoardWriteService {
             this.logger.warn(`could not reclaim worktree for ${id} after moving to "${target}": ${reclaimed.error}`);
         }
 
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Card 0091. Reposition a card within the parking lot. Refuses a card outside `parking-lot` —
+     * ordering any other stage is the runner's business, not an operator's; no other stage's order
+     * even means anything, since nothing reads it.
+     *
+     * Unversioned by design, unlike every mutation above: goes through `BoardRepository.setPosition`,
+     * never `write`/`writeWithEvent`, so a reposition mints no card version and writes no
+     * `transition.written` event — ordering is not runner state, so it carries none of the ceremony a
+     * transition does.
+     *
+     * `beforeId`/`afterId` name the neighbours `id` should land between, not positions — a client has
+     * no way to hand back a position value still valid by the time this request lands. A neighbour
+     * that exists but was never itself positioned has nothing to rank against (its row sorts by `id`,
+     * not a number); that is treated exactly like `rankBetween` reporting the gap between two real
+     * positions is exhausted, both sending the column through one `renormalizedPositions` pass first —
+     * preserving its current `position, id` order while giving every card in it a real, evenly spaced
+     * position — before ranking `id` against the now-real neighbour values.
+     */
+    async reposition(id: string, request: RepositionCardRequest): Promise<CardDetail> {
+        const card = await this.readOrThrow(id);
+        if (card.frontmatter.stage !== 'parking-lot') {
+            throw httpError(400).withDetails({ reason: `cannot reposition ${id}: it is in "${card.frontmatter.stage}", not "parking-lot"` });
+        }
+
+        const resolveNeighbour = async (neighbourId: string | undefined): Promise<Card | undefined> => {
+            if (neighbourId === undefined) return undefined;
+            if (neighbourId === id) {
+                throw httpError(400).withDetails({ reason: `cannot reposition ${id}: it cannot be its own neighbour` });
+            }
+            const neighbour = await this.readOrThrow(neighbourId);
+            if (neighbour.frontmatter.stage !== 'parking-lot') {
+                throw httpError(400).withDetails({ reason: `cannot reposition ${id}: "${neighbourId}" is not a card in "parking-lot"` });
+            }
+            return neighbour;
+        };
+
+        const before = await resolveNeighbour(request.beforeId);
+        const after = await resolveNeighbour(request.afterId);
+
+        // The column's current sort, `id` excluded — what `renormalizedPositions` preserves if a
+        // renormalise turns out to be needed below, and what the ordering checks just below trust as
+        // ground truth for "which neighbour is really first".
+        const order = (await this.boardRepository.list())
+            .filter(other => other.frontmatter.stage === 'parking-lot' && other.frontmatter.id !== id)
+            .map(other => other.frontmatter.id);
+
+        // Both omitted only means "the column is empty but for this card" — a populated column with
+        // no neighbours named is a caller that forgot to say where the card lands, not a request for
+        // the empty-column midpoint `rankBetween(undefined, undefined)` would otherwise hand back.
+        if (before === undefined && after === undefined && order.length > 0) {
+            throw httpError(400).withDetails({ reason: `cannot reposition ${id}: "beforeId"/"afterId" must say where it lands unless "parking-lot" holds only this card` });
+        }
+
+        // `before` and `after` are supposed to be `id`'s actual neighbours, which means `before` must
+        // really sort ahead of `after` in the column today — the same card named on both sides, or
+        // the two named in the reverse of their real order, both fail this. Caught here, with the
+        // same refusal every other bad input to this method gets, rather than left to surface as the
+        // "unreachable" throw below once ranking and renormalising both give up on an inverted pair.
+        if (before !== undefined && after !== undefined && order.indexOf(before.frontmatter.id) >= order.indexOf(after.frontmatter.id)) {
+            throw httpError(400).withDetails({
+                reason: `cannot reposition ${id}: "${before.frontmatter.id}" does not come before "${after.frontmatter.id}" in "parking-lot"`,
+            });
+        }
+
+        const rankable = (neighbour: Card | undefined): boolean => neighbour === undefined || neighbour.frontmatter.position !== undefined;
+
+        let ranked = rankable(before) && rankable(after) ? rankBetween(before?.frontmatter.position, after?.frontmatter.position) : { ok: false as const };
+
+        if (!ranked.ok) {
+            const spaced = renormalizedPositions(order);
+            for (const [cardId, position] of spaced) {
+                await this.boardRepository.setPosition(cardId, position);
+            }
+            ranked = rankBetween(before ? spaced.get(before.frontmatter.id) : undefined, after ? spaced.get(after.frontmatter.id) : undefined);
+        }
+
+        if (!ranked.ok) {
+            // renormalizedPositions spaces every neighbour POSITION_GAP apart, which rankBetween
+            // always finds room in — unreachable, not a real case to recover from.
+            throw new Error(`could not rank ${id} between its neighbours even after renormalising "parking-lot"`);
+        }
+
+        await this.boardRepository.setPosition(id, ranked.position);
         return toCardDetail(await this.boardRepository.read(id));
     }
 

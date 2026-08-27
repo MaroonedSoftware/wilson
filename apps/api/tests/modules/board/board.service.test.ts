@@ -68,6 +68,28 @@ describe('BoardService', () => {
 
             expect(summary.branch).toBeUndefined();
         });
+
+        // Card 0091: `position` orders the parking lot on the wire now, instead of being left off
+        // CardSummary entirely.
+        it("carries a card's position through to the summary when it has one", async () => {
+            const cards = [card('0001', { stage: 'parking-lot', position: 1500 })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config);
+
+            const [summary] = await service.list();
+
+            expect(summary.position).toBe(1500);
+        });
+
+        it('leaves position undefined for a card nothing has ever dragged, rather than sending null', async () => {
+            const cards = [card('0001', { stage: 'parking-lot', position: undefined })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config);
+
+            const [summary] = await service.list();
+
+            expect(summary.position).toBeUndefined();
+        });
     });
 
     describe('getById', () => {

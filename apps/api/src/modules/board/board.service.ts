@@ -27,6 +27,7 @@ export const toCardSummary = (card: Card): CardSummary => ({
     dependsOn: card.frontmatter.dependsOn,
     needsHuman: card.frontmatter.needsHuman ?? false,
     needsHumanReason: card.frontmatter.needsHumanReason,
+    position: card.frontmatter.position,
 });
 
 export const toCardDetail = (card: Card): CardDetail => ({

@@ -44,6 +44,16 @@ export interface CardFrontmatter {
     needsHuman?: boolean;
     /** What the runner or the operator said when they set `needsHuman`. */
     needsHumanReason?: string;
+    /**
+     * Orders the parking lot; absent for a card nothing has ever dragged, which sorts by `id`
+     * instead (`PostgresBoardRepository.list`) and meaningless outside `parking-lot` (card 0091).
+     *
+     * Not part of what `write`/`writeWithEvent` persist, unlike every other field here: a reposition
+     * must not mint a card version, so it goes through `BoardRepository.setPosition` instead, and a
+     * mutate callback that changes this field through the ordinary write path silently has no effect
+     * on the stored row.
+     */
+    position?: number;
 }
 
 export interface Card {

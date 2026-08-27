@@ -24,9 +24,11 @@ contract BoardColumns: {
     nonStages: array(string)   # parking-lot and the terminal states
 }
 
-# No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
-# it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
-# from every response. It comes back when parking-lot ordering is actually built, with a value.
+# Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+# sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+# including every card that predates this, since there is no migration to back-fill it — and such a
+# card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+# `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
 contract CardSummary: {
     id: string
     title: string
@@ -37,6 +39,7 @@ contract CardSummary: {
     # `?? false` — every card has an answer to "does this need a human", even if that answer is no.
     needsHuman: boolean
     needsHumanReason?: string
+    position?: int
 }
 
 contract CardDetail: CardSummary & {
@@ -76,6 +79,18 @@ contract MoveCardRequest: {
     # `wilson card move` validates it — not against a fixed enum here, because the graph is config
     # and can grow a stage without a contract change.
     stage: string
+}
+
+# Card 0091. The two cards `id` should land between in the parking lot, by id rather than by a
+# position value: a value would leak the sparse-integer scheme (`card.position.ts`) onto the wire,
+# where a client would have no way to compute one that is still valid by the time this request
+# lands. Either may be absent — both absent together means "the only card in the column" — since a
+# drop can land at either end, where there is nothing on that side to name.
+contract RepositionCardRequest: {
+    # The card `id` should sit immediately after, or absent for the top of the column.
+    beforeId?: string
+    # The card `id` should sit immediately before, or absent for the bottom of the column.
+    afterId?: string
 }
 
 contract EditCardRequest: {
@@ -293,6 +308,35 @@ operation /api/cards/{id}/move: {
     }
 }
 
+# Card 0091. Carries the drag an operator made in the parking lot down to a stored `position` — the
+# one other thing this surface lets an operator set that is not runner state (see the comment on
+# `options.security` and decision 5: the runner owns stage, branch, retries; this owns nothing the
+# runner reads). Persists through `BoardRepository.setPosition`, not `write`/`writeWithEvent`: a
+# reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
+# card three rows down did not change what the runner will do with it. Follows the same sub-resource
+# shape `move` established above.
+operation /api/cards/{id}/reposition: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Reposition card
+        service: BoardWriteService.reposition
+        request: {
+            application/json: RepositionCardRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # Not in `parking-lot` — ordering any other stage is the runner's business, not an
+            # operator's — or a `beforeId`/`afterId` that does not name a parking-lot card. Carried
+            # via `details`, the same convention every other refusal on this surface uses.
+            400:
+            404:
+        }
+    }
+}
 
 # Card 0080's other four mutations are pure transitions or a flag action; `depend` alone edits one
 # field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a

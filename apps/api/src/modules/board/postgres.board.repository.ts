@@ -138,6 +138,20 @@ export class PostgresBoardRepository extends BoardRepository {
     }
 
     /**
+     * Card 0091. Set a card's `position` and nothing else — no version, no event, no other column
+     * touched. `write`/`writeWithEvent`'s update never lists `position` in its `set`, so the ordinary
+     * write path already leaves this column alone; this is the one place that changes it.
+     */
+    async setPosition(id: string, position: number): Promise<void> {
+        await this.db
+            .updateTable('runner.cards')
+            .set({ position })
+            .where('project', '=', this.config.project)
+            .where('id', '=', id)
+            .execute();
+    }
+
+    /**
      * Card 0128. Whether a job is currently carrying `cardId` — read directly from `runner.card_jobs`
      * rather than through `CardJobs` (`modules/jobs/card.jobs.ts`): this class has no dependency on the
      * jobs module and must not grow one just for this question, the same reasoning `BoardRepository`
@@ -287,6 +301,7 @@ const toCard = (
         needsHuman: boolean;
         needsHumanReason: string | null;
         pinnedVersionId: string | null;
+        position: number | null;
     },
     dependsOn: string[],
 ): Card => {
@@ -308,6 +323,7 @@ const toCard = (
         sourceClosed: row.sourceClosed ?? undefined,
         needsHuman: row.needsHuman,
         needsHumanReason: row.needsHumanReason ?? undefined,
+        position: row.position ?? undefined,
     };
     return { frontmatter, sections: sectionsOf(row.body), body: row.body };
 };

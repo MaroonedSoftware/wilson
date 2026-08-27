@@ -225,6 +225,74 @@ describe('PostgresBoardRepository', () => {
         // The move did not survive the event failing, which is the whole point of the pairing.
         expect((await board.read('0001')).frontmatter.stage).toBe('implementing');
     });
+
+    /**
+     * Card 0091. `setPosition` is deliberately not `write`: it must touch the `position` column and
+     * nothing else, minting no version.
+     */
+    describe('setPosition', () => {
+        it('updates only the position column, leaving title, stage and every other field untouched', async () => {
+            await board.create(card('0001', { title: 'Untouched title', stage: 'parking-lot' }), 'create');
+            const versionBefore = await board.currentVersion('0001');
+
+            await board.setPosition('0001', 1500);
+
+            const stored = await board.read('0001');
+            expect(stored.frontmatter.position).toBe(1500);
+            expect(stored.frontmatter.title).toBe('Untouched title');
+            expect(stored.frontmatter.stage).toBe('parking-lot');
+            // No version minted — the whole reason this is not `write`/`writeWithEvent`.
+            expect(await board.currentVersion('0001')).toBe(versionBefore);
+        });
+
+        it('overwrites a previously set position rather than only ever setting it once', async () => {
+            await board.create(card('0001'), 'create');
+            await board.setPosition('0001', 1500);
+
+            await board.setPosition('0001', 42);
+
+            expect((await board.read('0001')).frontmatter.position).toBe(42);
+        });
+
+        it('scopes by project, leaving a same-id card in a different project alone', async () => {
+            const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+            const otherBoard = new PostgresBoardRepository(otherConfig, db, { append: async () => {} } as unknown as EventLog);
+            await board.create(card('0001'), 'create');
+            await otherBoard.create(card('0001'), 'create');
+
+            await board.setPosition('0001', 1500);
+
+            expect((await board.read('0001')).frontmatter.position).toBe(1500);
+            expect((await otherBoard.read('0001')).frontmatter.position).toBeUndefined();
+        });
+
+        it('persists through a freshly constructed repository against the same connection, the same as any other write', async () => {
+            await board.create(card('0001'), 'create');
+
+            await board.setPosition('0001', 777);
+
+            const reread = new PostgresBoardRepository(config, db, { append: async () => {} } as unknown as EventLog);
+            expect((await reread.read('0001')).frontmatter.position).toBe(777);
+        });
+    });
+
+    /**
+     * Card 0091. `list`'s `position, id` ordering predates this card, but nothing ever populated
+     * `position` before `setPosition` existed — so this is the first test that actually exercises a
+     * column mixing real positions with the untouched nulls every pre-existing card carries.
+     */
+    it('list sorts positioned cards ascending by position, ahead of unpositioned cards, which keep sorting by id', async () => {
+        await board.create(card('0003', { stage: 'parking-lot' }), 'create');
+        await board.create(card('0001', { stage: 'parking-lot' }), 'create');
+        await board.create(card('0002', { stage: 'parking-lot' }), 'create');
+        await board.create(card('0004', { stage: 'parking-lot' }), 'create');
+        await board.setPosition('0002', 500);
+        await board.setPosition('0004', 100);
+
+        const ids = (await board.list()).map(c => c.frontmatter.id);
+
+        expect(ids).toEqual(['0004', '0002', '0001', '0003']);
+    });
 });
 
 /**

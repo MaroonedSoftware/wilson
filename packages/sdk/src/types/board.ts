@@ -14,10 +14,12 @@ export interface BoardColumns {
 }
 
 /**
- * No `position`. `runner.cards` has the column, for ordering the parking lot, but nothing populates
- * it and `Card` does not carry it — so exposing it here would have shipped a field that is absent
- * from every response. It comes back when parking-lot ordering is actually built, with a value.
- * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L30)
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * generated from [CardSummary](file://./../../../../apps/api/data/contracts/board.ck#L32)
  */
 export interface CardSummary {
     id: string;
@@ -31,6 +33,7 @@ export interface CardSummary {
      */
     needsHuman: boolean;
     needsHumanReason?: string;
+    position?: number;
 }
 
 /**
@@ -41,7 +44,7 @@ export interface CardSummary {
  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
  * it: the next sequential id over the current board. A client cannot pick one.
- * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L64)
+ * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L67)
  */
 export interface CreateCardRequest {
     title: string;
@@ -56,7 +59,7 @@ export interface CreateCardRequest {
 }
 
 /**
- * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L74)
+ * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L77)
  */
 export interface MoveCardRequest {
     /**
@@ -68,14 +71,29 @@ export interface MoveCardRequest {
 }
 
 /**
- * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L81)
+ * Card 0091. The two cards `id` should land between in the parking lot, by id rather than by a
+ * position value: a value would leak the sparse-integer scheme (`card.position.ts`) onto the wire,
+ * where a client would have no way to compute one that is still valid by the time this request
+ * lands. Either may be absent — both absent together means "the only card in the column" — since a
+ * drop can land at either end, where there is nothing on that side to name.
+ * generated from [RepositionCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L89)
+ */
+export interface RepositionCardRequest {
+    /** The card `id` should sit immediately after, or absent for the top of the column. */
+    beforeId?: string;
+    /** The card `id` should sit immediately before, or absent for the bottom of the column. */
+    afterId?: string;
+}
+
+/**
+ * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L96)
  */
 export interface EditCardRequest {
     body: string;
 }
 
 /**
- * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L85)
+ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L100)
  */
 export interface DependCardRequest {
     dependsOnId: string;
@@ -87,7 +105,7 @@ export interface DependCardRequest {
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L92)
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L107)
  */
 export interface CardEvent {
     id: string;
@@ -98,7 +116,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L100)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L115)
  */
 export interface CardVersion {
     id: string;
@@ -109,7 +127,7 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L108)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L123)
  */
 export interface ListQuery {
     limit?: number;
@@ -119,7 +137,7 @@ export interface ListQuery {
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L115)
+ * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L130)
  */
 export interface ImportBoardRequest {
     /**
@@ -130,7 +148,7 @@ export interface ImportBoardRequest {
 }
 
 /**
- * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L121)
+ * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L136)
  */
 export interface ImportReport {
     cards: number;
@@ -151,7 +169,7 @@ export interface ImportReport {
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L137)
+ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L152)
  */
 export interface PlanSession {
     /**
@@ -183,7 +201,7 @@ export interface PlanSession {
 }
 
 /**
- * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L160)
+ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L175)
  */
 export interface SaveDraftRequest {
     /**
@@ -200,7 +218,7 @@ export interface SaveDraftRequest {
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L172)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L187)
  */
 export interface DivisionPiece {
     title: string;
@@ -217,7 +235,7 @@ export interface DivisionPiece {
 }
 
 /**
- * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L42)
+ * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L45)
  */
 export interface CardDetail extends CardSummary {
     body: string;
@@ -229,7 +247,7 @@ export interface CardDetail extends CardSummary {
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L188)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L203)
  */
 export interface CardDivision {
     /**
@@ -246,7 +264,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L200)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L215)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -259,7 +277,7 @@ export interface SplitCardsRequest {
  * that this process's own tracking confirms nothing is currently running — left behind by an earlier
  * process that crashed before it could clear or hand off. A job genuinely mid-run stays refused (see
  * the release operation's 400 below) and never reaches this response at all.
- * generated from [ReleaseResult](file://./../../../../apps/api/data/contracts/board.ck#L53)
+ * generated from [ReleaseResult](file://./../../../../apps/api/data/contracts/board.ck#L56)
  */
 export interface ReleaseResult extends CardDetail {
     releasedAs: 'queued' | 'orphan';
@@ -270,7 +288,7 @@ export interface ReleaseResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L208)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L223)
  */
 export interface SplitResult {
     origin: CardDetail;
