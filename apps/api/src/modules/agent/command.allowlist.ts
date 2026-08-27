@@ -33,6 +33,57 @@ const suggestionFor = (argv: string[]): string | undefined => {
 };
 
 /**
+ * Tokens that mean a `pnpm ...` invocation is reaching for the test suite, not some other script.
+ * Used only to qualify `pnpm --filter`, which is otherwise just as likely to be `pnpm --filter
+ * @wilson/api build`.
+ */
+const TEST_INTENT_TOKENS = new Set(['test', 'vitest']);
+
+/**
+ * Does argv look like an attempt to run a subset of the test suite, as opposed to an ordinary pnpm
+ * command?
+ *
+ * `pnpm --filter` narrows to a package and is the form stages.yaml's history shows agents reaching
+ * for — but only when it goes on to run tests; `pnpm --filter @wilson/api build` is not this. `pnpm
+ * exec vitest`, `pnpm vitest` and bare `vitest` are the other habitual spellings, and matching them
+ * here does not depend on whether they happen to be this stage's allowed prefix — `check` only
+ * reaches this once the prefix match has already said no.
+ */
+const isSubsetTestAttempt = (argv: string[]): boolean => {
+    if (argv[0] === 'vitest') return true;
+    if (argv[0] !== 'pnpm') return false;
+    if (argv[1] === '--filter') return argv.some(token => TEST_INTENT_TOKENS.has(token));
+    return argv[1] === 'vitest' || (argv[1] === 'exec' && argv[2] === 'vitest');
+};
+
+/** The argv `isSubsetTestAttempt` should point agents at. */
+const VITEST_RUN_ARGV = ['pnpm', 'exec', 'vitest', 'run'];
+
+/**
+ * Does this stage's own allowlist actually permit `pnpm exec vitest run`?
+ *
+ * Naming a command the stage cannot run would be worse than the generic refusal — the agent would
+ * retry the suggestion itself and land on a second, differently-worded no. Reuses the same
+ * prefix-is-a-prefix-of-argv test `check` uses below, just against the fixed argv this suggestion
+ * names instead of the one the agent sent.
+ */
+const allowsVitestRun = (prefixes: string[][]): boolean =>
+    prefixes.some(prefix => prefix.length <= VITEST_RUN_ARGV.length && prefix.every((token, i) => token === VITEST_RUN_ARGV[i]));
+
+/**
+ * Glob metacharacters, as distinct from the rest of `SHELL_METACHARACTERS` (chaining, redirection,
+ * substitution) — a command refused for one of those needs a different sentence than one refused
+ * only for a glob.
+ */
+const GLOB_METACHARACTERS = /[*?[\]]/;
+
+/** `SHELL_METACHARACTERS` minus the glob ones, to tell "only a glob" apart from "a glob and more". */
+const NON_GLOB_SHELL_METACHARACTERS = /[;&|><`$(){}!#~\n\r\\]/;
+
+/** Does this command's glob look like it was reaching for test files, rather than something else? */
+const looksLikeTestPath = (command: string): boolean => /\btests?\/|\.test\.|\.spec\./.test(command);
+
+/**
  * Which commands a stage may run.
  *
  * Stage config names them (`pnpm build`, `pnpm test`) and this parses the agent's requested command
@@ -57,12 +108,21 @@ export class CommandAllowlist {
 
     check(command: string): CommandDecision {
         if (SHELL_METACHARACTERS.test(command)) {
-            const suggestion = suggestionFor(command.trim().split(/\s+/).filter(Boolean));
+            const argv = command.trim().split(/\s+/).filter(Boolean);
+            const suggestion = suggestionFor(argv);
+            // A glob is a shell metacharacter too, and gets refused here before the allowlist is even
+            // consulted — with the generic "no shell" message, that refusal doesn't say the plain
+            // paths it was reaching for would have worked. Only say so when the glob is the *only*
+            // thing wrong: a command that also chains or redirects has a bigger problem than the glob.
+            const globOnly = GLOB_METACHARACTERS.test(command) && !NON_GLOB_SHELL_METACHARACTERS.test(command);
+            const note = suggestion
+                ? `Use ${suggestion} instead.`
+                : globOnly && looksLikeTestPath(command)
+                  ? 'Plain paths are accepted, and you can list more than one — write out each test file instead of a glob.'
+                  : 'Run a single command with plain arguments.';
             return {
                 allowed: false,
-                reason: `command contains shell syntax and there is no shell to interpret it — no pipes, redirects, chaining, globs or substitution. ${
-                    suggestion ? `Use ${suggestion} instead.` : 'Run a single command with plain arguments.'
-                }`,
+                reason: `command contains shell syntax and there is no shell to interpret it — no pipes, redirects, chaining, globs or substitution. ${note}`,
             };
         }
 
@@ -78,12 +138,28 @@ export class CommandAllowlist {
         }
 
         const suggestion = suggestionFor(argv);
+        if (suggestion) {
+            return { allowed: false, reason: `${argv[0]} is not available, and does not need to be — use ${suggestion}.` };
+        }
+
+        // The allowlist itself is not the gap: a prefix match already lets a stage that lists `pnpm
+        // test` run `pnpm test <path>` with no config change at all, since trailing arguments are
+        // free once the prefix matches (see `command.allowlist.test.ts`, "allows extra arguments
+        // after an allowlisted prefix"). The habitual spellings — `pnpm --filter`, `pnpm exec vitest`
+        // without `run` — just aren't that prefix, so only naming the one that is fixes anything.
+        if (isSubsetTestAttempt(argv) && allowsVitestRun(this.prefixes)) {
+            return {
+                allowed: false,
+                reason:
+                    `${argv.join(' ')} is not in this stage's allowlist — use pnpm exec vitest run <path> instead, ` +
+                    'with a path relative to the repo root, not to a package (it resolves against the root vitest.config.mts).',
+            };
+        }
+
         const allowed = this.prefixes.map(p => p.join(' ')).join(', ') || 'nothing';
         return {
             allowed: false,
-            reason: suggestion
-                ? `${argv[0]} is not available, and does not need to be — use ${suggestion}.`
-                : `command is not in this stage's allowlist. Allowed: ${allowed}.`,
+            reason: `command is not in this stage's allowlist. Allowed: ${allowed}.`,
         };
     }
 }

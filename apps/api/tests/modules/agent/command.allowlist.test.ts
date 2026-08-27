@@ -83,3 +83,82 @@ describe('CommandAllowlist', () => {
         expect(new CommandAllowlist([]).check('pnpm build')).toMatchObject({ allowed: false });
     });
 });
+
+/**
+ * Card 0048: the subset test command (`pnpm exec vitest run <repo-relative path>`) already works
+ * once it's on a stage's allowlist — the gap was that a refused agent reaching for the habitual
+ * `pnpm --filter`/`pnpm exec vitest` spellings was only ever told "no", not what would have worked.
+ */
+describe('CommandAllowlist subset-test suggestions', () => {
+    const withVitestRun = new CommandAllowlist(['pnpm build', 'pnpm exec vitest run']);
+    const withoutVitestRun = new CommandAllowlist(['pnpm build', 'pnpm test']);
+
+    it.each([
+        ['pnpm --filter @wilson/api exec vitest run tests/foo.test.ts', 'pnpm --filter reaching for a package test run'],
+        ['pnpm --filter @wilson/api test', 'pnpm --filter with a bare test script'],
+        ['pnpm vitest run tests/foo.test.ts', 'pnpm vitest without exec'],
+        ['vitest run tests/foo.test.ts', 'bare vitest'],
+    ])('names the working form for %s (%s), when the stage allows it', command => {
+        const decision = withVitestRun.check(command);
+        expect(decision.allowed).toBe(false);
+        const reason = (decision as { reason: string }).reason;
+        // These phrases only appear in the subset-test suggestion, not in the generic "not on the
+        // allowlist" refusal (whose "Allowed: ..." list would otherwise also mention the command
+        // string "pnpm exec vitest run" and produce a false pass against a looser assertion).
+        expect(reason).toContain('use pnpm exec vitest run <path> instead');
+        expect(reason).toContain('repo root');
+        expect(reason).toContain('vitest.config.mts');
+    });
+
+    it('gets no suggestion naming pnpm exec vitest run when this stage cannot run it', () => {
+        const decision = withoutVitestRun.check('pnpm --filter @wilson/api exec vitest run tests/foo.test.ts');
+        expect(decision.allowed).toBe(false);
+        const reason = (decision as { reason: string }).reason;
+        expect(reason).not.toContain('use pnpm exec vitest run <path> instead');
+        expect(reason).toContain("not in this stage's allowlist");
+    });
+
+    it('does not suggest a test runner for an ordinary pnpm --filter build', () => {
+        const decision = withVitestRun.check('pnpm --filter @wilson/api build');
+        expect(decision.allowed).toBe(false);
+        // The allowlist itself lists "pnpm exec vitest run" among what's allowed, so a bare
+        // `.not.toContain('vitest')` would false-pass on the generic refusal text too — assert
+        // against the suggestion sentence specifically.
+        expect((decision as { reason: string }).reason).not.toContain('use pnpm exec vitest run <path> instead');
+    });
+
+    it('gives pnpm add the generic refusal, not a test-runner suggestion', () => {
+        const decision = withVitestRun.check('pnpm add left-pad');
+        expect(decision.allowed).toBe(false);
+        const reason = (decision as { reason: string }).reason;
+        expect(reason).not.toContain('use pnpm exec vitest run <path> instead');
+        expect(reason).toContain("not in this stage's allowlist");
+    });
+});
+
+/**
+ * Card 0048: a glob is a shell metacharacter and gets refused before the allowlist is even
+ * consulted; that refusal should say plain paths work when the command looks like it was reaching
+ * for test files.
+ */
+describe('CommandAllowlist glob refusal note', () => {
+    const list = new CommandAllowlist(['pnpm exec vitest run']);
+
+    it('tells the agent plain paths are accepted for a glob over a test path', () => {
+        const decision = list.check('pnpm exec vitest run tests/**/*.test.ts');
+        expect(decision.allowed).toBe(false);
+        expect((decision as { reason: string }).reason).toContain('Plain paths are accepted');
+    });
+
+    it('does not add the plain-paths note for a glob that is not a test path', () => {
+        const decision = list.check('pnpm exec vitest run src/*.ts');
+        expect(decision.allowed).toBe(false);
+        expect((decision as { reason: string }).reason).not.toContain('Plain paths are accepted');
+    });
+
+    it('does not add the plain-paths note when the command globs and also chains', () => {
+        const decision = list.check('pnpm exec vitest run tests/*.test.ts; rm -rf /');
+        expect(decision.allowed).toBe(false);
+        expect((decision as { reason: string }).reason).not.toContain('Plain paths are accepted');
+    });
+});
