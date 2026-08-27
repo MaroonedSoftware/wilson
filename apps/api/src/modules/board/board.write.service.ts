@@ -210,10 +210,29 @@ export class BoardWriteService {
         const after = await resolveNeighbour(request.afterId);
 
         // The column's current sort, `id` excluded — what `renormalizedPositions` preserves if a
-        // renormalise turns out to be needed below.
+        // renormalise turns out to be needed below, and what the ordering checks just below trust as
+        // ground truth for "which neighbour is really first".
         const order = (await this.boardRepository.list())
             .filter(other => other.frontmatter.stage === 'parking-lot' && other.frontmatter.id !== id)
             .map(other => other.frontmatter.id);
+
+        // Both omitted only means "the column is empty but for this card" — a populated column with
+        // no neighbours named is a caller that forgot to say where the card lands, not a request for
+        // the empty-column midpoint `rankBetween(undefined, undefined)` would otherwise hand back.
+        if (before === undefined && after === undefined && order.length > 0) {
+            throw httpError(400).withDetails({ reason: `cannot reposition ${id}: "beforeId"/"afterId" must say where it lands unless "parking-lot" holds only this card` });
+        }
+
+        // `before` and `after` are supposed to be `id`'s actual neighbours, which means `before` must
+        // really sort ahead of `after` in the column today — the same card named on both sides, or
+        // the two named in the reverse of their real order, both fail this. Caught here, with the
+        // same refusal every other bad input to this method gets, rather than left to surface as the
+        // "unreachable" throw below once ranking and renormalising both give up on an inverted pair.
+        if (before !== undefined && after !== undefined && order.indexOf(before.frontmatter.id) >= order.indexOf(after.frontmatter.id)) {
+            throw httpError(400).withDetails({
+                reason: `cannot reposition ${id}: "${before.frontmatter.id}" does not come before "${after.frontmatter.id}" in "parking-lot"`,
+            });
+        }
 
         const rankable = (neighbour: Card | undefined): boolean => neighbour === undefined || neighbour.frontmatter.position !== undefined;
 
