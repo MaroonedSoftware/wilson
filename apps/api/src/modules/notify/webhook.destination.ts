@@ -68,9 +68,16 @@ export async function checkWebhookDestination(rawUrl: string): Promise<WebhookDe
         return { ok: false, reason: `webhook URL must use https, not "${parsed.protocol.replace(/:$/, '')}"` };
     }
 
+    // `URL#hostname` keeps the square brackets around an IPv6 literal (`new URL('https://[::1]/').
+    // hostname === '[::1]'`) — `dns.lookup` does not accept that notation and rejects it as
+    // ENOTFOUND, which without this stripping would fall into the "does not resolve, so not this
+    // function's problem" branch below and let an operator-supplied IPv6 loopback/link-local/private
+    // literal straight through the very check this function exists to run.
+    const lookupHost = parsed.hostname.replace(/^\[(.*)\]$/, '$1');
+
     let addresses: { address: string; family: number }[];
     try {
-        addresses = await lookup(parsed.hostname, { all: true });
+        addresses = await lookup(lookupHost, { all: true });
     } catch {
         // A hostname that does not resolve at all is not one of the addresses this function
         // exists to reject — it is broken, not dangerous, and the `fetch()` call `Notifier.notify`
@@ -117,9 +124,19 @@ function disallowedAddressRule(address: string): string | undefined {
         if (normalized.startsWith('fe80:')) return 'link-local';
         // fc00::/7 — unique local addresses, IPv6's rough counterpart to the IPv4 private ranges.
         if (normalized.startsWith('fc') || normalized.startsWith('fd')) return 'private';
-        // An IPv4-mapped IPv6 address carries the same address under a different notation.
-        const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-        if (mapped?.[1]) return disallowedAddressRule(mapped[1]);
+        // An IPv4-mapped IPv6 address carries the same address under a different notation. Node's
+        // own `dns.lookup` normally hands this back in hex-group form (`::ffff:7f00:1`, not
+        // `::ffff:127.0.0.1`) — both are checked so a value that reaches here from a literal in a
+        // URL (dotted) or from an actual DNS answer (hex, on most platforms) is judged the same way.
+        const dottedMapped = normalized.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+        if (dottedMapped?.[1]) return disallowedAddressRule(dottedMapped[1]);
+
+        const hexMapped = normalized.match(/^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/);
+        if (hexMapped) {
+            const hi = Number.parseInt(hexMapped[1] ?? '', 16);
+            const lo = Number.parseInt(hexMapped[2] ?? '', 16);
+            return disallowedAddressRule(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+        }
         return undefined;
     }
 
