@@ -393,7 +393,10 @@ describe('ScopeCheckVerifier', () => {
             ...card0120,
             groups: [
                 { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'] },
-                ...card0120.groups.slice(1, 5),
+                // Enough further groups that the depth signal fires too — derived from the constant
+                // rather than a literal, so raising or lowering it does not silently turn this into
+                // a breadth-only case that still passes its `toHaveLength(2)`.
+                ...card0120.groups.slice(1, DEPTH_THRESHOLD),
             ],
         };
 
@@ -408,12 +411,16 @@ describe('ScopeCheckVerifier', () => {
     });
 
     /**
-     * `DEPTH_THRESHOLD` (5) is the exact line, the same way the existing breadth boundary tests check
+     * `DEPTH_THRESHOLD` is the exact line, the same way the existing breadth boundary tests check
      * `BREADTH_THRESHOLD`: one group below it must not force a refusal, exactly at it must.
+     *
+     * Both boundary assertions derive their expected counts from the constant. They previously
+     * hard-coded 4 and 5, which meant raising the threshold from 5 to 6 failed them on arithmetic
+     * rather than on behaviour — the fixture had moved, but what is being tested had not.
      */
     it('passes a "pass" whose group count sits one below the depth threshold', async () => {
         const belowThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD - 1) };
-        expect(belowThreshold.groups).toHaveLength(4);
+        expect(belowThreshold.groups).toHaveLength(DEPTH_THRESHOLD - 1);
 
         const outcome = await verify(belowThreshold);
 
@@ -423,7 +430,7 @@ describe('ScopeCheckVerifier', () => {
 
     it('requires "refuse" once the group count reaches the depth threshold exactly', async () => {
         const atThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD) };
-        expect(atThreshold.groups).toHaveLength(5);
+        expect(atThreshold.groups).toHaveLength(DEPTH_THRESHOLD);
 
         const outcome = await verify(atThreshold);
 

@@ -32,22 +32,34 @@ export const BREADTH_THRESHOLD = 4;
  * things each done once" — three groups — the lane's own doc comment names this as the false positive
  * to avoid, so the threshold must clear 3.
  *
- * Set at 5, and what that costs is on the record rather than left to the two easy cases above. Every
- * scope-check the board has run reports a group count; sorted, exactly four cards reach 5 or more.
- * 0120 (nine) is the true positive. 0046 (five) is the other one worth catching — it also exhausted
- * the testing stage's step budget three times and was parked unfinished. The remaining two, 0024 and
- * 0115 (five each), **merged cleanly as single cards** and would now be refused and sent back to
- * `planning` to be split for nothing. That is the trade this number makes, deliberately: a needless
- * split costs one planning round, a missed oversize card costs three testing passes and a human, so
- * two false positives are worth catching 0046. A threshold of 6 would take only 0120 and spare all
- * three — choose that instead if the wrongful splits ever start outnumbering the catches. Thirteen
- * cards sit at four groups and twelve of them merged, which is why the line is not drawn lower.
+ * Set at 6, after 5 was tried and refused three cards that were not too large. Every scope-check the
+ * board has run reports a group count, and only 0120 (nine) has ever been genuinely oversize. The
+ * cards at five — 0024, 0115 and 0046 — were all refused or would have been, and all three were
+ * fine: 0024 and 0115 merged cleanly as single cards, and 0046 is the instructive one.
  *
- * Cards 0075 and 0078 — the breadth cases `BREADTH_THRESHOLD` was calibrated against — report a single
- * group each (all the repeated work is one kind, per `ScopeGroupSchema`'s own doc comment) and are
- * unaffected by a depth threshold at any setting.
+ * 0046 was originally counted as a *reason* to set the line at 5, because it had exhausted the
+ * testing stage's step budget three times and been parked. That reasoning was wrong, and it is worth
+ * recording why: 0046 never failed for size. It failed because a drag between columns could not be
+ * asserted at all under jsdom — dnd-kit measures scrollable ancestors, jsdom returns all-zero rects,
+ * and no drop ever resolved. Card 0136 fixed that with a rect-stubbing harness, and 0046's plan did
+ * not shrink by a single task. A step-budget overrun is evidence of *something*, but it is not
+ * evidence of breadth or depth, and treating it as such put a tooling gap on this constant's ledger.
+ *
+ * The deeper limit, which no group count can fix: this counts groups, and cohesion is what actually
+ * matters. 0120's nine were unrelated subsystems — a migration, a repository, an agent, a registry,
+ * a feed, a contract, a route — each needing its own tests. 0046's six are consecutive steps of one
+ * gesture in one component. The model told us so, in its own words, and the verifier overrode it:
+ * "a single cohesive feature broken into its natural steps, not the same operation applied N times."
+ * At 6 that particular disagreement stops happening, but the metric still cannot see the difference,
+ * so a genuinely sprawling six-group card will pass. Prefer raising this again over lowering it: the
+ * record says depth-shaped overruns are rare and false positives are not.
+ *
+ * Thirteen cards sit at four groups and twelve of them merged, which is why the line is not drawn
+ * lower. Cards 0075 and 0078 — the breadth cases `BREADTH_THRESHOLD` was calibrated against — report
+ * a single group each (all the repeated work is one kind, per `ScopeGroupSchema`'s own doc comment)
+ * and are unaffected by a depth threshold at any setting.
  */
-export const DEPTH_THRESHOLD = 5;
+export const DEPTH_THRESHOLD = 6;
 
 const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.tasks.length > max.tasks.length ? g : max));
 
