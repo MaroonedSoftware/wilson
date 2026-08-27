@@ -239,6 +239,11 @@ describe('a card in planning', () => {
 
         expect(await screen.findByText('this card has no open planning session')).toBeTruthy();
         expect(screen.queryByText('400 Bad Request')).toBeNull();
+        // Review-flagged blocker: the composer used to clear its text synchronously right after
+        // calling mutate(), discarding the operator's message before the refusal even came back.
+        // The textarea's own doc comment says a refusal leaves the text in place to edit and
+        // resend — assert the box still holds exactly what was typed, not emptied out from under it.
+        expect((textarea as HTMLTextAreaElement).value).toBe('hello');
     });
 
     it('shows an inline alert when the stream fails to open, instead of swallowing the failure', async () => {
