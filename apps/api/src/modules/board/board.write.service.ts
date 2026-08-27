@@ -16,6 +16,7 @@ import type {
     MoveCardRequest,
     EditCardRequest,
     DependCardRequest,
+    RenameCardRequest,
     ReleaseResult,
     RepositionCardRequest,
     SplitCardsRequest,
@@ -271,6 +272,48 @@ export class BoardWriteService {
         }
 
         await this.boardRepository.write(id, `Edit ${id} plan body`, card => ({ ...card, body: request.body }));
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Rename a card's title. Not `writeWithEvent`: a rename edits stored content, exactly as `edit`
+     * above edits `body` — it does not transition the card, which is the same reasoning
+     * `BoardWriteService.depend`'s doc comment already records for editing `dependsOn`.
+     *
+     * Refuses a rename that would strand committed work. `WorktreeManager.branchName` slugs a card's
+     * *title* into its branch name, and `StageDispatcher.resolveBranch` only prefers a *recorded*
+     * `frontmatter.branch` once one exists (card 0095) — for a card no stage has dispatched yet,
+     * `branchName(id, currentTitle)` is still what the next dispatch would cut or resume. Renaming
+     * such a card before it is ever dispatched is free; renaming one whose current-title branch
+     * already carries commits would leave the next dispatch resuming a branch that no longer matches
+     * what the title now says, or (for `implementing`, which cuts with `-B`) silently discarding that
+     * work outright. This does not rename the branch or persist `frontmatter.branch` itself — that is
+     * a separate, bigger card (see board.ck's comment on this operation) — it only refuses the
+     * dangerous case.
+     */
+    async rename(id: string, request: RenameCardRequest): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        const title = request.title.trim();
+
+        if (title === before.frontmatter.title) {
+            return toCardDetail(before);
+        }
+        if (title.length === 0) {
+            throw httpError(400).withDetails({ reason: `cannot rename ${id}: a title cannot be empty` });
+        }
+
+        const branch = this.worktrees.branchName(id, before.frontmatter.title);
+        if (await this.worktrees.hasWork(branch)) {
+            throw httpError(400).withDetails({
+                reason: `cannot rename ${id}: it has work on ${branch} — renaming would strand it`,
+            });
+        }
+
+        await this.boardRepository.write(id, `Rename ${id}: "${before.frontmatter.title}" → "${title}"`, card => ({
+            ...card,
+            frontmatter: { ...card.frontmatter, title },
+        }));
+
         return toCardDetail(await this.boardRepository.read(id));
     }
 

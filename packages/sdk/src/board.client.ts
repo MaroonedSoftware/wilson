@@ -14,6 +14,7 @@ import type {
     MoveCardRequest,
     PlanSession,
     ReleaseResult,
+    RenameCardRequest,
     RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
@@ -59,6 +60,30 @@ export class BoardClient {
     async editCardBody(id: string, body: EditCardRequest): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}`, {
             method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<CardDetail>(result);
+    }
+
+    /**
+     * @name Rename card
+     * @description Card 0094. A sub-resource action, not `title` added to `EditCardRequest` (see the contract above):
+     * renaming is still the same *kind* of act `PATCH .../id` already does — a human edits stored
+     * content, no stage reads the field as input, nothing transitions — which is why this goes through
+     * `board.write` in `BoardWriteService.rename`, not `writeWithEvent` the way `move` below does. It is
+     * not part of `PATCH .../id` itself only because the contractkit-generated SDK method name for that
+     * route (`editCardBody`) is pinned to "body", and a second field would force renaming it and every
+     * caller for no behavioural gain.
+     *
+     * The title is not the runner state decision 5 protects, either: stage, branch and retries are
+     * recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
+     * them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
+     * above is allowed to touch `body` freely.
+     */
+    async renameCard(id: string, body: RenameCardRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/rename`, {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });

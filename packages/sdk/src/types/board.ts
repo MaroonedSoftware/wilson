@@ -93,7 +93,17 @@ export interface EditCardRequest {
 }
 
 /**
- * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L100)
+ * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
+ * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
+ * for no behavioural gain, where `POST .../rename` is purely additive.
+ * generated from [RenameCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L103)
+ */
+export interface RenameCardRequest {
+    title: string;
+}
+
+/**
+ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L107)
  */
 export interface DependCardRequest {
     dependsOnId: string;
@@ -105,7 +115,7 @@ export interface DependCardRequest {
 }
 
 /**
- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L107)
+ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L114)
  */
 export interface CardEvent {
     id: string;
@@ -116,7 +126,7 @@ export interface CardEvent {
 }
 
 /**
- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L115)
+ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L122)
  */
 export interface CardVersion {
     id: string;
@@ -127,7 +137,7 @@ export interface CardVersion {
 /**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L123)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L130)
  */
 export interface ListQuery {
     limit?: number;
@@ -137,7 +147,7 @@ export interface ListQuery {
  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
  * here is not a remote write-anywhere-on-disk primitive (card 0076).
- * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L130)
+ * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L137)
  */
 export interface ImportBoardRequest {
     /**
@@ -148,7 +158,7 @@ export interface ImportBoardRequest {
 }
 
 /**
- * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L136)
+ * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L143)
  */
 export interface ImportReport {
     cards: number;
@@ -169,7 +179,7 @@ export interface ImportReport {
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L152)
+ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L159)
  */
 export interface PlanSession {
     /**
@@ -201,7 +211,7 @@ export interface PlanSession {
 }
 
 /**
- * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L175)
+ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L182)
  */
 export interface SaveDraftRequest {
     /**
@@ -218,7 +228,7 @@ export interface SaveDraftRequest {
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L187)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L194)
  */
 export interface DivisionPiece {
     title: string;
@@ -247,7 +257,7 @@ export interface CardDetail extends CardSummary {
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L203)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L210)
  */
 export interface CardDivision {
     /**
@@ -264,7 +274,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L215)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L222)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -288,7 +298,7 @@ export interface ReleaseResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L223)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L230)
  */
 export interface SplitResult {
     origin: CardDetail;
