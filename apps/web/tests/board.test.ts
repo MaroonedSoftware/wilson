@@ -10,6 +10,16 @@ const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = 
     needsHuman,
 });
 
+/** A parking-lot card with an explicit `position` — card 0091's field, card 0047 is the first to read. */
+const parked = (id: string, position?: number, needsHuman = false): CardSummary => ({
+    id,
+    title: `card ${id}`,
+    stage: 'parking-lot',
+    dependsOn: [],
+    needsHuman,
+    position,
+});
+
 const columns: BoardColumns = {
     stages: ['planning', 'backlog', 'implementing', 'testing', 'review', 'ready'],
     nonStages: ['parking-lot', 'merged', 'needs-human', 'poisoned', 'dropped'],
@@ -62,6 +72,38 @@ describe('groupByStage', () => {
     it('falls back to id order within a column with no flagged cards, exactly as before', () => {
         const grouped = groupByStage([card('0003', 'review'), card('0001', 'review'), card('0002', 'review')]);
         expect(grouped.get('review')?.map(c => c.id)).toEqual(['0001', '0002', '0003']);
+    });
+
+    describe('the parking lot', () => {
+        it('sorts by position instead of id, lowest first', () => {
+            const grouped = groupByStage([parked('0001', 2), parked('0002', 0), parked('0003', 1)]);
+            expect(grouped.get('parking-lot')?.map(c => c.id)).toEqual(['0002', '0003', '0001']);
+        });
+
+        it('sorts a card with no position after every card that has one', () => {
+            const grouped = groupByStage([parked('0001', undefined), parked('0002', 0), parked('0003', 1)]);
+            expect(grouped.get('parking-lot')?.map(c => c.id)).toEqual(['0002', '0003', '0001']);
+        });
+
+        it('falls back to id among cards that all lack a position — predating card 0091, none jump the queue', () => {
+            const grouped = groupByStage([parked('0003'), parked('0001'), parked('0002')]);
+            expect(grouped.get('parking-lot')?.map(c => c.id)).toEqual(['0001', '0002', '0003']);
+        });
+
+        it('does not sort a flagged card to the top — position rules the parking lot even over the flag', () => {
+            const grouped = groupByStage([parked('0001', 0), parked('0002', 1), parked('0003', 2, true)]);
+            // Flagged '0003' stays last, at its own position, unlike every other column above.
+            expect(grouped.get('parking-lot')?.map(c => c.id)).toEqual(['0001', '0002', '0003']);
+        });
+
+        it('leaves every other column sorted flagged-first, unaffected by any position field', () => {
+            const grouped = groupByStage([
+                parked('0009', 0),
+                card('0001', 'review', [], false),
+                card('0002', 'review', [], true),
+            ]);
+            expect(grouped.get('review')?.map(c => c.id)).toEqual(['0002', '0001']);
+        });
     });
 });
 
