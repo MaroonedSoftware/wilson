@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useListState } from '@mantine/hooks';
 import type { PlanTurn } from '@wilson/sdk';
 import { API_BASE } from './sdk.js';
 
@@ -53,7 +54,7 @@ const insertBySeq = (turns: PlanTurn[], turn: PlanTurn): PlanTurn[] =>
  * for every other stage while still calling this hook unconditionally, honouring the rules of hooks.
  */
 export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscript {
-    const [turns, setTurns] = useState<PlanTurn[]>([]);
+    const [turns, turnHandlers] = useListState<PlanTurn>([]);
     const [pendingText, setPendingText] = useState('');
     const [status, setStatus] = useState<PlanStreamStatus>('connecting');
     const [error, setError] = useState<string | undefined>(undefined);
@@ -62,7 +63,7 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
     useEffect(() => {
         if (!enabled) return;
 
-        setTurns([]);
+        turnHandlers.setState([]);
         setPendingText('');
         setStatus('connecting');
         setError(undefined);
@@ -84,7 +85,7 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
         };
         source.addEventListener('turn', event => {
             const turn = JSON.parse((event as MessageEvent<string>).data) as PlanTurn;
-            setTurns(previous => insertBySeq(previous, turn));
+            turnHandlers.setState(previous => insertBySeq(previous, turn));
             setPendingText('');
         });
         source.addEventListener('delta', event => {
@@ -95,7 +96,7 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
     }, [cardId, enabled]);
 
     const commitTurn = (turn: PlanTurn): void => {
-        setTurns(previous => insertBySeq(previous, turn));
+        turnHandlers.setState(previous => insertBySeq(previous, turn));
         setPendingText('');
     };
 

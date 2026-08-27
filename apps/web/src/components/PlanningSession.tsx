@@ -10,21 +10,6 @@ import { reasonFor, useSendPlanTurn } from '#src/lib/mutations.js';
 import { usePlanTranscript } from '#src/lib/plan.js';
 import { wilson } from '#src/lib/sdk.js';
 
-/**
- * `Composer`'s `autosize` `Textarea` (below) subscribes to the CSS Font Loading API
- * unconditionally, on every mount, to re-measure once web fonts finish loading — every real
- * browser has `document.fonts`, but jsdom (this app's test environment) does not, and reading
- * `.addEventListener` off `undefined` would otherwise crash this pane before it ever rendered.
- * Guarded on the property actually being absent, so a real browser's implementation is never
- * touched.
- */
-if (typeof document !== 'undefined' && !document.fonts) {
-    Object.defineProperty(document, 'fonts', {
-        value: { addEventListener: () => {}, removeEventListener: () => {} },
-        configurable: true,
-    });
-}
-
 /** One persisted turn: a role badge and timestamp header over its content, run through the app's
  * one markdown renderer (`Markdown.tsx`) rather than a second one grown for this pane. */
 function TurnBubble({ turn }: { turn: PlanTurn }) {
