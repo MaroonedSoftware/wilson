@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { PlanService } from '#modules/plan/plan.service.js';
@@ -15,10 +16,56 @@ import { PLAN_SECTIONS, type Card } from '#modules/board/card.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { DB } from '#modules/data/db.js';
+import { planFeed } from '#modules/plan/plan.session.feed.js';
+import { planSessions } from '#modules/plan/plan.session.registry.js';
+import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} } as unknown as Logger;
 const fakeEvents = { append: vi.fn(async () => {}) } as unknown as EventLog;
+
+/**
+ * Card 0133: `PlanService.turn` drives the registry's live session, which constructs a real
+ * `PlanSessionAgent` — a real `@anthropic-ai/claude-agent-sdk` `query()` call. Replaced here with a
+ * bare double, the same way `plan.session.registry.test.ts` replaces it for the registry's own
+ * tests, so `turn`'s own job — appending turns, composing the first-turn prompt, publishing deltas,
+ * stripping `engineSessionId` before it reaches a caller — is exercised without spinning up a real
+ * engine. The double echoes its prompt back one word at a time, so a turn's stored `content` is a
+ * direct, checkable record of exactly what `PlanService` sent it.
+ */
+const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.hoisted(() => {
+    const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string }> = [];
+    // Every mock instance ever constructed, in construction order — the counter behind `sessionId`
+    // is shared across every test in this file (it lives in this one hoisted closure), so a test
+    // must read the id an instance was actually given back off this array rather than assume which
+    // number it landed on.
+    const instances: InstanceType<typeof PlanSessionAgentMock>[] = [];
+    const disposeSpy = vi.fn();
+    let counter = 0;
+    class PlanSessionAgentMock {
+        readonly options: { worktreeRoot: string; model: string; resume?: string };
+        sessionId: string | undefined;
+        constructor(options: { worktreeRoot: string; model: string; resume?: string }) {
+            this.options = options;
+            sessionAgentCalls.push(options);
+            counter += 1;
+            this.sessionId = `engine-session-${counter}`;
+            instances.push(this);
+        }
+        async *turn(text: string): AsyncGenerator<string> {
+            const words = text.split(' ');
+            for (const [index, word] of words.entries()) {
+                yield index === 0 ? word : ` ${word}`;
+            }
+        }
+        dispose(): void {
+            disposeSpy(this);
+        }
+    }
+    return { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy };
+});
+
+vi.mock('#modules/agent/plan.session.agent.js', () => ({ PlanSessionAgent: PlanSessionAgentMock }));
 
 const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, body = 'body text'): Card => ({
     frontmatter: { id, title: `card ${id}`, stage: 'implementing', dependsOn: [], retries: {}, ...overrides },
@@ -124,7 +171,7 @@ const freshEnv = async () => {
     const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, worktreeRoot, runRoot);
     const board = new PostgresBoardRepository(config, db, fakeEvents);
     const worktrees = new WorktreeManager(config, silentLogger);
-    const service = new PlanService(board, config, worktrees);
+    const service = new PlanService(board, config, worktrees, db);
 
     return { config, board, worktrees, service, codeRoot, worktreeRoot, runRoot };
 };
@@ -324,6 +371,180 @@ describe('PlanService', () => {
         it('is safe to call for a session that was never opened', async () => {
             const { service } = await freshEnv();
             await expect(service.close('9999')).resolves.toBeUndefined();
+        });
+    });
+
+    describe('turn', () => {
+        afterEach(() => {
+            sessionAgentCalls.length = 0;
+            instances.length = 0;
+            disposeSpy.mockClear();
+        });
+
+        it('holds one conversation across two turns: the first prompt carries the planning stage\'s own instructions, the second carries only the raw text, and only one engine session is ever constructed', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning', title: 'Turn card' }, FULL_BODY), 'seed');
+
+                const first = await service.turn(id, { text: 'hello there' });
+                expect(first.content).toContain('Write a plan for this card');
+                expect(first.content).toContain('hello there');
+
+                // The second turn's reply demonstrates the model saw the first exchange: no
+                // instructions are re-sent, because the engine's own session — not a replay of
+                // stored turns — is what carries the conversation forward.
+                const second = await service.turn(id, { text: 'a follow-up' });
+                expect(second.content).toBe('a follow-up');
+
+                expect(sessionAgentCalls).toHaveLength(1);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('returns only the generated PlanTurn shape — never the stored row\'s engine session id', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                const result = await service.turn(id, { text: 'hi' });
+
+                expect(Object.keys(result).sort()).toEqual(['content', 'createdAt', 'role', 'seq']);
+                expect(result).not.toHaveProperty('engineSessionId');
+                expect(result.role).toBe('assistant');
+                expect(result.seq).toBe(2); // 1 is the user turn just appended, 2 the assistant reply
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('appends the user turn then the assistant reply to the stored transcript, in seq order', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.turn(id, { text: 'first message' });
+
+                const repo = new PlanTurnRepository(config, db);
+                const stored = await repo.since(id, 0);
+                expect(stored.map(t => t.role)).toEqual(['user', 'assistant']);
+                expect(stored[0]!.content).toBe('first message');
+                expect(stored[1]!.engineSessionId).toBe(instances.at(-1)!.sessionId);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('publishes each assistant chunk to planFeed as it is produced, not only once the turn completes', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            const seen: string[] = [];
+            const unsubscribe = planFeed.onEvent({ correlationId: id }, event => {
+                seen.push(String(event.message));
+            });
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.turn(id, { text: 'alpha beta gamma' });
+
+                expect(seen.length).toBeGreaterThan(1);
+                expect(seen.join('')).toContain('alpha beta gamma');
+            } finally {
+                unsubscribe();
+                planSessions.dispose(id);
+            }
+        });
+
+        it('after close (simulating a process restart), a further turn resumes the previous engine session instead of starting a fresh one', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await service.turn(id, { text: 'first' });
+                expect(sessionAgentCalls).toHaveLength(1);
+                expect(sessionAgentCalls[0]!.resume).toBeUndefined();
+                const firstEngineSessionId = instances.at(-1)!.sessionId;
+
+                await service.close(id);
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+
+                await service.turn(id, { text: 'second, after restart' });
+
+                expect(sessionAgentCalls).toHaveLength(2);
+                expect(sessionAgentCalls[1]!.resume).toBe(firstEngineSessionId);
+
+                const repo = new PlanTurnRepository(config, db);
+                const stored = await repo.since(id, 0);
+                expect(stored.map(t => t.content)).toEqual([
+                    'first',
+                    expect.stringContaining('first'),
+                    'second, after restart',
+                    'second, after restart',
+                ]);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('close disposes the live session but leaves the stored transcript untouched', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.turn(id, { text: 'keep me' });
+
+                await service.close(id);
+
+                const repo = new PlanTurnRepository(config, db);
+                const stored = await repo.since(id, 0);
+                expect(stored.map(t => t.content)).toEqual(['keep me', expect.stringContaining('keep me')]);
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('refuses a turn for a card outside "planning", storing nothing and starting no engine session', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            await board.create(card(id, { stage: 'implementing' }), 'seed');
+
+            await expect(service.turn(id, { text: 'hi' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('not "planning"') },
+            });
+
+            const repo = new PlanTurnRepository(config, db);
+            expect(await repo.since(id, 0)).toEqual([]);
+            expect(sessionAgentCalls).toHaveLength(0);
+        });
+
+        it('refuses a turn for a card whose real branch already has work, storing nothing', async () => {
+            const { board, service, worktrees, config } = await freshEnv();
+            const id = randomUUID();
+            const title = 'Has code already';
+            await board.create(card(id, { stage: 'planning', title }), 'seed');
+
+            const cardBranch = worktrees.branchName(id, title);
+            const cardWorktree = await worktrees.create(id, cardBranch);
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const f = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, 'implementing');
+
+            await expect(service.turn(id, { text: 'hi' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining(cardBranch) },
+            });
+
+            const repo = new PlanTurnRepository(config, db);
+            expect(await repo.since(id, 0)).toEqual([]);
+            expect(sessionAgentCalls).toHaveLength(0);
+        });
+
+        it('404s for a card that does not exist', async () => {
+            const { service } = await freshEnv();
+            await expect(service.turn('9999', { text: 'hi' })).rejects.toMatchObject({ statusCode: 404 });
         });
     });
 });

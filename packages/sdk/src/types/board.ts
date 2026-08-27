@@ -223,12 +223,38 @@ export interface SaveDraftRequest {
 }
 
 /**
+ * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
+ * request — one message in that conversation.
+ * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L191)
+ */
+export interface PlanTurnRequest {
+    text: string;
+}
+
+/**
+ * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
+ * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
+ * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
+ * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L198)
+ */
+export interface PlanTurn {
+    /**
+     * `Last-Event-ID`'s resume key: monotonic per card, so a reconnecting client asks for every turn
+     * with `seq` greater than the last one it saw.
+     */
+    seq: number;
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt: string;
+}
+
+/**
  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L194)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L212)
  */
 export interface DivisionPiece {
     title: string;
@@ -257,7 +283,7 @@ export interface CardDetail extends CardSummary {
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L210)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L228)
  */
 export interface CardDivision {
     /**
@@ -274,7 +300,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L222)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L240)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -298,7 +324,7 @@ export interface ReleaseResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L230)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L248)
  */
 export interface SplitResult {
     origin: CardDetail;

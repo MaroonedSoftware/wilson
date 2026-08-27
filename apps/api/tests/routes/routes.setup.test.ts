@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { FeedRouter, routers } from '#src/routes/routes.setup.js';
+import { FeedRouter, PlanStreamRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
@@ -20,37 +20,45 @@ import { SettingsRouter } from '#src/routes/settings.router.js';
  * `settings.ck`, and mounted here alongside the others.
  */
 describe('routers', () => {
-    it('mounts the generated health, board and settings routers plus the hand-written feed router, and nothing else', () => {
+    it('mounts the generated health, board and settings routers plus the two hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(4);
+        expect(mounted).toHaveLength(5);
         expect(mounted[0]).toBe(HealthRouter);
         expect(mounted[1]).toBe(BoardRouter);
         expect(mounted[2]).toBe(SettingsRouter);
-        // FeedRouter (card 0042) is a factory, not a constant: each call builds a fresh router, so
-        // this checks it mounts a working `/api/feed` route rather than comparing object identity
-        // against another freshly-built instance.
+        // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
+        // call builds a fresh router, so this checks they mount a working route rather than
+        // comparing object identity against another freshly-built instance.
         expect(mounted[3].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[4].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
     // signal, so shutdown can drain an open `/api/feed` stream instead of waiting out the
-    // force-close grace period. The other three routers have no long-lived connection to drain and
-    // must come back untouched regardless of whether a signal is given.
-    it('accepts a lifecycle signal and still mounts the same three routers plus a working feed router', () => {
+    // force-close grace period. Card 0133's `PlanStreamRouter` takes the same signal for the same
+    // reason. The other three routers have no long-lived connection to drain and must come back
+    // untouched regardless of whether a signal is given.
+    it('accepts a lifecycle signal and still mounts the same three routers plus working feed and plan-stream routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(4);
+        expect(mounted).toHaveLength(5);
         expect(mounted[0]).toBe(HealthRouter);
         expect(mounted[1]).toBe(BoardRouter);
         expect(mounted[2]).toBe(SettingsRouter);
         expect(mounted[3].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[4].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
         expect(FeedRouter().match('/api/feed', 'GET').route).toBe(true);
         expect(FeedRouter(new AbortController().signal).match('/api/feed', 'GET').route).toBe(true);
+    });
+
+    it('builds a working plan-stream router whether or not a signal is given', () => {
+        expect(PlanStreamRouter().match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(PlanStreamRouter(new AbortController().signal).match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     /**
@@ -132,6 +140,18 @@ describe('routers', () => {
     it('does not route an undeclared method to either of the card 0113 paths', () => {
         expect(BoardRouter.match('/api/cards/0001/division', 'POST').route).toBe(false);
         expect(BoardRouter.match('/api/cards/0001/split', 'GET').route).toBe(false);
+    });
+
+    // Card 0133: the ordinary JSON half of a card's planning conversation. `GET .../plan/stream`,
+    // the other half, is not generated — it is `PlanStreamRouter`, exercised separately above and in
+    // `plan.stream.route.test.ts`.
+    it('routes POST /api/cards/0001/plan/turn to the board router', () => {
+        expect(BoardRouter.match('/api/cards/0001/plan/turn', 'POST').route).toBe(true);
+    });
+
+    it('does not route an undeclared method to the plan/turn path', () => {
+        expect(BoardRouter.match('/api/cards/0001/plan/turn', 'GET').route).toBe(false);
+        expect(BoardRouter.match('/api/cards/0001/plan/turn', 'DELETE').route).toBe(false);
     });
 
     // Card 0106: the poller's on/off switch, read and written over the API.
