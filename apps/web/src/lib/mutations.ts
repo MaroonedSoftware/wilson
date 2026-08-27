@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
-import { SdkError } from '@wilson/sdk';
+import { SdkError, type CardSummary } from '@wilson/sdk';
 import { wilson } from './sdk.js';
 
 /**
@@ -37,6 +37,40 @@ export function useMoveCard(id: string) {
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not move the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Reorders a card within the parking lot (card 0091's `POST .../reposition`). Unlike every other
+ * mutation in this file, this one *is* optimistic (PROJECT.md, Architecture; card 0047's plan):
+ * ordering is not runner state — no stage reads it, nothing dispatches on it, the runner never
+ * writes it — so writing the dragged order straight into the `['cards']` cache and reconciling from
+ * the response is honest here in a way it would not be for `useMoveCard`'s stage change. Deliberately
+ * its own hook rather than a parameterised `useMoveCard`, so a stage move and a reorder never share a
+ * code path that would make the two behave the same.
+ *
+ * `Board.tsx` owns the reordering math — dnd-kit's `arrayMove`, and the synthetic positions that
+ * stand in for the server's sparse ones until the response (or a feed event) brings the real ones
+ * back — and hands the already-reordered array in as `optimisticCards`. This hook only owns the
+ * cache write, the rollback on refusal, and the reconciling refetch.
+ */
+export function useRepositionCard() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, beforeId, afterId }: { id: string; beforeId?: string; afterId?: string; optimisticCards: CardSummary[] }) =>
+            wilson.board.repositionCard(id, { beforeId, afterId }),
+        onMutate: ({ optimisticCards }) => {
+            const previous = queryClient.getQueryData<CardSummary[]>(['cards']);
+            queryClient.setQueryData(['cards'], optimisticCards);
+            return { previous };
+        },
+        onError: (err, _vars, context) => {
+            if (context?.previous) queryClient.setQueryData(['cards'], context.previous);
+            notifications.show({ color: 'red', title: 'Could not reorder the card', message: reasonFor(err) });
+        },
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: ['cards'] });
         },
     });
 }
