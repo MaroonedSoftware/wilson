@@ -193,10 +193,24 @@ export function Board({
     const handleDragEnd = (event: DragEndEvent) => {
         const cardId = String(event.active.id);
         const targetStage = event.over ? String(event.over.id) : undefined;
-        setActiveId(null);
-        if (!targetStage || targetStage === stageById.get(cardId)) return;
+        if (!targetStage || targetStage === stageById.get(cardId)) {
+            setActiveId(null);
+            return;
+        }
         setPendingId(cardId);
-        moveCard.mutate(targetStage, { onSettled: () => setPendingId(null) });
+        // Deliberately NOT `setActiveId(null)` here. `useMoveCard(id)` rebuilds its `mutationFn` (a
+        // fresh closure over `id`) on every render; TanStack Query's `MutationObserver` keeps one
+        // instance across renders and reads whichever `mutationFn` is current on the render that
+        // commits before the mutation's internal `await onMutate?.()` resumes — not the one current
+        // when `.mutate()` was called. Clearing `activeId` synchronously here would force exactly
+        // that re-render, so the request would carry `''` instead of the card being moved. Hold
+        // `activeId` until the mutation settles — the same moment `pendingId` already clears.
+        moveCard.mutate(targetStage, {
+            onSettled: () => {
+                setPendingId(null);
+                setActiveId(null);
+            },
+        });
     };
 
     return (
