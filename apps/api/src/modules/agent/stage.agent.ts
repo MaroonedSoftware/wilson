@@ -10,6 +10,16 @@ export interface AgentRunInput {
     title: string;
     /** Zod schema the stage's result must satisfy. */
     resultSchema: unknown;
+    /**
+     * The worktree's fork point (`Worktree.baseSha`) — the one basis every verifier measures the
+     * card's diff against, and the sha `git diff <baseSha>` must be run against to reproduce it.
+     * Prompt material, like `title` and `planPath`: `ToolContext` stays narrow on purpose, and no
+     * tool reads this, so it does not belong there. Named in both adapters' prompts so a stage that
+     * needs to look at its own diff — testing and review chief among them — is told the sha rather
+     * than left to guess `git diff main` or `git diff HEAD~1`, either of which lies the moment
+     * `main` has moved since the branch was cut.
+     */
+    baseSha: string;
 }
 
 export interface AgentRunOutput {

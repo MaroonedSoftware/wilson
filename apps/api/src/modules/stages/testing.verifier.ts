@@ -2,7 +2,6 @@ import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { git } from '#modules/board/git.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
@@ -168,24 +167,11 @@ export class TestingVerifier implements StageVerifier {
      * Test files this card *added*, as distinct from `changedPaths`' broader "touched since base" —
      * a pre-existing test file this card only modified is not the naming check's business, so an
      * `M` in `git diff --name-status` is excluded here even though `changedPaths` would include it.
-     * A file git has never seen (untracked) is added by definition.
+     * A file git has never seen (untracked) is added by definition. `WorktreeManager.addedPaths`
+     * does the actual git call, so `worktree.baseSha` is dereferenced there and not here too.
      */
     private async newTestPaths(worktree: Worktree): Promise<string[]> {
-        const { stdout: statusOut } = await git(worktree.path, ['diff', '--name-status', worktree.baseSha, '--']);
-        const added = statusOut
-            .split('\n')
-            .map(line => line.trim())
-            .filter(Boolean)
-            .filter(line => line.startsWith('A'))
-            .map(line => line.split('\t').pop() as string);
-
-        const { stdout: untrackedOut } = await git(worktree.path, ['ls-files', '--others', '--exclude-standard']);
-        const untracked = untrackedOut
-            .split('\n')
-            .map(line => line.trim())
-            .filter(Boolean);
-
-        return [...added, ...untracked].filter(path => TEST_FILE_PATTERN.test(path));
+        return (await this.worktrees.addedPaths(worktree)).filter(path => TEST_FILE_PATTERN.test(path));
     }
 
     /**

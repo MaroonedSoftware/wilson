@@ -106,7 +106,7 @@ export class CliStageAgent extends StageAgent {
         super();
     }
 
-    async run({ stage, context, planPath, title, resultSchema }: AgentRunInput): Promise<AgentRunOutput> {
+    async run({ stage, context, planPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
         // tool's own definition below for why crossing that transport as tool arguments is exactly
@@ -288,6 +288,9 @@ export class CliStageAgent extends StageAgent {
                 `you may change and its "Out of scope" is binding even where you could make the change.`,
                 '',
                 `You are in a git worktree at ${context.worktreeRoot}.`,
+                '',
+                `\`git diff ${baseSha}\` is the card's whole diff across every stage — this is what the`,
+                `verifier measures and what a finding must cite.`,
                 '',
                 // `stage.instructions` comes from board config, which must not name a tool — see
                 // the class doc comment above for why (card 0097). The lines below are this

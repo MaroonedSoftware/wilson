@@ -682,4 +682,39 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
         expect(result.passed).toBe(false);
         expect(result.failures.some(f => f.includes(`used all ${stage.maxSteps} of its steps`))).toBe(true);
     });
+
+    // Card 0024: `AgentRunInput.baseSha` is what lets a stage's prompt name the sha a `git diff`
+    // must be run against to reproduce the card's whole diff. `runAgent` is the one place that reads
+    // `worktree.baseSha` off the worktree it already holds and hands it to the adapter — a value the
+    // adapter has no other way to learn, since `ToolContext` deliberately stays narrow and carries
+    // no git state at all.
+    it("passes worktree.baseSha through to the adapter as the run input's baseSha", async () => {
+        let receivedBaseSha: string | undefined;
+        const agents = new StageAgentMap();
+        agents.set('api', {
+            run: async input => {
+                receivedBaseSha = input.baseSha;
+                return { result: { summary: 'did the thing' }, usage: { inputTokens: 10 }, truncated: false };
+            },
+        });
+        const verifiers = new StageVerifierMap();
+        verifiers.set('testing', { verify: async () => ({ passed: true, failures: [], changedPaths: [] }) });
+        const resultSchemas = new StageResultSchemaMap();
+        resultSchemas.set('testing', {} as never);
+
+        const dispatcher = new StageDispatcher(
+            { project: 'test' } as BoardConfig,
+            {} as BoardRepository,
+            {} as WorktreeManager,
+            agents,
+            verifiers,
+            resultSchemas,
+            {} as EventLog,
+            silentLogger as never,
+        );
+
+        await runAgent(dispatcher);
+
+        expect(receivedBaseSha).toBe(worktree.baseSha);
+    });
 });
