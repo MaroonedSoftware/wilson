@@ -151,4 +151,15 @@ describe('routers', () => {
         expect(SettingsRouter.match('/api/settings/card-stage-concurrency', 'POST').route).toBe(false);
         expect(SettingsRouter.match('/api/settings/card-stage-concurrency', 'DELETE').route).toBe(false);
     });
+
+    // Card 0107: the notify webhook and its base URL, read and written over the API the same way
+    // the other settings already are.
+    it.each([['GET'], ['PUT']])('routes %s /api/settings/notify-webhook to the settings router', method => {
+        expect(SettingsRouter.match('/api/settings/notify-webhook', method).route).toBe(true);
+    });
+
+    it('does not route an undeclared method to the notify-webhook settings path', () => {
+        expect(SettingsRouter.match('/api/settings/notify-webhook', 'POST').route).toBe(false);
+        expect(SettingsRouter.match('/api/settings/notify-webhook', 'DELETE').route).toBe(false);
+    });
 });

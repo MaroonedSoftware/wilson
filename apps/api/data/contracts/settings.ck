@@ -3,6 +3,7 @@ options {
         PollerSettingService: "#modules/settings/poller.setting.service.js"
         PollerIntervalSettingService: "#modules/settings/poller.interval.setting.service.js"
         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
+        NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
     }
     security: none
 }
@@ -20,9 +21,21 @@ options {
 # (BoardConfig/server startup) and has no auth boundary yet (card 0019). Anything that can reach
 # this port could already flip the poller on directly if it were a plain code change, so exposing
 # it here is the same accepted risk restated as an HTTP call: worst case the runner works the
-# board unattended, which costs money but reaches nothing outward. `NOTIFY_WEBHOOK_URL` is a
-# different question, because it does reach outward, and stays out of this table for exactly that
-# reason — card 0107.
+# board unattended, which costs money but reaches nothing outward. `NOTIFY_WEBHOOK_URL` used to stay
+# out of this table for exactly the opposite reason: unlike the poller switch, it reaches outward,
+# so exposing it the same way turns this unauthenticated surface into a general-purpose request
+# primitive — anything that can reach this port could make the daemon POST JSON of its choosing at
+# an address of its choosing.
+#
+# Card 0107 adds it anyway, below, but not the same way: `NotifyWebhookSettingService` runs
+# `checkWebhookDestination` (apps/api/src/modules/notify/webhook.destination.ts) against the write,
+# refusing anything that is not `https` or that resolves to a loopback, link-local (including the
+# cloud metadata address `169.254.169.254`), private, or unspecified address — and again on every
+# use, since a name that resolves safely at write can resolve unsafely later. Read that file's own
+# doc for exactly what this does and does not stop: in short, it narrows *where* this daemon can be
+# pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
+# Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
+# absence, not a substitute for it.
 contract PollerSetting: {
     enabled: boolean
 }
@@ -112,6 +125,45 @@ operation /api/settings/card-stage-concurrency: {
             200: { application/json: CardStageConcurrency }
             # Outside [CARD_STAGE_CONCURRENCY_MIN, CARD_STAGE_CONCURRENCY_MAX] (job.runner.config.ts)
             # — carried via `details`, the same convention board.ck's mutations use.
+            400:
+        }
+    }
+}
+
+# `null` means unset — off, exactly like the environment variables these fields replace being
+# absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
+# a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
+# card in its payload (`board.config.ts`'s own comment on the pair).
+contract NotifyWebhookSetting: {
+    webhookUrl: string | null
+    baseUrl: string | null
+}
+
+contract SetNotifyWebhookSettingRequest: {
+    webhookUrl: string | null
+    baseUrl: string | null
+}
+
+operation /api/settings/notify-webhook: {
+    get: {
+        name: Get notify webhook setting
+        service: NotifyWebhookSettingService.get
+        response: {
+            200: { application/json: NotifyWebhookSetting }
+        }
+    }
+    put: {
+        name: Set notify webhook setting
+        service: NotifyWebhookSettingService.set
+        request: {
+            application/json: SetNotifyWebhookSettingRequest
+        }
+        response: {
+            200: { application/json: NotifyWebhookSetting }
+            # webhookUrl is not https, or resolves to a loopback/link-local/private/unspecified
+            # address (`checkWebhookDestination`'s own reason string) — carried via `details`, the
+            # same convention every other refusal on this contract uses. baseUrl is never refused;
+            # it is a link in a payload, not a destination (card 0107's Out of scope).
             400:
         }
     }

@@ -1,5 +1,6 @@
 import { ConsoleLogger, type Logger } from '@maroonedsoftware/logger';
 import type { CardNotification } from './notification.js';
+import { checkWebhookDestination, warnOnceInvalidWebhook } from './webhook.destination.js';
 
 /** How long the notifier waits for the webhook before giving up on it. */
 const NOTIFY_TIMEOUT_MS = 5_000;
@@ -13,6 +14,13 @@ const NOTIFY_TIMEOUT_MS = 5_000;
  * caller (`CardStageJob`, `StageDispatcher`), so constructing one by hand where it is used costs
  * nothing and needs no wiring of its own. `logger` defaults to a plain `ConsoleLogger` for the one
  * caller (`CardStageJob`) that has no injected `Logger`; `StageDispatcher` passes its real one.
+ *
+ * `webhookUrl` is `BoardConfig.notifyWebhookUrl`, which card 0107 made settable at runtime — a
+ * `runner.settings` row can override it without a restart, pushed onto the same `BoardConfig`
+ * instance both callers already read fresh on every call (`NotifyWebhookSettingService`, settings
+ * module). Nothing here needed to change for that: this class already read the value at call time
+ * rather than caching it, so the mechanism was free. What this class does add is the destination
+ * check — see `notify` below.
  */
 export class Notifier {
     constructor(
@@ -33,6 +41,17 @@ export class Notifier {
     async notify(notification: CardNotification): Promise<void> {
         if (!this.webhookUrl) return;
 
+        // Card 0107: re-checked on every call, not trusted from whatever validated it at write
+        // time — DNS answers change between the two, and this is the check that actually protects
+        // anything (see `checkWebhookDestination`'s own doc for the full reasoning and its limits).
+        // An invalid destination behaves exactly like an unset one: no request, and the reason is
+        // logged once rather than on every notification (`warnOnceInvalidWebhook`).
+        const destination = await checkWebhookDestination(this.webhookUrl);
+        if (!destination.ok) {
+            warnOnceInvalidWebhook(this.logger, this.webhookUrl, destination.reason);
+            return;
+        }
+
         const payload = {
             moment: notification.moment,
             project: notification.project,
@@ -51,8 +70,17 @@ export class Notifier {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify(payload),
                 signal: controller.signal,
+                // Card 0107: refused, not followed. A redirect is only visible once the request is
+                // already in flight, past the point `checkWebhookDestination` above could have
+                // judged it — re-validating each hop instead would mean chasing an arbitrary chain
+                // of them, and the configured URL is what an operator approved, not wherever it
+                // might bounce to. `redirect: 'manual'` makes a 3xx response land here as
+                // `type: 'opaqueredirect'` instead of being followed automatically.
+                redirect: 'manual',
             });
-            if (!response.ok) {
+            if (response.type === 'opaqueredirect') {
+                this.logger.warn(`notify webhook for ${notification.cardId} (${notification.moment}) refused: server responded with a redirect, which is not followed`);
+            } else if (!response.ok) {
                 this.logger.warn(`notify webhook for ${notification.cardId} (${notification.moment}) returned ${response.status}`);
             }
         } catch (error) {
