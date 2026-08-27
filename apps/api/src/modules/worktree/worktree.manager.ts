@@ -211,13 +211,23 @@ export class WorktreeManager {
      *
      * The runner commits, never the agent: the agent has no git command in its allowlist, and
      * decision 5 makes the runner the sole writer of what a card has produced.
+     *
+     * `--no-verify`: this is the runner's commit of work its own verifier has already passed, not a
+     * human's commit, so a project's pre-commit gate has nothing left to check. Without it, a failing
+     * hook throws here in a shape `isPermanentFailure` never matches, so the stage retries and
+     * dead-letters redoing passing work every attempt only to fail at the same gate again; and a
+     * rewriting hook (lint-staged and its kin) changes the tree after the verifier already checked
+     * it, breaking the "what a stage wrote is exactly what is uncommitted at verification time"
+     * invariant scope enforcement relies on (PROJECT.md, *Whose work a stage is judged on*). Card
+     * 0041 (backlog) is the other half: it makes formatting an exit condition so this bypass doesn't
+     * quietly drop the check that used to catch unformatted output.
      */
     async commit(worktree: Worktree, message: string): Promise<string | undefined> {
         await git(worktree.path, ['add', '-A']);
         const staged = await git(worktree.path, ['diff', '--cached', '--name-only']);
         if (staged.stdout.trim().length === 0) return undefined;
 
-        await git(worktree.path, ['commit', '-m', message]);
+        await git(worktree.path, ['commit', '--no-verify', '-m', message]);
         return (await git(worktree.path, ['rev-parse', 'HEAD'])).stdout.trim();
     }
 
@@ -232,6 +242,11 @@ export class WorktreeManager {
      *
      * A conflict is not something a retry fixes, so the rebase is aborted and the reason returned
      * rather than leaving a half-rebased worktree behind for the next stage to trip over.
+     *
+     * No `--no-verify` here, unlike `commit`: a rebase can fire hooks on some configurations too, but
+     * what it replays is already-committed work, and a rebase conflict is already classified as
+     * permanent rather than retried — neither of the two failure shapes card 0071 exists to prevent
+     * applies to this call.
      */
     async rebaseOntoHead(worktree: Worktree): Promise<{ ok: true; baseSha: string } | { ok: false; reason: string }> {
         const head = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();

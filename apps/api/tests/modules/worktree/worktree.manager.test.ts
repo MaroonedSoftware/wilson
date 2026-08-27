@@ -170,6 +170,19 @@ describe('WorktreeManager', () => {
     });
 
     describe('commit', () => {
+        /**
+         * A pre-commit hook in the project's own `.git/hooks` — shared by every worktree of a repo,
+         * `core.hooksPath` aside — so writing it under `codeRoot` is enough to make it fire on a
+         * commit made from a linked worktree too.
+         */
+        const installPreCommitHook = async (script: string): Promise<string> => {
+            const hooksDir = join(codeRoot, '.git', 'hooks');
+            await mkdir(hooksDir, { recursive: true });
+            const hookPath = join(hooksDir, 'pre-commit');
+            await writeFile(hookPath, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+            return hookPath;
+        };
+
         // A stage's work only ever exists as uncommitted changes in a worktree. The next stage's
         // resume reclaims the directory first, so without committing, the hand-off deletes it.
         it('commits everything the stage produced, tracked and untracked alike', async () => {
@@ -196,6 +209,41 @@ describe('WorktreeManager', () => {
         it('returns undefined when the stage changed nothing, rather than making an empty commit', async () => {
             const worktree = await manager.create('0001', 'card/0001-thing');
             await expect(manager.commit(worktree, '0001: implementing')).resolves.toBeUndefined();
+        });
+
+        // Card 0071: without `--no-verify`, a failing pre-commit hook makes `git commit` throw in a
+        // shape `isPermanentFailure` never matches, so the stage retries and dead-letters redoing
+        // passing work every attempt — even though the stage's own verifier already passed it.
+        it('succeeds through a pre-commit hook that would reject the commit, and never runs the hook at all', async () => {
+            const markerPath = join(codeRoot, 'hook-ran');
+            await installPreCommitHook(`touch "${markerPath}"\nexit 1`);
+
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+
+            const sha = await manager.commit(worktree, '0001: implementing');
+
+            expect(sha).toBeDefined();
+            // `--no-verify` skips the hook outright — it never runs, not merely "runs but is
+            // overridden" — so the marker it would have written is absent.
+            expect(existsSync(markerPath)).toBe(false);
+        });
+
+        // Card 0071: a rewriting hook (lint-staged and its kin) changes the tree after the verifier
+        // already checked it, breaking "what a stage wrote is exactly what is uncommitted at
+        // verification time" — the invariant scope enforcement stands on. `--no-verify` keeps the
+        // committed tree byte-identical to what the stage actually staged.
+        it('commits exactly what was staged, unmodified by a hook that would rewrite it', async () => {
+            await installPreCommitHook(`echo "// formatted" >> src/index.ts\ngit add -A\nexit 0`);
+
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            const written = 'export const x = 2;\n';
+            await writeFile(join(worktree.path, 'src', 'index.ts'), written, 'utf8');
+
+            await manager.commit(worktree, '0001: implementing');
+
+            const { stdout } = await exec('git', ['show', 'HEAD:src/index.ts'], { cwd: worktree.path });
+            expect(stdout).toBe(written);
         });
     });
 
