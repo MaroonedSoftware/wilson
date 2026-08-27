@@ -94,7 +94,7 @@ export class PlanService {
      * session).
      */
     async turn(id: string, request: PlanTurnRequest): Promise<PlanTurn> {
-        return this.toGeneratedTurn(await this.appendTurn(id, request));
+        return toGeneratedTurn(await this.appendTurn(id, request));
     }
 
     /**
@@ -146,15 +146,6 @@ export class PlanService {
         }
 
         return this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
-    }
-
-    /**
-     * The generated contract's `PlanTurn` — `seq`, `role`, `content`, `createdAt` — never the stored
-     * row's `engineSessionId`, which exists only so this class can rehydrate the engine's own
-     * conversation and has no business on the wire.
-     */
-    private toGeneratedTurn(stored: StoredPlanTurn): PlanTurn {
-        return { seq: stored.seq, role: stored.role, content: stored.content, createdAt: stored.createdAt };
     }
 
     /**
@@ -301,4 +292,16 @@ export class PlanService {
         const stages = await loadStages(this.boardConfig.boardRoot);
         return findStage(stages, 'planning');
     }
+}
+
+/**
+ * The generated contract's `PlanTurn` — `seq`, `role`, `content`, `createdAt` — never the stored
+ * row's `engineSessionId`, which exists only so `PlanService` can rehydrate the engine's own
+ * conversation and has no business on the wire. Exported, not a private method, so
+ * `PlanStreamRouter` (`routes.setup.ts`) can strip the same field from a replayed row before
+ * writing it to an SSE event, the same way `PlanService.turn` already strips it from a fresh one —
+ * one mapping, not two copies that could drift.
+ */
+export function toGeneratedTurn(stored: StoredPlanTurn): PlanTurn {
+    return { seq: stored.seq, role: stored.role, content: stored.content, createdAt: stored.createdAt };
 }

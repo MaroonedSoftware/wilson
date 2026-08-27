@@ -4,6 +4,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
 import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
+import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { BoardRouter } from './board.router.js';
@@ -72,7 +73,7 @@ export const PlanStreamRouter = (signal?: AbortSignal) => {
 
         const missed = await planTurns.since(id, lastEventId);
         for (const turn of missed) {
-            stream.event({ id: turn.seq, event: 'turn', data: turn });
+            stream.event({ id: turn.seq, event: 'turn', data: toGeneratedTurn(turn) });
         }
 
         stream.onClose(planFeed.onEvent({ correlationId: id }, event => stream.event({ event: 'delta', data: event.message })));
