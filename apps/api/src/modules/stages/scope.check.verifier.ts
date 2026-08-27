@@ -17,20 +17,52 @@ import type { StageVerifier, VerificationInput, VerificationOutcome } from './st
  */
 export const BREADTH_THRESHOLD = 4;
 
+/**
+ * How many distinct groups — how many different *kinds* of work, each counted once no matter how
+ * many tasks it holds — it takes before a plan is judged too deep for one pass.
+ *
+ * Breadth (`BREADTH_THRESHOLD`) catches one kind of work repeated until it will not fit; this catches
+ * the opposite shape — many different kinds of work collected into one card, each small enough on its
+ * own that breadth never fires. Card 0120 is the case that motivated it: nine groups (schema
+ * migration, DB type binding, repository, conversation agent, session registry, SSE feed, service
+ * integration, contract declaration, route mounting), each of size one, so `largestGroup` never came
+ * close to `BREADTH_THRESHOLD` — and the card went on to produce 812 insertions across 14 files and
+ * exhaust the testing stage's step budget three times over. A depth threshold of 9 or below would have
+ * caught it. Card 0079 is the case it must not catch: 21 Tasks-section bullets that are "three distinct
+ * things each done once" — three groups — the lane's own doc comment names this as the false positive
+ * to avoid, so the threshold must clear 3. Set at 5: well above 0079's three and well below 0120's
+ * nine, so an ordinary plan with an incidental couple of distinct pieces is not caught by a threshold
+ * tuned to the card that actually blew its step budget. Cards 0075 and 0078 — the breadth cases
+ * `BREADTH_THRESHOLD` was calibrated against — report a single group each (all the repeated work is
+ * one kind, per `ScopeGroupSchema`'s own doc comment) and are unaffected by a depth threshold at any
+ * setting.
+ */
+export const DEPTH_THRESHOLD = 5;
+
 const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.tasks.length > max.tasks.length ? g : max));
 
 /**
  * The scope-check stage's exit condition: does the plan fit in one pass.
  *
- * This lane judges, it does not split (card 0105's Goal) — merit (is the card actually too broad) is
+ * This lane judges, it does not split (card 0105's Goal) — merit (is the card actually too large) is
  * the model's business, the same division of labor `ReviewVerifier`'s doc comment draws for review
  * findings. What this checks is provenance and internal consistency: does the reported verdict follow
  * from the model's own reported evidence (`groups`), and — when refusing — is the division concrete
  * (at least two pieces, each naming what it delivers alone and what it depends on, each built only
  * from tasks — and citing only dependencies on other pieces — the model itself reported). A model
- * that says "pass" while its own `groups` show an eight-wide repeat, or
- * says "refuse" while reporting none, has produced an inconsistent report regardless of which way it
- * leans, and this stage's whole value is in not passing that through uncaught.
+ * that says "pass" while its own `groups` show an eight-wide repeat, or nine groups of different work,
+ * or says "refuse" while reporting neither, has produced an inconsistent report regardless of which
+ * way it leans, and this stage's whole value is in not passing that through uncaught.
+ *
+ * Two signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
+ * width of the widest group) catches one kind of work repeated until it will not fit — card 0075's
+ * eight near-identical endpoints, card 0078's every-CLI-command port. Depth (`DEPTH_THRESHOLD`, the
+ * number of groups) catches many different kinds of work collected into one card, each too small on
+ * its own to trip breadth — card 0120's nine one-task groups (schema migration, DB type binding,
+ * repository, conversation agent, session registry, SSE feed, service integration, contract
+ * declaration, route mounting), which breadth alone let through. Card 0079 (21 bullets, three distinct
+ * things each done once) is the case neither signal may catch: too few groups for depth, no group wide
+ * enough for breadth.
  *
  * A well-formed "refuse" is this stage doing its job, not a defect in the report — but the routing
  * that actually matters does not read this class's `passed` field at all. `StageDispatcher.runAgent`
@@ -74,15 +106,24 @@ export class ScopeCheckVerifier implements StageVerifier {
 
         const widest = largestGroup(groups);
         const tooBroad = widest.tasks.length >= BREADTH_THRESHOLD;
+        const tooDeep = groups.length >= DEPTH_THRESHOLD;
+        const tooLarge = tooBroad || tooDeep;
 
-        if (tooBroad && verdict !== 'refuse') {
-            failures.push(
-                `"${widest.title}" repeats across ${widest.tasks.length} tasks (>= ${BREADTH_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
-            );
+        if (tooLarge && verdict !== 'refuse') {
+            if (tooBroad) {
+                failures.push(
+                    `"${widest.title}" repeats across ${widest.tasks.length} tasks (>= ${BREADTH_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
+                );
+            }
+            if (tooDeep) {
+                failures.push(
+                    `the plan reports ${groups.length} distinct groups (>= ${DEPTH_THRESHOLD}) — many different kinds of work collected into one card, which is what this stage exists to catch, but the verdict is "pass"`,
+                );
+            }
         }
-        if (!tooBroad && verdict === 'refuse') {
+        if (!tooLarge && verdict === 'refuse') {
             failures.push(
-                `verdict is "refuse" but no group repeats ${BREADTH_THRESHOLD} or more times (widest: "${widest.title}" x${widest.tasks.length}) — breadth is this stage's signal, and none was reported`,
+                `verdict is "refuse" but no group repeats ${BREADTH_THRESHOLD} or more times (widest: "${widest.title}" x${widest.tasks.length}) and only ${groups.length} distinct groups were reported (< ${DEPTH_THRESHOLD}) — neither breadth nor depth is this stage's signal, and neither was reported`,
             );
         }
 
