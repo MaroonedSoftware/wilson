@@ -53,9 +53,19 @@ These are settled. Challenge them only if you find a concrete blocker.
 7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
    a provider is a config edit.
 8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
-   everything under `.runner/` are human-write-only, enforced in the write tool.
-   This system is meant to build itself under review; an agent that can rewrite its
-   own exit condition passes every time.
+   everything under `.runner/` are human-write-only. What actually enforces that differs by
+   path. The board is unreachable from a worktree by construction (decision 6) — there is no
+   file there for any tool or command to reach, since board state is rows in Postgres, not
+   files on the mounted disk. `.runner/**` and `**/stages.yaml` are enforced by `ScopeGuard`'s
+   `ALWAYS_DENIED` list, which `request_scope` cannot widen (`scope.guard.ts`) — but only
+   against the write tools; see the guardrail-vs-boundary note atop `command.allowlist.ts` for
+   why that stops the write tool and not a command that runs project code. The plan is
+   materialized outside the worktree at dispatch precisely so it cannot land on the card's
+   branch, but that only discourages tampering with it: the write tool refuses it because the
+   path resolves outside the worktree root, not because anything names and denies that specific
+   path, and a command running project code is bounded by neither check. This system is meant
+   to build itself under review; an agent that can rewrite its own exit condition passes every
+   time.
 9. **One project is one board.** Everything below is per project: board rows, stage
    config, worktree root, port range, git credentials. A project is a row, not a
    directory — which is what makes twenty projects twenty rows rather than twenty git

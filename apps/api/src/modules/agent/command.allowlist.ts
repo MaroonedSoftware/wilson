@@ -1,3 +1,29 @@
+/**
+ * This is a guardrail against accident and habit, not a security boundary.
+ *
+ * Every command on a stage's allowlist that runs project code — `pnpm build`, `pnpm test`,
+ * `pnpm exec vitest run` — can be made to run arbitrary code, because project code can reach
+ * any Node API: the filesystem, the network, a dev database. Refusing `psql` here does not
+ * refuse what a test file executed by `pnpm exec vitest run` can do once it runs, and that
+ * command sits on the allowlist of every stage whose job is to build or test code — not a
+ * read-only stage like `scope-check`, which carries no allowed commands at all. Card 0083's
+ * agent needed to query the database and delete two files; neither had a tool yet, so it wrote
+ * both into a throwaway vitest file and ran it with the one allowed command that would execute
+ * anything — not a bypass of this list, but the list working as designed. (Card 0086 has since
+ * given deletes a proper tool, which closes that one instance without changing the property:
+ * the next gap will find the same door.) What this list actually does is shape the easy path —
+ * refuse a shell and the named binaries by habit — so reaching for a workaround is a deliberate
+ * act, not bounding what is possible. `ScopeGuard` (`scope.guard.ts`) is the real constraint on
+ * what an agent can change, and it has the same limit: it guards the write tools, not the
+ * process.
+ *
+ * The sharpest cost of mistaking this list for a boundary is credentials, not files: whatever
+ * env an allowed command inherits is reachable by whatever project code it runs, allowlist or
+ * not — refusing `curl` here does nothing once a build script it was already permitted to run
+ * can read the environment itself. Card 0045 scrubs the runner's git credentials and provider
+ * API keys out of that env for exactly this reason. Restoring an inherited env because "the
+ * allowlist already covers what a command can reach" would undo that.
+ */
 export type CommandDecision = { allowed: true; argv: string[] } | { allowed: false; reason: string };
 
 /**
