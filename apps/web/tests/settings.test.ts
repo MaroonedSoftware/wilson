@@ -16,7 +16,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
-import type { BoardColumns, CardSummary, CardStageConcurrency, Health, PollerInterval, PollerSetting } from '@wilson/sdk';
+import type { BoardColumns, CardSummary, CardStageConcurrency, Health, NotifyWebhookSetting, PollerInterval, PollerSetting } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
@@ -272,6 +272,163 @@ describe('the card stage concurrency control', () => {
 
         expect(await screen.findByText('card stage concurrency must be between 1 and 8')).toBeTruthy();
         expect(input.value).toBe('3'); // the rejected draft is gone; the last-known-good value is back
+    });
+});
+
+describe('the notification webhook control', () => {
+    it('shows the webhook and base URL the API reports on load, not assumed defaults', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: 'https://hooks.example.com/wilson',
+            baseUrl: 'https://board.example.com',
+        } satisfies NotifyWebhookSetting);
+
+        renderApp('/settings');
+
+        const webhookInput = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+        const baseUrlInput = (await screen.findByLabelText('Base URL')) as HTMLInputElement;
+        await waitFor(() => expect(webhookInput.value).toBe('https://hooks.example.com/wilson'));
+        expect(baseUrlInput.value).toBe('https://board.example.com');
+    });
+
+    it('saves both fields together, converts a blank field to null, and renders what the server returns', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: null,
+            baseUrl: null,
+        } satisfies NotifyWebhookSetting);
+        // The server can round-trip a different value than requested (trailing slash normalised,
+        // say) — same principle the other controls' write tests prove — so the UI must render what
+        // came back, not what was typed.
+        const setWebhook = vi.spyOn(wilson.settings, 'setNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: 'https://hooks.example.com/normalised',
+            baseUrl: null,
+        } satisfies NotifyWebhookSetting);
+
+        renderApp('/settings');
+
+        const webhookInput = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+        const baseUrlInput = (await screen.findByLabelText('Base URL')) as HTMLInputElement;
+        await waitFor(() => expect(webhookInput.value).toBe(''));
+
+        await act(async () => {
+            fireEvent.change(webhookInput, { target: { value: '  https://hooks.example.com/wilson  ' } });
+        });
+        await act(async () => {
+            fireEvent.change(baseUrlInput, { target: { value: '   ' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(webhookInput));
+        });
+
+        // Leading/trailing whitespace trimmed, and an all-whitespace base URL sent as `null` — the
+        // one-`PUT`-for-both-fields shape `SetNotifyWebhookSettingRequest` requires.
+        expect(setWebhook).toHaveBeenCalledWith({ webhookUrl: 'https://hooks.example.com/wilson', baseUrl: null });
+        await waitFor(() => expect(webhookInput.value).toBe('https://hooks.example.com/normalised'));
+        expect(baseUrlInput.value).toBe('');
+    });
+
+    it('saves the base URL exactly as typed, without any client-side format check', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: 'https://hooks.example.com/wilson',
+            baseUrl: null,
+        } satisfies NotifyWebhookSetting);
+        const setWebhook = vi.spyOn(wilson.settings, 'setNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: 'https://hooks.example.com/wilson',
+            baseUrl: 'not-a-url-at-all',
+        } satisfies NotifyWebhookSetting);
+
+        renderApp('/settings');
+
+        const webhookInput = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+        const baseUrlInput = (await screen.findByLabelText('Base URL')) as HTMLInputElement;
+        await waitFor(() => expect(webhookInput.value).toBe('https://hooks.example.com/wilson'));
+
+        // Not https, not even a well-formed URL — the base URL carries none of the webhook's
+        // checks, so nothing in this component should reject it or alter it before sending.
+        await act(async () => {
+            fireEvent.change(baseUrlInput, { target: { value: 'not-a-url-at-all' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(baseUrlInput));
+        });
+
+        expect(setWebhook).toHaveBeenCalledWith({ webhookUrl: 'https://hooks.example.com/wilson', baseUrl: 'not-a-url-at-all' });
+        await waitFor(() => expect(baseUrlInput.value).toBe('not-a-url-at-all'));
+    });
+
+    it('renders the server\'s own refusal sentence from `details.reason`, not the generic status message', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: 'https://hooks.example.com/wilson',
+            baseUrl: null,
+        } satisfies NotifyWebhookSetting);
+        // `errorMiddleware`'s body pins `message` to the generic HTTP status text and carries the
+        // actual refusal in `details.reason` (`httpError(...).withDetails({ reason })`) — the shape
+        // `checkWebhookDestination`'s refusal actually takes. `message` here is deliberately generic
+        // and distinct from `details.reason` so the test fails unless the reason wins.
+        vi.spyOn(wilson.settings, 'setNotifyWebhookSetting').mockRejectedValue(
+            new SdkError(
+                422,
+                'Unprocessable Entity',
+                {
+                    statusCode: 422,
+                    message: 'Unprocessable Entity',
+                    details: { reason: 'webhook URL resolves to 169.254.169.254, a link-local address, which is refused' },
+                },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/settings');
+
+        const webhookInput = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+        await waitFor(() => expect(webhookInput.value).toBe('https://hooks.example.com/wilson'));
+
+        await act(async () => {
+            fireEvent.change(webhookInput, { target: { value: 'https://metadata.internal/hook' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(webhookInput));
+        });
+
+        expect(
+            await screen.findByText('webhook URL resolves to 169.254.169.254, a link-local address, which is refused'),
+        ).toBeTruthy();
+        expect(screen.queryByText('Unprocessable Entity')).toBeNull();
+
+        // The plan's own constraint: a refused write keeps the previous value visible — but unlike
+        // the numeric controls, the typed draft that got refused is not silently discarded either,
+        // since retyping a webhook URL blind is exactly what the doc above says this avoids.
+        expect(webhookInput.value).toBe('https://metadata.internal/hook');
+        expect(await screen.findByText('Still saved: https://hooks.example.com/wilson')).toBeTruthy();
+    });
+
+    it('explains that the two fields carry different risk, not just what they are called', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getNotifyWebhookSetting').mockResolvedValue({
+            webhookUrl: null,
+            baseUrl: null,
+        } satisfies NotifyWebhookSetting);
+
+        renderApp('/settings');
+
+        await screen.findByLabelText('Webhook URL');
+        // The webhook is called out as a destination the server checks; the base URL as a payload
+        // value nothing here fetches — the plan's "do not imply the base URL is validated".
+        expect(screen.getByText(/destination this daemon sends a request to, so the/)).toBeTruthy();
+        expect(screen.getByText(/nothing here ever fetches it, so it is saved exactly as typed/)).toBeTruthy();
     });
 });
 
