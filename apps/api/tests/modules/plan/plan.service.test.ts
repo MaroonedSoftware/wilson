@@ -193,6 +193,38 @@ describe('PlanService', () => {
             expect(existsSync(join(runRoot, 'cards', '0004', 'draft.md'))).toBe(false);
         });
 
+        /**
+         * Card 0095: the guard used to recompute the branch from the card's *current* title on every
+         * call, so a card renamed after its branch was recorded (and work committed to it) would be
+         * checked against a branch that never existed — `hasWork` on that title-derived name would
+         * read false, and a card with real code on it would sail through as if it were untouched.
+         */
+        it('refuses a card whose recorded branch already has work, even after the card has since been renamed', async () => {
+            const { board, service, worktrees, worktreeRoot, runRoot } = await freshEnv();
+            const originalTitle = 'Has code already';
+            const recordedBranch = worktrees.branchName('0012', originalTitle);
+
+            // Give the *recorded* branch — not whatever the current title would derive — real,
+            // committed work.
+            const cardWorktree = await worktrees.create('0012', recordedBranch);
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const f = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, 'implementing');
+
+            // The card on the board now carries a different title and the branch recorded before the
+            // rename. `branchName('0012', 'A brand new title')` would derive yet a third name, with no
+            // work on it at all — which is exactly what the guard must not be fooled by.
+            await board.create(card('0012', { stage: 'planning', title: 'A brand new title', branch: recordedBranch }), 'seed');
+            expect(worktrees.branchName('0012', 'A brand new title')).not.toBe(recordedBranch);
+
+            await expect(service.open('0012')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining(recordedBranch) },
+            });
+
+            expect(existsSync(join(worktreeRoot, 'plan-0012'))).toBe(false);
+            expect(existsSync(join(runRoot, 'cards', '0012', 'draft.md'))).toBe(false);
+        });
+
         it('cuts a worktree path and branch that are never the card\'s own', async () => {
             const { board, service, worktrees, config } = await freshEnv();
             const title = 'Port allocator';

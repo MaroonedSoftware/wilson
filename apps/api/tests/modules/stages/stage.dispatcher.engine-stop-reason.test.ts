@@ -81,7 +81,7 @@ describe('StageDispatcher.run records the engine’s stop reason on stage.failed
         await board.create(card, 'initial');
 
         const worktrees = {
-            branchName: vi.fn(() => 'card/0001-do-the-thing'),
+            resolveBranch: vi.fn(() => 'card/0001-do-the-thing'),
             hasWork: vi.fn(async () => false),
             create: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
             resume: vi.fn(async () => {
