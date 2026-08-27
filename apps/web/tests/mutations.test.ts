@@ -9,9 +9,9 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SdkError } from '@wilson/sdk';
+import { SdkError, type CardSummary } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
-import { useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { useMoveCard, useRepositionCard, useStartCard } from '#src/lib/mutations.js';
 
 // `notifications.show` is Mantine's own emitter — it works without a mounted `<Notifications />`,
 // but stubbing it here lets a test assert exactly what a refusal is shown as, without also having
@@ -87,6 +87,83 @@ describe('useMoveCard', () => {
         await waitFor(() =>
             expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: 'something broke' })),
         );
+    });
+});
+
+describe('useRepositionCard', () => {
+    const card = (id: string, position?: number): CardSummary => ({
+        id,
+        title: `card ${id}`,
+        stage: 'parking-lot',
+        dependsOn: [],
+        needsHuman: false,
+        position,
+    });
+
+    it("writes the caller's already-reordered cards straight into the ['cards'] cache before the request even resolves — the one optimistic write on the board", async () => {
+        const original = [card('0001', 0), card('0002', 1)];
+        const optimisticCards = [card('0002', 0), card('0001', 1)];
+        let resolveReposition!: (value: unknown) => void;
+        vi.spyOn(wilson.board, 'repositionCard').mockImplementation(() => new Promise(resolve => (resolveReposition = resolve)));
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['cards'], original);
+
+        const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
+        act(() => {
+            result.current.mutate({ id: '0001', beforeId: '0002', optimisticCards });
+        });
+
+        await waitFor(() => expect(queryClient.getQueryData(['cards'])).toEqual(optimisticCards));
+        resolveReposition({});
+    });
+
+    it('sends only id, beforeId and afterId — not the optimistic cards array — to the SDK', async () => {
+        const repositionCard = vi.spyOn(wilson.board, 'repositionCard').mockResolvedValue({} as never);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['cards'], [card('0001', 0), card('0002', 1)]);
+
+        const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ id: '0001', beforeId: '0002', afterId: undefined, optimisticCards: [card('0002', 0), card('0001', 1)] });
+        });
+
+        expect(repositionCard).toHaveBeenCalledWith('0001', { beforeId: '0002', afterId: undefined });
+    });
+
+    it('rolls back to the order before the drag and shows the refusal reason when the API rejects it', async () => {
+        const original = [card('0001', 0), card('0002', 1)];
+        const optimisticCards = [card('0002', 0), card('0001', 1)];
+        vi.spyOn(wilson.board, 'repositionCard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'someone else moved this card first' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['cards'], original);
+
+        const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ id: '0001', beforeId: '0002', optimisticCards });
+        });
+
+        await waitFor(() => expect(queryClient.getQueryData(['cards'])).toEqual(original));
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not reorder the card', message: 'someone else moved this card first' }),
+            ),
+        );
+    });
+
+    it('invalidates the cards list on success, to reconcile with the server\'s own order', async () => {
+        vi.spyOn(wilson.board, 'repositionCard').mockResolvedValue({} as never);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['cards'], [card('0001', 0), card('0002', 1)]);
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+        const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ id: '0001', beforeId: '0002', optimisticCards: [card('0002', 0), card('0001', 1)] });
+        });
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
     });
 });
 

@@ -13,9 +13,10 @@ import {
     type DragEndEvent,
     type DragStartEvent,
 } from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
-import { useMoveCard } from '#src/lib/mutations.js';
+import { PARKING_LOT, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
+import { useMoveCard, useRepositionCard } from '#src/lib/mutations.js';
 
 /**
  * Terminal states and the parking lot read as quieter than the stages a card is moving through.
@@ -96,10 +97,47 @@ function Card({ card, blockedBy, pending }: { card: CardSummary; blockedBy: stri
 }
 
 /**
+ * A card in the parking lot: the same `Link`-as-draggable `Card` renders elsewhere, but wired
+ * through dnd-kit's `useSortable` instead of a plain `useDraggable` — `useSortable` is also a
+ * droppable keyed by the card's own id, which is what lets a drop resolve onto a specific card
+ * (`Board`'s `handleDragEnd` tells a reorder from a cross-column move by whether `over` is a card id
+ * or a stage id). `transform`/`transition` are applied by hand rather than through
+ * `@dnd-kit/utilities`'s `CSS` helper — this package isn't a dependency of `apps/web` and the plan
+ * adds exactly one (`@dnd-kit/sortable`) — so the other parking-lot cards visibly slide out of the
+ * way while one is picked up.
+ */
+function SortableCard({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
+    const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: card.id });
+    return (
+        <Link
+            ref={setNodeRef}
+            to="/cards/$cardId"
+            params={{ cardId: card.id }}
+            style={{
+                display: 'block',
+                textDecoration: 'none',
+                color: 'inherit',
+                opacity: isDragging ? 0.4 : 1,
+                transform: transform ? `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` : undefined,
+                transition: transition ?? undefined,
+            }}
+            {...attributes}
+            {...listeners}
+        >
+            <CardBody card={card} blockedBy={blockedBy} pending={pending} />
+        </Link>
+    );
+}
+
+/**
  * A column is a dnd-kit droppable keyed by its stage. `isOver` only paints a highlight — it is not
  * a verdict on whether the drop is legal. The stage graph (`validTargets`) lives on the API, and
  * the refusal that counts is the one it sends back through `useMoveCard`'s notification, not
  * anything decided here.
+ *
+ * Only the parking lot's cards sit in a `SortableContext` (card 0047: ordering applies there and
+ * nowhere else) — every other column keeps rendering plain, non-sortable `Card`s, so a card outside
+ * the parking lot is never itself a drop target and can't be reordered.
  */
 function Column({
     stage,
@@ -113,6 +151,7 @@ function Column({
     pendingId: string | null;
 }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
+    const isParkingLot = stage === PARKING_LOT;
     return (
         <Stack
             ref={setNodeRef}
@@ -134,9 +173,17 @@ function Column({
                 </Text>
             </Group>
             <Stack gap={6} mih={24}>
-                {cards.map(card => (
-                    <Card key={card.id} card={card} blockedBy={unfinishedDeps(card, stageById)} pending={card.id === pendingId} />
-                ))}
+                {isParkingLot ? (
+                    <SortableContext items={cards.map(card => card.id)} strategy={verticalListSortingStrategy}>
+                        {cards.map(card => (
+                            <SortableCard key={card.id} card={card} blockedBy={unfinishedDeps(card, stageById)} pending={card.id === pendingId} />
+                        ))}
+                    </SortableContext>
+                ) : (
+                    cards.map(card => (
+                        <Card key={card.id} card={card} blockedBy={unfinishedDeps(card, stageById)} pending={card.id === pendingId} />
+                    ))
+                )}
             </Stack>
         </Stack>
     );
@@ -154,6 +201,16 @@ function Column({
  * nothing here writes the moved card into `cards` or `grouped`, so the card stays in its starting
  * column — reading as pending — until the feed's invalidation brings back a board that agrees the
  * move happened, or a refusal notification says why it didn't.
+ *
+ * Dragging a card within the parking lot is different on purpose (card 0047's plan, and PROJECT.md,
+ * Architecture): it is the one optimistic write on this board. `handleDragEnd` tells the two apart
+ * by where the drop landed — `over.id` is a stage id for every column (only the outer `Stack` is
+ * droppable there) but can be a card's own id inside the parking lot (its cards are individually
+ * droppable through `SortableContext`/`useSortable`). Landing on a parking-lot card while dragging
+ * from the parking lot is a reorder, handled by `reorderParkingLot` and `useRepositionCard`, which
+ * writes the new order into the `['cards']` query cache immediately rather than waiting on a
+ * refetch. Landing on the parking lot from another column, or on a parking-lot card from another
+ * column, is still a stage move — `useMoveCard`, unchanged — never a reorder.
  */
 export function Board({
     columns,
@@ -181,6 +238,7 @@ export function Board({
     const [activeId, setActiveId] = useState<string | null>(null);
     const [pendingId, setPendingId] = useState<string | null>(null);
     const moveCard = useMoveCard(activeId ?? '');
+    const repositionCard = useRepositionCard();
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor));
 
@@ -190,10 +248,54 @@ export function Board({
         setActiveId(String(event.active.id));
     };
 
+    /**
+     * Reorders the parking lot: `overId` is either another parking-lot card's id (drop landed on
+     * it) or `PARKING_LOT` itself (drop landed on empty column space, past the last card — treated
+     * as "to the bottom"). Computes the new order with dnd-kit's own `arrayMove`, stamps every
+     * parking-lot card with a synthetic 0-based `position` matching that order (standing in for the
+     * server's real, sparse one until the response or a feed event replaces it — `groupByStage`
+     * only ever sorts by whatever `position` says, so the reorder has to show up there to be visible
+     * at all), and hands the whole thing to `useRepositionCard` to write into the cache and send.
+     *
+     * `beforeId`/`afterId` name the card's new neighbours by id (`RepositionCardRequest`), not by
+     * the position value itself — the endpoint computes its own value to land between them.
+     */
+    const reorderParkingLot = (cardId: string, overId: string) => {
+        const parkingLotCards = grouped.get(PARKING_LOT) ?? [];
+        const oldIndex = parkingLotCards.findIndex(card => card.id === cardId);
+        const newIndex = overId === PARKING_LOT ? parkingLotCards.length - 1 : parkingLotCards.findIndex(card => card.id === overId);
+        if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+        const reordered = arrayMove(parkingLotCards, oldIndex, newIndex);
+        const rank = new Map(reordered.map((card, index) => [card.id, index]));
+        const optimisticCards = cards.map(card => (rank.has(card.id) ? { ...card, position: rank.get(card.id) } : card));
+        const beforeId = newIndex > 0 ? reordered[newIndex - 1]?.id : undefined;
+        const afterId = newIndex < reordered.length - 1 ? reordered[newIndex + 1]?.id : undefined;
+
+        repositionCard.mutate({ id: cardId, beforeId, afterId, optimisticCards });
+    };
+
     const handleDragEnd = (event: DragEndEvent) => {
         const cardId = String(event.active.id);
-        const targetStage = event.over ? String(event.over.id) : undefined;
-        if (!targetStage || targetStage === stageById.get(cardId)) {
+        const overId = event.over ? String(event.over.id) : undefined;
+        if (!overId) {
+            setActiveId(null);
+            return;
+        }
+        const sourceStage = stageById.get(cardId);
+        // `over.id` is a stage id for a drop on a column's own droppable — every column but the
+        // parking lot (see `Column` above) — and a card id for a drop on a parking-lot card;
+        // resolving it to that card's own stage covers both.
+        const overStage = order.includes(overId) ? overId : stageById.get(overId);
+
+        if (sourceStage === PARKING_LOT && overStage === PARKING_LOT) {
+            reorderParkingLot(cardId, overId);
+            setActiveId(null);
+            return;
+        }
+
+        const targetStage = overStage;
+        if (!targetStage || targetStage === sourceStage) {
             setActiveId(null);
             return;
         }

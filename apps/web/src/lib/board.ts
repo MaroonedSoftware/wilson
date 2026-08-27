@@ -20,13 +20,36 @@ export const columnOrder = (columns: BoardColumns, cards: CardSummary[]): string
 };
 
 /**
- * Cards per column, flagged first, then lowest id first — ids are sequential, so that is also
- * oldest first within each group. Flagged cards sort to the top of their own column, not the top
- * of the board: the flag is information about the card, not a reason to jump the column queue.
+ * The parking lot's own order: lowest `position` first, matching `ORDER BY position, id`
+ * (`PostgresBoardRepository.list`) where Postgres sorts a null `position` after every non-null one —
+ * a card nothing has ever dragged (including every card that predates card 0091, which back-filled
+ * nothing) falls back to id among the others like it, not to either end of the column.
+ */
+const byPositionThenId = (a: CardSummary, b: CardSummary): number => {
+    if (a.position != null && b.position != null) return a.position - b.position;
+    if (a.position != null) return -1;
+    if (b.position != null) return 1;
+    return a.id.localeCompare(b.id);
+};
+
+/**
+ * Cards per column. Every column but the parking lot sorts flagged first, then lowest id first —
+ * ids are sequential, so that is also oldest first within each group. Flagged cards sort to the top
+ * of their own column, not the top of the board: the flag is information about the card, not a
+ * reason to jump the column queue.
+ *
+ * The parking lot sorts by `position` instead (see `byPositionThenId`), flagged or not — card 0047's
+ * plan: an operator's drag is the order there, and a flagged card that always jumped to the top
+ * regardless of where it was dropped would make half the column undraggable.
  */
 export const groupByStage = (cards: CardSummary[]): Map<string, CardSummary[]> => {
     const grouped = new Map<string, CardSummary[]>();
-    for (const card of [...cards].sort((a, b) => Number(b.needsHuman) - Number(a.needsHuman) || a.id.localeCompare(b.id))) {
+    const sorted = [...cards].sort((a, b) =>
+        a.stage === PARKING_LOT && b.stage === PARKING_LOT
+            ? byPositionThenId(a, b)
+            : Number(b.needsHuman) - Number(a.needsHuman) || a.id.localeCompare(b.id),
+    );
+    for (const card of sorted) {
         grouped.set(card.stage, [...(grouped.get(card.stage) ?? []), card]);
     }
     return grouped;
