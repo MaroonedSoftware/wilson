@@ -557,6 +557,56 @@ describe('BoardWriteService', () => {
 
             expect((await board.read('0099')).frontmatter.position).toBe(500);
         });
+
+        it('refuses omitting both beforeId and afterId when the column holds other cards, rather than silently ranking as if it were empty', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'parking-lot' }), 'seed');
+            const versionBefore = await board.currentVersion('0081');
+
+            await expect(service.reposition('0081', {})).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"beforeId"/"afterId" must say where it lands') },
+            });
+            // The refusal must not have written a position.
+            expect((await board.read('0081')).frontmatter.position).toBeUndefined();
+            expect(await board.currentVersion('0081')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('still ranks with both neighbours omitted when the column genuinely holds only this card', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+
+            const detail = await service.reposition('0080', {});
+
+            expect(detail.position).toBe(POSITION_GAP);
+        });
+
+        it('refuses beforeId and afterId naming the same card, since a card cannot come both before and after one neighbour', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+
+            await expect(service.reposition('0089', { beforeId: '0080', afterId: '0080' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"0080" does not come before "0080"') },
+            });
+        });
+
+        it('refuses beforeId/afterId given in the reverse of their actual column order, with a 400 naming both', async () => {
+            const { board, service } = freshBoard();
+            // Actual column order (by id, both unpositioned): 0080, 0081, then 0089 being repositioned.
+            await board.create(card('0080', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0081', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0089', { stage: 'parking-lot' }), 'seed');
+
+            // Named backwards: 0081 (which actually sorts after 0080) is claimed as coming before it.
+            await expect(service.reposition('0089', { beforeId: '0081', afterId: '0080' })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('"0081" does not come before "0080"') },
+            });
+        });
     });
 
     describe('edit', () => {
