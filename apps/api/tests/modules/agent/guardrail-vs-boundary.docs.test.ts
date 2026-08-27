@@ -32,6 +32,33 @@ describe('card 0088 — the allowlist and ScopeGuard say what they actually guar
         expect(source).toContain('This is a guardrail against accident and habit, not a security boundary.');
     });
 
+    it('narrows the "every stage" claim on command.allowlist.ts to stages that build or test code, naming scope-check as the read-only counterexample', () => {
+        const source = normalize(read('../../../src/modules/agent/command.allowlist.ts'));
+
+        expect(source).toContain(
+            'command sits on the allowlist of every stage whose job is to build or test code — not a read-only stage like `scope-check`, which carries no allowed commands at all.',
+        );
+        // The old, overreaching claim this replaced must not come back.
+        expect(source).not.toContain('command is on every stage’s allowlist');
+        expect(source).not.toContain("command is on every stage's allowlist");
+    });
+
+    it('backs the scope-check claim with real behavior: a stage that declares no allowedCommands parses to an empty list, not "every command"', async () => {
+        const { StageConfigSchema } = await import('../../../src/modules/stages/stage.config.js');
+
+        const scopeCheck = StageConfigSchema.parse({
+            name: 'scope-check',
+            mode: 'agent',
+            model: 'claude-opus',
+            instructions: 'check the scope',
+            onPass: 'implementing',
+            onFail: 'backlog',
+            // allowedCommands deliberately omitted, exactly as the real scope-check stage does.
+        });
+
+        expect(scopeCheck.allowedCommands).toEqual([]);
+    });
+
     it('explains on command.allowlist.ts why a command that runs project code defeats the list, citing card 0083 as the worked example', () => {
         const source = normalize(read('../../../src/modules/agent/command.allowlist.ts'));
 
