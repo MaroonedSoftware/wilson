@@ -2,13 +2,15 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Anchor, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { SdkError } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
+const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
 // enforcement. The API refuses out of range regardless of what these let a user type up to
@@ -20,15 +22,20 @@ const CARD_STAGE_CONCURRENCY_MIN = 1;
 const CARD_STAGE_CONCURRENCY_MAX = 8;
 
 /**
- * The server's own sentence for a refusal — `errorMiddleware`'s body is `{ statusCode, message,
- * details }` (`@maroonedsoftware/koa`), so `SdkError.body.message` is that sentence. Falls back to
- * the SDK's generic "<status> <statusText>" only when the body isn't that shape, which happens for
- * a network failure that never reached the server.
+ * The server's own sentence for a refusal. `errorMiddleware`'s body is `{ statusCode, message,
+ * details }` (`@maroonedsoftware/koa`); a specific refusal (out-of-range interval, an unsafe
+ * webhook destination) pins `message` to the generic HTTP status text and carries the actual
+ * sentence in `details.reason` (`httpError(...).withDetails({ reason })` — same convention
+ * `useMoveCard`/`useStartCard`'s `reasonFor` reads, `apps/web/src/lib/mutations.ts`), so this reads
+ * `details.reason` first and only falls back to `message` where a route has no such detail. Falls
+ * back further to the SDK's generic "<status> <statusText>" only when the body isn't that shape,
+ * which happens for a network failure that never reached the server.
  */
 function apiErrorMessage(error: unknown): string {
-    if (error instanceof SdkError && error.body && typeof error.body === 'object' && 'message' in error.body) {
-        const message = (error.body as { message: unknown }).message;
-        if (typeof message === 'string') return message;
+    if (error instanceof SdkError && error.body && typeof error.body === 'object') {
+        const body = error.body as { details?: { reason?: unknown }; message?: unknown };
+        if (typeof body.details?.reason === 'string') return body.details.reason;
+        if (typeof body.message === 'string') return body.message;
     }
     return error instanceof Error ? error.message : String(error);
 }
@@ -209,6 +216,121 @@ function CardStageConcurrencyControl() {
     );
 }
 
+/**
+ * The webhook destination and its companion base URL (card 0107, UI here per card 0116). One
+ * `Paper`/one form, not two, because the API is one resource with one `PUT` — `Notifier.notify`
+ * always reads both together (`settings.ck`'s own comment: a base URL with nothing to post it to is
+ * exactly as useless as a webhook with no way to name the card in its payload).
+ *
+ * The two fields are not the same kind of risk and must not read as if they were:
+ * - `webhookUrl` is a destination this daemon POSTs to. `NotifyWebhookSettingService.set` runs
+ *   `checkWebhookDestination` against it (https only, no loopback/link-local/private/unspecified
+ *   address, checked again on every send) and refuses anything that fails with the specific rule
+ *   and resolved address it broke — that sentence is rendered verbatim below, not replaced with a
+ *   generic "invalid URL", because an operator has no other way to see the server's own DNS
+ *   resolution.
+ * - `baseUrl` is a link included inside the notification payload. Nothing here ever fetches it, so
+ *   it carries none of `webhookUrl`'s checks and is saved exactly as typed — the description next to
+ *   it says so, rather than letting a shared "Save" button imply a shared guarantee.
+ *
+ * Unlike `PollerIntervalControl`/`CardStageConcurrencyControl`, a refusal does not revert the typed
+ * draft back to the stored value — this field is fiddly enough that discarding a rejected attempt
+ * would force retyping it blind. Instead the draft is left exactly as typed, and the still-current
+ * stored value is shown alongside the server's refusal so neither the attempt nor the actual state
+ * is lost.
+ *
+ * Client-side format checking is deliberately absent (card 0116's own constraint): a browser-side
+ * URL check that disagreed with `checkWebhookDestination`'s DNS-resolution-based rules would be
+ * worse than no check at all. The server is the only boundary that matters here.
+ *
+ * Note for whoever reads the result of this card: this puts an outbound POST destination behind a
+ * browser form with no authentication (card 0019 is not built). `checkWebhookDestination` narrows
+ * *where* it can be pointed; it does not stop an unauthenticated caller reaching this page or this
+ * endpoint directly and pointing it somewhere the check still permits.
+ */
+function NotifyWebhookControl() {
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: NOTIFY_WEBHOOK_QUERY_KEY, queryFn: () => wilson.settings.getNotifyWebhookSetting() });
+    const [webhookDraft, setWebhookDraft] = useState('');
+    const [baseUrlDraft, setBaseUrlDraft] = useState('');
+
+    useEffect(() => {
+        if (setting.data) {
+            setWebhookDraft(setting.data.webhookUrl ?? '');
+            setBaseUrlDraft(setting.data.baseUrl ?? '');
+        }
+    }, [setting.data]);
+
+    const mutation = useMutation({
+        mutationFn: (body: SetNotifyWebhookSettingRequest) => wilson.settings.setNotifyWebhookSetting(body),
+        onSuccess: result => {
+            queryClient.setQueryData(NOTIFY_WEBHOOK_QUERY_KEY, result);
+            setWebhookDraft(result.webhookUrl ?? '');
+            setBaseUrlDraft(result.baseUrl ?? '');
+        },
+        // Deliberately no onError revert here — see the component doc above.
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load notification URLs">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    const dirty = webhookDraft !== (setting.data.webhookUrl ?? '') || baseUrlDraft !== (setting.data.baseUrl ?? '');
+    const save = () => {
+        mutation.mutate({
+            webhookUrl: webhookDraft.trim() === '' ? null : webhookDraft.trim(),
+            baseUrl: baseUrlDraft.trim() === '' ? null : baseUrlDraft.trim(),
+        });
+    };
+
+    return (
+        <Stack gap="sm">
+            <Text size="sm" c="dimmed">
+                These carry different risk. The webhook URL is a destination this daemon sends a request to, so the
+                server checks it — https only, and not an address that resolves somewhere private — both when it is
+                saved and again every time it is used, and refuses anything that fails. The base URL only appears as
+                a link inside that request's payload; nothing here ever fetches it, so it is saved exactly as typed.
+            </Text>
+            <TextInput
+                label="Webhook URL"
+                description="Where notifications are sent. Checked by the server on save and on every use; a refused value is never stored."
+                placeholder="https://example.com/hook"
+                value={webhookDraft}
+                onChange={event => setWebhookDraft(event.currentTarget.value)}
+                disabled={mutation.isPending}
+            />
+            <TextInput
+                label="Base URL"
+                description="A link back to this board, included in the notification payload. Not validated — it is never a destination this daemon contacts."
+                placeholder="https://board.example"
+                value={baseUrlDraft}
+                onChange={event => setBaseUrlDraft(event.currentTarget.value)}
+                disabled={mutation.isPending}
+            />
+            <Group gap="xs">
+                <Button size="xs" disabled={!dirty || mutation.isPending} onClick={save}>
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Stack gap={2}>
+                    <Text size="sm" c="red">
+                        {apiErrorMessage(mutation.error)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                        Still saved: {setting.data.webhookUrl ?? 'not set'}
+                    </Text>
+                </Stack>
+            )}
+        </Stack>
+    );
+}
+
 /** A `project`/`head`/`startedAt`/root row: a label column and a value, greyed for the read-only roots. */
 function Fact({ label, children, muted }: { label: string; children: ReactNode; muted?: boolean }) {
     return (
@@ -264,7 +386,7 @@ function DeploymentFacts() {
 /**
  * Settings: card 0114's slice of what card 0106 put behind the API — the page itself, the
  * auto-mode toggle, and the read-only deployment facts above — plus card 0115's two numeric
- * controls. The webhook/base-URL fields are not here yet: that is card [[0116]].
+ * controls and card 0116's webhook/base-URL fields.
  */
 function SettingsRoute() {
     return (
@@ -292,6 +414,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Stage concurrency</Title>
                     <CardStageConcurrencyControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Notifications</Title>
+                    <NotifyWebhookControl />
                 </Stack>
             </Paper>
 
