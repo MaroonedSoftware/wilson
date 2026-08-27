@@ -119,6 +119,12 @@ export abstract class BoardRepository {
      * to git and then appended the event here — two stores, sequentially, with no way to reconcile a
      * partial failure. Exposing the pair as a single method rather than a transaction handle the
      * caller must remember to pass makes the invariant structural instead of conventional.
+     *
+     * Returns the new version's id, like `write` — a caller that needs to point something at the
+     * version this write just created (card 0129: advancing a pin past the findings a write just
+     * folded in) has no other way to learn it, since `currentVersion` read from inside `mutate`
+     * still answers with the version *before* this one — the off-by-one `board.write.service.ts:136`
+     * explains and `BoardWriteService.approve` relies on deliberately.
      */
     abstract writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string>;
 
