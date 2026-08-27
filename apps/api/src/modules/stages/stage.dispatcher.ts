@@ -168,7 +168,9 @@ export class StageDispatcher {
         // retroactively change the contract the running agent is working to. Every read below is one
         // or the other, never a mix: `assertDispatchable` takes both and keeps them straight;
         // `materializePlan` and `filesInScope` stay on `card`; `writeTransition`/`refuseOverBudget`'s
-        // retries and needsHuman stay on `head`.
+        // retries and needsHuman stay on `head` — and so does the card's branch (card 0095): it is
+        // runner state set by a previous dispatch, not part of the plan contract, so `card`'s pinned
+        // snapshot from before that dispatch would never see it.
         const head = await this.board.read(cardId);
         const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
@@ -190,7 +192,7 @@ export class StageDispatcher {
             }
         }
 
-        const branch = this.worktrees.branchName(cardId, card.frontmatter.title);
+        const branch = this.worktrees.resolveBranch(head);
 
         // `base` means "start fresh if there is nothing to resume", not "always discard". A card
         // kicked back from review carries findings citing file:line on its own branch; rebuilding
@@ -220,6 +222,21 @@ export class StageDispatcher {
             type: 'worktree.created',
             payload: { branch, baseSha: worktree.baseSha, path: worktree.path },
         });
+
+        // Recorded only now, after the worktree above has actually landed — a branch recorded for a
+        // worktree that failed to cut would be a lie the next run would then prefer. Gated on `head`,
+        // which reflects every dispatch since approval, not on `card`'s pinned snapshot from before
+        // all of them; skipped entirely once `head` already carries one, so a card gets this one
+        // extra version at most once, on whichever dispatch is its first. The event above already
+        // carries the branch, so this is a plain `write`, not `writeWithEvent`. The mutate callback
+        // re-checks `current.frontmatter.branch` itself — `BoardRepository.write` re-reads inside its
+        // own transaction, so that inner check is what actually guards against a concurrent write; the
+        // `head` check above only saves the common case a round trip to the database.
+        if (!head.frontmatter.branch) {
+            await this.board.write(cardId, `${cardId}: recorded branch ${branch}`, current =>
+                current.frontmatter.branch ? current : { ...current, frontmatter: { ...current.frontmatter, branch } },
+            );
+        }
 
         // Before the agent sees the tree, not as its first task: a fresh worktree has no
         // node_modules, and card 0001 twice spent its whole run installing dependencies and

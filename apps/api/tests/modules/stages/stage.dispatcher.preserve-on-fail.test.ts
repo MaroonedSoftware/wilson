@@ -83,7 +83,7 @@ describe('StageDispatcher.run names the failed-attempt patch on a failing stage 
         // implementation is part of what makes the assertion meaningful, not incidental.
         const patchPath = join(base, 'run', 'cards', '0001', 'last-failed-attempt.patch');
         const worktrees = {
-            branchName: vi.fn(() => 'card/0001-do-the-thing'),
+            resolveBranch: vi.fn(() => 'card/0001-do-the-thing'),
             hasWork: vi.fn(async () => false),
             create: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
             resume: vi.fn(async () => {

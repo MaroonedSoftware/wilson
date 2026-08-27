@@ -34,7 +34,7 @@ afterAll(async () => {
  * a mock that silently no-ops would let a bug that dispatches anyway pass unnoticed.
  */
 const untouchableWorktrees = () => ({
-    branchName: vi.fn(() => {
+    resolveBranch: vi.fn(() => {
         throw new Error('MARKER: worktree touched');
     }),
     hasWork: vi.fn(async () => {
@@ -145,7 +145,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(result.failures[0]).toMatch(/spent its budget/);
         expect(result.failures[0]).toMatch(/1000000/);
 
-        expect(worktrees.branchName).not.toHaveBeenCalled();
+        expect(worktrees.resolveBranch).not.toHaveBeenCalled();
         expect(worktrees.hasWork).not.toHaveBeenCalled();
         expect(worktrees.create).not.toHaveBeenCalled();
         expect(worktrees.resume).not.toHaveBeenCalled();
@@ -167,7 +167,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         const result = await dispatcher.run('0001', 'testing');
 
         expect(result.passed).toBe(false);
-        expect(worktrees.branchName).not.toHaveBeenCalled();
+        expect(worktrees.resolveBranch).not.toHaveBeenCalled();
     });
 
     it('writes the flag through the board, exactly as an exhausted kickback would, without moving the stage', async () => {

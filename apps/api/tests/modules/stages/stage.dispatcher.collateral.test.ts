@@ -91,7 +91,7 @@ describe('StageDispatcher.run wires collateralPaths into the ScopeGuard it hands
         await board.create(card, 'initial');
 
         const worktrees = {
-            branchName: vi.fn(() => 'card/0001-do-the-thing'),
+            resolveBranch: vi.fn(() => 'card/0001-do-the-thing'),
             hasWork: vi.fn(async () => false),
             create: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
             resume: vi.fn(async () => {

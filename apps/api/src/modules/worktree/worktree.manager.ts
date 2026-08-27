@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
+import type { Card } from '#modules/board/card.js';
 import { git, isClean } from '#modules/board/git.js';
 import { codeRootLock } from './code.root.lock.js';
 
@@ -56,6 +57,23 @@ export class WorktreeManager {
             .replace(/^-+|-+$/g, '')
             .slice(0, 40);
         return `card/${cardId}${slug ? `-${slug}` : ''}`;
+    }
+
+    /**
+     * The branch that holds a card's work: the recorded `frontmatter.branch` once one exists,
+     * otherwise `branchName`'s derivation from the card's current title.
+     *
+     * This is the one place that answers "which branch is this card's work on" — the dispatcher, the
+     * plan service and `wilson card plan` all call this rather than each doing the fallback
+     * themselves, so they cannot drift into two different ideas of the card's branch (card 0095).
+     *
+     * A recorded branch is never recomputed, even when the title that produced it has since changed:
+     * once a worktree is cut, the branch it landed on is the fact, and the title is just prose again.
+     * `branchName` stays the answer only for a card that has never had a worktree cut for it — every
+     * card born before this method existed, and any card up to its own first dispatch.
+     */
+    resolveBranch(card: Card): string {
+        return card.frontmatter.branch ?? this.branchName(card.frontmatter.id, card.frontmatter.title);
     }
 
     /**

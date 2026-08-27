@@ -57,7 +57,7 @@ stages:
  * layer is being touched on a path that is about to throw anyway.
  */
 const conflictingWorktrees = (reason: string, targetSha: string) => ({
-    branchName: vi.fn(() => 'card/0001-do-the-thing'),
+    resolveBranch: vi.fn(() => 'card/0001-do-the-thing'),
     hasWork: vi.fn(async () => true),
     resume: vi.fn(async () => ({ path: '/tmp/worktree-0001', baseSha: 'old-base-sha' })),
     rebaseOntoHead: vi.fn(async () => ({ ok: false as const, reason })),

@@ -103,7 +103,7 @@ stages:
         await mkdir(worktreeDirs['0002'], { recursive: true });
 
         const worktrees = {
-            branchName: vi.fn((cardId: string) => `card/${cardId}-do-the-thing`),
+            resolveBranch: vi.fn((card: Card) => `card/${card.frontmatter.id}-do-the-thing`),
             hasWork: vi.fn(async () => false),
             create: vi.fn(async (cardId: string) => ({ path: worktreeDirs[cardId], baseSha: 'deadbeef' })),
             resume: vi.fn(async () => {
