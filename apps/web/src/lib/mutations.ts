@@ -110,3 +110,26 @@ export function useSendPlanTurn(id: string) {
         mutationFn: (text: string): Promise<PlanTurn> => wilson.board.sendAPlanTurn(id, { text }),
     });
 }
+
+/**
+ * Writes an approved draft as a new card version (`POST .../plan/save`, card 0140's contract).
+ * The confirmation this is meant to follow — a diff shown, a person confirming — already happened
+ * in `DraftPane.tsx` before this is ever called; validation is `PlanService.save`'s alone (this
+ * card's Constraints), so a refusal here is the server's own sentence, never a client-side guess
+ * at why. Like `useSendPlanTurn`, a refusal is not a notification: `DraftPane` reads `error` itself
+ * and renders it next to the draft, which must stay on screen rather than be lost to a toast that
+ * outlives neither the mistake nor the unsaved edit.
+ *
+ * Success writes the response straight into `['card', id]`'s cache, the same "only ever show what
+ * round-tripped" rule `settings.tsx`'s controls follow, so the card's page reflects its new version
+ * the moment the write lands rather than waiting on a refetch.
+ */
+export function useSaveAPlanDraft(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: string) => wilson.board.saveAPlanDraft(id, { body }),
+        onSuccess: result => {
+            queryClient.setQueryData(['card', id], result);
+        },
+    });
+}
