@@ -26,21 +26,37 @@ import { SettingsRouter } from './settings.router.js';
 const PROJECT_HEADER = 'x-wilson-project';
 
 /**
+ * Card 0150. Matches every path, for `ProjectContextRouter`'s own catch-all `.all(...)` layer below —
+ * see that router's doc comment for why `.all` with this, not `.use(...)` alone, is what actually
+ * makes the middleware run. Named rather than written inline as a regex literal so a doc comment
+ * describing it never has to embed the pattern itself, whose closing character sequence would end
+ * the comment early.
+ */
+const ANY_PATH = /.*/;
+
+/**
  * Card 0150. Every HTTP request runs inside `runAsProject` for whichever project it named (or the
  * daemon's own configured one, if it named none) — the one entry point card 0149's ambient context
  * left unset, per that card's own doc comment in `project.context.ts`.
  *
- * A `.use()`-only router with no routes of its own, mounted first in {@link routers} below, rather
- * than added to `HealthRouter`/`BoardRouter`/`SettingsRouter`/`FeedRouter`/`PlanStreamRouter`
- * individually: `setupRoutes` (`ServerKitServerBuilder`'s own doc comment) mounts each router's
- * `.routes()` as a separate `app.use()`, in array order, and `@koa/router`'s `.use()` middleware
- * matches every path and always falls through to the outer `next` when nothing on this router
- * handles the response — which here is every request, since this router registers no `.get`/`.post`
- * of its own. That outer `next` is exactly the next router in the array, so this runs ahead of all
- * five without touching any of them, keeping `board.ck`, `settings.ck`,
- * `apps/api/src/generated/**` and `board.router.ts` exactly as they are (this card's own
- * constraint) and keeping the two SSE routers' project scoping (see both below) inside the same
- * `runAsProject` every JSON route gets.
+ * A router with one `.all(ANY_PATH, ...)` catch-all and no other routes of its own, mounted first in
+ * {@link routers} below, rather than added to
+ * `HealthRouter`/`BoardRouter`/`SettingsRouter`/`FeedRouter`/`PlanStreamRouter` individually:
+ * `setupRoutes` (`ServerKitServerBuilder`'s own doc comment) mounts each router's `.routes()` as a
+ * separate `app.use()`, in array order, and always falls through to the outer `next` — the next
+ * router in the array — once this router's own middleware chain has run, since nothing here ever
+ * sets `ctx.body` or otherwise ends the response. Deliberately `.all(ANY_PATH, ...)`, not
+ * `.use(...)`: `@koa/router`'s own `match()` only sets `matchResult.route` true when some *matched*
+ * layer carries an HTTP method (`layer.methods.length > 0`), and a router built entirely from
+ * `.use()` calls never has one — every dispatch then takes the "nothing matched" branch, which (with
+ * no `router.on('not-found', ...)` handler registered) calls the outer `next` directly, *skipping
+ * the `.use()` middleware itself* on every request, not just non-matching ones. `{@link ANY_PATH}`
+ * registers a real, method-bearing layer that matches every path, so `matchResult.route` is true and
+ * the middleware actually runs — the behavior this router's every other doc comment (and its
+ * callers') already assumes. This runs ahead of the other five without touching any of them, keeping
+ * `board.ck`, `settings.ck`, `apps/api/src/generated/**` and `board.router.ts` exactly as they are
+ * (this card's own constraint) and keeping the two SSE routers' project scoping (see both below)
+ * inside the same `runAsProject` every JSON route gets.
  *
  * `ctx.container` (not a constructor argument) is where `BoardConfig`/`ProjectRepository` come
  * from — the same per-request resolution `PlanStreamRouter` below already uses `BoardConfig` for —
@@ -68,7 +84,7 @@ const PROJECT_HEADER = 'x-wilson-project';
  */
 const ProjectContextRouter = () => {
     const router = ServerKitRouter();
-    router.use(async (ctx, next) => {
+    router.all(ANY_PATH, async (ctx, next) => {
         const board = ctx.container.get(BoardConfig);
         const header = ctx.get(PROJECT_HEADER);
         const project = header || board.project;

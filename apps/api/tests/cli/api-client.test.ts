@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 // `@wilson/sdk` is not one of apps/api's own dependencies (only packages/cli and apps/web depend on
 // it), so it is not resolvable as a bare specifier from a file living under apps/api/tests — reached
 // by relative path into the package's source instead, the same way this suite already reaches into
 // packages/cli by relative path rather than as an installed dependency.
-import { SdkError } from '../../../../packages/sdk/src/sdk-options.js';
+import { createSdkFetch, SdkError } from '../../../../packages/sdk/src/sdk-options.js';
 import { WilsonSdk } from '../../../../packages/sdk/src/wilson.sdk.js';
-import { apiClient, describeApiError, resolveApiBase, withApi } from '../../../../packages/cli/src/api-client.js';
+import { apiClient, describeApiError, resolveApiBase, resolveProject, withApi } from '../../../../packages/cli/src/api-client.js';
 
 // Card 0078 introduces `api-client.ts`: the one place every ported command gets its `WilsonSdk` from,
 // and the one place a failed API call becomes the message an operator should read. This file exercises
@@ -36,11 +36,101 @@ describe('resolveApiBase', () => {
     });
 });
 
+// Card 0150: `WILSON_PROJECT` is how `johnny5` names a project — read the same way `resolveApiBase`
+// reads `API_URL`/`PORT`, so every one of the 16 ported commands gets it for free through `apiClient`.
+describe('resolveProject', () => {
+    it('is undefined when WILSON_PROJECT is not set, so the SDK sends no project header at all', () => {
+        expect(resolveProject(buildCtx().ctx)).toBeUndefined();
+    });
+
+    it('reads WILSON_PROJECT when set', () => {
+        expect(resolveProject(buildCtx({ WILSON_PROJECT: 'acme' }).ctx)).toBe('acme');
+    });
+
+    it('trims surrounding whitespace, and treats an all-whitespace value the same as unset', () => {
+        expect(resolveProject(buildCtx({ WILSON_PROJECT: '  acme  ' }).ctx)).toBe('acme');
+        expect(resolveProject(buildCtx({ WILSON_PROJECT: '   ' }).ctx)).toBeUndefined();
+    });
+});
+
 describe('apiClient', () => {
     it('builds a WilsonSdk pointed at the resolved base', () => {
         const { ctx } = buildCtx({ API_URL: 'https://api.example.com' });
 
         expect(apiClient(ctx)).toBeInstanceOf(WilsonSdk);
+    });
+
+    // Card 0150: `apiClient` wires `resolveProject(ctx)` into `WilsonSdk`'s `project` option, which
+    // `createSdkFetch` (`packages/sdk/src/sdk-options.ts`) turns into an `X-Wilson-Project` header on
+    // every call. Exercised through a real fetch, not a mock of `WilsonSdk` itself, so this proves the
+    // header actually leaves on the wire rather than that some option object merely got constructed.
+    describe('the project header it sends (Card 0150)', () => {
+        afterEach(() => {
+            vi.unstubAllGlobals();
+        });
+
+        const stubbedFetch = () => {
+            const fetchMock = vi.fn().mockResolvedValue(new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }));
+            vi.stubGlobal('fetch', fetchMock);
+            return fetchMock;
+        };
+
+        it('sends X-Wilson-Project on every call when WILSON_PROJECT is configured', async () => {
+            const fetchMock = stubbedFetch();
+            const { ctx } = buildCtx({ WILSON_PROJECT: 'acme' });
+
+            await apiClient(ctx).board.listCards();
+
+            const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+            expect(headers['X-Wilson-Project']).toBe('acme');
+        });
+
+        it('sends no X-Wilson-Project header at all when WILSON_PROJECT is not configured', async () => {
+            const fetchMock = stubbedFetch();
+            const { ctx } = buildCtx();
+
+            await apiClient(ctx).board.listCards();
+
+            const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+            expect(headers).not.toHaveProperty('X-Wilson-Project');
+        });
+    });
+});
+
+/**
+ * Card 0150. `createSdkFetch`'s own new behavior, directly: `options.project`, when set, becomes an
+ * `X-Wilson-Project` header on every request; when unset, the header is omitted outright rather than
+ * sent empty, so a request from an SDK built before this card is byte-identical to one built after.
+ */
+describe('createSdkFetch project header (Card 0150)', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    const stubbedFetch = () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+        return fetchMock;
+    };
+
+    it('sends X-Wilson-Project set to the configured project on every request', async () => {
+        const fetchMock = stubbedFetch();
+        const sdkFetch = createSdkFetch({ baseUrl: 'http://api.example.com', project: 'acme' });
+
+        await sdkFetch('/api/cards', { method: 'GET' });
+
+        const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+        expect(headers['X-Wilson-Project']).toBe('acme');
+    });
+
+    it('sends no X-Wilson-Project header at all when no project is configured', async () => {
+        const fetchMock = stubbedFetch();
+        const sdkFetch = createSdkFetch({ baseUrl: 'http://api.example.com' });
+
+        await sdkFetch('/api/cards', { method: 'GET' });
+
+        const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+        expect(headers).not.toHaveProperty('X-Wilson-Project');
     });
 });
 
