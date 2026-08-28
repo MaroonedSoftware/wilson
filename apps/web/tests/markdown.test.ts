@@ -182,6 +182,37 @@ describe('parseMarkdown', () => {
         expect(heading?.position?.start).toEqual({ line: 1, column: 1, offset: 0 });
         expect(paragraph?.position?.start.line).toBe(3);
     });
+
+    it('derives a position for the text and link nodes a [[nnnn]] card reference is split into', () => {
+        // Regression coverage for review finding markdown.ts:49 — splitCardRefs used to leave
+        // `position` undefined on the nodes it produces, silently dropping source position for
+        // exactly the syntax this card added, even though the parser otherwise keeps it on every node.
+        const raw = 'See [[0122]] for details.';
+        const matchStart = raw.indexOf('[[0122]]');
+        const matchEnd = matchStart + '[[0122]]'.length;
+        const paragraph = asParagraph(parseMarkdown(raw).children[0]);
+        const [before, link, after] = paragraph.children;
+        expect(before?.position).toBeDefined();
+        expect(link?.position).toBeDefined();
+        expect(after?.position).toBeDefined();
+        expect(link?.position?.start).toEqual({ line: 1, column: matchStart + 1, offset: matchStart });
+        expect(link?.position?.end).toEqual({ line: 1, column: matchEnd + 1, offset: matchEnd });
+        // The three nodes tile the original text exactly, with no gap or overlap between them.
+        expect(before?.position?.end).toEqual(link?.position?.start);
+        expect(link?.position?.end).toEqual(after?.position?.start);
+    });
+
+    it('derives a position on a multi-line paragraph for a card reference past the first line', () => {
+        // Same regression, but for a reference on a wrapped continuation line — slicePosition must
+        // count the newline it walks past rather than assuming the match is on the node's start line.
+        const tree = parseMarkdown('See\n[[0122]] for details.');
+        const paragraph = asParagraph(tree.children[0]);
+        const link = paragraph.children.find((node) => node.type === 'link');
+        expect(link?.type).toBe('link');
+        if (link?.type !== 'link') throw new Error('expected a link');
+        expect(link.position?.start.line).toBe(2);
+        expect(link.position?.start.column).toBe(1);
+    });
 });
 
 describe('Markdown', () => {
@@ -272,5 +303,17 @@ describe('Markdown', () => {
         const list = container.querySelector('ul');
         expect(list?.textContent).toContain('a listed point');
         expect(list?.textContent).toContain('another');
+    });
+
+    it('degrades a block-level node type the renderer has no case for to its literal source text, rather than dropping it', async () => {
+        // Regression coverage for review finding Markdown.tsx:71 — a thematic break ('---' on its own
+        // line) is a first-class mdast node under the CommonMark parser this card adopted, but
+        // renderBlock's switch has no case for it. The old hand-rolled renderer always fell back to
+        // literal paragraph text for a line it didn't recognise; this asserts the new renderer still
+        // shows *something* for it rather than silently vanishing.
+        renderMarkdown('before\n\n---\n\nafter');
+        await screen.findByText('before');
+        await screen.findByText('after');
+        expect(await screen.findByText('---')).toBeDefined();
     });
 });
