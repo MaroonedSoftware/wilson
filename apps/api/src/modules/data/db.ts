@@ -127,6 +127,21 @@ export interface PlanComments {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A project's identity — the name every other `runner` table's `project` column already carries,
+ * plus the four paths `BoardConfig` exposes. `BoardModule.setup` reads this row on boot and seeds
+ * it from the environment the first time; see the migration's header comment for what happens
+ * when a row exists and the environment disagrees.
+ */
+export interface Projects {
+    name: string;
+    boardRoot: string;
+    codeRoot: string;
+    worktreeRoot: string;
+    runRoot: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -136,4 +151,5 @@ export interface DB {
     'runner.settings': Settings;
     'runner.planTurns': PlanTurns;
     'runner.planComments': PlanComments;
+    'runner.projects': Projects;
 }
