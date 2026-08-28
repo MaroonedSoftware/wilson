@@ -154,6 +154,17 @@ describe('routers', () => {
         expect(BoardRouter.match('/api/cards/0001/plan/turn', 'DELETE').route).toBe(false);
     });
 
+    // Card 0140: the one read that lets a client fetch a planning draft's current bytes over HTTP,
+    // beside the existing plan/* operations.
+    it('routes GET /api/cards/0001/plan/draft to the board router', () => {
+        expect(BoardRouter.match('/api/cards/0001/plan/draft', 'GET').route).toBe(true);
+    });
+
+    it('does not route an undeclared method to the plan/draft path', () => {
+        expect(BoardRouter.match('/api/cards/0001/plan/draft', 'POST').route).toBe(false);
+        expect(BoardRouter.match('/api/cards/0001/plan/draft', 'DELETE').route).toBe(false);
+    });
+
     // Card 0106: the poller's on/off switch, read and written over the API.
     it.each([['GET'], ['PUT']])('routes %s /api/settings/poller-enabled to the settings router', method => {
         expect(SettingsRouter.match('/api/settings/poller-enabled', method).route).toBe(true);
