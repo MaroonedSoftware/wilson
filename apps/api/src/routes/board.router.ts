@@ -18,6 +18,7 @@ import {
     ImportBoardRequest,
     ImportReport,
     ListQuery,
+    MergeResult,
     MoveCardRequest,
     PlanDraft,
     PlanSession,
@@ -38,7 +39,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const BoardRouter = ServerKitRouter();
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L263)
+ * from [board.ck](file://./../../data/contracts/board.ck#L277)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards', async ctx => {
@@ -51,7 +52,7 @@ BoardRouter.get('/api/cards', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L272)
+ * from [board.ck](file://./../../data/contracts/board.ck#L286)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
@@ -66,7 +67,7 @@ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L290)
+ * from [board.ck](file://./../../data/contracts/board.ck#L304)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id', async ctx => {
@@ -89,7 +90,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
  * Not `put`. This is a partial update — only the body changes, frontmatter is not editable here
  * (decision 5: stage, branch, retries are runner state; `move` is the recorded way to override
  * stage) — which is exactly what `patch` means and `put`, a full replace, does not.
- * from [board.ck](file://./../../data/contracts/board.ck#L303)
+ * from [board.ck](file://./../../data/contracts/board.ck#L317)
  * anonymous access, no security required
  */
 BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx => {
@@ -123,7 +124,7 @@ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx =>
  * recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
  * them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
  * above is allowed to touch `body` freely.
- * from [board.ck](file://./../../data/contracts/board.ck#L334)
+ * from [board.ck](file://./../../data/contracts/board.ck#L348)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async ctx => {
@@ -150,7 +151,7 @@ BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async 
  * 0080's other five mutations — depend, ack, approve, start, release — are transitions of exactly
  * this shape. `POST .../move` establishes that convention once so five more operations can copy it
  * rather than each inventing its own.
- * from [board.ck](file://./../../data/contracts/board.ck#L365)
+ * from [board.ck](file://./../../data/contracts/board.ck#L379)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ctx => {
@@ -179,7 +180,7 @@ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ct
  * reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
  * card three rows down did not change what the runner will do with it. Follows the same sub-resource
  * shape `move` established above.
- * from [board.ck](file://./../../data/contracts/board.ck#L394)
+ * from [board.ck](file://./../../data/contracts/board.ck#L408)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), async ctx => {
@@ -205,7 +206,7 @@ BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), as
  * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
  * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
  * `EditCardRequest` replaces `body`.
- * from [board.ck](file://./../../data/contracts/board.ck#L421)
+ * from [board.ck](file://./../../data/contracts/board.ck#L435)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async ctx => {
@@ -227,7 +228,7 @@ BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async 
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L444)
+ * from [board.ck](file://./../../data/contracts/board.ck#L458)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/ack', async ctx => {
@@ -247,7 +248,7 @@ BoardRouter.post('/api/cards/:id/ack', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L463)
+ * from [board.ck](file://./../../data/contracts/board.ck#L477)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/approve', async ctx => {
@@ -267,7 +268,7 @@ BoardRouter.post('/api/cards/:id/approve', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L482)
+ * from [board.ck](file://./../../data/contracts/board.ck#L496)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/start', async ctx => {
@@ -287,7 +288,7 @@ BoardRouter.post('/api/cards/:id/start', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L501)
+ * from [board.ck](file://./../../data/contracts/board.ck#L515)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/release', async ctx => {
@@ -307,10 +308,35 @@ BoardRouter.post('/api/cards/:id/release', async ctx => {
 });
 
 /**
+ * Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
+ * `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
+ * why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
+ * Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
+ * was, this endpoint just performs what a human used to type by hand.
+ * from [board.ck](file://./../../data/contracts/board.ck#L539)
+ * anonymous access, no security required
+ */
+BoardRouter.post('/api/cards/:id/merge', async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: MergeResult = await service.merge(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
  * Card 0113. Reads without writing: renders the division a client would confirm, before anything is
  * created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
  * empty confirmation prompt.
- * from [board.ck](file://./../../data/contracts/board.ck#L523)
+ * from [board.ck](file://./../../data/contracts/board.ck#L562)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/division', async ctx => {
@@ -336,7 +362,7 @@ BoardRouter.get('/api/cards/:id/division', async ctx => {
  * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
  * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
  * already confirmed.
- * from [board.ck](file://./../../data/contracts/board.ck#L549)
+ * from [board.ck](file://./../../data/contracts/board.ck#L588)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async ctx => {
@@ -361,7 +387,7 @@ BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async c
  * Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
  * refuses one whose real branch already has work (re-planning a card with code on it is a different,
  * more dangerous operation). Cuts nothing on a refusal.
- * from [board.ck](file://./../../data/contracts/board.ck#L574)
+ * from [board.ck](file://./../../data/contracts/board.ck#L613)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
@@ -388,7 +414,7 @@ BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
  * operation here), and reusing it for "no draft yet" would leave a client unable to tell the two
  * apart without inspecting `details`. [[0138]] renders an empty draft the same way it renders any
  * other, with no special-case error path for a state that is completely normal.
- * from [board.ck](file://./../../data/contracts/board.ck#L598)
+ * from [board.ck](file://./../../data/contracts/board.ck#L637)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/plan/draft', async ctx => {
@@ -413,7 +439,7 @@ BoardRouter.get('/api/cards/:id/plan/draft', async ctx => {
  * can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
  * (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
  * unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
- * from [board.ck](file://./../../data/contracts/board.ck#L619)
+ * from [board.ck](file://./../../data/contracts/board.ck#L658)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), async ctx => {
@@ -438,7 +464,7 @@ BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), asy
  * Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
  * and safe to call for a session that opened but was never saved — because that is exactly what a CLI
  * dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
- * from [board.ck](file://./../../data/contracts/board.ck#L643)
+ * from [board.ck](file://./../../data/contracts/board.ck#L682)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
@@ -462,7 +488,7 @@ BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
  * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
  * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
  * real branch already has work.
- * from [board.ck](file://./../../data/contracts/board.ck#L662)
+ * from [board.ck](file://./../../data/contracts/board.ck#L701)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/cards/:id/plan/turn', bodyParserMiddleware(['json']), async ctx => {
@@ -484,7 +510,7 @@ BoardRouter.post('/api/cards/:id/plan/turn', bodyParserMiddleware(['json']), asy
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L682)
+ * from [board.ck](file://./../../data/contracts/board.ck#L721)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/events', async ctx => {
@@ -506,7 +532,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L698)
+ * from [board.ck](file://./../../data/contracts/board.ck#L737)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/cards/:id/versions', async ctx => {
@@ -528,7 +554,7 @@ BoardRouter.get('/api/cards/:id/versions', async ctx => {
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L711)
+ * from [board.ck](file://./../../data/contracts/board.ck#L750)
  * anonymous access, no security required
  */
 BoardRouter.get('/api/stages', async ctx => {
@@ -546,7 +572,7 @@ BoardRouter.get('/api/stages', async ctx => {
  * PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
  * that circularity is real, and the 409 below is what makes it legible instead of a connection
  * refused with no explanation.
- * from [board.ck](file://./../../data/contracts/board.ck#L728)
+ * from [board.ck](file://./../../data/contracts/board.ck#L767)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/board/init', async ctx => {
@@ -562,7 +588,7 @@ BoardRouter.post('/api/board/init', async ctx => {
  * One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
  * already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
  * from the CLI.
- * from [board.ck](file://./../../data/contracts/board.ck#L748)
+ * from [board.ck](file://./../../data/contracts/board.ck#L787)
  * anonymous access, no security required
  */
 BoardRouter.post('/api/board/import', bodyParserMiddleware(['json']), async ctx => {

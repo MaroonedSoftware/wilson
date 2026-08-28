@@ -4,7 +4,8 @@ import { Logger } from '@maroonedsoftware/logger';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import { loadStages, validTargets } from '#modules/stages/stage.config.js';
+import { findStage, loadStages, validTargets } from '#modules/stages/stage.config.js';
+import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
@@ -13,6 +14,7 @@ import type {
     CardDetail,
     CardDivision,
     CreateCardRequest,
+    MergeResult,
     MoveCardRequest,
     EditCardRequest,
     DependCardRequest,
@@ -26,6 +28,7 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { git } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
 
@@ -508,6 +511,119 @@ export class BoardWriteService {
         await this.cardJobs.clear(id);
 
         return { ...toCardDetail(await this.readOrThrow(id)), releasedAs };
+    }
+
+    /**
+     * Card 0143. Merge a card's branch into `main` — the step every card on this board has always
+     * needed a human with a shell for: verify clean, `git merge --no-ff`, run the suite, `wilson
+     * card move <id> merged`. This is that, minus the shell: no checkout of `codeRoot` ([[0025]]'s
+     * warning, this card's own Constraints), and the card does not move until the ref move is
+     * verified, not merely reported.
+     *
+     * Only "this card is not in `ready`" is refused outright. A conflict and a suite failure are not
+     * bad input — they are the other two honest outcomes an attempt can have — so both come back as
+     * `{ merged: false, reason }` in a 200, exactly as `MergeResult`'s doc comment in the contract
+     * says, and both flag the card for a human the same way [[0103]]'s rebase-conflict handling does:
+     * `needsHuman` set, the card left exactly where it was, no retry touched (`ready` is a `manual`
+     * stage; nothing here is a kickback to consume one from).
+     */
+    async merge(id: string): Promise<MergeResult> {
+        const card = await this.readOrThrow(id);
+        if (card.frontmatter.stage !== 'ready') {
+            throw httpError(400).withDetails({ reason: `cannot merge ${id}: it is in "${card.frontmatter.stage}", not "ready"` });
+        }
+
+        const branch = this.worktrees.resolveBranch(card);
+        const computed = await this.worktrees.computeMerge(branch);
+        if (!computed.ok) {
+            const reason = `${branch} conflicts with main: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
+            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
+        }
+
+        const message = `Merge card ${id}: ${card.frontmatter.title}`;
+        const mergeCommit = await this.worktrees.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, message);
+
+        const proof = await this.proveMerge(id, mergeCommit);
+        if (!proof.ok) {
+            const reason = `merge of ${branch} into main fails the suite: ${proof.reason}`;
+            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
+        }
+
+        const landed = await this.worktrees.landMerge(computed.mainSha, mergeCommit);
+        if (!landed.ok) {
+            await this.flagMergeFailure(id, card.frontmatter.stage, landed.reason);
+            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason: landed.reason };
+        }
+
+        // The existing write path, not a bespoke one: `move` is what pins runner state to a
+        // transition, reclaims the worktree on a terminal target, and clears a stale flag — every
+        // reason `[[0143]]`'s Constraints give for landing through the same door every other
+        // terminal transition uses.
+        await this.move(id, { stage: 'merged' });
+        return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit };
+    }
+
+    /**
+     * Flag a card for a human without moving it or touching a retry — [[0103]]'s shape
+     * (`flagRebaseConflict`, `modules/jobs/flag.rebase.conflict.ts`) reproduced here rather than
+     * imported: that function takes a `RebaseConflictError`, which a merge conflict or a failed
+     * suite is not, and `writeWithEvent`ing the same two fields directly is the smaller cost. `from`
+     * and `to` both name the card's current stage because this never moves it — `ready` is exactly
+     * where a human decides what happens next.
+     */
+    private async flagMergeFailure(id: string, stage: string, reason: string): Promise<void> {
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Flag ${id}: merge failed`,
+            current => ({ ...current, frontmatter: { ...current.frontmatter, needsHuman: true, needsHumanReason: reason } }),
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage,
+                type: 'transition.written',
+                payload: { from: stage, to: stage, by: 'human', needsHuman: true, reason },
+            },
+        );
+    }
+
+    /**
+     * Card 0143. Prove the computed merge before it lands: cut a throwaway worktree at
+     * `mergeCommit` — unreferenced by any branch until {@link WorktreeManager.landMerge} says so —
+     * and run the `testing` stage's own configured suite against it, the same command the testing
+     * stage already treats as "green". Both the worktree and its throwaway branch are reclaimed
+     * unconditionally, pass or fail, so neither lingers the way the card's own worktree and branch
+     * (left alone throughout this method — see Constraints) must: {@link PlanService.close} deletes
+     * its own throwaway branch the same way after reclaiming that session's worktree.
+     */
+    private async proveMerge(id: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+        const stages = await loadStages(this.boardConfig.boardRoot);
+        const stage = findStage(stages, 'testing');
+
+        const scratchId = `${id}-merge-check`;
+        const scratchBranch = `card/${id}-merge-check`;
+        const worktree = await this.worktrees.create(scratchId, scratchBranch, mergeCommit);
+
+        try {
+            if (stage.setupCommand) {
+                const setupCommand = stage.setupCommand;
+                const setup = await pnpmStoreLock.run(`${id} merge-check setup`, message => this.logger.info(message), () =>
+                    runConfiguredCommand(worktree.path, setupCommand),
+                );
+                if (setup) return { ok: false, reason: `setup failed: ${setup.reason}` };
+            }
+
+            if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
+
+            const run = await runConfiguredCommand(worktree.path, stage.testCommand);
+            if (run) return { ok: false, reason: run.reason };
+
+            return { ok: true };
+        } finally {
+            await this.worktrees.reclaim(scratchId);
+            await git(this.boardConfig.codeRoot, ['branch', '-D', scratchBranch]).catch(() => undefined);
+        }
     }
 
     /**

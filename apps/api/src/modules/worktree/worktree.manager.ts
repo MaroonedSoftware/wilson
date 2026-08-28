@@ -4,7 +4,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
-import { git, isClean } from '#modules/board/git.js';
+import { conflictingPaths, git, isClean, mergeTree } from '#modules/board/git.js';
 import { codeRootLock } from './code.root.lock.js';
 
 export interface Worktree {
@@ -298,6 +298,86 @@ export class WorktreeManager {
      */
     async headSha(): Promise<string> {
         return (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+    }
+
+    /**
+     * Card 0143. Compute the merge of `branch` into `main`, entirely in the object database —
+     * `codeRoot`'s working tree and index never move (its own HEAD, checked out at `main`, is read
+     * with `rev-parse` and nothing else touches it). A clean merge hands back the resulting tree and
+     * the two shas {@link commitMerge} needs as parents; a conflicting one hands back the paths it
+     * could not resolve — a flag, not a poison, the same shape card 0103 established for a rebase
+     * conflict.
+     */
+    async computeMerge(
+        branch: string,
+    ): Promise<{ ok: true; treeSha: string; mainSha: string; branchSha: string } | { ok: false; conflicts: string[]; raw: string }> {
+        const mainSha = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+        const branchSha = (await git(this.config.codeRoot, ['rev-parse', branch])).stdout.trim();
+
+        const result = await mergeTree(this.config.codeRoot, mainSha, branchSha);
+        if (!result.ok) {
+            return { ok: false, conflicts: conflictingPaths(result.output), raw: result.output };
+        }
+        return { ok: true, treeSha: result.treeSha, mainSha, branchSha };
+    }
+
+    /**
+     * Create the merge commit object from {@link computeMerge}'s result. This alone does not move
+     * `main` — the commit is unreferenced until {@link landMerge} points the branch at it, which is
+     * deliberate: the caller runs the suite against this commit first and only lands it if that
+     * passes (card 0143's own Constraints, *the suite runs against the merged result before the ref
+     * moves*).
+     */
+    async commitMerge(mainSha: string, branchSha: string, treeSha: string, message: string): Promise<string> {
+        const { stdout } = await git(this.config.codeRoot, ['commit-tree', treeSha, '-p', mainSha, '-p', branchSha, '-m', message]);
+        return stdout.trim();
+    }
+
+    /**
+     * Move `main` onto `mergeCommit`, compare-and-swap against the `main` {@link computeMerge} last
+     * saw, read the ref back to confirm it actually moved, then reconcile `codeRoot`'s checkout to
+     * match.
+     *
+     * The CAS (`update-ref`'s optional third argument) refuses rather than clobbers if `main` moved
+     * while the suite was running against the computed merge — landing on top of a `main` this card
+     * never proved anything against would be worse than refusing. The read-back matters separately:
+     * [[0025]]'s prior art (vibe-kanban#1897) failed *silently* — the symptom was a card stuck at
+     * `ready` with no error — and an exit code is not evidence that the ref actually moved.
+     *
+     * Moving the ref is not the whole job. `update-ref` on a branch that is checked out moves `HEAD`'s
+     * target while leaving `codeRoot`'s working tree and index at the old commit — `git status` would
+     * then report every merged file as a staged deletion, a trap indistinguishable from "nothing
+     * happened" until an operator commits it. `git read-tree -m -u <mainSha> <mergeCommit>` is the
+     * two-way merge that brings both up to date: it preserves any uncommitted edit in `codeRoot` and
+     * refuses rather than overwrite one, so a refusal here is reported as a failed merge rather than
+     * swallowed — the ref has already moved at that point, but the checkout is left inconsistent with
+     * it, which is why this must never be silent.
+     */
+    async landMerge(mainSha: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+        try {
+            await git(this.config.codeRoot, ['update-ref', 'refs/heads/main', mergeCommit, mainSha]);
+        } catch (err) {
+            return { ok: false, reason: `main did not move: ${(err as Error).message}` };
+        }
+
+        const after = (await git(this.config.codeRoot, ['rev-parse', 'refs/heads/main'])).stdout.trim();
+        if (after !== mergeCommit) {
+            return {
+                ok: false,
+                reason: `update-ref reported success but main points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
+            };
+        }
+
+        try {
+            await git(this.config.codeRoot, ['read-tree', '-m', '-u', mainSha, mergeCommit]);
+        } catch (err) {
+            return {
+                ok: false,
+                reason: `main moved to ${mergeCommit.slice(0, 8)} but codeRoot's checkout could not be reconciled: ${(err as Error).message}`,
+            };
+        }
+
+        return { ok: true };
     }
 
     /**

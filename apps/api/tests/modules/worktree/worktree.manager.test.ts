@@ -508,6 +508,185 @@ describe('WorktreeManager', () => {
         });
     });
 
+    /**
+     * Card 0143: the merge computed without a checkout. `computeMerge` reads `codeRoot`'s own HEAD
+     * as `main` — these tests exercise that reading against a real repo, the same idiom every other
+     * `describe` block in this file uses, rather than mocking `git`.
+     */
+    describe('computeMerge', () => {
+        it('computes the tree and both parent shas for a clean merge, leaving codeRoot untouched', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const branchSha = (await exec('git', ['rev-parse', 'card/0001-thing'], { cwd: worktree.path })).stdout.trim();
+            const mainSha = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+
+            const result = await manager.computeMerge('card/0001-thing');
+
+            expect(result).toMatchObject({ ok: true, mainSha, branchSha });
+            if (!result.ok) throw new Error('expected a clean merge');
+            const cardFile = await exec('git', ['show', `${result.treeSha}:src/card.ts`], { cwd: codeRoot });
+            expect(cardFile.stdout).toBe('export const card = 1;\n');
+
+            // codeRoot is checked out at `main` throughout — computing the merge must not move it or
+            // dirty its working tree, the constraint this whole no-checkout approach exists to honour.
+            const branch = (await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            expect(branch).toBe('main');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('');
+        });
+
+        it('reports the conflicting paths, and still leaves codeRoot untouched, when the branch conflicts with main', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 100;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // main edits the same line differently after the branch was cut.
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 999;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'conflicting change on main'], { cwd: codeRoot });
+
+            const result = await manager.computeMerge('card/0001-thing');
+
+            expect(result.ok).toBe(false);
+            if (result.ok) throw new Error('expected a conflict');
+            expect(result.conflicts).toEqual(['src/index.ts']);
+
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('');
+        });
+
+        it('does not disturb uncommitted changes already sitting in codeRoot', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // An operator's own in-progress edit, sitting uncommitted in codeRoot.
+            await writeFile(join(codeRoot, 'src', 'operator-scratch.ts'), 'export const scratch = 1;\n', 'utf8');
+
+            await manager.computeMerge('card/0001-thing');
+
+            expect(await readFile(join(codeRoot, 'src', 'operator-scratch.ts'), 'utf8')).toBe('export const scratch = 1;\n');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('?? src/operator-scratch.ts');
+        });
+    });
+
+    describe('commitMerge', () => {
+        it('creates a commit with both shas as parents, unreferenced by any branch until landMerge', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const computed = await manager.computeMerge('card/0001-thing');
+            if (!computed.ok) throw new Error('expected a clean merge');
+
+            const mergeSha = await manager.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, 'Merge card 0001: thing');
+
+            const parents = (await exec('git', ['show', '-s', '--format=%P', mergeSha], { cwd: codeRoot })).stdout.trim().split(' ');
+            expect(parents).toEqual([computed.mainSha, computed.branchSha]);
+            const message = (await exec('git', ['show', '-s', '--format=%s', mergeSha], { cwd: codeRoot })).stdout.trim();
+            expect(message).toBe('Merge card 0001: thing');
+
+            // Committing the object does not move main — landMerge is the only thing that does.
+            const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            expect(head).toBe(computed.mainSha);
+            expect(head).not.toBe(mergeSha);
+        });
+    });
+
+    describe('landMerge', () => {
+        it('moves main onto the merge commit, confirms the ref actually moved, and reconciles codeRoot to match', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const computed = await manager.computeMerge('card/0001-thing');
+            if (!computed.ok) throw new Error('expected a clean merge');
+            const mergeSha = await manager.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, 'Merge card 0001: thing');
+
+            const result = await manager.landMerge(computed.mainSha, mergeSha);
+
+            expect(result).toEqual({ ok: true });
+            const head = (await exec('git', ['rev-parse', 'refs/heads/main'], { cwd: codeRoot })).stdout.trim();
+            expect(head).toBe(mergeSha);
+            const cardFile = await exec('git', ['show', 'refs/heads/main:src/card.ts'], { cwd: codeRoot });
+            expect(cardFile.stdout).toBe('export const card = 1;\n');
+            // Moving the ref is not the whole job (card 0143's Constraints): codeRoot's own working
+            // tree and index must be brought up to the new `main` too, or `git status` would report
+            // the merged file as a staged deletion even though `main` itself moved correctly.
+            expect(await readFile(join(codeRoot, 'src', 'card.ts'), 'utf8')).toBe('export const card = 1;\n');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('');
+        });
+
+        it("preserves an operator's uncommitted edit to an untouched file across a successful landMerge", async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const computed = await manager.computeMerge('card/0001-thing');
+            if (!computed.ok) throw new Error('expected a clean merge');
+            const mergeSha = await manager.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, 'Merge card 0001: thing');
+
+            // An operator's own in-progress edit, sitting uncommitted in codeRoot on a path the
+            // merge never touches.
+            await writeFile(join(codeRoot, 'src', 'operator-scratch.ts'), 'export const scratch = 1;\n', 'utf8');
+
+            const result = await manager.landMerge(computed.mainSha, mergeSha);
+
+            expect(result).toEqual({ ok: true });
+            expect(await readFile(join(codeRoot, 'src', 'operator-scratch.ts'), 'utf8')).toBe('export const scratch = 1;\n');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('?? src/operator-scratch.ts');
+        });
+
+        it('refuses rather than clobber an uncommitted edit that conflicts with the merge, leaving it on disk untouched', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const computed = await manager.computeMerge('card/0001-thing');
+            if (!computed.ok) throw new Error('expected a clean merge');
+            const mergeSha = await manager.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, 'Merge card 0001: thing');
+
+            // An operator's own uncommitted edit to the very file the merge also changes — read-tree
+            // must refuse rather than overwrite this (card 0143's Constraints: "do not use git reset
+            // --hard; it would destroy exactly the uncommitted work this must preserve").
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 99;\n', 'utf8');
+
+            const result = await manager.landMerge(computed.mainSha, mergeSha);
+
+            expect(result.ok).toBe(false);
+            if (result.ok) throw new Error('expected landMerge to refuse');
+            expect(result.reason).toContain('could not be reconciled');
+            // The ref already moved by this point — read-tree runs after update-ref succeeds — but
+            // the operator's uncommitted edit must survive on disk regardless, exactly as it was.
+            const head = (await exec('git', ['rev-parse', 'refs/heads/main'], { cwd: codeRoot })).stdout.trim();
+            expect(head).toBe(mergeSha);
+            expect(await readFile(join(codeRoot, 'src', 'index.ts'), 'utf8')).toBe('export const x = 99;\n');
+        });
+
+        it('refuses rather than clobbers when main moved since the merge was computed', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            const computed = await manager.computeMerge('card/0001-thing');
+            if (!computed.ok) throw new Error('expected a clean merge');
+            const mergeSha = await manager.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, 'Merge card 0001: thing');
+
+            // main moves on with something else after the merge was computed and committed.
+            await writeFile(join(codeRoot, 'src', 'landed-meanwhile.ts'), 'export const landed = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'landed while the merge was in flight'], { cwd: codeRoot });
+            const movedMain = (await exec('git', ['rev-parse', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+
+            const result = await manager.landMerge(computed.mainSha, mergeSha);
+
+            expect(result.ok).toBe(false);
+            // main was left exactly where it moved to, not clobbered with the stale merge commit.
+            const head = (await exec('git', ['rev-parse', 'refs/heads/main'], { cwd: codeRoot })).stdout.trim();
+            expect(head).toBe(movedMain);
+            expect(head).not.toBe(mergeSha);
+        });
+    });
+
     describe('headSha', () => {
         // Card 0103: a caller that gets `{ ok: false }` back from `rebaseOntoHead` needs the exact
         // commit the rebase was attempted against, without `rebaseOntoHead` itself having to return
