@@ -15,6 +15,9 @@ import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
 import { POSITION_GAP } from '#modules/board/card.position.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
+import { unsatisfiedDependencies } from '#modules/board/next.card.js';
+import { DRY_RUN_INTEGRATION_BRANCH } from '#modules/worktree/worktree.manager.js';
+import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
@@ -1552,15 +1555,28 @@ describe('BoardWriteService', () => {
          */
         const mergeWorktrees = (overrides: Record<string, unknown> = {}) => ({
             resolveBranch: vi.fn(() => 'card/0090-thing'),
-            computeMerge: vi.fn(async () => ({ ok: true, treeSha: 'tree-sha', mainSha: 'main-sha-before', branchSha: 'branch-sha' })),
+            computeMerge: vi.fn(async () => ({ ok: true, treeSha: 'tree-sha', targetSha: 'main-sha-before', branchSha: 'branch-sha' })),
             commitMerge: vi.fn(async () => 'merge-commit-sha'),
             landMerge: vi.fn(async () => ({ ok: true })),
             create: vi.fn(async () => ({ path: tmpdir(), branch: 'card/0090-thing-merge-check', baseSha: 'merge-commit-sha' })),
             reclaim: vi.fn(async () => {}),
+            // Card 0144: `ensureIntegrationBranch`/`headSha` only matter when dry run is on — a
+            // default that answers with the real branch name and an unmoving sha lets every test
+            // that isn't about dry run itself ignore them entirely.
+            ensureIntegrationBranch: vi.fn(async () => DRY_RUN_INTEGRATION_BRANCH),
+            headSha: vi.fn(async () => 'main-sha-before'),
             ...overrides,
         });
 
-        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, root: string) => {
+        /**
+         * Card 0144. `merge` reads `DRY_RUN_ENABLED` through `SettingsStore` fresh on every call —
+         * this fake stands in for it. Defaults to dry run *off* so every test that predates card 0144
+         * keeps exercising exactly the behaviour it always has (card 0143's, landing on `main`); the
+         * dry-run-specific tests below pass `true` explicitly rather than relying on this default.
+         */
+        const fakeSettings = (dryRun: boolean): SettingsStore => ({ get: vi.fn(async () => dryRun) }) as unknown as SettingsStore;
+
+        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, root: string, dryRun = false) => {
             const events = { append: vi.fn(async () => {}) };
             const config = new StaticBoardConfig(uniqueProject(), root, '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
@@ -1577,6 +1593,7 @@ describe('BoardWriteService', () => {
                 cardJobs,
                 broker as unknown as JobBroker,
                 runningCards,
+                fakeSettings(dryRun),
             );
             return { board, service };
         };
@@ -1648,7 +1665,8 @@ describe('BoardWriteService', () => {
             expect(result.commit).toBe('merge-commit-sha');
             expect(result.reason).toBeUndefined();
             expect(worktrees.commitMerge).toHaveBeenCalledWith('main-sha-before', 'branch-sha', 'tree-sha', expect.stringContaining('0093'));
-            expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha');
+            expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha', 'main');
+            expect(worktrees.ensureIntegrationBranch).not.toHaveBeenCalled();
             expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check');
 
             const stored = await board.read('0093');
@@ -1724,6 +1742,7 @@ describe('BoardWriteService', () => {
                 cardJobs,
                 broker as unknown as JobBroker,
                 new RunningCards(),
+                fakeSettings(false),
             );
             await board.create(card('0095', { stage: 'ready', branch: 'card/0095-thing' }), 'seed');
 
@@ -1732,6 +1751,194 @@ describe('BoardWriteService', () => {
             expect(result.merged).toBe(true);
             const { stdout } = await exec('git', ['branch', '--list', 'card/0095-merge-check'], { cwd: codeRoot });
             expect(stdout.trim()).toBe('');
+        });
+
+        /**
+         * Card 0144. Same double-based idiom as the tests above, but with dry run switched on: proves
+         * `merge` reads `WorktreeManager.ensureIntegrationBranch` for its target instead of `'main'`,
+         * lands there, reads `main` before and after to confirm the rehearsal never touched it, and
+         * says plainly in the result that it was a rehearsal — while still moving the card to `merged`
+         * (this card's Constraints: withholding that would make every dependent card undispatchable).
+         */
+        it('computes and lands against the integration branch when dry run is on, leaves main unread for anything but the before/after check, and says it was a rehearsal', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+            const worktrees = mergeWorktrees();
+            const { board, service } = freshMergeBoard(worktrees, root, true);
+            await board.create(card('0099', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0099');
+
+            expect(worktrees.ensureIntegrationBranch).toHaveBeenCalled();
+            expect(worktrees.computeMerge).toHaveBeenCalledWith('card/0090-thing', DRY_RUN_INTEGRATION_BRANCH);
+            expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha', DRY_RUN_INTEGRATION_BRANCH);
+            // headSha is read exactly twice: once before anything runs, once after landing, to prove
+            // main did not move — never used as the merge target itself.
+            expect(worktrees.headSha).toHaveBeenCalledTimes(2);
+
+            expect(result.merged).toBe(true);
+            expect(result.commit).toBe('merge-commit-sha');
+            expect(result.reason).toMatch(/dry run/i);
+            expect(result.reason).toContain(DRY_RUN_INTEGRATION_BRANCH);
+
+            const stored = await board.read('0099');
+            expect(stored.frontmatter.stage).toBe('merged');
+        });
+
+        it('throws rather than silently reporting success when a dry-run merge somehow moves main, and never reaches move', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+            const headShas = ['main-before', 'main-moved-unexpectedly'];
+            const worktrees = mergeWorktrees({ headSha: vi.fn(async () => headShas.shift()) });
+            const { board, service } = freshMergeBoard(worktrees, root, true);
+            await board.create(card('0100', { stage: 'ready' }), 'seed');
+
+            await expect(service.merge('0100')).rejects.toThrow(/main moved/);
+
+            // The throw happens before the card is moved to merged — landing already happened, but
+            // the card transition itself must not be reported as having succeeded.
+            const stored = await board.read('0100');
+            expect(stored.frontmatter.stage).toBe('ready');
+        });
+
+        /**
+         * Card 0144's own acceptance criteria, exercised end to end against real git rather than a
+         * double: main's sha is identical before and after, the integration branch's tip carries the
+         * card's work, and the card still ends in `merged`.
+         */
+        it('rehearses a merge end to end: main is untouched, the integration branch carries the work, and the card still reaches merged', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+
+            const base = await mkdtemp(join(tmpdir(), 'board-write-service-dry-run-'));
+            const codeRoot = join(base, 'code');
+            await mkdir(join(codeRoot, 'src'), { recursive: true });
+            await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const worktrees = new WorktreeManager(config, fakeLogger());
+
+            const cardWorktree = await worktrees.create('0096', 'card/0096-thing');
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, '0096: implementing');
+
+            const events = { append: vi.fn(async () => {}) };
+            const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+            const service = new BoardWriteService(
+                board,
+                config,
+                worktrees,
+                events as unknown as EventLog,
+                fakeLogger(),
+                cardJobs,
+                broker as unknown as JobBroker,
+                new RunningCards(),
+                fakeSettings(true),
+            );
+            await board.create(card('0096', { stage: 'ready', branch: 'card/0096-thing' }), 'seed');
+
+            const mainBefore = (await exec('git', ['rev-parse', 'main'], { cwd: codeRoot })).stdout.trim();
+
+            const result = await service.merge('0096');
+
+            expect(result.merged).toBe(true);
+            expect(result.reason).toMatch(/dry run/i);
+
+            const mainAfter = (await exec('git', ['rev-parse', 'main'], { cwd: codeRoot })).stdout.trim();
+            expect(mainAfter).toBe(mainBefore);
+
+            const integrationFile = await exec('git', ['show', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}:src/feature.ts`], { cwd: codeRoot });
+            expect(integrationFile.stdout).toBe('export const feature = 1;\n');
+
+            const stored = await board.read('0096');
+            expect(stored.frontmatter.stage).toBe('merged');
+        });
+
+        /**
+         * The composing half of card 0144's acceptance criteria: a second card's dry-run merge must
+         * see the first's result on the integration branch, and a card depending on the first must
+         * become dispatchable — proven by actually merging both and then reading the resulting board
+         * state through `unsatisfiedDependencies`, not by asserting the dependency rule in isolation.
+         */
+        it('composes two dry-run merges on the integration branch, and lets a dependent card become dispatchable', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+
+            const base = await mkdtemp(join(tmpdir(), 'board-write-service-dry-run-compose-'));
+            const codeRoot = join(base, 'code');
+            await mkdir(join(codeRoot, 'src'), { recursive: true });
+            await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const worktrees = new WorktreeManager(config, fakeLogger());
+            const events = { append: vi.fn(async () => {}) };
+            const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+            const service = new BoardWriteService(
+                board,
+                config,
+                worktrees,
+                events as unknown as EventLog,
+                fakeLogger(),
+                cardJobs,
+                broker as unknown as JobBroker,
+                new RunningCards(),
+                fakeSettings(true),
+            );
+
+            // Card 0097 is cut from main before anything has landed on the integration branch.
+            const worktreeA = await worktrees.create('0097', 'card/0097-thing');
+            await writeFile(join(worktreeA.path, 'src', 'feature-a.ts'), 'export const a = 1;\n', 'utf8');
+            await worktrees.commit(worktreeA, '0097: implementing');
+            await board.create(card('0097', { stage: 'ready', branch: 'card/0097-thing' }), 'seed');
+
+            const resultA = await service.merge('0097');
+            expect(resultA.merged).toBe(true);
+
+            // Card 0098 depends on 0097 and is also cut from main — its own file never touches
+            // 0097's, so the only way both files end up on the integration branch together is if
+            // 0098's merge is computed against the branch's tip (which already carries 0097's dry-run
+            // result), not against bare main.
+            const worktreeB = await worktrees.create('0098', 'card/0098-thing');
+            await writeFile(join(worktreeB.path, 'src', 'feature-b.ts'), 'export const b = 1;\n', 'utf8');
+            await worktrees.commit(worktreeB, '0098: implementing');
+            await board.create(card('0098', { stage: 'ready', branch: 'card/0098-thing', dependsOn: ['0097'] }), 'seed');
+
+            const resultB = await service.merge('0098');
+            expect(resultB.merged).toBe(true);
+
+            const fileA = await exec('git', ['show', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}:src/feature-a.ts`], { cwd: codeRoot });
+            expect(fileA.stdout).toBe('export const a = 1;\n');
+            const fileB = await exec('git', ['show', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}:src/feature-b.ts`], { cwd: codeRoot });
+            expect(fileB.stdout).toBe('export const b = 1;\n');
+
+            // 0098's merge commit carries 0097's own merge commit as a parent — proof it was computed
+            // against the first result, not against bare main.
+            const parentsOfB = (await exec('git', ['show', '-s', '--format=%P', resultB.commit as string], { cwd: codeRoot })).stdout
+                .trim()
+                .split(' ');
+            expect(parentsOfB).toContain(resultA.commit);
+
+            // The dependency rule itself only checks for `stage === 'merged'` — this proves a dry-run
+            // merge actually produces that, by reading the real board state back and asking the real
+            // rule, rather than trusting the rule and the merge's `merged: true` never to diverge.
+            const cards = await board.list();
+            const cardB = cards.find(c => c.frontmatter.id === '0098');
+            if (!cardB) throw new Error('expected card 0098 on the board');
+            expect(unsatisfiedDependencies(cardB, cards)).toEqual([]);
         });
     });
 });
