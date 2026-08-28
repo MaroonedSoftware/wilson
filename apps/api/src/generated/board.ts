@@ -274,12 +274,44 @@ export const PlanDraft = z.strictObject({
 export type PlanDraft = z.infer<typeof PlanDraft>;
 
 /**
+ * Card 0146. A comment left on a passage of a plan draft — what a person could point at but had
+ * nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
+ * surrounding window — never a resolved position: the draft is rewritten whole on every planning
+ * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
+ * comment moves through, not a delete — a comment the agent addressed stays on record.
+ * generated from [PlanComment](file://./../../data/contracts/board.ck#L235)
+ */
+export const PlanComment = z.strictObject({
+    id: z.string(),
+    quote: z.string(),
+    prefix: z.string(),
+    suffix: z.string(),
+    text: z.string(),
+    resolved: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    createdAt: _ZodDatetime,
+});
+export type PlanComment = z.infer<typeof PlanComment>;
+
+/**
+ * `POST .../plan/comments`'s request — the anchor a client already captured
+ * (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
+ * generated from [CreatePlanCommentRequest](file://./../../data/contracts/board.ck#L247)
+ */
+export const CreatePlanCommentRequest = z.strictObject({
+    quote: z.string(),
+    prefix: z.string(),
+    suffix: z.string(),
+    text: z.string(),
+});
+export type CreatePlanCommentRequest = z.infer<typeof CreatePlanCommentRequest>;
+
+/**
  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L235)
+ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L259)
  */
 export const DivisionPiece = z.strictObject({
     title: z.string(),
@@ -307,7 +339,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../data/contracts/board.ck#L251)
+ * generated from [CardDivision](file://./../../data/contracts/board.ck#L275)
  */
 export const CardDivision = z.strictObject({
     reason: z
@@ -325,7 +357,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L263)
+ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L287)
  */
 export const SplitCardsRequest = z.strictObject({
     pieces: z.array(DivisionPiece),
@@ -369,7 +401,7 @@ export type MergeResult = z.infer<typeof MergeResult>;
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../data/contracts/board.ck#L271)
+ * generated from [SplitResult](file://./../../data/contracts/board.ck#L295)
  */
 export const SplitResult = z.strictObject({
     origin: CardDetail,

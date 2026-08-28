@@ -227,6 +227,30 @@ contract PlanDraft: {
     body: string
 }
 
+# Card 0146. A comment left on a passage of a plan draft — what a person could point at but had
+# nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
+# surrounding window — never a resolved position: the draft is rewritten whole on every planning
+# turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
+# comment moves through, not a delete — a comment the agent addressed stays on record.
+contract PlanComment: {
+    id: string
+    quote: string
+    prefix: string
+    suffix: string
+    text: string
+    resolved: boolean
+    createdAt: datetime
+}
+
+# `POST .../plan/comments`'s request — the anchor a client already captured
+# (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
+contract CreatePlanCommentRequest: {
+    quote: string
+    prefix: string
+    suffix: string
+    text: string
+}
+
 # Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
 # apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
 # `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
@@ -709,6 +733,59 @@ operation /api/cards/{id}/plan/turn: {
                 application/json: PlanTurn
             }
             400:
+            404:
+        }
+    }
+}
+
+# Card 0146. Records an open comment on a passage of a card's plan draft — the anchor a client
+# already captured plus what the person said. Comments never touch `plan.md`, a card version or
+# the card body (PROJECT.md: only the resulting plan text binds downstream stages); they reach the
+# agent only as anchored instructions prepended to the card's next `POST .../plan/turn`.
+operation /api/cards/{id}/plan/comments: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Add a plan comment
+        service: PlanService.addComment
+        request: {
+            application/json: CreatePlanCommentRequest
+        }
+        response: {
+            200: {
+                application/json: PlanComment
+            }
+            404:
+        }
+    }
+    get: {
+        name: List plan comments
+        service: PlanService.comments
+        response: {
+            200: {
+                application/json: array(PlanComment)
+            }
+            404:
+        }
+    }
+}
+
+# Card 0146. Marks one comment resolved — a state the comment moves through, not a delete; it
+# stays on record afterward, readable from `GET .../plan/comments`. The same 404 covers either id
+# not existing — the card, or a comment id not belonging to it.
+operation /api/cards/{id}/plan/comments/{commentId}/resolve: {
+    params: {
+        id: string
+        commentId: string
+    }
+    post: {
+        name: Resolve a plan comment
+        service: PlanService.resolveComment
+        response: {
+            200: {
+                application/json: PlanComment
+            }
             404:
         }
     }

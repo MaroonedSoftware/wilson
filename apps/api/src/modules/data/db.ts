@@ -109,6 +109,24 @@ export interface PlanTurns {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A comment on a passage of a plan draft — what `PlanCommentRepository` appends to and reads
+ * from. `quote`/`prefix`/`suffix` are the anchor exactly as `apps/web/src/lib/anchor.ts`'s
+ * `Anchor` captures it, never a stored position; see the migration's header comment for why.
+ * `resolved` is a state a comment moves through, not a delete.
+ */
+export interface PlanComments {
+    id: Generated<string>;
+    project: string;
+    cardId: string;
+    quote: string;
+    prefix: string;
+    suffix: string;
+    text: string;
+    resolved: boolean;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -117,4 +135,5 @@ export interface DB {
     'runner.cardEvents': CardEvents;
     'runner.settings': Settings;
     'runner.planTurns': PlanTurns;
+    'runner.planComments': PlanComments;
 }
