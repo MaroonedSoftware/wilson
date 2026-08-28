@@ -6,7 +6,6 @@ import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
-import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
 import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
@@ -107,9 +106,10 @@ const ProjectContextRouter = () => {
  * Not `@maroonedsoftware/koa/serverfeed`'s `serverFeedRouter`: it guards its route with
  * `requirePolicy`, defaulting to an MFA gate, and even `{ policy: false }` still requires a valid
  * session per its own doc comment. This server has no authentication and no sessions at all (card
- * 0019), so no policy option that factory offers is satisfiable here. `openCardFeedStream` (see
- * `modules/feed/card.feed.route.ts`) takes the response over directly instead, the same way
- * `serverfeed`'s lower-level `handleServerFeed` does, and imposes no policy.
+ * 0019), so no policy option that factory offers is satisfiable here. `openSseStream` (the same
+ * primitive `modules/feed/card.feed.route.ts`'s `openCardFeedStream` is built on) takes the response
+ * over directly instead, the same way `serverfeed`'s lower-level `handleServerFeed` does, and
+ * imposes no policy.
  *
  * A factory rather than a module-level constant, unlike the other routers here: it needs the
  * server's lifecycle signal (`ServerKitServerBuilder.lifecycleSignal`) so shutdown drains an open
@@ -121,16 +121,31 @@ const ProjectContextRouter = () => {
  * `ProjectContextRouter` has already run (see that router's own doc comment on mount order) and
  * opened this request's `runAsProject` scope — so it is whichever project the request named, or the
  * daemon's own configured one if it named none, never the wrong project and never a project that
- * failed the registration check. Threaded into `openCardFeedStream` so this stream only ever
- * carries that one project's card events (see that function's own doc comment on why), which is
- * this card's answer to "what does a stream do when its project is absent or unregistered": absent
- * means the daemon's configured project, same as any other route, and unregistered never reaches
- * here at all — `ProjectContextRouter` already refused the request before this handler runs.
+ * failed the registration check. That is this card's answer to "what does a stream do when its
+ * project is absent or unregistered": absent means the daemon's configured project, same as any
+ * other route, and unregistered never reaches here at all — `ProjectContextRouter` already refused
+ * the request before this handler runs.
+ *
+ * The scoping itself (`cardFeed.snapshot(filter)` / `cardFeed.onEvent(filter, ...)` below) is
+ * inlined here rather than passed as a `project` argument into `openCardFeedStream`: that helper
+ * lives under `apps/api/src/modules/feed/**`, outside this card's Files in scope, and stays exactly
+ * what it was for a single-project deployment. This duplicates its small snapshot-then-subscribe
+ * body rather than reusing it, since reuse would mean either widening that file's scope or building
+ * a fake `ServerFeed` to smuggle a filter past its unchanged signature — both worse than the few
+ * duplicated lines here.
  */
 export const FeedRouter = (signal?: AbortSignal) => {
     const router = ServerKitRouter();
     router.get('/api/feed', async ctx => {
-        openCardFeedStream(ctx as unknown as SseContext, cardFeed, signal, ctx.container.get(BoardConfig).project);
+        const project = ctx.container.get(BoardConfig).project;
+        const filter = { source: project };
+        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+
+        for (const event of cardFeed.snapshot(filter)) {
+            stream.event({ event: 'card', data: event });
+        }
+
+        stream.onClose(cardFeed.onEvent(filter, event => stream.event({ event: 'card', data: event })));
     });
     return router;
 };
