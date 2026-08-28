@@ -335,14 +335,23 @@ export class WorktreeManager {
 
     /**
      * Move `main` onto `mergeCommit`, compare-and-swap against the `main` {@link computeMerge} last
-     * saw, then read the ref back to confirm it actually moved.
+     * saw, read the ref back to confirm it actually moved, then reconcile `codeRoot`'s checkout to
+     * match.
      *
-     * Both halves matter. The CAS (`update-ref`'s optional third argument) refuses rather than
-     * clobbers if `main` moved while the suite was running against the computed merge — landing on
-     * top of a `main` this card never proved anything against would be worse than refusing. The
-     * read-back matters separately: [[0025]]'s prior art
-     * (vibe-kanban#1897) failed *silently* — the symptom was a card stuck at `ready` with no error —
-     * and an exit code is not evidence that the ref actually moved.
+     * The CAS (`update-ref`'s optional third argument) refuses rather than clobbers if `main` moved
+     * while the suite was running against the computed merge — landing on top of a `main` this card
+     * never proved anything against would be worse than refusing. The read-back matters separately:
+     * [[0025]]'s prior art (vibe-kanban#1897) failed *silently* — the symptom was a card stuck at
+     * `ready` with no error — and an exit code is not evidence that the ref actually moved.
+     *
+     * Moving the ref is not the whole job. `update-ref` on a branch that is checked out moves `HEAD`'s
+     * target while leaving `codeRoot`'s working tree and index at the old commit — `git status` would
+     * then report every merged file as a staged deletion, a trap indistinguishable from "nothing
+     * happened" until an operator commits it. `git read-tree -m -u <mainSha> <mergeCommit>` is the
+     * two-way merge that brings both up to date: it preserves any uncommitted edit in `codeRoot` and
+     * refuses rather than overwrite one, so a refusal here is reported as a failed merge rather than
+     * swallowed — the ref has already moved at that point, but the checkout is left inconsistent with
+     * it, which is why this must never be silent.
      */
     async landMerge(mainSha: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
         try {
@@ -358,6 +367,16 @@ export class WorktreeManager {
                 reason: `update-ref reported success but main points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
             };
         }
+
+        try {
+            await git(this.config.codeRoot, ['read-tree', '-m', '-u', mainSha, mergeCommit]);
+        } catch (err) {
+            return {
+                ok: false,
+                reason: `main moved to ${mergeCommit.slice(0, 8)} but codeRoot's checkout could not be reconciled: ${(err as Error).message}`,
+            };
+        }
+
         return { ok: true };
     }
 
