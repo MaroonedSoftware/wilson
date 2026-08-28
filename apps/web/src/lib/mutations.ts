@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
-import { SdkError, type CardSummary, type PlanTurn } from '@wilson/sdk';
+import { SdkError, type CardDetail, type CardSummary, type CreateCardRequest, type PlanTurn } from '@wilson/sdk';
 import { wilson } from './sdk.js';
 
 /**
@@ -130,6 +130,31 @@ export function useSaveAPlanDraft(id: string) {
         mutationFn: (body: string) => wilson.board.saveAPlanDraft(id, { body }),
         onSuccess: result => {
             queryClient.setQueryData(['card', id], result);
+        },
+    });
+}
+
+/**
+ * Files a card from the board (card 0142) — the counterpart to `wilson card create`, the one
+ * frequent operator action that otherwise still requires a terminal.
+ *
+ * No `['cards']` invalidation on success, unlike `useMoveCard`/`useStartCard` above: the new card
+ * lands through the same git write every other board change does, and the feed (`lib/feed.ts`)
+ * already invalidates `['cards']` off that — adding a second invalidation here would just be a
+ * redundant refetch racing the one the feed already triggers. The caller (the new-card control)
+ * takes the returned `CardDetail` and navigates to it directly rather than waiting on the list.
+ *
+ * A refusal is a notification, matching `useMoveCard`/`useStartCard`'s convention — this card's
+ * Constraints ask for `@mantine/notifications`, not an inline error the way `DraftPane`'s save
+ * does it — and, like every mutation here, names the server's own reason (`reasonFor`) rather than
+ * a generic message. `useMutation` leaves both fields exactly as typed on a refusal since nothing
+ * here clears them, so the form the control renders keeps what was typed for a retry.
+ */
+export function useCreateCard() {
+    return useMutation({
+        mutationFn: (body: CreateCardRequest): Promise<CardDetail> => wilson.board.createCard(body),
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not create card', message: reasonFor(err) });
         },
     });
 }
