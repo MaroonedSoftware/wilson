@@ -20,13 +20,21 @@ import type { ServerFeed } from '@maroonedsoftware/serverfeed';
  * the stream (for this reason as for any other) releases the `feed.onEvent` subscription below.
  * Optional so a caller with no server lifecycle — a test, or the CLI bootstrap, which skips
  * `start` hooks — still works exactly as before.
+ *
+ * Card 0150. `project`, when given, scopes both the initial snapshot and the live subscription to
+ * that project's events (`ServerFeed`'s `source` filter — every event here is published with
+ * `source` set to the project it happened in, see `card.feed.listener.ts`). Optional, and no-op
+ * when omitted, so this stays exactly what it was for a single-project deployment: `FeedRouter`
+ * (`routes.setup.ts`) passes the project its own project-context middleware already resolved for
+ * the request, rather than every subscriber seeing every registered project's cards mixed together.
  */
-export const openCardFeedStream = (ctx: SseContext, feed: ServerFeed, signal?: AbortSignal): void => {
+export const openCardFeedStream = (ctx: SseContext, feed: ServerFeed, signal?: AbortSignal, project?: string): void => {
     const stream = openSseStream(ctx, { signal });
+    const filter = project ? { source: project } : {};
 
-    for (const event of feed.snapshot()) {
+    for (const event of feed.snapshot(filter)) {
         stream.event({ event: 'card', data: event });
     }
 
-    stream.onClose(feed.onEvent({}, event => stream.event({ event: 'card', data: event })));
+    stream.onClose(feed.onEvent(filter, event => stream.event({ event: 'card', data: event })));
 };

@@ -19,8 +19,22 @@ export const resolveApiBase = (ctx: CliContext): string => {
     return `http://localhost:${ctx.config.get('PORT', DEFAULT_PORT)}`;
 };
 
+/**
+ * Card 0150. Which project this invocation targets — `WILSON_PROJECT`, read the same way
+ * `resolveApiBase` reads `API_URL`/`PORT`, so it needs no per-command flag: every one of the 16
+ * commands already builds its client through `apiClient`/`withApi` below, so setting this once here
+ * reaches all of them. Unset (the common case — a single-project deployment, or an operator who
+ * hasn't opted into naming one) resolves to `undefined`, which `WilsonSdk`/`createSdkFetch` treat as
+ * "send no project header at all" — the server then answers for its own configured project, exactly
+ * what every command typed today already gets.
+ */
+export const resolveProject = (ctx: CliContext): string | undefined => {
+    const project = ctx.config.get('WILSON_PROJECT', '').trim();
+    return project || undefined;
+};
+
 /** One SDK instance per invocation, pointed at wherever config says the API lives. */
-export const apiClient = (ctx: CliContext): WilsonSdk => new WilsonSdk({ baseUrl: resolveApiBase(ctx) });
+export const apiClient = (ctx: CliContext): WilsonSdk => new WilsonSdk({ baseUrl: resolveApiBase(ctx), project: resolveProject(ctx) });
 
 /** True for a `fetch` failure that never reached a server — a refused or absent connection. */
 const isConnectionFailure = (err: unknown): boolean => {
