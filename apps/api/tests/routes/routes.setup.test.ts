@@ -201,4 +201,15 @@ describe('routers', () => {
         expect(SettingsRouter.match('/api/settings/notify-webhook', 'POST').route).toBe(false);
         expect(SettingsRouter.match('/api/settings/notify-webhook', 'DELETE').route).toBe(false);
     });
+
+    // Card 0144: the merge pipeline's rehearsal switch, read and written over the API the same way
+    // every other operational setting already is.
+    it.each([['GET'], ['PUT']])('routes %s /api/settings/dry-run to the settings router', method => {
+        expect(SettingsRouter.match('/api/settings/dry-run', method).route).toBe(true);
+    });
+
+    it('does not route an undeclared method to the dry-run settings path', () => {
+        expect(SettingsRouter.match('/api/settings/dry-run', 'POST').route).toBe(false);
+        expect(SettingsRouter.match('/api/settings/dry-run', 'DELETE').route).toBe(false);
+    });
 });

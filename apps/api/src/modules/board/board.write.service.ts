@@ -4,6 +4,8 @@ import { Logger } from '@maroonedsoftware/logger';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { findStage, loadStages, validTargets } from '#modules/stages/stage.config.js';
 import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
@@ -60,6 +62,7 @@ export class BoardWriteService {
         private readonly cardJobs: CardJobs,
         private readonly broker: JobBroker,
         private readonly runningCards: RunningCards,
+        private readonly settings: SettingsStore,
     ) {}
 
     /**
@@ -514,11 +517,20 @@ export class BoardWriteService {
     }
 
     /**
-     * Card 0143. Merge a card's branch into `main` — the step every card on this board has always
-     * needed a human with a shell for: verify clean, `git merge --no-ff`, run the suite, `wilson
-     * card move <id> merged`. This is that, minus the shell: no checkout of `codeRoot` ([[0025]]'s
-     * warning, this card's own Constraints), and the card does not move until the ref move is
-     * verified, not merely reported.
+     * Card 0143, rehearsable as of card 0144. Merge a card's branch into `main` — the step every
+     * card on this board has always needed a human with a shell for: verify clean, `git merge
+     * --no-ff`, run the suite, `wilson card move <id> merged`. This is that, minus the shell: no
+     * checkout of `codeRoot` ([[0025]]'s warning, card 0143's own Constraints), and the card does
+     * not move until the ref move is verified, not merely reported.
+     *
+     * With dry run on (`DRY_RUN_ENABLED`, the default — PROJECT.md's *Safety* section), the target
+     * is {@link WorktreeManager.ensureIntegrationBranch}'s branch instead of `main`: the merge, the
+     * suite proof, and the land all run exactly as they would against `main`, but `main` itself is
+     * never read with anything that could move it and its sha is asserted unchanged before this
+     * returns. The card still ends in `merged` — withholding that would make every card depending on
+     * this one permanently undispatchable, defeating a rehearsal's whole purpose (this card's
+     * Constraints) — and `MergeResult.reason` says plainly that it was a rehearsal, on the same field
+     * a real merge leaves empty.
      *
      * Only "this card is not in `ready`" is refused outright. A conflict and a suite failure are not
      * bad input — they are the other two honest outcomes an attempt can have — so both come back as
@@ -533,36 +545,65 @@ export class BoardWriteService {
             throw httpError(400).withDetails({ reason: `cannot merge ${id}: it is in "${card.frontmatter.stage}", not "ready"` });
         }
 
+        const dryRun = await this.settings.get(DRY_RUN_ENABLED);
+        const targetRef = dryRun ? await this.worktrees.ensureIntegrationBranch() : 'main';
+        // Read before anything below runs, so a dry run can prove afterward that nothing it did
+        // moved `main` — the whole value of a rehearsal is that it cannot touch the thing it
+        // rehearses (this card's Constraints). `headSha` reads `codeRoot`'s HEAD, which is `main`
+        // whether or not this run is a dry run, so this is a real assertion, not a tautology.
+        const mainShaBefore = dryRun ? await this.worktrees.headSha() : undefined;
+
         const branch = this.worktrees.resolveBranch(card);
-        const computed = await this.worktrees.computeMerge(branch);
+        const computed = await this.worktrees.computeMerge(branch, targetRef);
         if (!computed.ok) {
-            const reason = `${branch} conflicts with main: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
+            const reason = `${branch} conflicts with ${targetRef}: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
             await this.flagMergeFailure(id, card.frontmatter.stage, reason);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
         }
 
-        const message = `Merge card ${id}: ${card.frontmatter.title}`;
-        const mergeCommit = await this.worktrees.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, message);
+        const message = dryRun
+            ? `Merge card ${id}: ${card.frontmatter.title} (dry run — rehearsed onto ${targetRef}, main withheld)`
+            : `Merge card ${id}: ${card.frontmatter.title}`;
+        const mergeCommit = await this.worktrees.commitMerge(computed.targetSha, computed.branchSha, computed.treeSha, message);
 
         const proof = await this.proveMerge(id, mergeCommit);
         if (!proof.ok) {
-            const reason = `merge of ${branch} into main fails the suite: ${proof.reason}`;
+            const reason = `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
             await this.flagMergeFailure(id, card.frontmatter.stage, reason);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
         }
 
-        const landed = await this.worktrees.landMerge(computed.mainSha, mergeCommit);
+        const landed = await this.worktrees.landMerge(computed.targetSha, mergeCommit, targetRef);
         if (!landed.ok) {
             await this.flagMergeFailure(id, card.frontmatter.stage, landed.reason);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason: landed.reason };
         }
 
+        if (dryRun) {
+            const mainShaAfter = await this.worktrees.headSha();
+            if (mainShaAfter !== mainShaBefore) {
+                // Not a recoverable outcome for this attempt — landing already happened, and a dry
+                // run that moved `main` is exactly the failure this card exists to make impossible.
+                // Surfacing it as a thrown 500 rather than a quiet `merged: false` is deliberate:
+                // this is a bug in the rehearsal itself, not an honest outcome of one.
+                throw new Error(
+                    `dry-run merge of ${id} landed on ${targetRef}, but main moved from ${mainShaBefore} to ${mainShaAfter} — a rehearsal must never touch main`,
+                );
+            }
+        }
+
         // The existing write path, not a bespoke one: `move` is what pins runner state to a
         // transition, reclaims the worktree on a terminal target, and clears a stale flag — every
         // reason `[[0143]]`'s Constraints give for landing through the same door every other
-        // terminal transition uses.
+        // terminal transition uses. This runs even in dry run: a dry-run merge is what lets a
+        // dependent card dispatch (this card's Constraints), so the card reaching `merged` cannot
+        // wait for dry run to be turned off.
         await this.move(id, { stage: 'merged' });
-        return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit };
+
+        const reason = dryRun
+            ? `dry run: rehearsed onto ${targetRef} at ${mergeCommit.slice(0, 8)} — the write to main was withheld`
+            : undefined;
+        return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit, reason };
     }
 
     /**

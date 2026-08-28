@@ -29,7 +29,7 @@ import { z } from 'zod';
  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
  * absence, not a substitute for it.
- * generated from [PollerSetting](file://./../../data/contracts/settings.ck#L40)
+ * generated from [PollerSetting](file://./../../data/contracts/settings.ck#L41)
  */
 export const PollerSetting = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -37,7 +37,7 @@ export const PollerSetting = z.strictObject({
 export type PollerSetting = z.infer<typeof PollerSetting>;
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../data/contracts/settings.ck#L44)
+ * generated from [SetPollerSettingRequest](file://./../../data/contracts/settings.ck#L45)
  */
 export const SetPollerSettingRequest = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -47,7 +47,7 @@ export type SetPollerSettingRequest = z.infer<typeof SetPollerSettingRequest>;
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../data/contracts/settings.ck#L50)
+ * generated from [PollerInterval](file://./../../data/contracts/settings.ck#L51)
  */
 export const PollerInterval = z.strictObject({
     intervalMs: z.coerce.number().int(),
@@ -55,7 +55,7 @@ export const PollerInterval = z.strictObject({
 export type PollerInterval = z.infer<typeof PollerInterval>;
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../data/contracts/settings.ck#L54)
+ * generated from [SetPollerIntervalRequest](file://./../../data/contracts/settings.ck#L55)
  */
 export const SetPollerIntervalRequest = z.strictObject({
     intervalMs: z.coerce.number().int(),
@@ -65,7 +65,7 @@ export type SetPollerIntervalRequest = z.infer<typeof SetPollerIntervalRequest>;
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../data/contracts/settings.ck#L60)
+ * generated from [CardStageConcurrency](file://./../../data/contracts/settings.ck#L61)
  */
 export const CardStageConcurrency = z.strictObject({
     concurrency: z.coerce.number().int(),
@@ -73,7 +73,7 @@ export const CardStageConcurrency = z.strictObject({
 export type CardStageConcurrency = z.infer<typeof CardStageConcurrency>;
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../data/contracts/settings.ck#L64)
+ * generated from [SetCardStageConcurrencyRequest](file://./../../data/contracts/settings.ck#L65)
  */
 export const SetCardStageConcurrencyRequest = z.strictObject({
     concurrency: z.coerce.number().int(),
@@ -85,7 +85,7 @@ export type SetCardStageConcurrencyRequest = z.infer<typeof SetCardStageConcurre
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
  * card in its payload (`board.config.ts`'s own comment on the pair).
- * generated from [NotifyWebhookSetting](file://./../../data/contracts/settings.ck#L138)
+ * generated from [NotifyWebhookSetting](file://./../../data/contracts/settings.ck#L139)
  */
 export const NotifyWebhookSetting = z.strictObject({
     webhookUrl: z.string().nullable(),
@@ -94,7 +94,7 @@ export const NotifyWebhookSetting = z.strictObject({
 export type NotifyWebhookSetting = z.infer<typeof NotifyWebhookSetting>;
 
 /**
- * generated from [SetNotifyWebhookSettingRequest](file://./../../data/contracts/settings.ck#L143)
+ * generated from [SetNotifyWebhookSettingRequest](file://./../../data/contracts/settings.ck#L144)
  */
 export const SetNotifyWebhookSettingRequest = z.strictObject({
     webhookUrl: z.string().nullable(),
@@ -113,7 +113,7 @@ export type SetNotifyWebhookSettingRequest = z.infer<typeof SetNotifyWebhookSett
  * directory exists, is writable, or holds working credentials is deliberately not this card's
  * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
  * stage failing at the model call, not by a check here guessing at what "working" means.
- * generated from [ClaudeConfigDirSetting](file://./../../data/contracts/settings.ck#L183)
+ * generated from [ClaudeConfigDirSetting](file://./../../data/contracts/settings.ck#L184)
  */
 export const ClaudeConfigDirSetting = z.strictObject({
     configDir: z.string().nullable(),
@@ -121,9 +121,29 @@ export const ClaudeConfigDirSetting = z.strictObject({
 export type ClaudeConfigDirSetting = z.infer<typeof ClaudeConfigDirSetting>;
 
 /**
- * generated from [SetClaudeConfigDirSettingRequest](file://./../../data/contracts/settings.ck#L187)
+ * generated from [SetClaudeConfigDirSettingRequest](file://./../../data/contracts/settings.ck#L188)
  */
 export const SetClaudeConfigDirSettingRequest = z.strictObject({
     configDir: z.string().nullable(),
 });
 export type SetClaudeConfigDirSettingRequest = z.infer<typeof SetClaudeConfigDirSettingRequest>;
+
+/**
+ * Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
+ * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
+ * (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
+ * is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
+ * generated from [DryRunSetting](file://./../../data/contracts/settings.ck#L220)
+ */
+export const DryRunSetting = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type DryRunSetting = z.infer<typeof DryRunSetting>;
+
+/**
+ * generated from [SetDryRunSettingRequest](file://./../../data/contracts/settings.ck#L224)
+ */
+export const SetDryRunSettingRequest = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type SetDryRunSettingRequest = z.infer<typeof SetDryRunSettingRequest>;

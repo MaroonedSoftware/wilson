@@ -27,14 +27,14 @@
  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
  * absence, not a substitute for it.
- * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L40)
+ * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L41)
  */
 export interface PollerSetting {
     enabled: boolean;
 }
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L44)
+ * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L45)
  */
 export interface SetPollerSettingRequest {
     enabled: boolean;
@@ -43,14 +43,14 @@ export interface SetPollerSettingRequest {
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L50)
+ * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L51)
  */
 export interface PollerInterval {
     intervalMs: number;
 }
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L54)
+ * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L55)
  */
 export interface SetPollerIntervalRequest {
     intervalMs: number;
@@ -59,14 +59,14 @@ export interface SetPollerIntervalRequest {
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L60)
+ * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L61)
  */
 export interface CardStageConcurrency {
     concurrency: number;
 }
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L64)
+ * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L65)
  */
 export interface SetCardStageConcurrencyRequest {
     concurrency: number;
@@ -77,7 +77,7 @@ export interface SetCardStageConcurrencyRequest {
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
  * card in its payload (`board.config.ts`'s own comment on the pair).
- * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L138)
+ * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L139)
  */
 export interface NotifyWebhookSetting {
     webhookUrl: string | null;
@@ -85,7 +85,7 @@ export interface NotifyWebhookSetting {
 }
 
 /**
- * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L143)
+ * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L144)
  */
 export interface SetNotifyWebhookSettingRequest {
     webhookUrl: string | null;
@@ -103,15 +103,33 @@ export interface SetNotifyWebhookSettingRequest {
  * directory exists, is writable, or holds working credentials is deliberately not this card's
  * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
  * stage failing at the model call, not by a check here guessing at what "working" means.
- * generated from [ClaudeConfigDirSetting](file://./../../../../apps/api/data/contracts/settings.ck#L183)
+ * generated from [ClaudeConfigDirSetting](file://./../../../../apps/api/data/contracts/settings.ck#L184)
  */
 export interface ClaudeConfigDirSetting {
     configDir: string | null;
 }
 
 /**
- * generated from [SetClaudeConfigDirSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L187)
+ * generated from [SetClaudeConfigDirSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L188)
  */
 export interface SetClaudeConfigDirSettingRequest {
     configDir: string | null;
+}
+
+/**
+ * Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
+ * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
+ * (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
+ * is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
+ * generated from [DryRunSetting](file://./../../../../apps/api/data/contracts/settings.ck#L220)
+ */
+export interface DryRunSetting {
+    enabled: boolean;
+}
+
+/**
+ * generated from [SetDryRunSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L224)
+ */
+export interface SetDryRunSettingRequest {
+    enabled: boolean;
 }
