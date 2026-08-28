@@ -204,6 +204,15 @@ contract PlanTurn: {
     createdAt: datetime
 }
 
+# Card 0140. `open` writes `draft.md` and hands back its server-local path (`PlanSession.draftPath`)
+# — no use to a browser, which is never on the same filesystem the CLI is (card 0077's split). This
+# is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
+# wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
+# closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
+contract PlanDraft: {
+    body: string
+}
+
 # Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
 # apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
 # `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
@@ -570,6 +579,29 @@ operation /api/cards/{id}/plan/open: {
                 application/json: PlanSession
             }
             400:
+            404:
+        }
+    }
+}
+
+# Card 0140. A read, and nothing else: creates no session, cuts no worktree, writes nothing — `open`
+# remains the only thing that seeds a draft. A card in `planning` that has never had a session open
+# has no `draft.md` on disk yet; that is ordinary, not a server error, so it gets a 200 with an empty
+# `body` rather than a 404 — this surface's 404 already means "no such card" (see every other
+# operation here), and reusing it for "no draft yet" would leave a client unable to tell the two
+# apart without inspecting `details`. [[0138]] renders an empty draft the same way it renders any
+# other, with no special-case error path for a state that is completely normal.
+operation /api/cards/{id}/plan/draft: {
+    params: {
+        id: string
+    }
+    get: {
+        name: Get a plan draft
+        service: PlanService.draft
+        response: {
+            200: {
+                application/json: PlanDraft
+            }
             404:
         }
     }
