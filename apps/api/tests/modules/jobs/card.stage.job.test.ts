@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
-import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
@@ -96,7 +96,10 @@ describe('CardStageJob', () => {
 
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing' });
+        // Card 0149: every enqueue now names the project it dispatches against — 'test', the
+        // `StaticBoardConfig` this suite builds with, since the payload above carries no `project`
+        // and `CardStageJob.run` falls back to `this.board.project` in that case.
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'test' });
         expect(events.append).not.toHaveBeenCalled();
     });
 
@@ -189,7 +192,7 @@ describe('CardStageJob', () => {
 
         await job.run({ cardId: '0001', stageName: 'testing' });
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'test' });
     });
 
     it('stops and records a chain.stopped event when the card lands on a manual stage', async () => {
@@ -262,7 +265,7 @@ describe('CardStageJob', () => {
 
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'test' });
     });
 
     describe('permanent failures', () => {
@@ -602,6 +605,89 @@ describe('CardStageJob', () => {
             expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
             expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.stale');
         });
+    });
+});
+
+/**
+ * Card 0149. `CardStagePayload.project` — see its own doc comment — is what `CardStageJob.run`
+ * resolves against `ProjectScopedBoardConfig`, wrapped in `runAsProject` for the whole dispatch. Every
+ * test above uses `StaticBoardConfig`, which does not care what project is on the call stack (its
+ * `project` field is fixed at construction), so it cannot tell "resolution happened correctly" apart
+ * from "resolution never ran at all". These use the real `ProjectScopedBoardConfig` instead, with two
+ * projects registered, so a wrong resolution would actually be observable — a `broker.send`/
+ * `events.append` carrying the wrong project's name, or `loadStages` reading the wrong project's
+ * `stages.yaml` off disk entirely.
+ */
+describe('CardStageJob resolves its project from the payload (card 0149)', () => {
+    let dispatcher: { run: ReturnType<typeof vi.fn> };
+    let broker: { send: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let boardRepo: { write: ReturnType<typeof vi.fn>; read: ReturnType<typeof vi.fn> };
+    let cardJobs: { record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; inFlight: ReturnType<typeof vi.fn> };
+    let board: InstanceType<typeof ProjectScopedBoardConfig>;
+    let job: CardStageJob;
+
+    beforeEach(async () => {
+        const alphaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-alpha-'));
+        const alphaBoardRoot = join(alphaBase, 'board');
+        await mkdir(join(alphaBoardRoot, 'config'), { recursive: true });
+        await writeFile(join(alphaBoardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
+
+        const betaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-beta-'));
+        const betaBoardRoot = join(betaBase, 'board');
+        await mkdir(join(betaBoardRoot, 'config'), { recursive: true });
+        await writeFile(join(betaBoardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
+
+        board = new ProjectScopedBoardConfig('alpha');
+        board.register({ name: 'alpha', boardRoot: alphaBoardRoot, codeRoot: join(alphaBase, 'code'), worktreeRoot: join(alphaBase, 'wt'), runRoot: join(alphaBase, 'run') });
+        board.register({ name: 'beta', boardRoot: betaBoardRoot, codeRoot: join(betaBase, 'code'), worktreeRoot: join(betaBase, 'wt'), runRoot: join(betaBase, 'run') });
+
+        dispatcher = { run: vi.fn(async () => outcome({ transitionedTo: 'testing' })) };
+        broker = { send: vi.fn(async () => 'job-1') };
+        events = { append: vi.fn(async () => {}) };
+        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
+
+        job = new CardStageJob(
+            dispatcher as unknown as StageDispatcher,
+            broker as unknown as JobBroker,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+    });
+
+    it('falls back to the daemon\'s own configured project when the payload carries no project', async () => {
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'alpha' });
+    });
+
+    it('uses the project named in the payload instead of the daemon\'s configured default', async () => {
+        await job.run({ cardId: '0001', stageName: 'implementing', project: 'beta' });
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'beta' });
+        expect(broker.send).not.toHaveBeenCalledWith('card.stage', expect.objectContaining({ project: 'alpha' }));
+    });
+
+    it('records a chain-stop event under the payload\'s named project, not the daemon\'s default', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'review' })); // review is a manual stage — chain stops here
+
+        await job.run({ cardId: '0001', stageName: 'testing', project: 'beta' });
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({ project: 'beta', cardId: '0001', stage: 'testing', type: 'chain.stopped' }),
+        );
+    });
+
+    it('throws rather than dispatching, when the payload names a project this daemon never registered', async () => {
+        await expect(job.run({ cardId: '0001', stageName: 'implementing', project: 'ghost' })).rejects.toThrow(/ghost/i);
+
+        // Nothing was dispatched or recorded against any project — an unregistered project must fail
+        // loudly, not run silently against whichever project happened to be the default.
+        expect(broker.send).not.toHaveBeenCalled();
     });
 });
 

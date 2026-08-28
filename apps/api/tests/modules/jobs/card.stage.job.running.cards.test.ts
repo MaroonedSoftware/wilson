@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
-import { RunningCards } from '#modules/jobs/running.cards.js';
+import { RunningCards, type RunningCard } from '#modules/jobs/running.cards.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -90,7 +90,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         );
 
     it('shows the card as running for exactly the window the dispatcher is executing', async () => {
-        let snapshotDuringRun: string[] = [];
+        let snapshotDuringRun: RunningCard[] = [];
         dispatcher.run.mockImplementation(async () => {
             snapshotDuringRun = running.snapshot();
             return outcome();
@@ -101,7 +101,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         await job.run({ cardId: '0042', stageName: 'implementing' });
 
         expect(snapshotBeforeRun).toEqual([]);
-        expect(snapshotDuringRun).toEqual(['0042']);
+        expect(snapshotDuringRun).toEqual([{ project: 'test', cardId: '0042' }]);
     });
 
     it('removes the card once the handler settles normally', async () => {
@@ -143,20 +143,42 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
 describe('RunningCards', () => {
     it('tracks more than one card id at a time, independently', () => {
         const running = new RunningCards();
-        running.add('0001');
-        running.add('0002');
+        running.add('proj-a', '0001');
+        running.add('proj-a', '0002');
 
-        expect(running.snapshot().slice().sort()).toEqual(['0001', '0002']);
+        expect([...running.snapshot()].sort((a, b) => a.cardId.localeCompare(b.cardId))).toEqual([
+            { project: 'proj-a', cardId: '0001' },
+            { project: 'proj-a', cardId: '0002' },
+        ]);
 
-        running.delete('0001');
+        running.delete('proj-a', '0001');
 
-        expect(running.snapshot()).toEqual(['0002']);
+        expect(running.snapshot()).toEqual([{ project: 'proj-a', cardId: '0002' }]);
     });
 
     it('delete is a no-op for a card that was never added', () => {
         const running = new RunningCards();
 
-        expect(() => running.delete('0099')).not.toThrow();
+        expect(() => running.delete('proj-a', '0099')).not.toThrow();
         expect(running.snapshot()).toEqual([]);
+    });
+
+    /**
+     * Card 0149: entries are keyed by `(project, cardId)`, not `cardId` alone — two projects' `0001`s
+     * running at once must be two distinct entries, and deleting one must not touch the other.
+     */
+    it('keeps two different projects\' same-numbered card ids as distinct entries', () => {
+        const running = new RunningCards();
+        running.add('project-a', '0001');
+        running.add('project-b', '0001');
+
+        expect([...running.snapshot()].sort((a, b) => a.project.localeCompare(b.project))).toEqual([
+            { project: 'project-a', cardId: '0001' },
+            { project: 'project-b', cardId: '0001' },
+        ]);
+
+        running.delete('project-a', '0001');
+
+        expect(running.snapshot()).toEqual([{ project: 'project-b', cardId: '0001' }]);
     });
 });

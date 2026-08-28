@@ -1147,14 +1147,14 @@ describe('BoardWriteService', () => {
         // would still pass against that bug; this one exists to catch it.
         it('refuses to release while this process is running the card right now, naming the job it found', async () => {
             const runningCards = new RunningCards();
-            const { board, broker, cardJobs, service } = freshBoard(
+            const { board, config, broker, cardJobs, service } = freshBoard(
                 { reclaim: vi.fn(async () => {}) },
                 { getJob: vi.fn(async () => ({ id: 'job-42', name: 'card.stage', state: 'active', data: {} })) },
                 runningCards,
             );
             await board.create(card('0071', { stage: 'implementing' }), 'seed');
             await cardJobs.record('0071', 'job-42');
-            runningCards.add('0071');
+            runningCards.add(config.project, '0071');
 
             await expect(service.release('0071')).rejects.toMatchObject({
                 statusCode: 400,
@@ -1162,6 +1162,34 @@ describe('BoardWriteService', () => {
             });
             expect(broker.cancel).not.toHaveBeenCalled();
             expect(await cardJobs.inFlight('0071')).toBe('job-42');
+        });
+
+        /**
+         * Card 0149: `RunningCards` entries are keyed by `(project, cardId)`, and this service stays
+         * single-project (project-awareness is the next card's HTTP surface, out of scope here) —
+         * `service.release` must only treat the claim as genuinely in-flight *in this process* when
+         * the running entry belongs to `this.boardConfig.project`. A same-numbered card id running
+         * under some other registered project (card ids are per-project, both boards can have an
+         * `0071`) must not falsely block this project's own release.
+         */
+        it('releases normally when a same-numbered card is running, but under a different project', async () => {
+            const runningCards = new RunningCards();
+            const { board, cardJobs, broker, service } = freshBoard(
+                { reclaim: vi.fn(async () => {}) },
+                { getJob: vi.fn(async () => ({ id: 'job-42', name: 'card.stage', state: 'active', data: {} })) },
+                runningCards,
+            );
+            await board.create(card('0071', { stage: 'implementing' }), 'seed');
+            await cardJobs.record('0071', 'job-42');
+            // Some other registered project happens to be mid-run on its own card `0071` right now —
+            // this must not be mistaken for *this* project's card 0071 being in flight.
+            runningCards.add('some-other-project', '0071');
+
+            const detail = await service.release('0071');
+
+            expect(detail.stage).toBe('implementing');
+            expect(broker.cancel).toHaveBeenCalledWith('card.stage', 'job-42');
+            expect(await cardJobs.inFlight('0071')).toBeUndefined();
         });
 
         it('cancels the job through the broker and clears the claim, without moving the card or dispatching anything', async () => {

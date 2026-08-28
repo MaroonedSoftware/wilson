@@ -1,12 +1,12 @@
 import { resolve } from 'node:path';
-import { Registry } from 'injectkit';
+import { Container, Registry } from 'injectkit';
 import { Kysely, PostgresDialect } from 'kysely';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
-import { ConsoleLogger } from '@maroonedsoftware/logger';
+import { ConsoleLogger, Logger } from '@maroonedsoftware/logger';
 import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from '#modules/data/db.js';
-import { BoardConfig, StaticBoardConfig } from './board.config.js';
+import { BoardConfig, ProjectScopedBoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { PostgresBoardRepository } from './postgres.board.repository.js';
 import { ProjectRepository, type ProjectRow } from './project.repository.js';
@@ -77,19 +77,19 @@ export const BoardModule: ServerKitModule = {
             runRoot: resolve(optionalConfigString(config, 'PROJECT_RUN_ROOT') ?? `${codeRoot}/../.run`),
         });
 
-        registry.register(BoardConfig).useInstance(
-            new StaticBoardConfig(
-                projectName,
-                paths.boardRoot,
-                paths.codeRoot,
-                paths.worktreeRoot,
-                paths.runRoot,
-                // Card 0050: both optional, and off (no webhook attempted) when NOTIFY_WEBHOOK_URL
-                // is unset.
-                optionalConfigString(config, 'NOTIFY_WEBHOOK_URL'),
-                optionalConfigString(config, 'NOTIFY_BASE_URL'),
-            ),
-        );
+        // Card 0149: `ProjectScopedBoardConfig` rather than `StaticBoardConfig` — see its doc comment
+        // in board.config.ts. The configured project is registered eagerly, right here, so every
+        // reader that runs before `start` below (or with no `runAsProject` on its call stack at all —
+        // the HTTP surface, out of scope for this card) sees exactly what a single-project boot always
+        // saw. `notifyWebhookUrl`/`notifyBaseUrl` are set through the setters, not `register`, because
+        // they are not `runner.projects` columns (see `BoardConfig`'s own doc comment on why they are
+        // not `readonly`).
+        const boardConfig = new ProjectScopedBoardConfig(projectName);
+        boardConfig.register({ name: projectName, boardRoot: paths.boardRoot, codeRoot: paths.codeRoot, worktreeRoot: paths.worktreeRoot, runRoot: paths.runRoot });
+        // Card 0050: both optional, and off (no webhook attempted) when NOTIFY_WEBHOOK_URL is unset.
+        boardConfig.notifyWebhookUrl = optionalConfigString(config, 'NOTIFY_WEBHOOK_URL');
+        boardConfig.notifyBaseUrl = optionalConfigString(config, 'NOTIFY_BASE_URL');
+        registry.register(BoardConfig).useInstance(boardConfig);
 
         // The board lives in Postgres. `boardRoot` is still resolved above because stage config is
         // still a file (`config/stages.yaml`) and `loadStages` reads it from there.
@@ -103,5 +103,26 @@ export const BoardModule: ServerKitModule = {
         // `WorktreeModule` registers `WorktreeManager` this service depends on — order doesn't matter
         // here, `setup` only registers tokens, it does not resolve them.
         registry.register(PlanService).useClass(PlanService).asTransient();
+        // Card 0149: unregistered at `setup` time for the same reason `ProjectRepository`'s own doc
+        // comment gives — no container to inject a `Kysely<DB>` into yet. Registered here so `Poller`
+        // and this module's own `start` hook below can inject it once the container exists; `setup`
+        // only registers tokens, it does not resolve them, so the ordering is safe.
+        registry.register(ProjectRepository).useClass(ProjectRepository).asSingleton();
+    },
+    /**
+     * Card 0149. Register every project already in `runner.projects`, not just the one this process's
+     * own environment named — before `Jobs` starts (module order in `modules.ts`: `Board` starts
+     * before `Jobs`), so a `card.stage` job pg-boss redelivers the moment its worker comes up — which
+     * can happen before `Poller`'s own first tick, itself gated behind at least `POLLER_INTERVAL_MS_MIN`
+     * (5s) of waiting, and not at all when the poller is disabled — never reaches `ProjectScopedBoardConfig`
+     * for a project this process has not yet heard of. `Poller.tick` re-registers the same rows on
+     * every tick after this, which is what picks up a project added by hand while the daemon keeps
+     * running; this is only the boot-time floor under that.
+     */
+    start: async (container: Container) => {
+        const projects = await container.get(ProjectRepository).list();
+        const board = container.get(BoardConfig);
+        for (const row of projects) board.register(row);
+        container.get(Logger).info(`board: registered ${projects.length} project(s)`);
     },
 };

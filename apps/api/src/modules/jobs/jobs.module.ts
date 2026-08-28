@@ -7,6 +7,7 @@ import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy, type Job
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
+import { runAsProject } from '#modules/board/project.context.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
@@ -95,6 +96,20 @@ export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
  * for everyone at once"). `BoundedCardStageJobRunner.reconcileConcurrency` mutates `.concurrency` in
  * place for exactly that reason: mutating this object and then re-running `.start()` is the whole
  * mechanism, and a second `JobWorkerPolicy` object here would go unread.
+ *
+ * Card 0149's concurrency decision: this stays a **global** budget, shared by every registered
+ * project, not a per-project one. There is exactly one `card.stage` queue and one worker
+ * (`PgBossJobRegistryMap` below registers `card.stage` once, not once per project), and a
+ * `CardStagePayload.project` is data on a job in that one queue, not a second queue name — the same
+ * choice `CARD_STAGE_CONCURRENCY`'s own doc comment (`settings/card.stage.concurrency.setting.ts`)
+ * already makes for a *single* project, restated here for many: each unit of concurrency is a git
+ * worktree, a `pnpm install` and a live agent process on *this host*, and that machine-load question
+ * does not become smaller because the worktrees happen to belong to different projects — three
+ * projects at three each is still nine concurrent engines against one workstation. A per-project
+ * budget would need `card.stage` split into one queue per project (each with its own
+ * `JobWorkerPolicy`), which is a bigger structural change than this card's Constraints call for and
+ * not needed to satisfy any of its acceptance criteria; nothing here rules it out for a later card if
+ * per-project fairness ever becomes the actual complaint, as opposed to host capacity.
  */
 export const CARD_STAGE_WORKER: JobWorkerPolicy = {
     concurrency: CARD_STAGE_CONCURRENCY_DEFAULT,
@@ -176,15 +191,23 @@ export interface ShutdownReport {
  * abandoned — is neither: it is not swallowed into a clean report, and it is not guessed at as
  * abandoned. It is collected into `unconfirmed` instead, a third, truthful state, and left for the
  * caller to say loudly rather than hide.
+ *
+ * Card 0149: `CardJobs.confirmInFlightAfterStop` reads `BoardConfig.project` (`this.config.project`)
+ * with no scope of its own, so each call is wrapped in `runAsProject(project, ...)` for the project
+ * `RunningCards` recorded that entry under — the same project `CardStageJob.run` resolved and opened
+ * its own `runAsProject` scope with. Without this, every confirmation here would resolve
+ * `BoardConfig` to the daemon's own configured project regardless of which project the card actually
+ * ran under, querying that project's `runner.cardJobs` row instead — finding nothing, and reporting a
+ * genuinely abandoned card as cleanly settled for every project but the default one.
  */
 export const stopCardStageJobs = async (runner: JobRunner, running: RunningCards, cardJobs: CardJobs): Promise<ShutdownReport> => {
     await Promise.race([runner.stop(), delay(SHUTDOWN_DEADLINE_MS)]);
 
     const abandoned: AbandonedCardJob[] = [];
     const unconfirmed: UnconfirmedCardJob[] = [];
-    for (const cardId of running.snapshot()) {
+    for (const { project, cardId } of running.snapshot()) {
         try {
-            const jobId = await cardJobs.confirmInFlightAfterStop(cardId);
+            const jobId = await runAsProject(project, () => cardJobs.confirmInFlightAfterStop(cardId));
             if (jobId) abandoned.push({ cardId, jobId });
         } catch (error) {
             unconfirmed.push({ cardId, reason: error instanceof Error ? error.message : String(error) });

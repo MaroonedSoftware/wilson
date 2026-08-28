@@ -5,6 +5,8 @@ import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { nextCard } from '#modules/board/next.card.js';
+import { runAsProject } from '#modules/board/project.context.js';
+import { ProjectRepository } from '#modules/board/project.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { loadStages, findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -45,9 +47,11 @@ import { CardJobs } from './card.jobs.js';
  * too, with `onPass: merged`, and `planning` is manual with `onPass: backlog`; either one advanced the
  * same way would merge or approve a card with nobody having looked.
  *
- * One candidate per tick, never more: a board with thirty ready cards must not become thirty
- * concurrent stages the moment this starts ticking. `CARD_STAGE_CONCURRENCY` is what actually bounds
- * how many run at once; this only ever offers one more.
+ * One candidate per project per tick, never more: a board with thirty ready cards must not become
+ * thirty concurrent stages the moment this starts ticking. `CARD_STAGE_CONCURRENCY` is what actually
+ * bounds how many run at once, process-wide across every project (see its own doc comment in
+ * `jobs.module.ts` for why that stays a global rather than a per-project budget); this only ever
+ * offers one more, per project.
  *
  * Enqueues exactly as `wilson card start` does — `broker.send` then `cardJobs.record`, in that order,
  * so the claim never precedes the job existing.
@@ -58,8 +62,27 @@ import { CardJobs } from './card.jobs.js';
  * whatever tick is in flight rather than abandoning it mid-enqueue, so a caller relying on "the
  * poller is stopped" once `stop()` resolves — the shutdown report in `jobs.module.ts` among them —
  * gets a poller that is actually quiet, not one that might still land an enqueue a moment later.
+ *
+ * Card 0149: one tick now walks every registered project in turn, not just the one this process's own
+ * environment named — `tick` lists them (`ProjectRepository.list`, re-read every tick so a project
+ * added by hand while the daemon runs is picked up without a restart) and hands each one to
+ * `tickProject`, wrapped in `runAsProject` so `this.board`/`this.boardConfig` answer for that project
+ * for the duration — see `project.context.ts` for why an ambient context is what makes that true
+ * without this class's own fields changing per project. At most one candidate is still enqueued *per
+ * project* per tick — the reasoning `tickProject`'s own doc comment gives for one candidate at all
+ * applies per board, not globally, so one project's queue depth never throttles another's. `projects`
+ * is optional, defaulting to `undefined`, purely so a test can construct a `Poller` against a single
+ * fixed `BoardConfig` without a real repository — `undefined` falls back to the one project
+ * `boardConfig.project` already names, reproducing single-project behaviour exactly (this card's "one
+ * project must behave exactly as it does today" acceptance criterion). Production DI (`jobs.module.ts`)
+ * always supplies the real one.
  */
-@Injectable()
+// Card 0149: explicit `deps` rather than relying on emitted decorator metadata — `projects` below is
+// typed `ProjectRepository | undefined` (a union, for the test-construction fallback its own doc
+// comment explains), and TypeScript's `emitDecoratorMetadata` cannot represent a union in
+// `design:paramtypes`; it would degrade to `Object`, which injectkit cannot resolve against a
+// registered class token. Explicit `deps` (injectkit's "Option A") sidesteps that entirely.
+@Injectable({ deps: [BoardRepository, BoardConfig, JobBroker, CardJobs, Logger, SettingsStore, EventLog, ProjectRepository] })
 export class Poller {
     private abort: AbortController | undefined;
     private loopPromise: Promise<void> | undefined;
@@ -72,6 +95,7 @@ export class Poller {
         private readonly logger: Logger,
         private readonly settings: SettingsStore,
         private readonly events: EventLog,
+        private readonly projects: ProjectRepository | undefined = undefined,
     ) {}
 
     /** Idempotent: calling `start` while already running does nothing. */
@@ -111,9 +135,55 @@ export class Poller {
     }
 
     /**
-     * One tick: at most one enqueue, and nothing written or logged at `info` when there is nothing
-     * to do. This runs forever, so an idle tick must be cheap and silent — a line per tick is a log
-     * nobody reads.
+     * Card 0149. Every registered project, considered in turn — the whole of task 3.
+     *
+     * Lists projects fresh every tick (`ProjectRepository.list`), the same "read fresh, not once at
+     * `start()`" reasoning `loop`'s interval read already follows, so a project registered by hand
+     * after this daemon booted is picked up without a restart. Each row is re-registered on
+     * `boardConfig` before its project runs — cheap (an in-memory map write) and idempotent — which is
+     * also how a path an operator edited by hand in `runner.projects` reaches a running daemon.
+     *
+     * `tickProject` runs inside `runAsProject`, so every read `this.board`/`this.boardConfig` make
+     * during that call answers for this one project — see `project.context.ts`. A project whose own
+     * tick throws is logged and skipped, exactly as a single-project tick always was; it does not stop
+     * the walk over the *other* registered projects, which is the multi-project reading of "one tick
+     * fails, log it, try again next interval" now that "next interval" is not the only remaining
+     * chance for a different project this same tick.
+     */
+    private async tick(): Promise<void> {
+        let names: string[];
+        try {
+            if (this.projects) {
+                const rows = await this.projects.list();
+                for (const row of rows) this.boardConfig.register(row);
+                names = rows.map(row => row.name);
+            } else {
+                // No real repository (a test constructing a `Poller` against one fixed `StaticBoardConfig`
+                // — see this class's own doc comment): fall back to the one project that config already
+                // names, reproducing single-project behaviour exactly.
+                names = [this.boardConfig.project];
+            }
+        } catch (error) {
+            this.logger.error(error);
+            return;
+        }
+
+        for (const name of names) {
+            try {
+                await runAsProject(name, () => this.tickProject());
+            } catch (error) {
+                // A tick that fails is not fatal to the loop: log and try again next interval rather
+                // than letting one bad read or a dropped connection stop the poller for good, and —
+                // card 0149 — without stopping the walk over any other registered project either.
+                this.logger.error(error);
+            }
+        }
+    }
+
+    /**
+     * One project's tick: at most one enqueue, and nothing written or logged at `info` when there is
+     * nothing to do. This runs forever, so an idle tick must be cheap and silent — a line per tick is
+     * a log nobody reads.
      *
      * Walks `nextCard.candidates` in order rather than stopping at the first one, so one card in a
      * manual stage — `wilson card next`'s honest answer for a human — cannot silently wedge the queue
@@ -128,7 +198,7 @@ export class Poller {
      * reaching one of those refusals here is itself a sign of drift between the two, not a case to
      * route around.
      */
-    private async tick(): Promise<void> {
+    private async tickProject(): Promise<void> {
         try {
             const cards = await this.board.list();
             const { candidates } = nextCard(cards);
@@ -202,7 +272,11 @@ export class Poller {
                 }
                 if (conflict) continue;
 
-                const jobId = await this.broker.send('card.stage', { cardId, stageName });
+                // Card 0149: `project` names which project's row `CardStageJob` dispatches against —
+                // required, not read back off `this.boardConfig.project` inside the job, because the
+                // job may run in this process well after this tick's `runAsProject` scope has exited,
+                // or in another process entirely.
+                const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.boardConfig.project });
                 await this.cardJobs.record(cardId, jobId);
                 this.logger.info(`poller: enqueued ${cardId} · ${stageName} (job ${jobId})`);
                 return;
@@ -245,7 +319,7 @@ export class Poller {
             },
         );
 
-        const jobId = await this.broker.send('card.stage', { cardId, stageName: target });
+        const jobId = await this.broker.send('card.stage', { cardId, stageName: target, project: this.boardConfig.project });
         await this.cardJobs.record(cardId, jobId);
         this.logger.info(`poller: advanced ${cardId} · backlog → ${target}, enqueued (job ${jobId})`);
         return true;

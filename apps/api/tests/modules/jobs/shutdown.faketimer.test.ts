@@ -61,7 +61,7 @@ describe('stopCardStageJobs', () => {
     it('reports a card RunningCards still shows once the runner resolves, confirmed still in flight', async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
 
         const cardJobs = fakeCardJobs({ '0099': 'job-77' });
         const report = await stopCardStageJobs(runner, running, cardJobs as never);
@@ -74,7 +74,7 @@ describe('stopCardStageJobs', () => {
     it('does not report a card RunningCards still shows if it had actually already settled by the time this checks', async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
 
         const report = await stopCardStageJobs(runner, running, fakeCardJobs({}) as never);
 
@@ -102,7 +102,7 @@ describe('stopCardStageJobs', () => {
     it('collects a card into unconfirmed, not abandoned and not a clean report, when confirmation itself throws', async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
 
         const report = await stopCardStageJobs(
             runner,
@@ -117,8 +117,8 @@ describe('stopCardStageJobs', () => {
     it('does not let one unconfirmed card stop the rest of RunningCards from being checked', async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
-        running.add('0098');
-        running.add('0099');
+        running.add('project-x', '0098');
+        running.add('project-x', '0099');
 
         const report = await stopCardStageJobs(runner, running, fakeCardJobs({ '0098': new Error('boom'), '0099': 'job-77' }) as never);
 
@@ -129,7 +129,7 @@ describe('stopCardStageJobs', () => {
     it('stringifies a thrown non-Error value into the reason', async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
 
         const cardJobs: FakeCardJobs = {
             confirmInFlightAfterStop: vi.fn(() => Promise.reject('not an Error instance')),

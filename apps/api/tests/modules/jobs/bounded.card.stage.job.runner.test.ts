@@ -170,7 +170,7 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const inner = fakeInnerRunner();
         const poller = fakePoller();
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
         const cardJobs = fakeCardJobs({ '0099': 'job-77' });
         const runner = new BoundedCardStageJobRunner(inner, running, cardJobs as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
 
@@ -211,7 +211,7 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         const inner = fakeInnerRunner();
         const poller = fakePoller();
         const running = new RunningCards();
-        running.add('0099');
+        running.add('project-x', '0099');
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
         const logger = fakeLogger();
         const runner = new BoundedCardStageJobRunner(inner, running, fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
@@ -287,7 +287,7 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
             stop: vi.fn(async () => {
                 order.push('poller.stop');
                 // Simulate a card.stage job landing on a still-live worker during the pause.
-                running.add('0099');
+                running.add('project-x', '0099');
             }),
         } as unknown as import('#modules/jobs/poller.js').Poller;
         const pollerSettings = fakePollerSettings(order);

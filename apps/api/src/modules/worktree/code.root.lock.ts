@@ -21,5 +21,14 @@ import { Mutex } from '#shared/mutex.js';
  * The same shape as `pnpmStoreLock` (`#modules/stages/run.command.js`) and, like it, a module-level
  * singleton rather than an injectable: it guards a resource that is global to the process — one
  * `codeRoot`, one git — not a resource a container hands out per scope.
+ *
+ * Card 0149: `codeRoot` is now `BoardConfig.codeRoot`, which can differ by project — but this lock is
+ * still one `Mutex` for the whole process, serializing `git worktree` bookkeeping across *every*
+ * registered project's code repo, not just one. That is a throughput cost, not a correctness one: two
+ * projects' worktree operations queue behind each other even though their repos share nothing, but
+ * `prune`'s repo-global sweep (the reason this lock exists at all) is still scoped correctly, because
+ * it only ever runs against whichever one `codeRoot` the holder passed to `git`. Left as one lock
+ * rather than one per `codeRoot`, since nothing in this card's acceptance criteria needs cross-project
+ * concurrency and a `Map<string, Mutex>` is easy to add later if it does.
  */
 export const codeRootLock = new Mutex('code repo lock');

@@ -494,7 +494,12 @@ export class BoardWriteService {
         // `stopCardStageJobs` reads to report shutdown abandonment). A claim `inFlight` still calls
         // live but that this process is not currently running is exactly a claim left behind by an
         // earlier process that crashed before it could clear or hand off — safe to release.
-        if (this.runningCards.snapshot().includes(id)) {
+        //
+        // Card 0149: `RunningCards` entries are keyed by `(project, cardId)`, not `cardId` alone —
+        // this route stays single-project (out of scope for this card), so `this.boardConfig.project`
+        // is always the one project it serves, and the check must not match another registered
+        // project's own `id`-numbered card running in the same process.
+        if (this.runningCards.snapshot().some(entry => entry.project === this.boardConfig.project && entry.cardId === id)) {
             throw httpError(400).withDetails({
                 reason: `${id}: job ${jobId} is claimed and this process is running it right now — it may genuinely be in flight`,
             });

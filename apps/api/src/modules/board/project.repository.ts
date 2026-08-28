@@ -1,5 +1,13 @@
 import { Injectable } from 'injectkit';
-import type { Kysely } from 'kysely';
+// Card 0149: a value import, not `import type` — this class is now registered in the DI container
+// (`BoardModule.setup`), and `@Injectable()`'s emitted `design:paramtypes` metadata can only name a
+// class it can reference as a value. A type-only import erases at compile time, so the constructor's
+// `Kysely<DB>` parameter would reflect as `Object` instead — exactly the shape of "Missing
+// dependencies for ProjectRepository: Object" this avoids. Harmless for this class's other, pre-0149
+// caller (`BoardModule`'s own `resolveProjectRow`, which constructs it directly with `new`, never
+// through the container) since a value import still erases to nothing extra at runtime beyond the
+// class reference itself.
+import { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 
 /** A project's identity, as read from or written to `runner.projects`. */
@@ -32,6 +40,18 @@ export class ProjectRepository {
             .select(['name', 'boardRoot', 'codeRoot', 'worktreeRoot', 'runRoot'])
             .where('name', '=', name)
             .executeTakeFirst();
+    }
+
+    /**
+     * Every registered project's row, name ascending.
+     *
+     * Card 0149's one caller of this: the poller ticks every registered project rather than just the
+     * one its own environment named, and needs the full set to walk. `BoardModule.setup`'s
+     * `resolveProjectRow` still uses `find`/`create` directly (it runs before the container exists —
+     * see this class's own doc comment), so this is additive, not a replacement for either.
+     */
+    async list(): Promise<ProjectRow[]> {
+        return this.db.selectFrom('runner.projects').select(['name', 'boardRoot', 'codeRoot', 'worktreeRoot', 'runRoot']).orderBy('name').execute();
     }
 
     /** Create a project's row. Fails if the name is already taken. */
