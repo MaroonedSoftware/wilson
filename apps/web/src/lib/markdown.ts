@@ -1,111 +1,112 @@
-export type MarkdownBlock =
-    | { type: 'heading'; level: number; text: string }
-    | { type: 'paragraph'; text: string }
-    | { type: 'list'; ordered: boolean; items: string[] }
-    | { type: 'code'; lang?: string; text: string }
-    | { type: 'quote'; blocks: MarkdownBlock[] };
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import type { Parent, PhrasingContent, Root, Text } from 'mdast';
 
-const FENCE = /^```(\S*)\s*$/;
-const HEADING = /^(#{1,6})\s+(.+?)\s*$/;
-const BULLET = /^\s*[-*+]\s+(.+)$/;
-const NUMBERED = /^\s*\d+\.\s+(.+)$/;
-const QUOTE = /^\s*>\s?(.*)$/;
+const CARD_REF = /\[\[(\d+)\]\]/g;
+
+type Point = { line: number; column: number; offset?: number };
+type Position = { start: Point; end: Point };
+
+/** The position of `value.slice(start, end)`, relative to `base`'s own position — `base` is the
+ * position of the text node `value` came from. Walks `value` up to each offset counting `\n`s, so
+ * this stays correct even for a split that happens to straddle a line (a card ref never does, but
+ * a wrapped paragraph line containing one does). */
+function slicePosition(base: Position | undefined, value: string, start: number, end: number): Position | undefined {
+    const startPoint = pointAt(base?.start, value, start);
+    const endPoint = pointAt(base?.start, value, end);
+    if (!startPoint || !endPoint) return undefined;
+    return { start: startPoint, end: endPoint };
+}
+
+function pointAt(basePoint: Point | undefined, value: string, offset: number): Point | undefined {
+    if (!basePoint) return undefined;
+    let line = basePoint.line;
+    let column = basePoint.column;
+    for (let i = 0; i < offset; i++) {
+        if (value[i] === '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    const point: Point = { line, column };
+    if (basePoint.offset !== undefined) point.offset = basePoint.offset + offset;
+    return point;
+}
 
 /**
- * A line-based markdown parser scoped to what a plan body actually uses: headings, paragraphs,
- * bullet and numbered lists (including line-wrapped continuation lines), fenced code blocks and
- * blockquotes.
+ * `[[nnnn]]` cites another card by id (see PROJECT.md — "a parked card is a durable reference").
+ * Rewrites matching text nodes into links to that card's route, in place, across the whole tree.
  *
- * Not a CommonMark implementation — the plan contract (PROJECT.md, Board format) is prose written
- * by a human or a planning agent, not markdown that exercises tables, nested lists or footnotes.
- * Rendering that plainer subset correctly beats pulling in a general parser for constructs the
- * contract never produces.
+ * Runs as a tree transform after parsing rather than as a fifth inline regex in the renderer:
+ * `[[nnnn]]` is bespoke syntax no stock parser knows, and text nodes are the parser's own
+ * extension point for exactly this. It only ever visits `text` nodes, so it never reaches into a
+ * `code`/`inlineCode` node's raw `value` — text that merely resembles a reference inside a fenced
+ * code block stays literal.
  */
-export const parseMarkdown = (body: string): MarkdownBlock[] => {
-    const lines = body.split('\n');
-    const blocks: MarkdownBlock[] = [];
+function remarkCardRefs() {
+    return (tree: Root) => {
+        visitAndSplit(tree);
+    };
+}
 
-    let i = 0;
-    while (i < lines.length) {
-        const line = lines[i]!;
-
-        if (line.trim().length === 0) {
-            i++;
-            continue;
+function visitAndSplit(node: Root | Parent): void {
+    const children = node.children;
+    for (let i = children.length - 1; i >= 0; i--) {
+        const child = children[i]!;
+        if (child.type === 'text') {
+            const replacement = splitCardRefs(child);
+            if (replacement) children.splice(i, 1, ...replacement);
+        } else if ('children' in child) {
+            visitAndSplit(child);
         }
-
-        const fence = FENCE.exec(line);
-        if (fence) {
-            const lang = fence[1] || undefined;
-            const codeLines: string[] = [];
-            i++;
-            while (i < lines.length && !/^```\s*$/.test(lines[i]!)) {
-                codeLines.push(lines[i]!);
-                i++;
-            }
-            i++; // skip the closing fence, if any
-            blocks.push({ type: 'code', lang, text: codeLines.join('\n') });
-            continue;
-        }
-
-        if (QUOTE.test(line)) {
-            const quoted: string[] = [];
-            while (i < lines.length) {
-                const stripped = QUOTE.exec(lines[i]!);
-                if (!stripped) break;
-                quoted.push(stripped[1]!);
-                i++;
-            }
-            // Parsed recursively so a quote carrying headings, lists or code renders as those rather
-            // than as one flat paragraph. Each level strips one marker, so the recursion terminates.
-            blocks.push({ type: 'quote', blocks: parseMarkdown(quoted.join('\n')) });
-            continue;
-        }
-
-        const heading = HEADING.exec(line);
-        if (heading) {
-            blocks.push({ type: 'heading', level: heading[1]!.length, text: heading[2]! });
-            i++;
-            continue;
-        }
-
-        if (BULLET.test(line) || NUMBERED.test(line)) {
-            const ordered = NUMBERED.test(line);
-            const marker = ordered ? NUMBERED : BULLET;
-            const items: string[] = [];
-            while (i < lines.length) {
-                const current = lines[i]!;
-                if (current.trim().length === 0) break;
-                const itemStart = marker.exec(current);
-                if (itemStart) {
-                    items.push(itemStart[1]!.trim());
-                } else if (items.length > 0) {
-                    // A wrapped continuation line, folded onto the item it continues.
-                    items[items.length - 1] += ` ${current.trim()}`;
-                } else {
-                    break;
-                }
-                i++;
-            }
-            blocks.push({ type: 'list', ordered, items });
-            continue;
-        }
-
-        const paragraphLines: string[] = [];
-        while (
-            i < lines.length &&
-            lines[i]!.trim().length > 0 &&
-            !FENCE.test(lines[i]!) &&
-            !HEADING.test(lines[i]!) &&
-            !BULLET.test(lines[i]!) &&
-            !NUMBERED.test(lines[i]!) &&
-            !QUOTE.test(lines[i]!)
-        ) {
-            paragraphLines.push(lines[i]!.trim());
-            i++;
-        }
-        blocks.push({ type: 'paragraph', text: paragraphLines.join(' ') });
     }
+}
 
-    return blocks;
-};
+function splitCardRefs(node: Text): PhrasingContent[] | null {
+    const { value, position } = node;
+    CARD_REF.lastIndex = 0;
+    if (!CARD_REF.test(value)) return null;
+    CARD_REF.lastIndex = 0;
+
+    const parts: PhrasingContent[] = [];
+    let last = 0;
+    let match: RegExpExecArray | null;
+    while ((match = CARD_REF.exec(value))) {
+        const full = match[0];
+        const id = match[1]!;
+        const matchStart = match.index;
+        const matchEnd = matchStart + full.length;
+        if (matchStart > last) {
+            parts.push({ type: 'text', value: value.slice(last, matchStart), position: slicePosition(position, value, last, matchStart) });
+        }
+        const linkPosition = slicePosition(position, value, matchStart, matchEnd);
+        parts.push({
+            type: 'link',
+            url: `/cards/${id}`,
+            children: [{ type: 'text', value: full, position: linkPosition }],
+            position: linkPosition,
+        });
+        last = matchEnd;
+    }
+    if (last < value.length) {
+        parts.push({ type: 'text', value: value.slice(last), position: slicePosition(position, value, last, value.length) });
+    }
+    return parts;
+}
+
+const processor = unified().use(remarkParse).use(remarkCardRefs);
+
+/**
+ * Parses a card body into an mdast tree, positions intact on every node.
+ *
+ * Not a hand-rolled parser: card bodies are prose written by a human or a planning agent, and a
+ * general parser with a supported plugin story handles that — including constructs no card on this
+ * board happens to produce yet — better than another line regex would. `remarkCardRefs` above is
+ * that plugin story's first user.
+ */
+export function parseMarkdown(body: string): Root {
+    const tree = processor.parse(body);
+    return processor.runSync(tree, body) as Root;
+}
