@@ -775,25 +775,34 @@ dependency — those stay exactly as manual as before. `wilson card start` still
 poller on or off; turning `POLLER_ENABLED` off runs the daemon as the pure drainer it
 always was, no code change required.
 
-**Next, in order:**
+**What is next.** This was a numbered "in order" list and is no longer ordered — work
+has been pulled from it by what unblocked next, not by position, and four of the seven
+items were finished out of sequence. Cards cited list positions as their gate
+(card 0027 did), which implied a schedule that does not exist. It is now a checklist:
+what is done, what is not, and what each remaining one is actually waiting on.
 
-1. **Budget caps.** The pipeline self-chains unattended and nothing bounds input
-   tokens or wall-clock. `maxSteps` bounds the loop and `maxOutputTokens` bounds a
-   single response; one stage consumed 6.3M input tokens while its output cap held it
-   to 50k. Retry limits bound the loop count, not the cost. The `cli` adapter needs
-   this too, and differently: the engine has native `maxTurns`, `maxBudgetUsd` and
-   `abortController`, so a cap built only as an AI SDK `stopWhen` bounds the adapter
-   nobody is using.
-2. **Worktree GC.** Nothing reclaims a card's worktree on completion, and the baseline
-   check cuts a second one per testing run. This reached 3.5 GB across 15 worktrees
-   before anyone looked.
-3. Multi-project registry, port allocation, dry-run toggle. Filesystem reconciliation
-   was on this list and is not coming: with the board in Postgres there is no file to
-   reconcile against.
-4. Planning and `plan-review` stages; the interactive planning surface.
-5. ContractKit contract, the API, and the web board.
-6. Plugins: card sources and context providers.
-7. Compose stack.
+**Done:**
+
+- **Budget caps.** `maxCardInputTokens`, checked before a worktree is cut so an
+  over-budget card never reaches a model.
+- **Worktree GC.** `reclaimIfTerminal` on a terminal transition; `preserveUncommitted`
+  keeps a failed attempt's work as a patch first.
+- **Planning, and the interactive planning surface.** The `planning` stage, the
+  server-side session (cards 0131–0133), and the app's conversation and draft panes
+  (cards 0137, 0138). No `plan-review` stage was built and none is planned — approval
+  into `backlog` is the gate instead.
+- **ContractKit contract, the API, and the web board.**
+
+**Not done:**
+
+- **Multi-project registry, port allocation, dry-run toggle.** Nothing allocates a
+  port today. Card 0027 is the resource-leasing half of this and waits on the registry
+  existing — not on a position in a list. Filesystem reconciliation was once on this
+  list and is not coming: with the board in Postgres there is no file to reconcile
+  against.
+- **Plugins: card sources and context providers.**
+- **Compose stack.** Card 0074's remaining half — mounting a `CLAUDE_CONFIG_DIR` at a
+  volume — waits here. The setting itself does not (card 0141).
 
 ## Bootstrapping
 
