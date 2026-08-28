@@ -3,6 +3,7 @@ import { Job, JobContext } from '@maroonedsoftware/jobbroker';
 import { PgBoss } from 'pg-boss';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { isTerminal } from '#modules/stages/terminal.js';
 import { CardJobs } from './card.jobs.js';
@@ -42,7 +43,17 @@ export class CardStageDeadJob extends Job<CardStagePayload> {
         super();
     }
 
-    async run({ cardId, stageName }: CardStagePayload): Promise<void> {
+    async run({ cardId, stageName, project }: CardStagePayload): Promise<void> {
+        // Card 0149: same resolution `CardStageJob.run` uses, and for the same reason — a dead
+        // `card.stage` job's payload carries the project it was dispatched against (or, for a job
+        // enqueued before this card, nothing, which means the daemon's own configured project). This
+        // job reads and writes the card through `this.boardRepo`/`this.board`, both project-scoped via
+        // `BoardConfig`, so getting this wrong would poison — or fail to find — a card in the wrong
+        // project's `runner.cards` entirely.
+        await runAsProject(project ?? this.board.project, () => this.runDead(cardId, stageName));
+    }
+
+    private async runDead(cardId: string, stageName: string): Promise<void> {
         const card = await this.boardRepo.read(cardId);
 
         if (card.frontmatter.stage !== stageName || isTerminal(card.frontmatter.stage)) {

@@ -95,6 +95,20 @@ export const CARD_STAGE_DEAD_POLICY: JobQueuePolicy = {
  * for everyone at once"). `BoundedCardStageJobRunner.reconcileConcurrency` mutates `.concurrency` in
  * place for exactly that reason: mutating this object and then re-running `.start()` is the whole
  * mechanism, and a second `JobWorkerPolicy` object here would go unread.
+ *
+ * Card 0149's concurrency decision: this stays a **global** budget, shared by every registered
+ * project, not a per-project one. There is exactly one `card.stage` queue and one worker
+ * (`PgBossJobRegistryMap` below registers `card.stage` once, not once per project), and a
+ * `CardStagePayload.project` is data on a job in that one queue, not a second queue name — the same
+ * choice `CARD_STAGE_CONCURRENCY`'s own doc comment (`settings/card.stage.concurrency.setting.ts`)
+ * already makes for a *single* project, restated here for many: each unit of concurrency is a git
+ * worktree, a `pnpm install` and a live agent process on *this host*, and that machine-load question
+ * does not become smaller because the worktrees happen to belong to different projects — three
+ * projects at three each is still nine concurrent engines against one workstation. A per-project
+ * budget would need `card.stage` split into one queue per project (each with its own
+ * `JobWorkerPolicy`), which is a bigger structural change than this card's Constraints call for and
+ * not needed to satisfy any of its acceptance criteria; nothing here rules it out for a later card if
+ * per-project fairness ever becomes the actual complaint, as opposed to host capacity.
  */
 export const CARD_STAGE_WORKER: JobWorkerPolicy = {
     concurrency: CARD_STAGE_CONCURRENCY_DEFAULT,

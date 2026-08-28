@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
@@ -18,6 +19,18 @@ import { RunningCards } from './running.cards.js';
 export interface CardStagePayload {
     cardId: string;
     stageName: string;
+    /**
+     * Card 0149. Which project's `runner.projects` row this job dispatches against.
+     *
+     * Optional so a `card.stage` row enqueued before this card shipped — `card.stage` job data was
+     * `{ cardId, stageName }` then, and rows already in `pgboss.job` do not gain a field a migration
+     * never touched — still runs: `CardStageJob.run` treats a payload with no `project` as the
+     * daemon's own configured project (`BoardConfig.project` read outside any `runAsProject` scope —
+     * see `project.context.ts`), the same project every job dispatched against before this card. A
+     * daemon serving more than one project must always be given one explicitly; every job this card's
+     * own code enqueues (`Poller`, and this class's own chain continuation below) always does.
+     */
+    project?: string;
 }
 
 /**
@@ -47,10 +60,16 @@ export class CardStageJob extends Job<CardStagePayload> {
         super();
     }
 
-    async run({ cardId, stageName }: CardStagePayload): Promise<void> {
+    async run({ cardId, stageName, project }: CardStagePayload): Promise<void> {
+        // Card 0149: see `CardStagePayload.project`'s own doc comment for what a missing `project`
+        // means. Read here, before `runAsProject` below opens this job's own scope, so `this.board
+        // .project` answers with the daemon's configured project (project.context.ts's fallback for
+        // "nothing on the call stack has called runAsProject yet") rather than this job's own project,
+        // which would be circular.
+        const resolvedProject = project ?? this.board.project;
         this.running.add(cardId);
         try {
-            await this.runStage(cardId, stageName);
+            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName));
         } finally {
             this.running.delete(cardId);
         }
@@ -102,9 +121,14 @@ export class CardStageJob extends Job<CardStagePayload> {
             // completes normally (no retry), `cardJobs.record` deliberately never runs (see
             // `chain.orphaned`'s comment in card.event.ts for why that is fine, not a second bug), and
             // what is genuinely lost — the handoff — is what gets recorded.
+            // Card 0149: `project` is `this.board.project` — inside this job's own `runAsProject`
+            // scope (see `run()`), so this is the project the stage that just passed actually ran
+            // against, not whatever `resolvedProject` happened to default to. Carrying it forward
+            // explicitly is what keeps a chain on a non-default project from silently landing back on
+            // the daemon's configured one mid-chain.
             let jobId: string;
             try {
-                jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
+                jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo, project: this.board.project });
             } catch (error) {
                 await this.events.append({
                     project: this.board.project,
