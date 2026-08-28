@@ -12,6 +12,7 @@ import type {
     ImportReport,
     ListQuery,
     MoveCardRequest,
+    PlanDraft,
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
@@ -206,6 +207,21 @@ export class BoardClient {
     async openAPlanningSession(id: string): Promise<PlanSession> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/open`, { method: 'POST' });
         return await parseJson<PlanSession>(result);
+    }
+
+    /**
+     * @name Get a plan draft
+     * @description Card 0140. A read, and nothing else: creates no session, cuts no worktree, writes nothing — `open`
+     * remains the only thing that seeds a draft. A card in `planning` that has never had a session open
+     * has no `draft.md` on disk yet; that is ordinary, not a server error, so it gets a 200 with an empty
+     * `body` rather than a 404 — this surface's 404 already means "no such card" (see every other
+     * operation here), and reusing it for "no draft yet" would leave a client unable to tell the two
+     * apart without inspecting `details`. [[0138]] renders an empty draft the same way it renders any
+     * other, with no special-case error path for a state that is completely normal.
+     */
+    async getAPlanDraft(id: string): Promise<PlanDraft> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/draft`, { method: 'GET' });
+        return await parseJson<PlanDraft>(result);
     }
 
     /**

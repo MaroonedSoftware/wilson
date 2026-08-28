@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
@@ -15,7 +15,7 @@ import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
 import { PlanTurnRepository, type PlanTurn as StoredPlanTurn } from './plan.turn.repository.js';
-import type { CardDetail, PlanSession, PlanTurn, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
+import type { CardDetail, PlanDraft, PlanSession, PlanTurn, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
 
 /**
  * A path that is not `worktreeRoot/<cardId>` — `WorktreeManager.create`/`reclaim` key on whatever id
@@ -68,6 +68,29 @@ export class PlanService {
         const card = await this.readOrThrow(id);
         await this.assertPlannable(id, card);
         return this.cutSession(id, card);
+    }
+
+    /**
+     * The current contents of a card's `draft.md` — a read, and nothing else: creates no session,
+     * cuts no worktree, writes nothing. `open` remains the only thing that seeds a draft; this only
+     * ever looks at what `open`/`turn` have already written to disk.
+     *
+     * A card in `planning` that has never had a session open has no `draft.md` yet — an ordinary
+     * state, not a server error, so a missing file returns an empty body rather than a 404: this
+     * surface's 404 already means "no such card" (`readOrThrow`, below), and reusing it here would
+     * leave a client unable to tell "no such card" from "no draft yet" without inspecting `details`.
+     * [[0138]] can render an empty draft exactly like any other, with no special-case error path for
+     * a state that is completely normal.
+     */
+    async draft(id: string): Promise<PlanDraft> {
+        await this.readOrThrow(id);
+        const draftPath = join(this.boardConfig.runRoot, 'cards', id, 'draft.md');
+        try {
+            return { body: await readFile(draftPath, 'utf8') };
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { body: '' };
+            throw err;
+        }
     }
 
     /**

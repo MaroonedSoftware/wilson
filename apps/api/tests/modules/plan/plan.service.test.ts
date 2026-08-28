@@ -354,6 +354,65 @@ describe('PlanService', () => {
         });
     });
 
+    describe('draft', () => {
+        it('returns the exact bytes on disk, including a draft the agent has partly written mid-session', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0020', { stage: 'planning', title: 'Draft read' }, FULL_BODY), 'seed');
+            const session = await service.open('0020');
+
+            // Simulate the agent rewriting the draft after `open` seeded it — `draft` must reflect
+            // whatever is on disk right now, not the seed `open` returned.
+            await writeFile(session.draftPath, 'partial rewrite by the agent, mid-turn\n', 'utf8');
+
+            await expect(service.draft('0020')).resolves.toEqual({ body: 'partial rewrite by the agent, mid-turn\n' });
+        });
+
+        it('returns the seed `open` wrote, before anything else has touched it', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0021', { stage: 'planning', title: 'Seed draft' }, FULL_BODY), 'seed');
+            await service.open('0021');
+
+            await expect(service.draft('0021')).resolves.toEqual({ body: FULL_BODY });
+        });
+
+        it('returns an empty body, not a 404, for a card in "planning" that has never had a session open', async () => {
+            const { board, service, runRoot } = await freshEnv();
+            await board.create(card('0022', { stage: 'planning', title: 'Never opened' }), 'seed');
+
+            expect(existsSync(join(runRoot, 'cards', '0022', 'draft.md'))).toBe(false);
+            await expect(service.draft('0022')).resolves.toEqual({ body: '' });
+        });
+
+        it('404s for a card that does not exist', async () => {
+            const { service } = await freshEnv();
+            await expect(service.draft('9999')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('creates no session, cuts no worktree, writes no card version, and appends no event', async () => {
+            const { board, service, worktreeRoot } = await freshEnv();
+            await board.create(card('0023', { stage: 'planning', title: 'Read only' }), 'seed');
+            const eventsBefore = (fakeEvents.append as ReturnType<typeof vi.fn>).mock.calls.length;
+
+            await service.draft('0023');
+
+            expect(existsSync(join(worktreeRoot, 'plan-0023'))).toBe(false);
+            expect(await board.versions('0023', 10)).toHaveLength(1);
+            expect(fakeEvents.append).toHaveBeenCalledTimes(eventsBefore);
+        });
+
+        it('does not disturb a session already open on the card — a later `save` still sees the live worktree', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0024', { stage: 'planning', title: 'Read during session' }, FULL_BODY), 'seed');
+            const session = await service.open('0024');
+
+            await service.draft('0024');
+
+            expect(existsSync(session.worktreePath)).toBe(true);
+            const detail = await service.save('0024', { body: FULL_BODY });
+            expect(detail.body).toBe(FULL_BODY);
+        });
+    });
+
     describe('save', () => {
         it('refuses an incomplete draft, naming the missing heading, and writes no version', async () => {
             const { board, service } = await freshEnv();

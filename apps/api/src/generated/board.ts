@@ -261,12 +261,25 @@ export const PlanTurn = z.strictObject({
 export type PlanTurn = z.infer<typeof PlanTurn>;
 
 /**
+ * Card 0140. `open` writes `draft.md` and hands back its server-local path (`PlanSession.draftPath`)
+ * — no use to a browser, which is never on the same filesystem the CLI is (card 0077's split). This
+ * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
+ * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
+ * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
+ * generated from [PlanDraft](file://./../../data/contracts/board.ck#L212)
+ */
+export const PlanDraft = z.strictObject({
+    body: z.string(),
+});
+export type PlanDraft = z.infer<typeof PlanDraft>;
+
+/**
  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L212)
+ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L221)
  */
 export const DivisionPiece = z.strictObject({
     title: z.string(),
@@ -294,7 +307,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../data/contracts/board.ck#L228)
+ * generated from [CardDivision](file://./../../data/contracts/board.ck#L237)
  */
 export const CardDivision = z.strictObject({
     reason: z
@@ -312,7 +325,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L240)
+ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L249)
  */
 export const SplitCardsRequest = z.strictObject({
     pieces: z.array(DivisionPiece),
@@ -338,7 +351,7 @@ export type ReleaseResult = z.infer<typeof ReleaseResult>;
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../data/contracts/board.ck#L248)
+ * generated from [SplitResult](file://./../../data/contracts/board.ck#L257)
  */
 export const SplitResult = z.strictObject({
     origin: CardDetail,
