@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 import { Alert, Badge, Box, Button, Group, Loader, Modal, ScrollArea, SegmentedControl, Stack, Text, Textarea, Typography } from '@mantine/core';
 import type { CardDetail } from '@wilson/sdk';
-import { Markdown } from '#src/components/Markdown.js';
+import { CommentableDraft } from '#src/components/CommentableDraft.js';
 import { type DiffLine, diffLines } from '#src/lib/diff.js';
 import { reasonFor, useSaveAPlanDraft } from '#src/lib/mutations.js';
 import { usePlanDraft } from '#src/lib/plan.js';
@@ -200,7 +200,7 @@ export function DraftPane({ card }: { card: CardDetail }) {
                     ) : (
                         <Box p={4}>
                             <Typography>
-                                <Markdown body={text} />
+                                <CommentableDraft cardId={card.id} text={text} />
                             </Typography>
                         </Box>
                     )}
