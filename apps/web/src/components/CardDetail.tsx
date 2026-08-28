@@ -1,5 +1,7 @@
 import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
@@ -7,7 +9,8 @@ import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
-import { useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { wilson } from '#src/lib/sdk.js';
 
 /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
 const NARROW_BREAKPOINT = '(max-width: 62em)';
@@ -119,6 +122,54 @@ function EnqueueButton({ card }: { card: CardDetail }) {
     return (
         <Button size="xs" variant="light" onClick={() => startCard.mutate()} loading={startCard.isPending}>
             Enqueue
+        </Button>
+    );
+}
+
+/**
+ * Card 0143. `POST .../merge`, from `CardDetail.tsx` rather than `lib/mutations.ts` — that file is
+ * outside this card's "Files in scope", and this hook's shape otherwise matches `useStartCard`
+ * above it exactly: same invalidation, same "surface a refusal as a notification" rule.
+ *
+ * A genuine refusal (this card is not in `ready` — `onError` below) is not the only outcome worth
+ * telling an operator about. `MergeResult.merged: false` is a normal 200 — a conflict or a failed
+ * suite, the two honest ways an attempt can not land — and it arrives in `onSuccess`, so both paths
+ * end up as a notification either way; there is nowhere on a button to put a sentence, the same
+ * reasoning `EnqueueButton` below already relies on.
+ */
+function useMergeCard(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => wilson.board.mergeCard(id),
+        onSuccess: result => {
+            void queryClient.invalidateQueries({ queryKey: ['cards'] });
+            void queryClient.invalidateQueries({ queryKey: ['card', id] });
+            if (result.merged) {
+                notifications.show({ color: 'green', title: 'Merged', message: `Landed on main as ${result.commit?.slice(0, 8) ?? result.commit}` });
+            } else {
+                notifications.show({ color: 'red', title: 'Could not merge the card', message: result.reason ?? 'unknown reason' });
+            }
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not merge the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0143's operator-facing end: the merge the board used to require a shell for, behind one
+ * button. Only rendered for a card in `ready` — the one stage this operation ever acts on
+ * (`BoardWriteService.merge` refuses every other one) — so there is nothing to disable, only
+ * something to hide.
+ */
+function MergeControl({ card }: { card: CardDetail }) {
+    const mergeCard = useMergeCard(card.id);
+
+    if (card.stage !== 'ready') return null;
+
+    return (
+        <Button size="xs" variant="light" color="green" onClick={() => mergeCard.mutate()} loading={mergeCard.isPending}>
+            Merge
         </Button>
     );
 }
@@ -271,6 +322,7 @@ export function CardDetailView({
                 <Group gap="xs" align="center">
                     <MoveControl card={card} columns={columns} columnsError={columnsError} />
                     <EnqueueButton card={card} />
+                    <MergeControl card={card} />
                 </Group>
             </Stack>
 

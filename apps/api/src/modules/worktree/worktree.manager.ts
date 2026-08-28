@@ -4,7 +4,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
-import { git, isClean } from '#modules/board/git.js';
+import { conflictingPaths, git, isClean, mergeTree } from '#modules/board/git.js';
 import { codeRootLock } from './code.root.lock.js';
 
 export interface Worktree {
@@ -298,6 +298,67 @@ export class WorktreeManager {
      */
     async headSha(): Promise<string> {
         return (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+    }
+
+    /**
+     * Card 0143. Compute the merge of `branch` into `main`, entirely in the object database —
+     * `codeRoot`'s working tree and index never move (its own HEAD, checked out at `main`, is read
+     * with `rev-parse` and nothing else touches it). A clean merge hands back the resulting tree and
+     * the two shas {@link commitMerge} needs as parents; a conflicting one hands back the paths it
+     * could not resolve — a flag, not a poison, the same shape card 0103 established for a rebase
+     * conflict.
+     */
+    async computeMerge(
+        branch: string,
+    ): Promise<{ ok: true; treeSha: string; mainSha: string; branchSha: string } | { ok: false; conflicts: string[]; raw: string }> {
+        const mainSha = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+        const branchSha = (await git(this.config.codeRoot, ['rev-parse', branch])).stdout.trim();
+
+        const result = await mergeTree(this.config.codeRoot, mainSha, branchSha);
+        if (!result.ok) {
+            return { ok: false, conflicts: conflictingPaths(result.output), raw: result.output };
+        }
+        return { ok: true, treeSha: result.treeSha, mainSha, branchSha };
+    }
+
+    /**
+     * Create the merge commit object from {@link computeMerge}'s result. This alone does not move
+     * `main` — the commit is unreferenced until {@link landMerge} points the branch at it, which is
+     * deliberate: the caller runs the suite against this commit first and only lands it if that
+     * passes (card 0143's own Constraints, *the suite runs against the merged result before the ref
+     * moves*).
+     */
+    async commitMerge(mainSha: string, branchSha: string, treeSha: string, message: string): Promise<string> {
+        const { stdout } = await git(this.config.codeRoot, ['commit-tree', treeSha, '-p', mainSha, '-p', branchSha, '-m', message]);
+        return stdout.trim();
+    }
+
+    /**
+     * Move `main` onto `mergeCommit`, compare-and-swap against the `main` {@link computeMerge} last
+     * saw, then read the ref back to confirm it actually moved.
+     *
+     * Both halves matter. The CAS (`update-ref`'s optional third argument) refuses rather than
+     * clobbers if `main` moved while the suite was running against the computed merge — landing on
+     * top of a `main` this card never proved anything against would be worse than refusing. The
+     * read-back matters separately: [[0025]]'s prior art
+     * (vibe-kanban#1897) failed *silently* — the symptom was a card stuck at `ready` with no error —
+     * and an exit code is not evidence that the ref actually moved.
+     */
+    async landMerge(mainSha: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+        try {
+            await git(this.config.codeRoot, ['update-ref', 'refs/heads/main', mergeCommit, mainSha]);
+        } catch (err) {
+            return { ok: false, reason: `main did not move: ${(err as Error).message}` };
+        }
+
+        const after = (await git(this.config.codeRoot, ['rev-parse', 'refs/heads/main'])).stdout.trim();
+        if (after !== mergeCommit) {
+            return {
+                ok: false,
+                reason: `update-ref reported success but main points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
+            };
+        }
+        return { ok: true };
     }
 
     /**

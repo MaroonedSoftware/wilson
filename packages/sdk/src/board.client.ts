@@ -11,6 +11,7 @@ import type {
     ImportBoardRequest,
     ImportReport,
     ListQuery,
+    MergeResult,
     MoveCardRequest,
     PlanDraft,
     PlanSession,
@@ -167,6 +168,19 @@ export class BoardClient {
     async releaseCard(id: string): Promise<ReleaseResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
         return await parseJson<ReleaseResult>(result);
+    }
+
+    /**
+     * @name Merge card
+     * @description Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
+     * `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
+     * why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
+     * Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
+     * was, this endpoint just performs what a human used to type by hand.
+     */
+    async mergeCard(id: string): Promise<MergeResult> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/merge`, { method: 'POST' });
+        return await parseJson<MergeResult>(result);
     }
 
     /**

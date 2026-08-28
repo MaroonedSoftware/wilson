@@ -57,6 +57,20 @@ contract ReleaseResult: CardDetail & {
     releasedAs: enum(queued, orphan)
 }
 
+# Card 0143. `POST /api/cards/{id}/merge`'s response: the card, plus what the attempt actually did.
+# A conflict and a suite failure are not bad input — they are two of the three honest outcomes an
+# attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
+# release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
+# thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
+contract MergeResult: CardDetail & {
+    merged: boolean
+    # The commit `main` now points at, present only when `merged` is true.
+    commit?: string
+    # Why the attempt did not land — a conflict naming the paths, or the suite's own failure —
+    # present only when `merged` is false.
+    reason?: string
+}
+
 # The write surface. Each request body is its own named contract rather than inlined on the
 # operation, for the same reason `ListQuery` is one: contractkit only honours a field's `?` down
 # the schema path a named type takes, and every one of card 0080's five mutations copies this shape.
@@ -507,6 +521,31 @@ operation /api/cards/{id}/release: {
             }
             # No claim to release, or a daemon that might genuinely have the job in flight — the same
             # two refusals `wilson card release` makes before cancelling.
+            400:
+            404:
+        }
+    }
+}
+
+# Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
+# `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
+# why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
+# Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
+# was, this endpoint just performs what a human used to type by hand.
+operation /api/cards/{id}/merge: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Merge card
+        service: BoardWriteService.merge
+        response: {
+            200: {
+                application/json: MergeResult
+            }
+            # Only "this card is not in `ready`" refuses outright — carried via `details`, as every
+            # other refusal on this surface is. A conflict or a failing suite is not this: both are
+            # `MergeResult`s with `merged: false`, in the 200 above.
             400:
             404:
         }
