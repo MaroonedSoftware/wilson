@@ -1,9 +1,11 @@
 import type {
     CardStageConcurrency,
+    ClaudeConfigDirSetting,
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
+    SetClaudeConfigDirSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -79,5 +81,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<NotifyWebhookSetting>(result);
+    }
+
+    /** @name Get claude config dir setting */
+    async getClaudeConfigDirSetting(): Promise<ClaudeConfigDirSetting> {
+        const result = await this.fetch(`/api/settings/claude-config-dir`, { method: 'GET' });
+        return await parseJson<ClaudeConfigDirSetting>(result);
+    }
+
+    /** @name Set claude config dir setting */
+    async setClaudeConfigDirSetting(body: SetClaudeConfigDirSettingRequest): Promise<ClaudeConfigDirSetting> {
+        const result = await this.fetch(`/api/settings/claude-config-dir`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<ClaudeConfigDirSetting>(result);
     }
 }

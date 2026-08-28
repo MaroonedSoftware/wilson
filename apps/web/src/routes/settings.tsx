@@ -11,6 +11,7 @@ const POLLER_QUERY_KEY = ['settings', 'poller'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
+const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
 // enforcement. The API refuses out of range regardless of what these let a user type up to
@@ -331,6 +332,83 @@ function NotifyWebhookControl() {
     );
 }
 
+/**
+ * The engine's Claude config directory (card 0141) — which Claude Code credentials the `cli`
+ * adapter's engine (`scope-check`, `implementing`, `testing`, `review`, and the planning session)
+ * authenticates with, instead of silently inheriting whatever lives in the daemon user's own
+ * `~/.claude`.
+ *
+ * This is the one setting on this page whose wrong value stops the runner dead: point it somewhere
+ * unauthenticated and every `cli`-adapter model call fails. The description below says so plainly,
+ * and says a change only reaches stages started after the save — the concurrency control
+ * (`CardStageConcurrencyControl` above) is the wording this borrows.
+ *
+ * A refusal does not revert the typed draft, the same choice `NotifyWebhookControl` makes and for
+ * the same reason: an absolute path typo is easy to mistype twice in a row, and discarding the
+ * attempt would force retyping it blind.
+ */
+function ClaudeConfigDirControl() {
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: CLAUDE_CONFIG_DIR_QUERY_KEY, queryFn: () => wilson.settings.getClaudeConfigDirSetting() });
+    const [draft, setDraft] = useState('');
+
+    useEffect(() => {
+        if (setting.data) setDraft(setting.data.configDir ?? '');
+    }, [setting.data]);
+
+    const mutation = useMutation({
+        mutationFn: (configDir: string | null) => wilson.settings.setClaudeConfigDirSetting({ configDir }),
+        onSuccess: result => {
+            queryClient.setQueryData(CLAUDE_CONFIG_DIR_QUERY_KEY, result);
+            setDraft(result.configDir ?? '');
+        },
+        // Deliberately no onError revert here — see the component doc above.
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load claude config directory">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    const dirty = draft !== (setting.data.configDir ?? '');
+
+    return (
+        <Stack gap="xs">
+            <TextInput
+                label="Claude config directory"
+                description="Where the engine reads its Claude Code credentials from. Must already be authenticated — pointing this at an unauthenticated directory fails every cli-adapter stage at the model call. Leave empty to use the daemon's own default. A change applies to stages started afterwards, never one already running."
+                placeholder="/home/operator/.claude-wilson"
+                value={draft}
+                onChange={event => setDraft(event.currentTarget.value)}
+                disabled={mutation.isPending}
+            />
+            <Group gap="xs">
+                <Button
+                    size="xs"
+                    disabled={!dirty || mutation.isPending}
+                    onClick={() => dirty && mutation.mutate(draft.trim() === '' ? null : draft.trim())}
+                >
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Stack gap={2}>
+                    <Text size="sm" c="red">
+                        {apiErrorMessage(mutation.error)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                        Still saved: {setting.data.configDir ?? 'not set'}
+                    </Text>
+                </Stack>
+            )}
+        </Stack>
+    );
+}
+
 /** A `project`/`head`/`startedAt`/root row: a label column and a value, greyed for the read-only roots. */
 function Fact({ label, children, muted }: { label: string; children: ReactNode; muted?: boolean }) {
     return (
@@ -386,7 +464,7 @@ function DeploymentFacts() {
 /**
  * Settings: card 0114's slice of what card 0106 put behind the API — the page itself, the
  * auto-mode toggle, and the read-only deployment facts above — plus card 0115's two numeric
- * controls and card 0116's webhook/base-URL fields.
+ * controls, card 0116's webhook/base-URL fields, and card 0141's claude config directory field.
  */
 function SettingsRoute() {
     return (
@@ -421,6 +499,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Notifications</Title>
                     <NotifyWebhookControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Engine credentials</Title>
+                    <ClaudeConfigDirControl />
                 </Stack>
             </Paper>
 

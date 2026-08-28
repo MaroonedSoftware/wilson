@@ -27,14 +27,14 @@
  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
  * absence, not a substitute for it.
- * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L39)
+ * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L40)
  */
 export interface PollerSetting {
     enabled: boolean;
 }
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L43)
+ * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L44)
  */
 export interface SetPollerSettingRequest {
     enabled: boolean;
@@ -43,14 +43,14 @@ export interface SetPollerSettingRequest {
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L49)
+ * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L50)
  */
 export interface PollerInterval {
     intervalMs: number;
 }
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L53)
+ * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L54)
  */
 export interface SetPollerIntervalRequest {
     intervalMs: number;
@@ -59,14 +59,14 @@ export interface SetPollerIntervalRequest {
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L59)
+ * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L60)
  */
 export interface CardStageConcurrency {
     concurrency: number;
 }
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L63)
+ * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L64)
  */
 export interface SetCardStageConcurrencyRequest {
     concurrency: number;
@@ -77,7 +77,7 @@ export interface SetCardStageConcurrencyRequest {
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
  * card in its payload (`board.config.ts`'s own comment on the pair).
- * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L137)
+ * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L138)
  */
 export interface NotifyWebhookSetting {
     webhookUrl: string | null;
@@ -85,9 +85,33 @@ export interface NotifyWebhookSetting {
 }
 
 /**
- * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L142)
+ * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L143)
  */
 export interface SetNotifyWebhookSettingRequest {
     webhookUrl: string | null;
     baseUrl: string | null;
+}
+
+/**
+ * `null` means unset — the engine falls back to whatever Claude Code credentials live in the
+ * daemon user's own home directory, exactly as it does today (card 0141). Set, it points the `cli`
+ * adapter's engine (`CliStageAgent`) and the planning session's engine (`PlanSessionAgent`) at this
+ * directory instead via `CLAUDE_CONFIG_DIR` — see `subscriptionEnv` (cli.stage.agent.ts) for where
+ * that environment variable is actually set.
+ *
+ * Only an absolute path is checked here, by `ClaudeConfigDirSettingService.set` — whether the
+ * directory exists, is writable, or holds working credentials is deliberately not this card's
+ * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
+ * stage failing at the model call, not by a check here guessing at what "working" means.
+ * generated from [ClaudeConfigDirSetting](file://./../../../../apps/api/data/contracts/settings.ck#L183)
+ */
+export interface ClaudeConfigDirSetting {
+    configDir: string | null;
+}
+
+/**
+ * generated from [SetClaudeConfigDirSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L187)
+ */
+export interface SetClaudeConfigDirSettingRequest {
+    configDir: string | null;
 }

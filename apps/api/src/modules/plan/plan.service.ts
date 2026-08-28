@@ -11,6 +11,8 @@ import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card } 
 import { git } from '#modules/board/git.js';
 import { findStage, loadStages, type StageConfig } from '#modules/stages/stage.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
@@ -50,11 +52,17 @@ export class PlanService {
      * simpler than adding one. */
     private readonly planTurns: PlanTurnRepository;
 
+    // `settings` is optional so a test that constructs this class directly — bypassing DI, the way
+    // `tests/modules/plan/plan.service.test.ts`'s own helper already does — keeps working
+    // unchanged: no store means `configDir` resolves to `undefined` in `appendTurn` below, the same
+    // "unset means unchanged" behaviour this card's Constraints require anyway. Production wiring
+    // always supplies the real one via DI.
     constructor(
         private readonly boardRepository: BoardRepository,
         private readonly boardConfig: BoardConfig,
         private readonly worktrees: WorktreeManager,
         private readonly db: Kysely<DB>,
+        private readonly settings?: SettingsStore,
     ) {
         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
     }
@@ -153,11 +161,19 @@ export class PlanService {
 
         await this.planTurns.append(id, 'user', text);
 
+        // Resolved fresh on every turn, not cached on this transient instance: a card's planning
+        // session can span many `PlanService.turn` calls, and this reads the same way `subscriptionEnv`
+        // itself is deliberately not allowed to (card 0141's Constraints) — via the store, by the one
+        // caller that actually has it. Only reaches the engine on a `planSessions.session` miss (a
+        // brand-new conversation, or a rehydration after a restart); an already-live session ignores
+        // it, the same way it ignores `model` on every call after the first.
+        const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
+
         // `planSessions.session` resolves `resume` itself, from `runner.plan_turns`'s last
         // `engine_session_id`, on a miss — never passed here, so a process restart rehydrates the
         // engine's own conversation regardless of what `isFirstTurn` says about this card's stored
         // transcript.
-        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model }, this.planTurns);
+        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model, configDir }, this.planTurns);
 
         let assistantText = '';
         for await (const chunk of agent.turn(prompt)) {
