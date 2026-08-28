@@ -1,6 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
-import { SdkError, type CardDetail, type CardSummary, type CreateCardRequest, type PlanTurn } from '@wilson/sdk';
+import {
+    SdkError,
+    type CardDetail,
+    type CardSummary,
+    type CreateCardRequest,
+    type CreatePlanCommentRequest,
+    type PlanComment,
+    type PlanTurn,
+} from '@wilson/sdk';
 import { wilson } from './sdk.js';
 
 /**
@@ -130,6 +138,44 @@ export function useSaveAPlanDraft(id: string) {
         mutationFn: (body: string) => wilson.board.saveAPlanDraft(id, { body }),
         onSuccess: result => {
             queryClient.setQueryData(['card', id], result);
+        },
+    });
+}
+
+/**
+ * Adds a comment anchored to a passage of a card's plan draft (card [[0146]]'s
+ * `POST .../plan/comments`) — the anchor `CommentableDraft.tsx` already captured
+ * (`captureAnchor`, `lib/anchor.ts`) plus what was typed about it. Like `useSendPlanTurn` and
+ * `useSaveAPlanDraft` above, a refusal is not a notification (this card's Constraints: the
+ * server's own sentence, rendered the way `settings.tsx`'s controls and `DraftPane` already do
+ * it): the compose box reads `error` itself and shows that sentence next to what was typed, which
+ * `useMutation` leaves exactly as it was since nothing here clears it on failure. Success
+ * invalidates the card's comment list (`usePlanComments`, `plan.ts`) so the new comment comes back
+ * with its real `id` and `createdAt` rather than an optimistic guess at either.
+ */
+export function useAddPlanComment(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: CreatePlanCommentRequest): Promise<PlanComment> => wilson.board.addAPlanComment(id, body),
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: ['plan-comments', id] });
+        },
+    });
+}
+
+/**
+ * Marks a comment resolved (card [[0146]]'s `POST .../plan/comments/:commentId/resolve`) — a
+ * state it moves through, never a delete, so success invalidates the comment list rather than
+ * removing anything from the cache by hand. Like `useAddPlanComment` above, a refusal is not a
+ * notification: it renders inline, next to the comment it belongs to, the same server sentence
+ * either way (`reasonFor`).
+ */
+export function useResolvePlanComment(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (commentId: string): Promise<PlanComment> => wilson.board.resolveAPlanComment(id, commentId),
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: ['plan-comments', id] });
         },
     });
 }

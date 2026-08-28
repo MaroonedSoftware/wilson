@@ -125,3 +125,18 @@ export function usePlanDraft(cardId: string, enabled: boolean) {
         refetchInterval: enabled ? DRAFT_POLL_MS : false,
     });
 }
+
+/**
+ * A card's plan comments — open and resolved alike (card [[0146]]'s `GET .../plan/comments`),
+ * consumed by [[0147]]'s `CommentableDraft`. Not polled like `usePlanDraft` above: nothing but
+ * this browser's own `useAddPlanComment`/`useResolvePlanComment` (`mutations.ts`) changes a plan's
+ * comments, and both already invalidate this same `['plan-comments', cardId]` key on success, so a
+ * poll here would only ever refetch what a mutation already asked for.
+ */
+export function usePlanComments(cardId: string, enabled: boolean) {
+    return useQuery({
+        queryKey: ['plan-comments', cardId],
+        queryFn: () => wilson.board.listPlanComments(cardId),
+        enabled,
+    });
+}

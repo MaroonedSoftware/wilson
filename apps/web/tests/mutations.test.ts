@@ -9,9 +9,17 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SdkError, type CardDetail, type CardSummary } from '@wilson/sdk';
+import { SdkError, type CardDetail, type CardSummary, type PlanComment } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
-import { useCreateCard, useMoveCard, useRepositionCard, useSaveAPlanDraft, useStartCard } from '#src/lib/mutations.js';
+import {
+    useAddPlanComment,
+    useCreateCard,
+    useMoveCard,
+    useRepositionCard,
+    useResolvePlanComment,
+    useSaveAPlanDraft,
+    useStartCard,
+} from '#src/lib/mutations.js';
 
 // `notifications.show` is Mantine's own emitter — it works without a mounted `<Notifications />`,
 // but stubbing it here lets a test assert exactly what a refusal is shown as, without also having
@@ -366,5 +374,136 @@ describe('useCreateCard', () => {
                 expect.objectContaining({ title: 'Could not create card', message: 'title is required' }),
             ),
         );
+    });
+});
+
+describe('useAddPlanComment', () => {
+    const added: PlanComment = {
+        id: 'c1',
+        quote: 'brown fox',
+        prefix: 'The quick ',
+        suffix: ' jumps over',
+        text: 'nice catch',
+        resolved: false,
+        createdAt: '2026-08-27T00:00:00.000Z',
+    };
+
+    it('sends the anchor and text straight through to addAPlanComment and resolves with the created comment', async () => {
+        const addAPlanComment = vi.spyOn(wilson.board, 'addAPlanComment').mockResolvedValue(added);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useAddPlanComment('0007'), { wrapper: withClient(queryClient) });
+        let resolved: PlanComment | undefined;
+        await act(async () => {
+            resolved = await result.current.mutateAsync({ quote: 'brown fox', prefix: 'The quick ', suffix: ' jumps over', text: 'nice catch' });
+        });
+
+        expect(addAPlanComment).toHaveBeenCalledWith('0007', {
+            quote: 'brown fox',
+            prefix: 'The quick ',
+            suffix: ' jumps over',
+            text: 'nice catch',
+        });
+        expect(resolved).toEqual(added);
+    });
+
+    it("invalidates this card's ['plan-comments', id] query on success, the key usePlanComments reads", async () => {
+        vi.spyOn(wilson.board, 'addAPlanComment').mockResolvedValue(added);
+        const queryClient = new QueryClient();
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+        const { result } = renderHook(() => useAddPlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ quote: 'brown fox', prefix: '', suffix: '', text: 'nice catch' });
+        });
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['plan-comments', '0007'] });
+    });
+
+    it("does not show a notification on refusal — CommentableDraft reads the error itself so what was typed is never lost to a toast", async () => {
+        vi.spyOn(wilson.board, 'addAPlanComment').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'quote is empty' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+        vi.mocked(notifications.show).mockClear();
+
+        const { result } = renderHook(() => useAddPlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ quote: '', prefix: '', suffix: '', text: 'nice catch' });
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(notifications.show).not.toHaveBeenCalled();
+    });
+
+    it("exposes the server's own refusal reason via the mutation's error", async () => {
+        vi.spyOn(wilson.board, 'addAPlanComment').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'quote is empty' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useAddPlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ quote: '', prefix: '', suffix: '', text: 'nice catch' });
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect((result.current.error as SdkError).body).toMatchObject({ details: { reason: 'quote is empty' } });
+    });
+});
+
+describe('useResolvePlanComment', () => {
+    const resolved: PlanComment = {
+        id: 'c1',
+        quote: 'brown fox',
+        prefix: '',
+        suffix: '',
+        text: 'nice catch',
+        resolved: true,
+        createdAt: '2026-08-27T00:00:00.000Z',
+    };
+
+    it('resolves the comment by id through resolveAPlanComment', async () => {
+        const resolveAPlanComment = vi.spyOn(wilson.board, 'resolveAPlanComment').mockResolvedValue(resolved);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useResolvePlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('c1');
+        });
+
+        expect(resolveAPlanComment).toHaveBeenCalledWith('0007', 'c1');
+    });
+
+    it("invalidates this card's ['plan-comments', id] query on success rather than patching the cache by hand", async () => {
+        vi.spyOn(wilson.board, 'resolveAPlanComment').mockResolvedValue(resolved);
+        const queryClient = new QueryClient();
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useResolvePlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('c1');
+        });
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['plan-comments', '0007'] });
+        expect(setQueryData).not.toHaveBeenCalled();
+    });
+
+    it("does not show a notification on refusal — the same server sentence renders inline next to the comment instead", async () => {
+        vi.spyOn(wilson.board, 'resolveAPlanComment').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'comment already resolved' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+        vi.mocked(notifications.show).mockClear();
+
+        const { result } = renderHook(() => useResolvePlanComment('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('c1');
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(notifications.show).not.toHaveBeenCalled();
+        expect((result.current.error as SdkError).body).toMatchObject({ details: { reason: 'comment already resolved' } });
     });
 });
