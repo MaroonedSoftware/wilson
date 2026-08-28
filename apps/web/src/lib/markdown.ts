@@ -4,6 +4,37 @@ import type { Parent, PhrasingContent, Root, Text } from 'mdast';
 
 const CARD_REF = /\[\[(\d+)\]\]/g;
 
+type Point = { line: number; column: number; offset?: number };
+type Position = { start: Point; end: Point };
+
+/** The position of `value.slice(start, end)`, relative to `base`'s own position — `base` is the
+ * position of the text node `value` came from. Walks `value` up to each offset counting `\n`s, so
+ * this stays correct even for a split that happens to straddle a line (a card ref never does, but
+ * a wrapped paragraph line containing one does). */
+function slicePosition(base: Position | undefined, value: string, start: number, end: number): Position | undefined {
+    const startPoint = pointAt(base?.start, value, start);
+    const endPoint = pointAt(base?.start, value, end);
+    if (!startPoint || !endPoint) return undefined;
+    return { start: startPoint, end: endPoint };
+}
+
+function pointAt(basePoint: Point | undefined, value: string, offset: number): Point | undefined {
+    if (!basePoint) return undefined;
+    let line = basePoint.line;
+    let column = basePoint.column;
+    for (let i = 0; i < offset; i++) {
+        if (value[i] === '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    const point: Point = { line, column };
+    if (basePoint.offset !== undefined) point.offset = basePoint.offset + offset;
+    return point;
+}
+
 /**
  * `[[nnnn]]` cites another card by id (see PROJECT.md — "a parked card is a durable reference").
  * Rewrites matching text nodes into links to that card's route, in place, across the whole tree.
@@ -34,7 +65,7 @@ function visitAndSplit(node: Root | Parent): void {
 }
 
 function splitCardRefs(node: Text): PhrasingContent[] | null {
-    const { value } = node;
+    const { value, position } = node;
     CARD_REF.lastIndex = 0;
     if (!CARD_REF.test(value)) return null;
     CARD_REF.lastIndex = 0;
@@ -45,11 +76,23 @@ function splitCardRefs(node: Text): PhrasingContent[] | null {
     while ((match = CARD_REF.exec(value))) {
         const full = match[0];
         const id = match[1]!;
-        if (match.index > last) parts.push({ type: 'text', value: value.slice(last, match.index) });
-        parts.push({ type: 'link', url: `/cards/${id}`, children: [{ type: 'text', value: full }] });
-        last = match.index + full.length;
+        const matchStart = match.index;
+        const matchEnd = matchStart + full.length;
+        if (matchStart > last) {
+            parts.push({ type: 'text', value: value.slice(last, matchStart), position: slicePosition(position, value, last, matchStart) });
+        }
+        const linkPosition = slicePosition(position, value, matchStart, matchEnd);
+        parts.push({
+            type: 'link',
+            url: `/cards/${id}`,
+            children: [{ type: 'text', value: full, position: linkPosition }],
+            position: linkPosition,
+        });
+        last = matchEnd;
     }
-    if (last < value.length) parts.push({ type: 'text', value: value.slice(last) });
+    if (last < value.length) {
+        parts.push({ type: 'text', value: value.slice(last), position: slicePosition(position, value, last, value.length) });
+    }
     return parts;
 }
 
