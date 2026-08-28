@@ -15,8 +15,8 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanTurn } from '@wilson/sdk';
-import { usePlanDraft, usePlanTranscript } from '#src/lib/plan.js';
+import type { PlanComment, PlanTurn } from '@wilson/sdk';
+import { usePlanComments, usePlanDraft, usePlanTranscript } from '#src/lib/plan.js';
 import { API_BASE, wilson } from '#src/lib/sdk.js';
 
 /** Same stand-in `feed.test.ts` uses for jsdom's missing `EventSource`: records what the hook
@@ -253,5 +253,60 @@ describe('usePlanDraft', () => {
         renderHook(() => usePlanDraft('0009', true), { wrapper: withQueryClient(queryClient) });
 
         await waitFor(() => expect(queryClient.getQueryData(['plan-draft', '0009'])).toEqual({ body: 'seeded' }));
+    });
+});
+
+describe('usePlanComments', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const comment = (overrides: Partial<PlanComment> = {}): PlanComment => ({
+        id: 'c1',
+        quote: 'brown fox',
+        prefix: 'the quick ',
+        suffix: ' jumps',
+        text: 'nice catch',
+        resolved: false,
+        createdAt: '2026-08-27T00:00:00.000Z',
+        ...overrides,
+    });
+
+    it('fetches the card-scoped comments endpoint through the SDK when enabled', async () => {
+        const listPlanComments = vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment()]);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => usePlanComments('0007', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(result.current.data).toEqual([comment()]));
+        expect(listPlanComments).toHaveBeenCalledWith('0007');
+    });
+
+    it('does not fetch while disabled, so a non-planning stage never requests comments', () => {
+        const listPlanComments = vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([]);
+        const queryClient = new QueryClient();
+
+        renderHook(() => usePlanComments('0007', false), { wrapper: withQueryClient(queryClient) });
+
+        expect(listPlanComments).not.toHaveBeenCalled();
+    });
+
+    it("keys its cache entry under ['plan-comments', cardId] — the key useAddPlanComment/useResolvePlanComment invalidate on success", async () => {
+        vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment()]);
+        const queryClient = new QueryClient();
+
+        renderHook(() => usePlanComments('0009', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(queryClient.getQueryData(['plan-comments', '0009'])).toEqual([comment()]));
+    });
+
+    it('returns both resolved and open comments — resolving is a state, not a filter', async () => {
+        vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment({ id: 'c1', resolved: false }), comment({ id: 'c2', resolved: true })]);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => usePlanComments('0007', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(result.current.data).toHaveLength(2));
+        expect(result.current.data?.map(c => c.resolved)).toEqual([false, true]);
     });
 });
