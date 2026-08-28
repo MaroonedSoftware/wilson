@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -31,6 +33,8 @@ const fakeLogger = (): Logger & { warn: ReturnType<typeof vi.fn> } =>
         debug: vi.fn(),
         trace: vi.fn(),
     }) as unknown as Logger & { warn: ReturnType<typeof vi.fn> };
+
+const exec = promisify(execFile);
 
 let db: Kysely<DB>;
 let boardRoot: string;
@@ -1670,6 +1674,64 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.stage).toBe('ready');
             expect(stored.frontmatter.needsHuman).toBe(true);
             expect(stored.frontmatter.needsHumanReason).toBe('main did not move: update-ref refused the compare-and-swap');
+        });
+
+        /**
+         * Review finding on card 0143: `proveMerge` cuts its scratch worktree on branch
+         * `card/{id}-merge-check` and reclaims the worktree, but the branch itself is a leftover
+         * `WorktreeManager.create` (via `git worktree add -B`) leaves behind in `codeRoot` — reclaim
+         * only removes the worktree, not the branch that was checked out in it. Every `worktrees`
+         * double used above stubs `create`/`reclaim` away entirely, so none of them could catch a
+         * regression here; this test uses the real `WorktreeManager` against a real `codeRoot` so the
+         * branch it creates is a real git ref, and asserts it is gone afterward — the same way
+         * `PlanService.close` deletes its own throwaway branch after reclaiming that session's
+         * worktree.
+         */
+        it("deletes proveMerge's own scratch branch from codeRoot once the merge is proved, leaving no leftover ref behind", async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+
+            const base = await mkdtemp(join(tmpdir(), 'board-write-service-merge-branch-'));
+            const codeRoot = join(base, 'code');
+            await mkdir(join(codeRoot, 'src'), { recursive: true });
+            await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+            await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+            await writeFile(join(codeRoot, 'src', 'index.ts'), 'export const x = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            // The real thing, not a double: computeMerge/commitMerge/create/reclaim all run against
+            // codeRoot's actual git state, the same idiom worktree.manager.test.ts uses, so the branch
+            // `create` leaves behind is a real ref this test can check for afterward.
+            const worktrees = new WorktreeManager(config, fakeLogger());
+
+            const cardWorktree = await worktrees.create('0095', 'card/0095-thing');
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, '0095: implementing');
+
+            const events = { append: vi.fn(async () => {}) };
+            const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+            const service = new BoardWriteService(
+                board,
+                config,
+                worktrees,
+                events as unknown as EventLog,
+                fakeLogger(),
+                cardJobs,
+                broker as unknown as JobBroker,
+                new RunningCards(),
+            );
+            await board.create(card('0095', { stage: 'ready', branch: 'card/0095-thing' }), 'seed');
+
+            const result = await service.merge('0095');
+
+            expect(result.merged).toBe(true);
+            const { stdout } = await exec('git', ['branch', '--list', 'card/0095-merge-check'], { cwd: codeRoot });
+            expect(stdout.trim()).toBe('');
         });
     });
 });
