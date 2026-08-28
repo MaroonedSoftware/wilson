@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
+import type { ProjectRepository, ProjectRow } from '#modules/board/project.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
@@ -205,7 +206,9 @@ describe('Poller tick — what it will and will not enqueue', () => {
 
         await runOneTick(poller);
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing' });
+        // Card 0149: every enqueue now names the project it dispatches against — see the Poller
+        // multi-project describe block below for the case where that field actually differs.
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
         expect(broker.send.mock.invocationCallOrder[0]).toBeLessThan(cardJobs.record.mock.invocationCallOrder[0]);
         expect(logger.info).toHaveBeenCalledTimes(1);
@@ -271,7 +274,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         await runOneTick(poller);
 
         expect(broker.send).toHaveBeenCalledTimes(1);
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
         expect(logger.info.mock.calls[0][0]).toContain('0002');
     });
@@ -282,7 +285,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
 
         await runOneTick(poller);
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     /**
@@ -300,7 +303,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(cardJobs.inFlight).toHaveBeenCalledWith('0001');
         expect(cardJobs.inFlight).toHaveBeenCalledWith('0002');
         expect(broker.send).toHaveBeenCalledTimes(1);
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     /**
@@ -322,7 +325,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(scopeConflict).toHaveBeenCalled();
         expect(board.scopeConflict).toBe(scopeConflict);
         expect(broker.send).toHaveBeenCalledTimes(1);
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).not.toHaveBeenCalledWith('0001', expect.anything());
         expect(logger.info.mock.calls[0][0]).toContain('0002');
     });
@@ -359,7 +362,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
 
         await runOneTick(poller);
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     /**
@@ -400,7 +403,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
 
             await runOneTick(poller);
 
-            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0050', stageName: 'implementing' });
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0050', stageName: 'implementing', project: 'poller-test-project' });
         });
 
         it('does not reach a dispatchable candidate sitting past the bound (the 51st candidate)', async () => {
@@ -429,7 +432,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         await runOneTick(poller);
 
         expect(broker.send).toHaveBeenCalledTimes(1);
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     it('a tick that finds nothing dispatchable performs no write and logs nothing at info', async () => {
@@ -473,6 +476,169 @@ describe('Poller tick — what it will and will not enqueue', () => {
     });
 });
 
+/**
+ * Card 0149, task 3: "The poller works every project." Every test above builds a `Poller` without a
+ * `ProjectRepository` (the `projects` constructor arg defaults to `undefined`), which — per `tick`'s
+ * own doc comment — falls back to ticking the single project `boardConfig.project` already names,
+ * reproducing single-project behaviour exactly. These tests are the other half: a `Poller` given a
+ * real `ProjectRepository`, ticking every registered project in turn.
+ */
+describe('Poller tick — multiple registered projects (card 0149)', () => {
+    const projectRow = (name: string, boardRootDir: string): ProjectRow => ({
+        name,
+        boardRoot: boardRootDir,
+        codeRoot: `/tmp/${name}/code`,
+        worktreeRoot: `/tmp/${name}/worktrees`,
+        runRoot: `/tmp/${name}/run`,
+    });
+
+    /** A fresh boardRoot directory with a valid stages.yaml, for one project's own stage config. */
+    const projectBoardRoot = async (): Promise<string> => {
+        const dir = await mkdtemp(join(tmpdir(), 'poller-multi-project-'));
+        await mkdir(join(dir, 'config'), { recursive: true });
+        await writeFile(join(dir, 'config', 'stages.yaml'), stagesYaml);
+        return dir;
+    };
+
+    /**
+     * A `CardJobs` fake keyed by `(project, cardId)`, the same pair the real, Postgres-backed
+     * `CardJobs` keys its claims by (`runner.cardJobs`'s `(project, cardId)` conflict target,
+     * card.jobs.ts) — unlike `statefulCardJobs` above, which has no notion of project and would make
+     * two different projects' identically-id'd cards falsely appear to claim each other.
+     */
+    const projectScopedCardJobs = (config: ProjectScopedBoardConfig): FakeCardJobs => {
+        const claims = new Map<string, string>();
+        const key = (project: string, cardId: string) => `${project}::${cardId}`;
+        return {
+            inFlight: vi.fn(async (cardId: string) => claims.get(key(config.project, cardId))),
+            record: vi.fn(async (cardId: string, jobId: string) => {
+                claims.set(key(config.project, cardId), jobId);
+            }),
+            clear: vi.fn(async (cardId: string) => {
+                claims.delete(key(config.project, cardId));
+            }),
+        };
+    };
+
+    it('ticks every registered project, enqueuing each against its own project — even when both boards use the same card id', async () => {
+        const alphaBoardRoot = await projectBoardRoot();
+        const betaBoardRoot = await projectBoardRoot();
+        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+
+        const config = new ProjectScopedBoardConfig('alpha');
+        // Deliberately left unregistered here: `tick` must register every row itself
+        // (`ProjectRepository.list`, then `boardConfig.register` per row) before ticking, exactly as
+        // `Poller.tick`'s own doc comment says — a `ProjectScopedBoardConfig` that never saw a
+        // project registered throws reading it, so this proves the registration actually happens.
+        const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
+
+        // Same card id, '0001', dispatchable on both boards — the direct check for "two projects'
+        // cards sharing an id do not collide on disk" one layer up: each dispatch must still carry
+        // its own project, not the other one's.
+        const cardsByProject: Record<string, Card[]> = { alpha: [card('0001', 'implementing')], beta: [card('0001', 'implementing')] };
+        const board = {
+            list: vi.fn(async () => cardsByProject[config.project] ?? []),
+            writeWithEvent: vi.fn(async () => 'card-version-1'),
+            scopeConflict: noConflict,
+        };
+        const broker = fakeBroker();
+        const cardJobs = projectScopedCardJobs(config);
+        const logger = fakeLogger();
+
+        const poller = new Poller(
+            board as unknown as BoardRepository,
+            config,
+            broker as unknown as JobBroker,
+            cardJobs as unknown as CardJobs,
+            logger as unknown as Logger,
+            fakeSettingsStore(),
+            fakeEvents(),
+            projects,
+        );
+
+        await runOneTick(poller);
+
+        expect(projects.list).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledTimes(2);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'alpha' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'beta' });
+    });
+
+    /**
+     * The multi-project reading of "one tick fails, log it, try again next interval" (`tick`'s own
+     * doc comment): a project whose own tick throws must not stop the walk over the *other*
+     * registered projects in the same tick.
+     */
+    it('logs and skips a project whose own tick throws, without stopping the walk over the other registered projects', async () => {
+        const alphaBoardRoot = await projectBoardRoot();
+        const betaBoardRoot = await projectBoardRoot();
+        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+
+        const config = new ProjectScopedBoardConfig('alpha');
+        const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
+
+        const boom = new Error('beta board unreachable');
+        const board = {
+            list: vi.fn(async () => {
+                if (config.project === 'beta') throw boom;
+                return [card('0001', 'implementing')];
+            }),
+            writeWithEvent: vi.fn(async () => 'card-version-1'),
+            scopeConflict: noConflict,
+        };
+        const broker = fakeBroker();
+        const logger = fakeLogger();
+
+        const poller = new Poller(
+            board as unknown as BoardRepository,
+            config,
+            broker as unknown as JobBroker,
+            projectScopedCardJobs(config) as unknown as CardJobs,
+            logger as unknown as Logger,
+            fakeSettingsStore(),
+            fakeEvents(),
+            projects,
+        );
+
+        await expect(runOneTick(poller)).resolves.toBeUndefined();
+
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'alpha' });
+        expect(logger.error).toHaveBeenCalledWith(boom);
+    });
+
+    /**
+     * Distinct from the per-project failure above: this is `ProjectRepository.list()` itself failing,
+     * before any project can even be named — `tick`'s outer try/catch, not `tickProject`'s inner one.
+     * Nothing can be dispatched at all when the daemon cannot learn which projects exist.
+     */
+    it('logs and dispatches nothing when listing the registered projects itself fails', async () => {
+        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const boom = new Error('database is on fire');
+        const projects = { list: vi.fn(async () => Promise.reject(boom)) } as unknown as ProjectRepository;
+        const board = { list: vi.fn(async () => [card('0001', 'implementing')]) };
+        const broker = fakeBroker();
+        const logger = fakeLogger();
+
+        const poller = new Poller(
+            board as unknown as BoardRepository,
+            config,
+            broker as unknown as JobBroker,
+            statefulCardJobs() as unknown as CardJobs,
+            logger as unknown as Logger,
+            fakeSettingsStore(),
+            fakeEvents(),
+            projects,
+        );
+
+        await expect(runOneTick(poller)).resolves.toBeUndefined();
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(board.list).not.toHaveBeenCalled();
+        expect(logger.error).toHaveBeenCalledWith(boom);
+    });
+});
+
 describe('Poller tick — the backlog queue (card 0127)', () => {
     /**
      * The whole point of this card: a card already approved and pinned on entry to `backlog`
@@ -500,7 +666,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         const mutate = board.writeWithEvent.mock.calls[0]![2] as (c: Card) => Card;
         expect(mutate(card('0001', 'backlog')).frontmatter.stage).toBe('scope-check');
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
         expect(logger.info.mock.calls[0][0]).toContain('0001');
     });
@@ -536,7 +702,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         await runOneTick(poller);
 
         expect(board.writeWithEvent).not.toHaveBeenCalled();
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     /**
@@ -552,7 +718,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         await runOneTick(poller);
 
         expect(board.writeWithEvent).not.toHaveBeenCalled();
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     it('never advances a backlog card blocked on an unmet dependency', async () => {
@@ -562,7 +728,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         await runOneTick(poller);
 
         expect(board.writeWithEvent).not.toHaveBeenCalled();
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
     });
 
     /**
@@ -579,7 +745,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
         expect(board.writeWithEvent).toHaveBeenCalledTimes(1);
         expect(board.writeWithEvent).toHaveBeenCalledWith('0001', expect.any(String), expect.any(Function), expect.anything());
         expect(broker.send).toHaveBeenCalledTimes(1);
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check', project: 'poller-test-project' });
     });
 
     /**
@@ -597,7 +763,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
 
         expect(board.writeWithEvent).toHaveBeenCalledTimes(1);
         expect(board.writeWithEvent).toHaveBeenCalledWith('0002', expect.any(String), expect.any(Function), expect.anything());
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'scope-check' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'scope-check', project: 'poller-test-project' });
         expect(jobs.record).toHaveBeenCalledWith('0002', 'job-1');
     });
 });

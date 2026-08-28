@@ -61,4 +61,49 @@ describe('ProjectRepository', () => {
 
         expect((await repo.find(name))?.boardRoot).toBe('/tmp/original-board');
     });
+
+    /**
+     * Card 0149. `list` is this card's one addition to `ProjectRepository` — the poller's own doc
+     * comment (`poller.ts`) says why: a tick needs the full set of registered projects to walk, not
+     * just one name it already knows to `find`.
+     */
+    describe('list (card 0149)', () => {
+        it('includes a project name-ascending among rows list already returned, once created', async () => {
+            const repo = new ProjectRepository(db);
+            // Prefixed so both names sort adjacently regardless of what other tests have created —
+            // uniqueProject()'s own uniqueness (see test.db.js) is enough to isolate the pair from
+            // every other row in the table without needing to assert on the whole result set.
+            const base = uniqueProject();
+            const first = `${base}-a`;
+            const second = `${base}-b`;
+            await repo.create(row(second, { boardRoot: '/tmp/second-board' }));
+            await repo.create(row(first, { boardRoot: '/tmp/first-board' }));
+
+            const rows = await repo.list();
+            const names = rows.map(r => r.name);
+            const firstIndex = names.indexOf(first);
+            const secondIndex = names.indexOf(second);
+
+            expect(firstIndex).toBeGreaterThanOrEqual(0);
+            expect(secondIndex).toBeGreaterThanOrEqual(0);
+            // Name ascending: the alphabetically earlier name (`-a`) must come before `-b`, even
+            // though it was the second one created.
+            expect(firstIndex).toBeLessThan(secondIndex);
+            expect(rows.find(r => r.name === first)).toEqual(row(first, { boardRoot: '/tmp/first-board' }));
+            expect(rows.find(r => r.name === second)).toEqual(row(second, { boardRoot: '/tmp/second-board' }));
+        });
+
+        it('reflects a project created after an earlier list() call, without needing a fresh repository instance', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+
+            const before = await repo.list();
+            expect(before.some(r => r.name === name)).toBe(false);
+
+            await repo.create(row(name));
+
+            const after = await repo.list();
+            expect(after.some(r => r.name === name)).toBe(true);
+        });
+    });
 });

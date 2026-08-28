@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import type { JobContext } from '@maroonedsoftware/jobbroker';
 import type { PgBoss } from 'pg-boss';
 import { CardStageDeadJob } from '#modules/jobs/card.stage.dead.job.js';
-import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -289,5 +289,69 @@ describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Card 0149. `CardStageDeadJob.run` resolves its project the same way `CardStageJob.run` does — see
+ * `CardStagePayload.project`'s own doc comment — wrapping the whole dead-letter handling in
+ * `runAsProject`. `StaticBoardConfig`, used everywhere above, cannot tell "resolved correctly" apart
+ * from "never resolved at all" because its `project` field never changes; these use the real
+ * `ProjectScopedBoardConfig`, with two projects registered, so a wrong resolution is observable in
+ * the `stage.dead`/`stage.poisoned` events this job records.
+ */
+describe('CardStageDeadJob resolves its project from the payload (card 0149)', () => {
+    let boardRepo: { read: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> };
+    let events: { append: ReturnType<typeof vi.fn> };
+    let cardJobs: { clear: ReturnType<typeof vi.fn> };
+    let pgboss: { getJobById: ReturnType<typeof vi.fn> };
+    let context: JobContext;
+    let board: ProjectScopedBoardConfig;
+    let job: CardStageDeadJob;
+
+    beforeEach(() => {
+        boardRepo = { read: vi.fn(async () => card('implementing')), write: vi.fn(async () => 'sha') };
+        events = { append: vi.fn(async () => {}) };
+        cardJobs = { clear: vi.fn(async () => {}) };
+        pgboss = { getJobById: vi.fn(async () => ({ output: { name: 'Error', message: 'exhausted retries', stack: 'stack' } })) };
+        context = { id: 'dead-job-1', name: 'card.stage.dead', signal: new AbortController().signal };
+
+        board = new ProjectScopedBoardConfig('alpha');
+        board.register({ name: 'alpha', boardRoot: '/tmp/alpha/board', codeRoot: '/tmp/alpha/code', worktreeRoot: '/tmp/alpha/wt', runRoot: '/tmp/alpha/run' });
+        board.register({ name: 'beta', boardRoot: '/tmp/beta/board', codeRoot: '/tmp/beta/code', worktreeRoot: '/tmp/beta/wt', runRoot: '/tmp/beta/run' });
+
+        job = new CardStageDeadJob(
+            pgboss as unknown as PgBoss,
+            context,
+            board,
+            boardRepo as unknown as BoardRepository,
+            events as unknown as EventLog,
+            cardJobs as unknown as CardJobs,
+        );
+    });
+
+    it("falls back to the daemon's own configured project when the payload carries no project", async () => {
+        await job.run({ cardId: '0001', stageName: 'implementing' });
+
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ project: 'alpha', type: 'stage.dead' }));
+    });
+
+    it("uses the project named in the payload instead of the daemon's configured default", async () => {
+        await job.run({ cardId: '0001', stageName: 'implementing', project: 'beta' });
+
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ project: 'beta', type: 'stage.dead' }));
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ project: 'beta', type: 'stage.poisoned' }));
+        expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ project: 'alpha' }));
+    });
+
+    it('throws rather than completing normally, when the payload names a project this daemon never registered', async () => {
+        // `poisonCard` writes the board and appends `transition.written` before it ever reads
+        // `board.notifyWebhookUrl` (the field that throws for an unregistered project) — this pins
+        // down that the throw still happens, not that nothing at all ran beforehand.
+        await expect(job.run({ cardId: '0001', stageName: 'implementing', project: 'ghost' })).rejects.toThrow(/ghost/i);
+
+        // The claim is never released for a run that failed outright — a redelivery gets a real
+        // chance to run again, rather than a card silently left both poisoned and still claimed.
+        expect(cardJobs.clear).not.toHaveBeenCalled();
     });
 });
