@@ -28,6 +28,7 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { git } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
 
@@ -591,15 +592,18 @@ export class BoardWriteService {
      * Card 0143. Prove the computed merge before it lands: cut a throwaway worktree at
      * `mergeCommit` — unreferenced by any branch until {@link WorktreeManager.landMerge} says so —
      * and run the `testing` stage's own configured suite against it, the same command the testing
-     * stage already treats as "green". Reclaimed unconditionally, pass or fail, so it never lingers
-     * the way the card's own worktree (left alone throughout this method — see Constraints) must.
+     * stage already treats as "green". Both the worktree and its throwaway branch are reclaimed
+     * unconditionally, pass or fail, so neither lingers the way the card's own worktree and branch
+     * (left alone throughout this method — see Constraints) must: {@link PlanService.close} deletes
+     * its own throwaway branch the same way after reclaiming that session's worktree.
      */
     private async proveMerge(id: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
         const stages = await loadStages(this.boardConfig.boardRoot);
         const stage = findStage(stages, 'testing');
 
         const scratchId = `${id}-merge-check`;
-        const worktree = await this.worktrees.create(scratchId, `card/${id}-merge-check`, mergeCommit);
+        const scratchBranch = `card/${id}-merge-check`;
+        const worktree = await this.worktrees.create(scratchId, scratchBranch, mergeCommit);
 
         try {
             if (stage.setupCommand) {
@@ -618,6 +622,7 @@ export class BoardWriteService {
             return { ok: true };
         } finally {
             await this.worktrees.reclaim(scratchId);
+            await git(this.boardConfig.codeRoot, ['branch', '-D', scratchBranch]).catch(() => undefined);
         }
     }
 
