@@ -1,104 +1,119 @@
 import { Fragment, type ReactNode } from 'react';
 import { Anchor, Box, Code, List, Stack, Text, Title } from '@mantine/core';
-import { parseMarkdown, type MarkdownBlock } from '#src/lib/markdown.js';
+import { Link } from '@tanstack/react-router';
+import type { PhrasingContent, RootContent } from 'mdast';
+import { parseMarkdown } from '#src/lib/markdown.js';
 
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/g;
-
-/** Code spans, bold, italic and links within a line of text — the inline subset the parser leaves untouched. */
-function inline(text: string): ReactNode[] {
-    const nodes: ReactNode[] = [];
-    let last = 0;
-    let key = 0;
-
-    for (const match of text.matchAll(INLINE)) {
-        const index = match.index ?? 0;
-        if (index > last) nodes.push(<Fragment key={key++}>{text.slice(last, index)}</Fragment>);
-
-        const token = match[0];
-        if (token.startsWith('`')) {
-            nodes.push(<Code key={key++}>{token.slice(1, -1)}</Code>);
-        } else if (token.startsWith('**')) {
-            nodes.push(<Text key={key++} span fw={700}>
-                {token.slice(2, -2)}
-            </Text>);
-        } else if (token.startsWith('[')) {
-            const linkEnd = token.indexOf('](');
-            const label = token.slice(1, linkEnd);
-            const href = token.slice(linkEnd + 2, -1);
-            nodes.push(
-                <Anchor key={key++} href={href} target="_blank" rel="noreferrer">
-                    {label}
-                </Anchor>,
-            );
-        } else {
-            nodes.push(<Text key={key++} span fs="italic">
-                {token.slice(1, -1)}
-            </Text>);
-        }
-
-        last = index + token.length;
-    }
-
-    if (last < text.length) nodes.push(<Fragment key={key}>{text.slice(last)}</Fragment>);
-    return nodes;
-}
+/** A link produced by `remarkCardRefs` points here; render it through the router instead of a
+ * plain anchor so it navigates the same way every other card-to-card link in the app does. */
+const CARD_LINK = /^\/cards\/(\d+)$/;
 
 /**
  * Renders a plan body as markdown, not as `<pre>` text.
  *
- * Scoped to `parseMarkdown`'s subset — headings, paragraphs, lists, fenced code and blockquotes —
- * which is what
- * the plan contract (PROJECT.md, Board format) actually uses. See `lib/markdown.ts` for why that
- * bound is deliberate rather than a shortcut.
+ * Builds React elements straight from the mdast tree `parseMarkdown` returns, rather than through
+ * `dangerouslySetInnerHTML` — card bodies are written by agents (PROJECT.md: "Imported content is
+ * untrusted" already applies), and building elements from typed nodes avoids that class of bug
+ * entirely instead of defending against it. `TypographyStylesProvider`, already wrapping this
+ * component's callers, styles these elements via CSS the same way it styled the old ones.
  */
 export function Markdown({ body }: { body: string }) {
-    return <Blocks blocks={parseMarkdown(body)} />;
+    const tree = parseMarkdown(body);
+    return <Blocks nodes={tree.children} />;
 }
 
 /**
- * One level of parsed blocks. Split out from `Markdown` so a blockquote can render its own contents
- * through the same path rather than flattening them into quoted text.
+ * One level of block nodes. Split out from `Markdown` so a blockquote or a list item can render
+ * its own contents through the same path rather than flattening them into quoted or joined text.
  */
-function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
-    return (
-        <Stack gap="sm">
-            {blocks.map((block, index) => {
-                if (block.type === 'heading') {
-                    return (
-                        <Title key={index} order={Math.min(block.level + 2, 6) as 3 | 4 | 5 | 6} mt={index > 0 ? 'xs' : 0}>
-                            {inline(block.text)}
-                        </Title>
-                    );
-                }
-                if (block.type === 'code') {
-                    return (
-                        <Code key={index} block>
-                            {block.text}
-                        </Code>
-                    );
-                }
-                if (block.type === 'list') {
-                    return (
-                        <List key={index} type={block.ordered ? 'ordered' : 'unordered'} spacing={4} size="sm">
-                            {block.items.map((item, itemIndex) => (
-                                <List.Item key={itemIndex}>{inline(item)}</List.Item>
-                            ))}
-                        </List>
-                    );
-                }
-                if (block.type === 'quote') {
-                    return (
-                        <Box key={index} pl="md" style={{ borderLeft: '3px solid var(--mantine-color-gray-4)' }}>
-                            <Blocks blocks={block.blocks} />
-                        </Box>
-                    );
-                }
+function Blocks({ nodes }: { nodes: RootContent[] }) {
+    return <Stack gap="sm">{nodes.map((node, index) => renderBlock(node, index))}</Stack>;
+}
+
+function renderBlock(node: RootContent, index: number): ReactNode {
+    switch (node.type) {
+        case 'heading': {
+            const order = Math.min(node.depth + 2, 6) as 3 | 4 | 5 | 6;
+            return (
+                <Title key={index} order={order} mt={index > 0 ? 'xs' : 0}>
+                    {renderInline(node.children)}
+                </Title>
+            );
+        }
+        case 'paragraph':
+            return (
+                <Text key={index} size="sm" style={{ lineHeight: 1.5 }}>
+                    {renderInline(node.children)}
+                </Text>
+            );
+        case 'list':
+            return (
+                <List key={index} type={node.ordered ? 'ordered' : 'unordered'} spacing={4} size="sm">
+                    {node.children.map((item, itemIndex) => (
+                        <List.Item key={itemIndex}>
+                            {item.children.map((child, childIndex) => renderBlock(child, childIndex))}
+                        </List.Item>
+                    ))}
+                </List>
+            );
+        case 'code':
+            return (
+                <Code key={index} block>
+                    {node.value}
+                </Code>
+            );
+        case 'blockquote':
+            return (
+                <Box key={index} pl="md" style={{ borderLeft: '3px solid var(--mantine-color-gray-4)' }}>
+                    <Blocks nodes={node.children} />
+                </Box>
+            );
+        default:
+            return null;
+    }
+}
+
+/** Code spans, bold, italic, links and card cross-references within a run of text. */
+function renderInline(nodes: PhrasingContent[]): ReactNode[] {
+    return nodes.map((node, index) => renderInlineNode(node, index));
+}
+
+function renderInlineNode(node: PhrasingContent, key: number): ReactNode {
+    switch (node.type) {
+        case 'text':
+            return <Fragment key={key}>{node.value}</Fragment>;
+        case 'strong':
+            return (
+                <Text key={key} span fw={700}>
+                    {renderInline(node.children)}
+                </Text>
+            );
+        case 'emphasis':
+            return (
+                <Text key={key} span fs="italic">
+                    {renderInline(node.children)}
+                </Text>
+            );
+        case 'inlineCode':
+            return <Code key={key}>{node.value}</Code>;
+        case 'break':
+            return <br key={key} />;
+        case 'link': {
+            const cardId = CARD_LINK.exec(node.url)?.[1];
+            if (cardId) {
                 return (
-                    <Text key={index} size="sm" style={{ lineHeight: 1.5 }}>
-                        {inline(block.text)}
-                    </Text>
+                    <Link key={key} to="/cards/$cardId" params={{ cardId }} style={{ color: 'var(--mantine-color-blue-6)' }}>
+                        {renderInline(node.children)}
+                    </Link>
                 );
-            })}
-        </Stack>
-    );
+            }
+            return (
+                <Anchor key={key} href={node.url} target="_blank" rel="noreferrer">
+                    {renderInline(node.children)}
+                </Anchor>
+            );
+        }
+        default:
+            return null;
+    }
 }
