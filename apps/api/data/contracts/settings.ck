@@ -4,6 +4,7 @@ options {
         PollerIntervalSettingService: "#modules/settings/poller.interval.setting.service.js"
         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
+        ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
     }
     security: none
 }
@@ -164,6 +165,48 @@ operation /api/settings/notify-webhook: {
             # address (`checkWebhookDestination`'s own reason string) — carried via `details`, the
             # same convention every other refusal on this contract uses. baseUrl is never refused;
             # it is a link in a payload, not a destination (card 0107's Out of scope).
+            400:
+        }
+    }
+}
+
+# `null` means unset — the engine falls back to whatever Claude Code credentials live in the
+# daemon user's own home directory, exactly as it does today (card 0141). Set, it points the `cli`
+# adapter's engine (`CliStageAgent`) and the planning session's engine (`PlanSessionAgent`) at this
+# directory instead via `CLAUDE_CONFIG_DIR` — see `subscriptionEnv` (cli.stage.agent.ts) for where
+# that environment variable is actually set.
+#
+# Only an absolute path is checked here, by `ClaudeConfigDirSettingService.set` — whether the
+# directory exists, is writable, or holds working credentials is deliberately not this card's
+# business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
+# stage failing at the model call, not by a check here guessing at what "working" means.
+contract ClaudeConfigDirSetting: {
+    configDir: string | null
+}
+
+contract SetClaudeConfigDirSettingRequest: {
+    configDir: string | null
+}
+
+operation /api/settings/claude-config-dir: {
+    get: {
+        name: Get claude config dir setting
+        service: ClaudeConfigDirSettingService.get
+        response: {
+            200: { application/json: ClaudeConfigDirSetting }
+        }
+    }
+    put: {
+        name: Set claude config dir setting
+        service: ClaudeConfigDirSettingService.set
+        request: {
+            application/json: SetClaudeConfigDirSettingRequest
+        }
+        response: {
+            200: { application/json: ClaudeConfigDirSetting }
+            # configDir is not an absolute path (`ClaudeConfigDirSettingService.set`'s own reason
+            # string) — carried via `details`, the same convention every other refusal on this
+            # contract uses.
             400:
         }
     }

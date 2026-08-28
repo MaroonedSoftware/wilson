@@ -4,6 +4,8 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH } from './scope.guard.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
@@ -20,11 +22,22 @@ import type { ToolContext } from './tools/index.js';
  * silently routes this adapter back through per-token API billing, which is the exact thing it
  * exists to avoid: the first run of it failed on "Credit balance is too low" while a perfectly good
  * subscription sat unused.
+ *
+ * `configDir`, when given, is set as `CLAUDE_CONFIG_DIR` — the directory the engine reads its own
+ * Claude Code credentials from (card 0141: an operator's choice, via the `claude-config-dir`
+ * setting, rather than whatever the daemon user's own `~/.claude` happens to hold). Left `undefined`
+ * — the setting unset — the environment is exactly what it always was, with no `CLAUDE_CONFIG_DIR`
+ * key at all: a fresh install behaves identically to before this card. Resolving that setting is
+ * async and needs the container, which this function deliberately stays free of (this card's
+ * Constraints: "`subscriptionEnv()` stays synchronous and dependency-free") — both callers resolve
+ * it themselves and pass the result in, the same way they already resolve everything else this
+ * function does not know about on its own.
  */
-export const subscriptionEnv = (): NodeJS.ProcessEnv => {
+export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
+    if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
 };
 
@@ -102,11 +115,25 @@ const EXEC_TOOLS = ['Bash'];
  */
 @Injectable()
 export class CliStageAgent extends StageAgent {
-    constructor(private readonly logger: Logger) {
+    // `settings` is optional so a test that constructs this class directly — bypassing DI, the way
+    // every existing test in `tests/modules/agent/cli.*.test.ts` already does — keeps working
+    // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
+    // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
+    // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
+    constructor(
+        private readonly logger: Logger,
+        private readonly settings?: SettingsStore,
+    ) {
         super();
     }
 
     async run({ stage, context, planPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
+        // Resolved once, up front — a setting read while a card is in flight must not change what
+        // this run uses partway through (this card's Constraints: "a change applies to stages
+        // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
+        // happen out here rather than inline where it is used.
+        const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
+
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
         // tool's own definition below for why crossing that transport as tool arguments is exactly
@@ -387,7 +414,7 @@ export class CliStageAgent extends StageAgent {
                     },
                     beat,
                 ),
-                env: subscriptionEnv(),
+                env: subscriptionEnv(configDir),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
                 stderr: (data: string) => {

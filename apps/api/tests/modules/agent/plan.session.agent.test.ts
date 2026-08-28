@@ -146,6 +146,39 @@ describe('PlanSessionAgent', () => {
         }
     });
 
+    /**
+     * Card 0141: `options.configDir`, when given, reaches `query()`'s `env` as `CLAUDE_CONFIG_DIR`
+     * via `subscriptionEnv` — this class has no DI and no store of its own, so the caller
+     * (`PlanService.turn`) resolves the `claude-config-dir` setting and hands the result straight
+     * in, the same way it already hands in `model`.
+     */
+    it('sets CLAUDE_CONFIG_DIR in the engine env when a configDir option is given', async () => {
+        armQuery();
+
+        new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus', configDir: '/home/operator/.claude-wilson' });
+
+        const options = (queryMock.mock.calls[0]?.[0] as { options: { env: NodeJS.ProcessEnv } }).options;
+        expect(options.env.CLAUDE_CONFIG_DIR).toBe('/home/operator/.claude-wilson');
+    });
+
+    it('carries no CLAUDE_CONFIG_DIR key at all when no configDir option is given', async () => {
+        armQuery();
+
+        new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
+
+        const options = (queryMock.mock.calls[0]?.[0] as { options: { env: NodeJS.ProcessEnv } }).options;
+        expect('CLAUDE_CONFIG_DIR' in options.env).toBe(false);
+    });
+
+    it('carries no CLAUDE_CONFIG_DIR key at all when configDir is explicitly undefined', async () => {
+        armQuery();
+
+        new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus', configDir: undefined });
+
+        const options = (queryMock.mock.calls[0]?.[0] as { options: { env: NodeJS.ProcessEnv } }).options;
+        expect('CLAUDE_CONFIG_DIR' in options.env).toBe(false);
+    });
+
     it('carries no report tool, no scope guard and no step, turn or wall-clock budget', async () => {
         armQuery();
          

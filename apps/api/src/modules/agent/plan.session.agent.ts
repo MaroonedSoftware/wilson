@@ -51,6 +51,11 @@ export interface PlanSessionOptions {
     /** The engine's own session id to resume — set only when this agent is rehydrating a
      * conversation `runner.plan_turns` already has turns for, never for a brand-new one. */
     resume?: string;
+    /** The resolved `claude-config-dir` setting (card 0141), or `undefined` when unset — passed
+     * straight to `subscriptionEnv` below. This class has no DI and no store of its own, so the
+     * caller resolves it the same way it already resolves `model`, and hands it in alongside the
+     * rest of this session's config. */
+    configDir?: string;
 }
 
 /**
@@ -93,7 +98,7 @@ export class PlanSessionAgent {
                 // `~/.claude` (settings, MCP servers) at the moment it runs.
                 settingSources: [],
                 strictMcpConfig: true,
-                env: subscriptionEnv(),
+                env: subscriptionEnv(options.configDir),
                 ...(options.resume ? { resume: options.resume } : {}),
             },
         });

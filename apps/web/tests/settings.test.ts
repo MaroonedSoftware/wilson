@@ -16,7 +16,16 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
-import type { BoardColumns, CardSummary, CardStageConcurrency, Health, NotifyWebhookSetting, PollerInterval, PollerSetting } from '@wilson/sdk';
+import type {
+    BoardColumns,
+    CardSummary,
+    CardStageConcurrency,
+    ClaudeConfigDirSetting,
+    Health,
+    NotifyWebhookSetting,
+    PollerInterval,
+    PollerSetting,
+} from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
@@ -429,6 +438,150 @@ describe('the notification webhook control', () => {
         // value nothing here fetches — the plan's "do not imply the base URL is validated".
         expect(screen.getByText(/destination this daemon sends a request to, so the/)).toBeTruthy();
         expect(screen.getByText(/nothing here ever fetches it, so it is saved exactly as typed/)).toBeTruthy();
+    });
+});
+
+/**
+ * Card 0141: the "Engine credentials" field — `CLAUDE_CONFIG_DIR`, resolved server-side and pointed
+ * at by `subscriptionEnv`. Modelled on the notification webhook control's own tests: a single
+ * `TextInput` + Save, no client-side format check (the server checks only that the path is
+ * absolute), and — per the component's own doc — a refusal does not revert the typed draft.
+ */
+describe('the claude config directory control', () => {
+    it('shows the directory the API reports on load, not an assumed default', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({
+            configDir: '/home/operator/.claude-wilson',
+        } satisfies ClaudeConfigDirSetting);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Claude config directory')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('/home/operator/.claude-wilson'));
+    });
+
+    it('shows an empty field, not a placeholder value, when the setting is unset', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Claude config directory')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe(''));
+    });
+
+    it('trims a typed path and sends it, then renders what the server returns from the write, not the value typed', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+        // The server can round-trip a different value than requested — same principle every other
+        // control's write test proves — so the UI must render what came back, not what was typed.
+        const setConfigDir = vi.spyOn(wilson.settings, 'setClaudeConfigDirSetting').mockResolvedValue({
+            configDir: '/home/operator/.claude-wilson-normalised',
+        } satisfies ClaudeConfigDirSetting);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Claude config directory')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe(''));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: '  /home/operator/.claude-wilson  ' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(setConfigDir).toHaveBeenCalledWith({ configDir: '/home/operator/.claude-wilson' });
+        await waitFor(() => expect(input.value).toBe('/home/operator/.claude-wilson-normalised'));
+    });
+
+    it('sends null, not an empty string, when the field is cleared', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({
+            configDir: '/home/operator/.claude-wilson',
+        } satisfies ClaudeConfigDirSetting);
+        const setConfigDir = vi
+            .spyOn(wilson.settings, 'setClaudeConfigDirSetting')
+            .mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Claude config directory')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('/home/operator/.claude-wilson'));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: '   ' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(setConfigDir).toHaveBeenCalledWith({ configDir: null });
+        await waitFor(() => expect(input.value).toBe(''));
+    });
+
+    it('shows the server\'s own refusal sentence and keeps the typed draft visible, unlike the numeric controls', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({
+            configDir: '/home/operator/.claude-wilson',
+        } satisfies ClaudeConfigDirSetting);
+        vi.spyOn(wilson.settings, 'setClaudeConfigDirSetting').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                {
+                    statusCode: 400,
+                    message: 'Bad Request',
+                    details: { reason: 'claude config directory must be an absolute path, got "relative/dir"' },
+                },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Claude config directory')) as HTMLInputElement;
+        await waitFor(() => expect(input.value).toBe('/home/operator/.claude-wilson'));
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'relative/dir' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(await screen.findByText('claude config directory must be an absolute path, got "relative/dir"')).toBeTruthy();
+        expect(screen.queryByText('Bad Request')).toBeNull();
+        // Unlike the poll interval / concurrency controls, the rejected draft is not discarded —
+        // the component's own doc says a path typo is easy to mistype twice in a row.
+        expect(input.value).toBe('relative/dir');
+        expect(await screen.findByText('Still saved: /home/operator/.claude-wilson')).toBeTruthy();
+    });
+
+    it('describes the authentication requirement and that a change only applies to stages started afterwards', async () => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+
+        renderApp('/settings');
+
+        await screen.findByLabelText('Claude config directory');
+        // Constraint: "The field needs a description saying the directory must already be
+        // authenticated, not just a label" and "say so in the field's description rather than
+        // implying it takes effect immediately".
+        expect(screen.getByText(/must already be authenticated/i)).toBeTruthy();
+        expect(screen.getByText(/applies to stages started afterwards/)).toBeTruthy();
     });
 });
 
