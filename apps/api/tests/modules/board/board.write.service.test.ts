@@ -1491,4 +1491,185 @@ describe('BoardWriteService', () => {
             await expect(service.split('missing', { pieces: twoPieces() })).rejects.toMatchObject({ statusCode: 404 });
         });
     });
+
+    /**
+     * Card 0143. `merge` is the daemon's own hand-merge: compute the branch merged into `main`
+     * without a checkout (`worktrees.computeMerge`), prove it against the `testing` stage's
+     * configured suite in a throwaway worktree, then land it (`worktrees.commitMerge` +
+     * `worktrees.landMerge`) and move the card — or flag it and leave it in `ready`. `worktrees`
+     * itself is a double here (this is `board.write.service`'s own unit, not `WorktreeManager`'s —
+     * see `worktree.manager.test.ts` for `computeMerge`/`commitMerge`/`landMerge` against real git),
+     * but `proveMerge`'s suite proof runs the real `runConfiguredCommand` against a real script, so
+     * the pass/fail branch is exercised as actually written, not asserted by a mock agreeing with
+     * itself.
+     */
+    describe('merge', () => {
+        /**
+         * A board root with its own `stages.yaml`, separate from the shared one `beforeAll` writes
+         * above (which has no `testCommand`, so `proveMerge` would always refuse with "no testCommand
+         * configured" against it) — one per call, so `loadStages`'s mtime/size cache can never answer
+         * a later call with an earlier one's config.
+         */
+        const mergeBoardRoot = async (testCommand: string): Promise<string> => {
+            const base = await mkdtemp(join(tmpdir(), 'board-write-service-merge-'));
+            const root = join(base, 'board');
+            await mkdir(join(root, 'config'), { recursive: true });
+            await writeFile(
+                join(root, 'config', 'stages.yaml'),
+                [
+                    'stages:',
+                    '  - name: testing',
+                    '    mode: agent',
+                    '    model: claude-opus',
+                    '    instructions: test the thing',
+                    `    testCommand: ${testCommand}`,
+                    '    onPass: merged',
+                    '    onFail: testing',
+                    '',
+                ].join('\n'),
+                'utf8',
+            );
+            return root;
+        };
+
+        const scriptExiting = async (code: number): Promise<string> => {
+            const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-script-'));
+            const path = join(dir, 'suite.js');
+            await writeFile(path, `process.exit(${code});\n`, 'utf8');
+            return path;
+        };
+
+        /**
+         * A `merge`-specific double: `resolveBranch`/`computeMerge`/`commitMerge`/`landMerge` stand
+         * in for the git plumbing (covered directly in `worktree.manager.test.ts`), while `create`
+         * hands `proveMerge` a real, existing directory so the real `runConfiguredCommand` it runs
+         * has somewhere to spawn its process — the scratch worktree's *content* is not what these
+         * tests are about.
+         */
+        const mergeWorktrees = (overrides: Record<string, unknown> = {}) => ({
+            resolveBranch: vi.fn(() => 'card/0090-thing'),
+            computeMerge: vi.fn(async () => ({ ok: true, treeSha: 'tree-sha', mainSha: 'main-sha-before', branchSha: 'branch-sha' })),
+            commitMerge: vi.fn(async () => 'merge-commit-sha'),
+            landMerge: vi.fn(async () => ({ ok: true })),
+            create: vi.fn(async () => ({ path: tmpdir(), branch: 'card/0090-thing-merge-check', baseSha: 'merge-commit-sha' })),
+            reclaim: vi.fn(async () => {}),
+            ...overrides,
+        });
+
+        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, root: string) => {
+            const events = { append: vi.fn(async () => {}) };
+            const config = new StaticBoardConfig(uniqueProject(), root, '/tmp/code', '/tmp/wt', '/tmp/run');
+            const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+            const logger = fakeLogger();
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+            const runningCards = new RunningCards();
+            const service = new BoardWriteService(
+                board,
+                config,
+                worktrees as unknown as WorktreeManager,
+                events as unknown as EventLog,
+                logger,
+                cardJobs,
+                broker as unknown as JobBroker,
+                runningCards,
+            );
+            return { board, service };
+        };
+
+        it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
+            const worktrees = mergeWorktrees();
+            const { board, service } = freshMergeBoard(worktrees, boardRoot);
+            await board.create(card('0090', { stage: 'implementing' }), 'seed');
+
+            await expect(service.merge('0090')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('not "ready"') },
+            });
+            expect(worktrees.computeMerge).not.toHaveBeenCalled();
+        });
+
+        it('flags a conflicting merge, leaves the card in ready with its retries untouched, and lands nothing', async () => {
+            const worktrees = mergeWorktrees({
+                computeMerge: vi.fn(async () => ({ ok: false, conflicts: ['src/index.ts', 'src/other.ts'], raw: 'CONFLICT (content): ...' })),
+            });
+            const { board, service } = freshMergeBoard(worktrees, boardRoot);
+            await board.create(card('0091', { stage: 'ready', retries: { testing: 1 } }), 'seed');
+
+            const result = await service.merge('0091');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('src/index.ts');
+            expect(result.reason).toContain('src/other.ts');
+            expect(worktrees.commitMerge).not.toHaveBeenCalled();
+            expect(worktrees.landMerge).not.toHaveBeenCalled();
+
+            const stored = await board.read('0091');
+            expect(stored.frontmatter.stage).toBe('ready');
+            expect(stored.frontmatter.needsHuman).toBe(true);
+            expect(stored.frontmatter.needsHumanReason).toContain('src/index.ts');
+            expect(stored.frontmatter.retries).toEqual({ testing: 1 });
+        });
+
+        it('does not land a merge whose suite fails, and leaves the card flagged in ready', async () => {
+            const failing = await scriptExiting(1);
+            const root = await mergeBoardRoot(`node ${failing}`);
+            const worktrees = mergeWorktrees();
+            const { board, service } = freshMergeBoard(worktrees, root);
+            await board.create(card('0092', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0092');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('fails the suite');
+            expect(worktrees.landMerge).not.toHaveBeenCalled();
+            // The scratch worktree is still reclaimed even though the suite failed.
+            expect(worktrees.reclaim).toHaveBeenCalledWith('0092-merge-check');
+
+            const stored = await board.read('0092');
+            expect(stored.frontmatter.stage).toBe('ready');
+            expect(stored.frontmatter.needsHuman).toBe(true);
+        });
+
+        it('lands a clean merge whose suite passes, and moves the card to merged', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+            const worktrees = mergeWorktrees();
+            const { board, service } = freshMergeBoard(worktrees, root);
+            await board.create(card('0093', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0093');
+
+            expect(result.merged).toBe(true);
+            expect(result.commit).toBe('merge-commit-sha');
+            expect(result.reason).toBeUndefined();
+            expect(worktrees.commitMerge).toHaveBeenCalledWith('main-sha-before', 'branch-sha', 'tree-sha', expect.stringContaining('0093'));
+            expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha');
+            expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check');
+
+            const stored = await board.read('0093');
+            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.needsHuman).toBe(false);
+        });
+
+        it('reports failure, not success, and leaves the card flagged, when the ref does not actually move', async () => {
+            const passing = await scriptExiting(0);
+            const root = await mergeBoardRoot(`node ${passing}`);
+            const worktrees = mergeWorktrees({
+                landMerge: vi.fn(async () => ({ ok: false, reason: 'main did not move: update-ref refused the compare-and-swap' })),
+            });
+            const { board, service } = freshMergeBoard(worktrees, root);
+            await board.create(card('0094', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0094');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toBe('main did not move: update-ref refused the compare-and-swap');
+
+            const stored = await board.read('0094');
+            expect(stored.frontmatter.stage).toBe('ready');
+            expect(stored.frontmatter.needsHuman).toBe(true);
+            expect(stored.frontmatter.needsHumanReason).toBe('main did not move: update-ref refused the compare-and-swap');
+        });
+    });
 });

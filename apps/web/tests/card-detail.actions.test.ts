@@ -15,6 +15,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail } from '@wilson/sdk';
@@ -119,6 +120,11 @@ afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // `@mantine/notifications` keeps its queue in a module-level store, outside the React tree
+    // `cleanup()` unmounts — without this, a notification a passing test shows outlives it, and a
+    // later test asserting on a notification's text can find that older one instead (or never find
+    // its own, once the display limit is reached by everything still queued ahead of it).
+    notifications.clean();
 });
 
 describe('the move control', () => {
@@ -283,5 +289,94 @@ describe('the enqueue button', () => {
 
         expect(startCard).toHaveBeenCalledWith('0007');
         expect(await screen.findByText('plan is missing "Acceptance criteria"')).toBeTruthy();
+    });
+});
+
+// Card 0143: the operator's end of the daemon's own hand-merge — a button on a card in `ready`
+// that calls `POST .../merge` and, since a conflict or a failed suite is a normal 200
+// (`MergeResult.merged: false`) rather than a refusal, always ends in a notification either way.
+describe('the merge control', () => {
+    it('is not rendered for a card outside ready', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        expect(screen.queryByRole('button', { name: 'Merge' })).toBeNull();
+    });
+
+    it('is rendered for a card in ready', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByRole('button', { name: 'Merge' })).toBeTruthy();
+    });
+
+    it('merges the card and shows a success notification naming the commit', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
+        const mergeCard = vi.spyOn(wilson.board, 'mergeCard').mockResolvedValue({
+            ...card('merged'),
+            merged: true,
+            commit: 'abc1234def5678',
+        });
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Merge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(mergeCard).toHaveBeenCalledWith('0007');
+        expect(await screen.findByText('Merged')).toBeTruthy();
+        expect(await screen.findByText(/abc1234d/)).toBeTruthy();
+    });
+
+    // `merged: false` is a normal 200, not a thrown error — the two honest ways an attempt can not
+    // land (a conflict or a failed suite), and the reason still has to reach the operator.
+    it('shows the reason as a notification when a 200 reports merged: false, rather than swallowing it', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(wilson.board, 'mergeCard').mockResolvedValue({
+            ...card('ready'),
+            merged: false,
+            reason: 'card/0007-do-the-thing conflicts with main: src/index.ts',
+        });
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Merge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(await screen.findByText('card/0007-do-the-thing conflicts with main: src/index.ts')).toBeTruthy();
+        // The card was never re-fetched into a merged state — only invalidated.
+        expect(screen.getByText('ready', { selector: '.mantine-Badge-label' })).toBeTruthy();
+    });
+
+    it('shows the reason as a notification when the request itself is refused', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(wilson.board, 'mergeCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'cannot merge 0007: it is in "implementing", not "ready"' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Merge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(await screen.findByText('cannot merge 0007: it is in "implementing", not "ready"')).toBeTruthy();
     });
 });
