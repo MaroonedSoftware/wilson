@@ -19,6 +19,8 @@ import type { DB } from '#modules/data/db.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { planSessions } from '#modules/plan/plan.session.registry.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
+import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+import type { SettingsStore } from '#modules/settings/settings.store.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} } as unknown as Logger;
@@ -34,7 +36,7 @@ const fakeEvents = { append: vi.fn(async () => {}) } as unknown as EventLog;
  * direct, checkable record of exactly what `PlanService` sent it.
  */
 const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.hoisted(() => {
-    const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string }> = [];
+    const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string; configDir?: string }> = [];
     // Every mock instance ever constructed, in construction order — the counter behind `sessionId`
     // is shared across every test in this file (it lives in this one hoisted closure), so a test
     // must read the id an instance was actually given back off this array rather than assume which
@@ -43,9 +45,9 @@ const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.ho
     const disposeSpy = vi.fn();
     let counter = 0;
     class PlanSessionAgentMock {
-        readonly options: { worktreeRoot: string; model: string; resume?: string };
+        readonly options: { worktreeRoot: string; model: string; resume?: string; configDir?: string };
         sessionId: string | undefined;
-        constructor(options: { worktreeRoot: string; model: string; resume?: string }) {
+        constructor(options: { worktreeRoot: string; model: string; resume?: string; configDir?: string }) {
             this.options = options;
             sessionAgentCalls.push(options);
             counter += 1;
@@ -542,6 +544,47 @@ describe('PlanService', () => {
                 expect(second.content).toBe('a follow-up');
 
                 expect(sessionAgentCalls).toHaveLength(1);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        /**
+         * Card 0141: `PlanService.turn` resolves the `claude-config-dir` setting fresh, only on a
+         * `planSessions.session` miss, and hands the result to `PlanSessionAgent` as `configDir`.
+         * The default `freshEnv()` service (used by every other test in this file) is constructed
+         * with no `settings` at all, which resolves to `undefined` — this test constructs its own
+         * `PlanService` with a real fifth argument to prove the resolved value actually reaches the
+         * new engine session, not just that the plumbing compiles.
+         */
+        it('resolves the claude-config-dir setting on a session miss and passes it to the new PlanSessionAgent', async () => {
+            const { board, config, worktrees } = await freshEnv();
+            const settings = { get: vi.fn(async () => '/home/operator/.claude-wilson') } as unknown as SettingsStore;
+            const service = new PlanService(board, config, worktrees, db, settings);
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await service.turn(id, { text: 'hi' });
+
+                expect(settings.get).toHaveBeenCalledWith(CLAUDE_CONFIG_DIR);
+                expect(sessionAgentCalls).toHaveLength(1);
+                expect(sessionAgentCalls[0]!.configDir).toBe('/home/operator/.claude-wilson');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('leaves configDir undefined for a card whose PlanService was constructed with no settings store', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await service.turn(id, { text: 'hi' });
+
+                expect(sessionAgentCalls).toHaveLength(1);
+                expect(sessionAgentCalls[0]!.configDir).toBeUndefined();
             } finally {
                 planSessions.dispose(id);
             }
