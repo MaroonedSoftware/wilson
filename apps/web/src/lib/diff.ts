@@ -6,10 +6,15 @@
  * worth copying rather than a third implementation or a shared dependency for ten lines.
  *
  * A deliberate copy, not a shared import: `plan.command.ts` is not reachable from `apps/web`
- * without crossing the app/CLI boundary card 0085 drew, and moving its `diffLines` to a shared
- * home would leave that home with a single consumer the moment card [[0125]] retires
- * `wilson card plan` and deletes it — churn to avoid a duplicate that disappears on its own. Card
- * [[0125]] is what removes `plan.command.ts`'s copy; this one stays.
+ * without crossing the app/CLI boundary card 0085 drew.
+ *
+ * When this was written the duplication was expected to be temporary — card 0125 would retire
+ * `wilson card plan` and take the terminal's `diffLines` with it. **That is no longer happening.**
+ * 0125 was decided against on 2026-08-27: the terminal session stays, because planning over SSH and
+ * the Claude Code TUI are worth more than removing a second client. So this duplicate is permanent,
+ * on purpose, and the reason to leave it alone is now stronger rather than weaker — sharing ten
+ * lines across the app/CLI boundary buys less than the boundary is worth. Do not "finish the
+ * cleanup"; there is none pending.
  *
  * Returns structured lines rather than the terminal's pre-formatted `"- "`/`"+ "` strings, since a
  * Mantine render needs the added/removed distinction as data (for colour), not as a text prefix.
