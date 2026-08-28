@@ -9,9 +9,9 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SdkError, type CardSummary } from '@wilson/sdk';
+import { SdkError, type CardDetail, type CardSummary } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
-import { useMoveCard, useRepositionCard, useSaveAPlanDraft, useStartCard } from '#src/lib/mutations.js';
+import { useCreateCard, useMoveCard, useRepositionCard, useSaveAPlanDraft, useStartCard } from '#src/lib/mutations.js';
 
 // `notifications.show` is Mantine's own emitter — it works without a mounted `<Notifications />`,
 // but stubbing it here lets a test assert exactly what a refusal is shown as, without also having
@@ -307,5 +307,64 @@ describe('useSaveAPlanDraft', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
         expect(result.current.error).toBeInstanceOf(SdkError);
         expect((result.current.error as SdkError).body).toMatchObject({ details: { reason: 'plan is missing "Acceptance criteria"' } });
+    });
+});
+
+describe('useCreateCard', () => {
+    const created: CardDetail = {
+        id: '0143',
+        title: 'A new thought',
+        stage: 'parking-lot',
+        dependsOn: [],
+        needsHuman: false,
+        sections: {},
+        body: '## Note\n\nsomething worth capturing',
+    };
+
+    it('sends the title, stage and body straight through to the SDK and resolves with the created card', async () => {
+        const createCard = vi.spyOn(wilson.board, 'createCard').mockResolvedValue(created);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useCreateCard(), { wrapper: withClient(queryClient) });
+        let resolved: CardDetail | undefined;
+        await act(async () => {
+            resolved = await result.current.mutateAsync({ title: 'A new thought', stage: 'parking-lot', body: '## Note\n\nsomething worth capturing' });
+        });
+
+        expect(createCard).toHaveBeenCalledWith({ title: 'A new thought', stage: 'parking-lot', body: '## Note\n\nsomething worth capturing' });
+        expect(resolved).toEqual(created);
+    });
+
+    it('does not invalidate the cards list on success — the feed already covers that, per this hook\'s own doc comment', async () => {
+        vi.spyOn(wilson.board, 'createCard').mockResolvedValue(created);
+        const queryClient = new QueryClient();
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useCreateCard(), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ title: 'A new thought', stage: 'parking-lot', body: 'x' });
+        });
+
+        expect(invalidateQueries).not.toHaveBeenCalled();
+        expect(setQueryData).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not create card'", async () => {
+        vi.spyOn(wilson.board, 'createCard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'title is required' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useCreateCard(), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ title: '', stage: 'parking-lot', body: 'x' });
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not create card', message: 'title is required' }),
+            ),
+        );
     });
 });
