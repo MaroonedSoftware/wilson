@@ -5,6 +5,7 @@ options {
         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
+        DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
     }
     security: none
 }
@@ -208,6 +209,38 @@ operation /api/settings/claude-config-dir: {
             # string) — carried via `details`, the same convention every other refusal on this
             # contract uses.
             400:
+        }
+    }
+}
+
+# Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
+# instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
+# (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
+# is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
+contract DryRunSetting: {
+    enabled: boolean
+}
+
+contract SetDryRunSettingRequest: {
+    enabled: boolean
+}
+
+operation /api/settings/dry-run: {
+    get: {
+        name: Get dry run setting
+        service: DryRunSettingService.get
+        response: {
+            200: { application/json: DryRunSetting }
+        }
+    }
+    put: {
+        name: Set dry run setting
+        service: DryRunSettingService.set
+        request: {
+            application/json: SetDryRunSettingRequest
+        }
+        response: {
+            200: { application/json: DryRunSetting }
         }
     }
 }

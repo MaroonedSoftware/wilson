@@ -1,17 +1,20 @@
 import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
+import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
     CardStageConcurrency,
     ClaudeConfigDirSetting,
+    DryRunSetting,
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
+    SetDryRunSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -24,7 +27,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const SettingsRouter = ServerKitRouter();
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L69)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L70)
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
@@ -37,7 +40,7 @@ SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L76)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L77)
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']), async ctx => {
@@ -52,7 +55,7 @@ SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L89)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L90)
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
@@ -65,7 +68,7 @@ SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L96)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L97)
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['json']), async ctx => {
@@ -80,7 +83,7 @@ SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['js
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L112)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L113)
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
@@ -93,7 +96,7 @@ SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L119)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L120)
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(['json']), async ctx => {
@@ -108,7 +111,7 @@ SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L149)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L150)
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
@@ -121,7 +124,7 @@ SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L156)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L157)
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']), async ctx => {
@@ -136,7 +139,7 @@ SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L192)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L193)
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
@@ -149,7 +152,7 @@ SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L199)
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L200)
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['json']), async ctx => {
@@ -157,6 +160,34 @@ SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['jso
 
     const service = ctx.container.get(ClaudeConfigDirSettingService);
     const result: ClaudeConfigDirSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L229)
+ * anonymous access, no security required
+ */
+SettingsRouter.get('/api/settings/dry-run', async ctx => {
+    const service = ctx.container.get(DryRunSettingService);
+    const result: DryRunSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L236)
+ * anonymous access, no security required
+ */
+SettingsRouter.put('/api/settings/dry-run', bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetDryRunSettingRequest);
+
+    const service = ctx.container.get(DryRunSettingService);
+    const result: DryRunSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

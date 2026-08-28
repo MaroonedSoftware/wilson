@@ -10,11 +10,13 @@ import { PollerIntervalSettingService } from './poller.interval.setting.service.
 import { CardStageConcurrencySettingService } from './card.stage.concurrency.setting.service.js';
 import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js';
 import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
+import { DryRunSettingService } from './dry.run.setting.service.js';
 
 /**
  * Operational settings backed by `runner.settings` — the poller's on/off switch, its interval,
- * `card.stage`'s concurrency (card 0115), the notify webhook and base URL (card 0107), and the
- * engine's Claude config directory (card 0141).
+ * `card.stage`'s concurrency (card 0115), the notify webhook and base URL (card 0107), the engine's
+ * Claude config directory (card 0141), and whether a merge rehearses instead of writing `main`
+ * (card 0144).
  *
  * Listed before Jobs in `modules.ts` so a reader sees `PollerSettingService` (which needs `Poller`)
  * exist before the module that consumes it — `setup` only registers tokens, though, so the actual
@@ -39,6 +41,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(CardStageConcurrencySettingService).useClass(CardStageConcurrencySettingService).asTransient();
         registry.register(NotifyWebhookSettingService).useClass(NotifyWebhookSettingService).asTransient();
         registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
+        registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
     },
     // A `runner.settings` row already present before this boot must take effect immediately, the
     // same as `BoundedCardStageJobRunner.start()` applying `POLLER_ENABLED` at startup

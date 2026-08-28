@@ -16,6 +16,13 @@ export interface Worktree {
 }
 
 /**
+ * Card 0144. The one throwaway branch every dry-run merge lands on, across every card — not
+ * per-card, so a dependent card's dry-run merge sees its dependency's dry-run result on it (see
+ * {@link WorktreeManager.ensureIntegrationBranch}).
+ */
+export const DRY_RUN_INTEGRATION_BRANCH = 'dry-run-integration';
+
+/**
  * One worktree and one branch per card (PROJECT.md decision 6).
  *
  * The worktree is cut from the *code* repo, which contains no board files at all — that is what
@@ -301,83 +308,126 @@ export class WorktreeManager {
     }
 
     /**
-     * Card 0143. Compute the merge of `branch` into `main`, entirely in the object database —
-     * `codeRoot`'s working tree and index never move (its own HEAD, checked out at `main`, is read
-     * with `rev-parse` and nothing else touches it). A clean merge hands back the resulting tree and
+     * Card 0143, generalized by card 0144. Compute the merge of `branch` into `targetRef`, entirely
+     * in the object database — `codeRoot`'s working tree and index never move; `targetRef` is read
+     * with `rev-parse` and nothing else touches it. A clean merge hands back the resulting tree and
      * the two shas {@link commitMerge} needs as parents; a conflicting one hands back the paths it
      * could not resolve — a flag, not a poison, the same shape card 0103 established for a rebase
      * conflict.
+     *
+     * `targetRef` is a ref name (`main`, or {@link ensureIntegrationBranch}'s branch), not
+     * necessarily `codeRoot`'s checked-out branch — card 0144's dry run computes against the
+     * integration branch, which is never checked out anywhere (see {@link landMerge}).
      */
     async computeMerge(
         branch: string,
-    ): Promise<{ ok: true; treeSha: string; mainSha: string; branchSha: string } | { ok: false; conflicts: string[]; raw: string }> {
-        const mainSha = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+        targetRef: string,
+    ): Promise<{ ok: true; treeSha: string; targetSha: string; branchSha: string } | { ok: false; conflicts: string[]; raw: string }> {
+        const targetSha = (await git(this.config.codeRoot, ['rev-parse', targetRef])).stdout.trim();
         const branchSha = (await git(this.config.codeRoot, ['rev-parse', branch])).stdout.trim();
 
-        const result = await mergeTree(this.config.codeRoot, mainSha, branchSha);
+        const result = await mergeTree(this.config.codeRoot, targetSha, branchSha);
         if (!result.ok) {
             return { ok: false, conflicts: conflictingPaths(result.output), raw: result.output };
         }
-        return { ok: true, treeSha: result.treeSha, mainSha, branchSha };
+        return { ok: true, treeSha: result.treeSha, targetSha, branchSha };
     }
 
     /**
      * Create the merge commit object from {@link computeMerge}'s result. This alone does not move
-     * `main` — the commit is unreferenced until {@link landMerge} points the branch at it, which is
-     * deliberate: the caller runs the suite against this commit first and only lands it if that
+     * `targetRef` — the commit is unreferenced until {@link landMerge} points the branch at it, which
+     * is deliberate: the caller runs the suite against this commit first and only lands it if that
      * passes (card 0143's own Constraints, *the suite runs against the merged result before the ref
      * moves*).
      */
-    async commitMerge(mainSha: string, branchSha: string, treeSha: string, message: string): Promise<string> {
-        const { stdout } = await git(this.config.codeRoot, ['commit-tree', treeSha, '-p', mainSha, '-p', branchSha, '-m', message]);
+    async commitMerge(targetSha: string, branchSha: string, treeSha: string, message: string): Promise<string> {
+        const { stdout } = await git(this.config.codeRoot, ['commit-tree', treeSha, '-p', targetSha, '-p', branchSha, '-m', message]);
         return stdout.trim();
     }
 
     /**
-     * Move `main` onto `mergeCommit`, compare-and-swap against the `main` {@link computeMerge} last
-     * saw, read the ref back to confirm it actually moved, then reconcile `codeRoot`'s checkout to
-     * match.
+     * Move `targetRef` onto `mergeCommit`, compare-and-swap against the sha {@link computeMerge} last
+     * saw at that ref, read the ref back to confirm it actually moved, then — only when `targetRef`
+     * is the branch actually checked out at `codeRoot` — reconcile the checkout to match.
      *
-     * The CAS (`update-ref`'s optional third argument) refuses rather than clobbers if `main` moved
-     * while the suite was running against the computed merge — landing on top of a `main` this card
-     * never proved anything against would be worse than refusing. The read-back matters separately:
-     * [[0025]]'s prior art (vibe-kanban#1897) failed *silently* — the symptom was a card stuck at
-     * `ready` with no error — and an exit code is not evidence that the ref actually moved.
+     * The CAS (`update-ref`'s optional third argument) refuses rather than clobbers if `targetRef`
+     * moved while the suite was running against the computed merge — landing on top of a ref this
+     * card never proved anything against would be worse than refusing. The read-back matters
+     * separately: [[0025]]'s prior art (vibe-kanban#1897) failed *silently* — the symptom was a card
+     * stuck at `ready` with no error — and an exit code is not evidence that the ref actually moved.
      *
-     * Moving the ref is not the whole job. `update-ref` on a branch that is checked out moves `HEAD`'s
-     * target while leaving `codeRoot`'s working tree and index at the old commit — `git status` would
-     * then report every merged file as a staged deletion, a trap indistinguishable from "nothing
-     * happened" until an operator commits it. `git read-tree -m -u <mainSha> <mergeCommit>` is the
-     * two-way merge that brings both up to date: it preserves any uncommitted edit in `codeRoot` and
-     * refuses rather than overwrite one, so a refusal here is reported as a failed merge rather than
-     * swallowed — the ref has already moved at that point, but the checkout is left inconsistent with
-     * it, which is why this must never be silent.
+     * Moving the ref is not the whole job, but only when it is `codeRoot`'s own checkout: `update-ref`
+     * on a branch that is checked out moves `HEAD`'s target while leaving `codeRoot`'s working tree
+     * and index at the old commit — `git status` would then report every merged file as a staged
+     * deletion, a trap indistinguishable from "nothing happened" until an operator commits it.
+     * `git read-tree -m -u <targetSha> <mergeCommit>` is the two-way merge that brings both up to
+     * date: it preserves any uncommitted edit in `codeRoot` and refuses rather than overwrite one, so
+     * a refusal here is reported as a failed merge rather than swallowed — the ref has already moved
+     * at that point, but the checkout is left inconsistent with it, which is why this must never be
+     * silent.
+     *
+     * Card 0144's dry run lands on {@link ensureIntegrationBranch}'s branch instead, which is never
+     * checked out anywhere — running `read-tree` for it would have nothing to reconcile *against*
+     * and would instead rewrite `codeRoot`'s actual checkout (`main`) to a rehearsal no one asked for.
+     * That is why this checks what is checked out rather than assuming `targetRef` always is: the
+     * distinction the branch it moves and the branch `codeRoot` shows in its working tree can now
+     * differ, where before card 0144 they never did.
      */
-    async landMerge(mainSha: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+    async landMerge(targetSha: string, mergeCommit: string, targetRef: string): Promise<{ ok: true } | { ok: false; reason: string }> {
         try {
-            await git(this.config.codeRoot, ['update-ref', 'refs/heads/main', mergeCommit, mainSha]);
+            await git(this.config.codeRoot, ['update-ref', `refs/heads/${targetRef}`, mergeCommit, targetSha]);
         } catch (err) {
-            return { ok: false, reason: `main did not move: ${(err as Error).message}` };
+            return { ok: false, reason: `${targetRef} did not move: ${(err as Error).message}` };
         }
 
-        const after = (await git(this.config.codeRoot, ['rev-parse', 'refs/heads/main'])).stdout.trim();
+        const after = (await git(this.config.codeRoot, ['rev-parse', `refs/heads/${targetRef}`])).stdout.trim();
         if (after !== mergeCommit) {
             return {
                 ok: false,
-                reason: `update-ref reported success but main points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
+                reason: `update-ref reported success but ${targetRef} points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
             };
         }
 
+        const checkedOut = (await git(this.config.codeRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+        if (checkedOut !== targetRef) {
+            return { ok: true };
+        }
+
         try {
-            await git(this.config.codeRoot, ['read-tree', '-m', '-u', mainSha, mergeCommit]);
+            await git(this.config.codeRoot, ['read-tree', '-m', '-u', targetSha, mergeCommit]);
         } catch (err) {
             return {
                 ok: false,
-                reason: `main moved to ${mergeCommit.slice(0, 8)} but codeRoot's checkout could not be reconciled: ${(err as Error).message}`,
+                reason: `${targetRef} moved to ${mergeCommit.slice(0, 8)} but codeRoot's checkout could not be reconciled: ${(err as Error).message}`,
             };
         }
 
         return { ok: true };
+    }
+
+    /**
+     * Card 0144. The throwaway branch a dry-run merge lands on instead of `main` — cut from `main`
+     * the first time a dry run needs it, then left exactly where the last dry-run merge put it.
+     * Never reset: a second card's dry-run merge must see the first's result on it, or a dependent
+     * card rehearses against a tree that never existed (this card's Constraints), so `main` moving
+     * after this branch exists does not reset it either — this always returns the branch's own tip,
+     * stale relative to `main` or not. Composing across dry runs is the entire point; resetting
+     * whenever `main` moved would throw that away on exactly the cards that most need it preserved.
+     *
+     * Never checked out anywhere — {@link landMerge} relies on that to know `read-tree` does not
+     * apply to it.
+     */
+    async ensureIntegrationBranch(): Promise<string> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}`]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) {
+            const mainSha = (await git(this.config.codeRoot, ['rev-parse', 'main'])).stdout.trim();
+            await git(this.config.codeRoot, ['branch', DRY_RUN_INTEGRATION_BRANCH, mainSha]);
+            this.logger.info(`cut ${DRY_RUN_INTEGRATION_BRANCH} from main at ${mainSha.slice(0, 8)}`);
+        }
+        return DRY_RUN_INTEGRATION_BRANCH;
     }
 
     /**

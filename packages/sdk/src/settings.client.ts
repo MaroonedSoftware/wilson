@@ -1,11 +1,13 @@
 import type {
     CardStageConcurrency,
     ClaudeConfigDirSetting,
+    DryRunSetting,
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
+    SetDryRunSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -97,5 +99,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<ClaudeConfigDirSetting>(result);
+    }
+
+    /** @name Get dry run setting */
+    async getDryRunSetting(): Promise<DryRunSetting> {
+        const result = await this.fetch(`/api/settings/dry-run`, { method: 'GET' });
+        return await parseJson<DryRunSetting>(result);
+    }
+
+    /** @name Set dry run setting */
+    async setDryRunSetting(body: SetDryRunSettingRequest): Promise<DryRunSetting> {
+        const result = await this.fetch(`/api/settings/dry-run`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<DryRunSetting>(result);
     }
 }
