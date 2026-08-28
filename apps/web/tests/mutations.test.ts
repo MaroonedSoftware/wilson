@@ -11,7 +11,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SdkError, type CardSummary } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
-import { useMoveCard, useRepositionCard, useStartCard } from '#src/lib/mutations.js';
+import { useMoveCard, useRepositionCard, useSaveAPlanDraft, useStartCard } from '#src/lib/mutations.js';
 
 // `notifications.show` is Mantine's own emitter — it works without a mounted `<Notifications />`,
 // but stubbing it here lets a test assert exactly what a refusal is shown as, without also having
@@ -234,5 +234,78 @@ describe('useStartCard', () => {
         await waitFor(() =>
             expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: 'plan is missing "Acceptance criteria"' })),
         );
+    });
+});
+
+describe('useSaveAPlanDraft', () => {
+    const savedCard: CardSummary & { body: string; sections: Record<string, string> } = {
+        id: '0007',
+        title: 'Do the thing',
+        stage: 'planning',
+        dependsOn: [],
+        needsHuman: false,
+        sections: {},
+        body: 'the approved draft',
+    };
+
+    it('sends the body to plan/save and writes the response straight into the card cache — not an invalidate', async () => {
+        const saveAPlanDraft = vi.spyOn(wilson.board, 'saveAPlanDraft').mockResolvedValue(savedCard);
+        const queryClient = new QueryClient();
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+        const { result } = renderHook(() => useSaveAPlanDraft('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('the approved draft');
+        });
+
+        expect(saveAPlanDraft).toHaveBeenCalledWith('0007', { body: 'the approved draft' });
+        // Card [[0138]]'s own contract (`mutations.ts`'s doc comment): the card's new version reaches
+        // the screen the moment the write lands, straight from the response, not from a refetch a
+        // caller would otherwise have to wait on.
+        expect(setQueryData).toHaveBeenCalledWith(['card', '0007'], savedCard);
+        expect(invalidateQueries).not.toHaveBeenCalled();
+    });
+
+    it("does not show a notification on refusal — DraftPane reads the error itself so the draft is never lost to a toast", async () => {
+        vi.spyOn(wilson.board, 'saveAPlanDraft').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
+                new Headers(),
+            ),
+        );
+        const queryClient = new QueryClient();
+        vi.mocked(notifications.show).mockClear();
+
+        const { result } = renderHook(() => useSaveAPlanDraft('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('an incomplete draft');
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(notifications.show).not.toHaveBeenCalled();
+    });
+
+    it("exposes the server's own refusal reason via the mutation's error, unlike a generic failure message", async () => {
+        vi.spyOn(wilson.board, 'saveAPlanDraft').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
+                new Headers(),
+            ),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useSaveAPlanDraft('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('an incomplete draft');
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(result.current.error).toBeInstanceOf(SdkError);
+        expect((result.current.error as SdkError).body).toMatchObject({ details: { reason: 'plan is missing "Acceptance criteria"' } });
     });
 });

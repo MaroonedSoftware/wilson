@@ -112,6 +112,11 @@ beforeEach(() => {
     vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
     vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
     vi.spyOn(wilson.board, 'openAPlanningSession').mockResolvedValue(session);
+    // Card [[0138]]'s `DraftPane` (the other half of this two-pane view) fetches the session's
+    // draft unconditionally whenever `planning` renders — every test in this file gets it
+    // pre-mocked to the same body `card()` returns, so a suite that isn't specifically exercising
+    // the draft pane itself (draft-pane.test.ts covers that) doesn't have to think about it.
+    vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: 'the current plan body' });
     FakeEventSource.instances = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
@@ -151,7 +156,7 @@ afterEach(() => {
 });
 
 describe('a card in planning', () => {
-    it('renders the two-pane session — conversation and the read-only current body — and opens the plan stream', async () => {
+    it('renders the two-pane session — conversation and the live, editable draft (card [[0138]]) — and opens the plan stream', async () => {
         vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
 
         renderApp('/cards/0007');
@@ -159,10 +164,14 @@ describe('a card in planning', () => {
 
         expect(await screen.findByText('Conversation')).toBeTruthy();
         expect(screen.getByText('Plan')).toBeTruthy();
-        expect(screen.getByText('the current plan body')).toBeTruthy();
-        // No draft editing, diff, or approve control — that pane is [[0138]]'s, this card only
-        // renders the card's current body, read-only, as its honest placeholder.
-        expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+        // Card [[0138]] replaces the read-only placeholder with an editable draft fetched via
+        // `getAPlanDraft` — the session's draft, not `card.body`, lands in a `Textarea`, not plain
+        // text.
+        const draft = (await screen.findByRole('textbox', { name: 'Draft' })) as HTMLTextAreaElement;
+        await waitFor(() => expect(draft.value).toBe('the current plan body'));
+        // The approve control exists (card [[0138]]'s decision gate) but starts disabled: the
+        // fetched draft is identical to the card's current body, so there is nothing yet to approve.
+        expect((screen.getByRole('button', { name: 'Approve…' }) as HTMLButtonElement).disabled).toBe(true);
 
         await waitFor(() => expect(planStreamSources()).toHaveLength(1));
         expect(latestPlanStream().url).toContain('/api/cards/0007/plan/stream');

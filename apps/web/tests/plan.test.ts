@@ -6,11 +6,18 @@
 // `EventSource`. This file covers the hook directly — turn/delta merging, seq dedupe and
 // ordering, the enabled flag, the never-opened-vs-transient-drop error rule, and commitTurn — in
 // isolation from the component that renders it (planning-session.test.ts covers that).
-import { act, renderHook } from '@testing-library/react';
+//
+// Card 0138 adds `usePlanDraft` to this same file: a plain polling `useQuery` over
+// `GET .../plan/draft`. Covered here directly — the endpoint it calls, the query key
+// `DraftPane.tsx` relies on to read and to seed via `queryClient`, the `enabled` gate, and that it
+// polls rather than pushes.
+import { createElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanTurn } from '@wilson/sdk';
-import { usePlanTranscript } from '#src/lib/plan.js';
-import { API_BASE } from '#src/lib/sdk.js';
+import { usePlanDraft, usePlanTranscript } from '#src/lib/plan.js';
+import { API_BASE, wilson } from '#src/lib/sdk.js';
 
 /** Same stand-in `feed.test.ts` uses for jsdom's missing `EventSource`: records what the hook
  * does to it and lets a test drive `onopen`/`onerror`/named events exactly as the browser would. */
@@ -196,5 +203,55 @@ describe('usePlanTranscript', () => {
         expect(source.closed).toBe(false);
         unmount();
         expect(source.closed).toBe(true);
+    });
+});
+
+const withQueryClient = (queryClient: QueryClient) => {
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
+    return wrapper;
+};
+
+describe('usePlanDraft', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('fetches the card-scoped draft endpoint through the SDK when enabled', async () => {
+        const getAPlanDraft = vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: 'draft text' });
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => usePlanDraft('0007', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(result.current.data).toEqual({ body: 'draft text' }));
+        expect(getAPlanDraft).toHaveBeenCalledWith('0007');
+    });
+
+    it('does not fetch while disabled, so a non-planning stage never polls', () => {
+        const getAPlanDraft = vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: '' });
+        const queryClient = new QueryClient();
+
+        renderHook(() => usePlanDraft('0007', false), { wrapper: withQueryClient(queryClient) });
+
+        expect(getAPlanDraft).not.toHaveBeenCalled();
+    });
+
+    it('renders an empty draft as an ordinary result rather than an error, for a card with no draft yet', async () => {
+        vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: '' });
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => usePlanDraft('0007', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(result.current.data?.body).toBe('');
+        expect(result.current.error).toBeNull();
+    });
+
+    it("keys its cache entry under ['plan-draft', cardId], the key DraftPane relies on to seed its own baseline", async () => {
+        vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: 'seeded' });
+        const queryClient = new QueryClient();
+
+        renderHook(() => usePlanDraft('0009', true), { wrapper: withQueryClient(queryClient) });
+
+        await waitFor(() => expect(queryClient.getQueryData(['plan-draft', '0009'])).toEqual({ body: 'seeded' }));
     });
 });
