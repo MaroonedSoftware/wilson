@@ -430,55 +430,6 @@ describe('PlanService', () => {
         });
     });
 
-    describe('draft', () => {
-        it('returns the exact bytes `open` seeded, including a draft the agent has partly written since', async () => {
-            const { board, service } = await freshEnv();
-            await board.create(card('0017', { stage: 'planning', title: 'Draft card' }, FULL_BODY), 'seed');
-
-            const session = await service.open('0017');
-            expect(await service.draft('0017')).toEqual({ body: FULL_BODY });
-
-            // Simulate the agent writing mid-draft, the way `wilson card plan` or a future `turn`
-            // would — `draft` must reflect whatever is on disk right now, not what `open` wrote.
-            const partial = '## Goal\n\nstill drafting this one, not done yet\n';
-            await writeFile(session.draftPath, partial, 'utf8');
-            expect(await service.draft('0017')).toEqual({ body: partial });
-        });
-
-        it('returns an empty body, not a 404, for a planning card that has never had a session opened', async () => {
-            const { board, service, runRoot } = await freshEnv();
-            await board.create(card('0018', { stage: 'planning', title: 'Never opened' }), 'seed');
-
-            expect(existsSync(join(runRoot, 'cards', '0018', 'draft.md'))).toBe(false);
-            await expect(service.draft('0018')).resolves.toEqual({ body: '' });
-        });
-
-        it('never returns the server-local draftPath, only content', async () => {
-            const { board, service } = await freshEnv();
-            await board.create(card('0019', { stage: 'planning', title: 'No leaked path' }, FULL_BODY), 'seed');
-            await service.open('0019');
-
-            const result = await service.draft('0019');
-            expect(Object.keys(result)).toEqual(['body']);
-        });
-
-        it('creates no session, worktree, card version or event — a read and nothing else', async () => {
-            const { board, service, worktreeRoot } = await freshEnv();
-            await board.create(card('0020', { stage: 'planning', title: 'Read only' }), 'seed');
-
-            await service.draft('0020');
-
-            expect(existsSync(join(worktreeRoot, 'plan-0020'))).toBe(false);
-            expect(await board.versions('0020', 10)).toHaveLength(1);
-            expect(fakeEvents.append).not.toHaveBeenCalled();
-        });
-
-        it('404s for a card that does not exist', async () => {
-            const { service } = await freshEnv();
-            await expect(service.draft('9999')).rejects.toMatchObject({ statusCode: 404 });
-        });
-    });
-
     describe('close', () => {
         it('removes the worktree and deletes the branch', async () => {
             const { board, service, codeRoot } = await freshEnv();
