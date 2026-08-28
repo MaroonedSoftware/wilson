@@ -6,6 +6,7 @@ import type {
     CardSummary,
     CardVersion,
     CreateCardRequest,
+    CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
     ImportBoardRequest,
@@ -13,6 +14,7 @@ import type {
     ListQuery,
     MergeResult,
     MoveCardRequest,
+    PlanComment,
     PlanDraft,
     PlanSession,
     PlanTurn,
@@ -281,6 +283,47 @@ export class BoardClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<PlanTurn>(result);
+    }
+
+    /**
+     * @name Add a plan comment
+     * @description Card 0146. Records an open comment on a passage of a card's plan draft — the anchor a client
+     * already captured plus what the person said. Comments never touch `plan.md`, a card version or
+     * the card body (PROJECT.md: only the resulting plan text binds downstream stages); they reach the
+     * agent only as anchored instructions prepended to the card's next `POST .../plan/turn`.
+     */
+    async addAPlanComment(id: string, body: CreatePlanCommentRequest): Promise<PlanComment> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<PlanComment>(result);
+    }
+
+    /**
+     * @name List plan comments
+     * @description Card 0146. Records an open comment on a passage of a card's plan draft — the anchor a client
+     * already captured plus what the person said. Comments never touch `plan.md`, a card version or
+     * the card body (PROJECT.md: only the resulting plan text binds downstream stages); they reach the
+     * agent only as anchored instructions prepended to the card's next `POST .../plan/turn`.
+     */
+    async listPlanComments(id: string): Promise<PlanComment[]> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments`, { method: 'GET' });
+        return await parseJson<PlanComment[]>(result);
+    }
+
+    /**
+     * @name Resolve a plan comment
+     * @description Card 0146. Marks one comment resolved — a state the comment moves through, not a delete; it
+     * stays on record afterward, readable from `GET .../plan/comments`. The same 404 covers either id
+     * not existing — the card, or a comment id not belonging to it.
+     */
+    async resolveAPlanComment(id: string, commentId: string): Promise<PlanComment> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments/${encodeURIComponent(commentId)}/resolve`, {
+            method: 'POST',
+        });
+        return await parseJson<PlanComment>(result);
     }
 
     /** @name List card events */

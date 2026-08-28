@@ -261,12 +261,42 @@ export interface PlanDraft {
 }
 
 /**
+ * Card 0146. A comment left on a passage of a plan draft — what a person could point at but had
+ * nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
+ * surrounding window — never a resolved position: the draft is rewritten whole on every planning
+ * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
+ * comment moves through, not a delete — a comment the agent addressed stays on record.
+ * generated from [PlanComment](file://./../../../../apps/api/data/contracts/board.ck#L235)
+ */
+export interface PlanComment {
+    id: string;
+    quote: string;
+    prefix: string;
+    suffix: string;
+    text: string;
+    resolved: boolean;
+    createdAt: string;
+}
+
+/**
+ * `POST .../plan/comments`'s request — the anchor a client already captured
+ * (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
+ * generated from [CreatePlanCommentRequest](file://./../../../../apps/api/data/contracts/board.ck#L247)
+ */
+export interface CreatePlanCommentRequest {
+    quote: string;
+    prefix: string;
+    suffix: string;
+    text: string;
+}
+
+/**
  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L235)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L259)
  */
 export interface DivisionPiece {
     title: string;
@@ -295,7 +325,7 @@ export interface CardDetail extends CardSummary {
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L251)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L275)
  */
 export interface CardDivision {
     /**
@@ -312,7 +342,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L263)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L287)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -355,7 +385,7 @@ export interface MergeResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L271)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L295)
  */
 export interface SplitResult {
     origin: CardDetail;

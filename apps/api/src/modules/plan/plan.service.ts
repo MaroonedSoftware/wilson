@@ -16,8 +16,18 @@ import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.j
 import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
+import { PlanCommentRepository, type PlanComment as StoredPlanComment } from './plan.comment.repository.js';
 import { PlanTurnRepository, type PlanTurn as StoredPlanTurn } from './plan.turn.repository.js';
-import type { CardDetail, PlanDraft, PlanSession, PlanTurn, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
+import type {
+    CardDetail,
+    CreatePlanCommentRequest,
+    PlanComment,
+    PlanDraft,
+    PlanSession,
+    PlanTurn,
+    PlanTurnRequest,
+    SaveDraftRequest,
+} from '../../generated/board.js';
 
 /**
  * A path that is not `worktreeRoot/<cardId>` — `WorktreeManager.create`/`reclaim` key on whatever id
@@ -52,6 +62,9 @@ export class PlanService {
      * simpler than adding one. */
     private readonly planTurns: PlanTurnRepository;
 
+    /** Same reasoning as `planTurns` above, applied to `PlanCommentRepository`. */
+    private readonly planComments: PlanCommentRepository;
+
     // `settings` is optional so a test that constructs this class directly — bypassing DI, the way
     // `tests/modules/plan/plan.service.test.ts`'s own helper already does — keeps working
     // unchanged: no store means `configDir` resolves to `undefined` in `appendTurn` below, the same
@@ -65,6 +78,7 @@ export class PlanService {
         private readonly settings?: SettingsStore,
     ) {
         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
+        this.planComments = new PlanCommentRepository(this.boardConfig, this.db);
     }
 
     /**
@@ -99,6 +113,38 @@ export class PlanService {
             if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { body: '' };
             throw err;
         }
+    }
+
+    /**
+     * Record an open comment on a passage of a card's plan draft — the anchor a client already
+     * captured (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
+     * Storage only: this never touches `draft.md`, the card body or a card version (this card's
+     * Constraints — comments are input, never part of the plan text itself), and it never asks
+     * whether the quote still locates in the current draft, which is [[0145]]'s question to answer
+     * at read time, not this call's to precompute.
+     */
+    async addComment(id: string, request: CreatePlanCommentRequest): Promise<PlanComment> {
+        await this.readOrThrow(id);
+        return toGeneratedComment(await this.planComments.append(id, request.quote, request.prefix, request.suffix, request.text));
+    }
+
+    /** Every comment on a card's plan draft, open and resolved alike, oldest first. */
+    async comments(id: string): Promise<PlanComment[]> {
+        await this.readOrThrow(id);
+        return (await this.planComments.list(id)).map(toGeneratedComment);
+    }
+
+    /**
+     * Mark one comment resolved. Not a delete — the comment stays on record, readable from
+     * `comments` above, the same way a resolved `PlanCommentRepository` row does. `404` for a
+     * comment id that does not exist, or does not belong to this card, the same as `readOrThrow`
+     * for the card itself.
+     */
+    async resolveComment(id: string, commentId: string): Promise<PlanComment> {
+        await this.readOrThrow(id);
+        const resolved = await this.planComments.resolve(id, commentId);
+        if (!resolved) throw httpError(404);
+        return toGeneratedComment(resolved);
     }
 
     /**
@@ -140,6 +186,17 @@ export class PlanService {
         const priorTurns = await this.planTurns.since(id, 0);
         const isFirstTurn = priorTurns.length === 0;
 
+        // This card's Constraints: every open comment reaches the agent, quoted, whether or not
+        // its quote still appears in the current draft — locating an anchor is a read-time,
+        // client-side question ([[0145]]'s `locateAnchor`) this module must not reimplement.
+        // Prepended to the prompt the engine sees, never to `text` itself — `planTurns.append`
+        // below stores exactly what the person typed, the same way a first turn's `text` is stored
+        // without `session.instructions` prepended to it either. Empty for a card with no open
+        // comments, so the prompt this builds is byte-identical to what `turn` sent before this
+        // card existed.
+        const openComments = await this.planComments.open(id);
+        const commentsPreamble = commentsBlock(openComments);
+
         // Two branches rather than one ternary assigning a shared variable: `cutSession` and
         // `existingSession` return different shapes (only the first carries `instructions`, which
         // only the first turn ever needs), and keeping them apart here is what lets the compiler
@@ -151,12 +208,12 @@ export class PlanService {
             const session = await this.cutSession(id, card);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${session.instructions}\n\n${text}`;
+            prompt = `${session.instructions}\n\n${commentsPreamble}${text}`;
         } else {
             const session = await this.existingSession(id);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = text;
+            prompt = `${commentsPreamble}${text}`;
         }
 
         await this.planTurns.append(id, 'user', text);
@@ -342,4 +399,37 @@ export class PlanService {
  */
 export function toGeneratedTurn(stored: StoredPlanTurn): PlanTurn {
     return { seq: stored.seq, role: stored.role, content: stored.content, createdAt: stored.createdAt };
+}
+
+/** The generated contract's `PlanComment` — every field `PlanCommentRepository` already returns; unlike `toGeneratedTurn` there is nothing internal to strip, but the mapping stays explicit so the wire shape is never accidentally coupled to the repository's own. */
+function toGeneratedComment(stored: StoredPlanComment): PlanComment {
+    return {
+        id: stored.id,
+        quote: stored.quote,
+        prefix: stored.prefix,
+        suffix: stored.suffix,
+        text: stored.text,
+        resolved: stored.resolved,
+        createdAt: stored.createdAt,
+    };
+}
+
+/**
+ * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each
+ * carrying its quoted passage alongside its text, so the agent is told what to revise and where,
+ * per this card's Constraints ("only open comments reach the agent, and they reach it as anchored
+ * instructions"). Empty for no open comments, so a turn with none builds a prompt byte-identical
+ * to what `turn` sent before this card existed.
+ */
+function commentsBlock(comments: StoredPlanComment[]): string {
+    if (comments.length === 0) return '';
+    const items = comments.map(c => `> ${c.quote}\n\n${c.text}`).join('\n\n');
+    return [
+        'Open comments on the current draft — revise the plan to address each, quoting the passage it was left on:',
+        '',
+        items,
+        '',
+        '---',
+        '',
+    ].join('\n');
 }
