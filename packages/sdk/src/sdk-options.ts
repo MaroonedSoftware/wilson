@@ -27,6 +27,14 @@ export interface SdkOptions {
     fetch?: SdkFetch;
     /** Called once per request to produce a unique X-Request-ID header value */
     requestIdFactory?: () => string;
+    /**
+     * Card 0150. The project this client targets, sent as `X-Wilson-Project` on every call — the
+     * header `apps/api/src/routes/routes.setup.ts`'s `ProjectContextRouter` reads to run the request
+     * against that project's board instead of the daemon's own configured one. Unset (the default)
+     * means the header is absent, which the server reads as its own configured project — exactly
+     * what every client built before this card already gets, unchanged.
+     */
+    project?: string;
 }
 
 export const bigIntReplacer = (_: string, value: any): any => {
@@ -53,10 +61,15 @@ export function createSdkFetch(options: SdkOptions): SdkFetch {
     const getRequestId = options.requestIdFactory ?? (() => crypto.randomUUID());
     return async (url: string, init: SdkRequestInit): Promise<Response> => {
         const baseHeaders = typeof options.headers === 'function' ? await options.headers() : (options.headers ?? {});
-        const res = await fetch(`${options.baseUrl}${url}`, {
-            ...init,
-            headers: { ...baseHeaders, 'X-Request-ID': getRequestId(), ...(init.headers as Record<string, string>) },
-        });
+        const headers: Record<string, string> = { ...baseHeaders, 'X-Request-ID': getRequestId(), ...(init.headers as Record<string, string>) };
+        // Card 0150: set as a plain assignment, not spread into the object literal above — a
+        // conditional object literal (`options.project ? {...} : {}`) spread into a union-shaped
+        // headers object trips TypeScript's excess-property check against `HeadersInit`. Omitted
+        // entirely when `project` is unset, rather than sent empty: the server treats an absent
+        // header and an empty one the same way, but omitting it is what keeps a request from an SDK
+        // built before this card byte-identical to one built after.
+        if (options.project) headers['X-Wilson-Project'] = options.project;
+        const res = await fetch(`${options.baseUrl}${url}`, { ...init, headers });
         if (!res.ok && !(init.expectStatuses ?? []).includes(res.status)) {
             const text = await res.text();
             let body: unknown;

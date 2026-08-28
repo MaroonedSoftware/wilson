@@ -242,6 +242,25 @@ describe('PlanStreamRouter', () => {
     });
 
     /**
+     * Card 0150's own acceptance criterion: "Two registered projects' cards sharing an id are never
+     * confused for one another across the API." Two projects can mint the same card id independently
+     * — this is the case `correlationId` alone cannot distinguish, which is why `PlanStreamRouter` now
+     * also filters `planFeed.onEvent` by `source: board.project` (`routes.setup.ts`).
+     */
+    it('never forwards a delta published for the same card id but a different, registered project', async () => {
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const id = randomUUID();
+
+        const router = PlanStreamRouter();
+        const { frames } = await dispatch(router, { path: `/api/cards/${id}/plan/stream`, container: containerFor(config) });
+
+        planFeed.status(otherConfig.project, id, 'meant for the other project, same card id');
+
+        expect(deltaFrames(frames())).toHaveLength(0);
+    });
+
+    /**
      * Card 0133's constraint: "The stream takes the server's lifecycle signal, exactly as
      * `openCardFeedStream` does, so shutdown drains it instead of holding the socket to the
      * force-close grace period."
