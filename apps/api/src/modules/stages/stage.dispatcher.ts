@@ -20,7 +20,7 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
-import { findStage, loadStages, type StageConfig } from './stage.config.js';
+import { findStage, loadStages, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
@@ -107,6 +107,37 @@ const describe = (result: unknown): string => {
 const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
     const findings = (result as { findings?: unknown } | undefined)?.findings;
     return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
+};
+
+/**
+ * The paths another stage may add on top of this card's own "Files in scope" — the fact
+ * `materializePlan` folds into every stage's plan so a file a later stage legitimately adds under
+ * its own `extraScope` (`stage.config.ts`) reads as expected, not as undeclared scope creep.
+ *
+ * A card's "Files in scope" is written for `implementing`; nothing else about the pipeline is in
+ * that document, so a stage reading only the plan has no way to tell a test file the testing stage
+ * added under its own `extraScope` apart from one that was never declared at all (card 0139).
+ *
+ * Generated from the loaded `stages.yaml`, not duplicated here as a second copy of it: a project
+ * that configures different globs, or a different stage entirely, gets those globs with no code
+ * change. Excludes the stage this plan is being materialized for — that stage's own `extraScope` is
+ * already enforced for it by `ScopeGuard`, so restating it here would say nothing new. Returns the
+ * empty string when no other stage configures one, so a project with no `extraScope` anywhere gets
+ * no heading and no dangling sentence.
+ */
+const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): string => {
+    const others = stages.stages.filter(s => s.name !== currentStageName && s.extraScope.length > 0);
+    if (others.length === 0) return '';
+
+    return [
+        '## Also in scope',
+        '',
+        'Not this card\'s own "Files in scope" above, but paths another stage may add under its own',
+        'configured scope. A file here in the diff is that stage doing its job, not undeclared scope',
+        'creep:',
+        '',
+        ...others.map(s => `- \`${s.name}\`: ${s.extraScope.map(g => `\`${g}\``).join(', ')}`),
+    ].join('\n');
 };
 
 /**
@@ -288,7 +319,7 @@ export class StageDispatcher {
             this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
-        const planPath = await this.materializePlan(card, pinnedSha);
+        const planPath = await this.materializePlan(card, pinnedSha, stages, stageName);
 
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
         // for the file defining a type it is already using because something in scope imports it.
@@ -665,12 +696,18 @@ export class StageDispatcher {
      *
      * The board is a sibling repo, so the plan is not in the tree the agent is editing. Materializing
      * it outside means it can never be accidentally committed to the card's branch.
+     *
+     * Appends `otherStagesScopeNote` after the card's own body — the one place every stage's agent,
+     * review included, actually reads (card 0139). `stages` is the same config `run` already loaded
+     * for this dispatch, not a second load.
      */
-    private async materializePlan(card: Card, sha: string | undefined): Promise<string> {
+    private async materializePlan(card: Card, sha: string | undefined, stages: ProjectStages, currentStageName: string): Promise<string> {
         const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
         await mkdir(dir, { recursive: true });
         const path = join(dir, 'plan.md');
-        await writeFile(path, serializeCard(card), 'utf8');
+        const note = otherStagesScopeNote(stages, currentStageName);
+        const material = note ? `${serializeCard(card).trimEnd()}\n\n${note}\n` : serializeCard(card);
+        await writeFile(path, material, 'utf8');
         this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
         return path;
     }
