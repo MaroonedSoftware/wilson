@@ -6,6 +6,10 @@ import { Injectable } from 'injectkit';
  * One project for now — this repo (PROJECT.md, "not in step 0": multi-project). Registered as a
  * concrete instance by BoardModule so the multi-project registry at step 9 replaces the
  * registration, not every consumer.
+ *
+ * Card 0148: the values below are read from the configured project's `runner.projects` row, not
+ * assembled from the environment on every boot — see `BoardModule.setup`'s `resolveProjectRow` for
+ * how the row is read, or created from the environment on a project's first boot.
  */
 @Injectable()
 export abstract class BoardConfig {
