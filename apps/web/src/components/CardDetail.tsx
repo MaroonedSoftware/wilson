@@ -1,8 +1,9 @@
-import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, ScrollArea, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
+import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
@@ -17,9 +18,9 @@ const PANE_HEIGHT = 520;
 
 /**
  * Card 0137: a card in `planning` gets a two-pane session — the conversation
- * (`PlanningSessionPane`) beside the card's current body, read-only, standing in for the draft pane
- * [[0138]] builds. `Tabs` when the viewport is too narrow for both side by side, `Grid` otherwise;
- * either way the same two panes, never a third layout that could drift from what each renders alone.
+ * (`PlanningSessionPane`) beside the session's live draft (`DraftPane`, card [[0138]]). `Tabs` when
+ * the viewport is too narrow for both side by side, `Grid` otherwise; either way the same two
+ * panes, never a third layout that could drift from what each renders alone.
  */
 function PlanningPanes({ card }: { card: CardDetail }) {
     const narrow = useMediaQuery(NARROW_BREAKPOINT);
@@ -31,11 +32,9 @@ function PlanningPanes({ card }: { card: CardDetail }) {
         </Stack>
     );
     const draft = (
-        <Stack gap={6}>
+        <Stack gap={6} h={PANE_HEIGHT}>
             <Title order={5}>Plan</Title>
-            <ScrollArea h={PANE_HEIGHT} type="auto">
-                <Markdown body={card.body} />
-            </ScrollArea>
+            <DraftPane card={card} />
         </Stack>
     );
 
@@ -218,9 +217,8 @@ function VersionsList({ versions, limit, error }: { versions: CardVersion[] | un
  * versions) — plus, since card 0037, its two operator actions: move it to another stage, and
  * enqueue it for the one it's in. The plan itself stays read-only, matching the card 0036 contract —
  * no editing the plan, no approving it, no cancelling a running job — except in `planning` itself
- * (card 0137), where an operator can hold the planning conversation from here instead of only from
- * a terminal; the body shown there is still the card's current one, read-only, standing in for the
- * draft pane [[0138]] builds.
+ * (card 0137, [[0138]]), where an operator can hold the planning conversation from here, hand-edit
+ * the live draft it produces, and approve it as a new version, all without a terminal.
  */
 export function CardDetailView({
     card,

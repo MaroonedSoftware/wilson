@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useListState } from '@mantine/hooks';
-import type { PlanTurn } from '@wilson/sdk';
-import { API_BASE } from './sdk.js';
+import type { PlanDraft, PlanTurn } from '@wilson/sdk';
+import { API_BASE, wilson } from './sdk.js';
 
 /** Whether the conversation stream is watching live, still connecting, or has dropped. */
 export type PlanStreamStatus = 'connecting' | 'live' | 'disconnected';
@@ -101,4 +102,26 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
     };
 
     return { turns, pendingText, status, error, commitTurn };
+}
+
+/** How often `DraftPane` asks for `draft.md` again while its session is open. */
+const DRAFT_POLL_MS = 4_000;
+
+/**
+ * A card's current draft (`GET .../plan/draft`, card 0140) — `draft.md`'s content, never the
+ * server-local `draftPath` a browser cannot read (see `PlanDraft`'s own doc, `@wilson/sdk`).
+ *
+ * Polled, not pushed: `usePlanTranscript`'s `plan/stream` carries conversation turns and deltas,
+ * not the draft file, and this card's Constraints call a second SSE stream for draft changes a
+ * larger decision than this card should make. Re-fetching on an interval is what "follow the
+ * agent's writes" reduces to here — `DraftPane.tsx` is the one thing responsible for not letting a
+ * poll landing mid-edit blow away what a person is typing.
+ */
+export function usePlanDraft(cardId: string, enabled: boolean) {
+    return useQuery({
+        queryKey: ['plan-draft', cardId],
+        queryFn: (): Promise<PlanDraft> => wilson.board.getAPlanDraft(cardId),
+        enabled,
+        refetchInterval: enabled ? DRAFT_POLL_MS : false,
+    });
 }
