@@ -20,3 +20,24 @@ export const filesInScope = (sectionText: string | undefined): string[] => {
 
 /** A timestamp for reading, not for sorting — the API already returns rows newest/oldest as intended. */
 export const formatTimestamp = (iso: string): string => new Date(iso).toLocaleString();
+
+/**
+ * The same six-heading skeleton `create.command.ts` seeds `$EDITOR` with
+ * (`packages/cli/src/commands/card/create.command.ts`), duplicated here rather than imported —
+ * `apps/web` does not depend on `packages/cli`, and this card is not the one to wire that up. A
+ * card filed as a plan starts in the right shape; a parking-lot capture is free to clear this and
+ * type prose instead, the same as it always has been from the CLI.
+ */
+export const CARD_BODY_SKELETON = `
+## Goal
+
+## Constraints
+
+## Files in scope
+
+## Tasks
+
+## Acceptance criteria
+
+## Out of scope
+`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
 describe('filesInScope', () => {
     it('returns an empty list when the section is missing', () => {
@@ -44,5 +44,43 @@ describe('formatTimestamp', () => {
 
     it('produces different output for different instants', () => {
         expect(formatTimestamp('2026-01-15T10:30:00.000Z')).not.toBe(formatTimestamp('2020-06-01T00:00:00.000Z'));
+    });
+});
+
+describe('CARD_BODY_SKELETON', () => {
+    // Card 0142: NewCardControl seeds its body Textarea from this constant so a card filed as a
+    // plan starts in the same shape `wilson card create` seeds `$EDITOR` with
+    // (`packages/cli/src/commands/card/create.command.ts`'s own `SKELETON`). Duplicated rather than
+    // imported (`apps/web` does not depend on `packages/cli`), so this pins the two copies together
+    // — a drift here is exactly the regression the plan's "seed the body" constraint forbids.
+    const HEADINGS = ['Goal', 'Constraints', 'Files in scope', 'Tasks', 'Acceptance criteria', 'Out of scope'];
+
+    it('carries all six of a plan\'s headings, in the order a plan reads them', () => {
+        const headingLines = CARD_BODY_SKELETON.split('\n').filter(line => line.startsWith('## '));
+        expect(headingLines).toEqual(HEADINGS.map(h => `## ${h}`));
+    });
+
+    it('leaves every heading empty — a seed to fill in, not placeholder prose', () => {
+        const sections = CARD_BODY_SKELETON.split(/^## .+$/m).map(s => s.trim());
+        // The first split chunk is whatever precedes the first heading (blank); every remaining
+        // chunk is the body directly under one heading, and none of the six should carry text.
+        expect(sections.slice(1).every(section => section.length === 0)).toBe(true);
+    });
+
+    it('matches create.command.ts\'s own SKELETON exactly, character for character', () => {
+        const cliSkeleton = `
+## Goal
+
+## Constraints
+
+## Files in scope
+
+## Tasks
+
+## Acceptance criteria
+
+## Out of scope
+`;
+        expect(CARD_BODY_SKELETON).toBe(cliSkeleton);
     });
 });
