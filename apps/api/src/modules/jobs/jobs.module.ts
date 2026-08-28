@@ -7,6 +7,7 @@ import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy, type Job
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
+import { runAsProject } from '#modules/board/project.context.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
@@ -190,15 +191,23 @@ export interface ShutdownReport {
  * abandoned — is neither: it is not swallowed into a clean report, and it is not guessed at as
  * abandoned. It is collected into `unconfirmed` instead, a third, truthful state, and left for the
  * caller to say loudly rather than hide.
+ *
+ * Card 0149: `CardJobs.confirmInFlightAfterStop` reads `BoardConfig.project` (`this.config.project`)
+ * with no scope of its own, so each call is wrapped in `runAsProject(project, ...)` for the project
+ * `RunningCards` recorded that entry under — the same project `CardStageJob.run` resolved and opened
+ * its own `runAsProject` scope with. Without this, every confirmation here would resolve
+ * `BoardConfig` to the daemon's own configured project regardless of which project the card actually
+ * ran under, querying that project's `runner.cardJobs` row instead — finding nothing, and reporting a
+ * genuinely abandoned card as cleanly settled for every project but the default one.
  */
 export const stopCardStageJobs = async (runner: JobRunner, running: RunningCards, cardJobs: CardJobs): Promise<ShutdownReport> => {
     await Promise.race([runner.stop(), delay(SHUTDOWN_DEADLINE_MS)]);
 
     const abandoned: AbandonedCardJob[] = [];
     const unconfirmed: UnconfirmedCardJob[] = [];
-    for (const cardId of running.snapshot()) {
+    for (const { project, cardId } of running.snapshot()) {
         try {
-            const jobId = await cardJobs.confirmInFlightAfterStop(cardId);
+            const jobId = await runAsProject(project, () => cardJobs.confirmInFlightAfterStop(cardId));
             if (jobId) abandoned.push({ cardId, jobId });
         } catch (error) {
             unconfirmed.push({ cardId, reason: error instanceof Error ? error.message : String(error) });

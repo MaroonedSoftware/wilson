@@ -67,11 +67,11 @@ export class CardStageJob extends Job<CardStagePayload> {
         // "nothing on the call stack has called runAsProject yet") rather than this job's own project,
         // which would be circular.
         const resolvedProject = project ?? this.board.project;
-        this.running.add(cardId);
+        this.running.add(resolvedProject, cardId);
         try {
             await runAsProject(resolvedProject, () => this.runStage(cardId, stageName));
         } finally {
-            this.running.delete(cardId);
+            this.running.delete(resolvedProject, cardId);
         }
     }
 
