@@ -11,9 +11,15 @@ import type { SettingDefinition } from './setting.definition.js';
  * `https` only, resolved address not loopback/link-local/private/unspecified — is
  * `checkWebhookDestination`'s job (`modules/notify/webhook.destination.ts`), run at write
  * (`NotifyWebhookSettingService.set`) and again at every use (`Notifier.notify`), never here.
+ *
+ * `scope: 'project'` (card 0152) — where *this project's* notifications go: two projects on one
+ * deployment routing to the same webhook is a coincidence an operator can still configure by
+ * setting both rows to the same URL, not a reason to make the URL itself deployment-wide and take
+ * away the ability to point one project somewhere else.
  */
 export const NOTIFY_WEBHOOK_URL: SettingDefinition<string | undefined> = {
     key: 'notify-webhook-url',
+    scope: 'project',
     envVar: 'NOTIFY_WEBHOOK_URL',
     parseEnv: raw => raw,
     defaultValue: undefined,

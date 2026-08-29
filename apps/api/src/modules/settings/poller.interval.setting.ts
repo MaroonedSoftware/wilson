@@ -16,9 +16,17 @@ import type { SettingDefinition } from './setting.definition.js';
  * unparseable environment value throws rather than silently falling back to the default, so a
  * typo'd `POLLER_INTERVAL_MS` is caught the moment it's read instead of producing a
  * plausible-but-wrong interval nobody notices.
+ *
+ * `scope: 'deployment'` (card 0152) — [[0149]] made this a property of the one loop, not of any
+ * project it visits: `Poller.loop` reads it once per iteration and then walks every registered
+ * project with that single interval (`Poller.tick`), so a per-project row would only ever mean
+ * "the interval as of whichever project happened to be current when someone last wrote it" — there
+ * is no second loop for a second project's row to govern. Contrast `POLLER_ENABLED`, which stays
+ * per-project precisely because pausing is a per-project decision even though ticking is not.
  */
 export const POLLER_INTERVAL_MS: SettingDefinition<number> = {
     key: 'poller-interval-ms',
+    scope: 'deployment',
     envVar: 'POLLER_INTERVAL_MS',
     parseEnv: raw => {
         const parsed = Number(raw);

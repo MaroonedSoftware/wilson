@@ -83,6 +83,11 @@ export interface CardDeps {
  * Operational settings that can change without a restart — the poller's on/off switch first. One
  * row per (project, key); `SettingsStore` (modules/settings) resolves database row -> environment
  * variable -> coded default. `value` is JSONB so a new setting is a new row, never a new column.
+ *
+ * Card 0152: `project` is not always a real project name. A setting whose `SettingDefinition.scope`
+ * (modules/settings/setting.definition.ts) is `'deployment'` rather than `'project'` is keyed by
+ * `SettingsStore`'s reserved `DEPLOYMENT_SCOPE` value instead, so the same row answers regardless of
+ * which project is current — no schema change, since `project` was already a plain `TEXT` column.
  */
 export interface Settings {
     project: string;

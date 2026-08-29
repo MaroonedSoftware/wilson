@@ -18,9 +18,16 @@ import type { SettingDefinition } from './setting.definition.js';
  * deployment that sets `CLAUDE_CONFIG_DIR` directly booting exactly as it did before this card.
  * Judging the value — must be an absolute path — is `ClaudeConfigDirSettingService.set`'s job, run
  * only at write, never here.
+ *
+ * `scope: 'deployment'` (card 0152) — this names one machine's credentials, not one project's
+ * policy: [[0149]] surfaced that a `card.stage` worker serves every registered project from the
+ * same daemon process, so three projects on one workstation would each need a row holding the
+ * same path, and editing one would leave the others stale pointing at credentials that had since
+ * moved. One machine, one config directory, one row.
  */
 export const CLAUDE_CONFIG_DIR: SettingDefinition<string | undefined> = {
     key: 'claude-config-dir',
+    scope: 'deployment',
     envVar: 'CLAUDE_CONFIG_DIR',
     parseEnv: raw => raw,
     defaultValue: undefined,
