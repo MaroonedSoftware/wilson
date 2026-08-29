@@ -163,10 +163,14 @@ function Composer({
  * `pendingText` come straight from `usePlanTranscript`, and the one thing added here —
  * `sendTurn.variables` while a send is in flight — is the literal text just submitted, not a guess
  * folded in from the stream.
+ *
+ * `project`, card 0153: threaded straight through to `usePlanTranscript` so the stream names it too —
+ * `openAPlanningSession`/`useSendPlanTurn` below still call the singleton `wilson` client regardless,
+ * the propagation this card's plan defers to [[0155]].
  */
-export function PlanningSessionPane({ card }: { card: CardDetail }) {
+export function PlanningSessionPane({ card, project }: { card: CardDetail; project?: string }) {
     const session = useQuery({ queryKey: ['plan-session', card.id], queryFn: () => wilson.board.openAPlanningSession(card.id) });
-    const transcript = usePlanTranscript(card.id, true);
+    const transcript = usePlanTranscript(card.id, true, project);
     const sendTurn = useSendPlanTurn(card.id);
     const { scrollableRef, targetRef, scrollIntoView } = useScrollIntoView<HTMLDivElement, HTMLDivElement>();
 

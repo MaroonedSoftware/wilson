@@ -13,6 +13,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as FlaggedRouteImport } from './routes/flagged'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as CardsCardIdRouteImport } from './routes/cards.$cardId'
+import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
+import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
+import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +37,40 @@ const CardsCardIdRoute = CardsCardIdRouteImport.update({
   path: '/cards/$cardId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
+  id: '/projects/$project/',
+  path: '/projects/$project/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectFlaggedRoute = ProjectsProjectFlaggedRouteImport.update({
+  id: '/projects/$project/flagged',
+  path: '/projects/$project/flagged',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectCardsCardIdRoute =
+  ProjectsProjectCardsCardIdRouteImport.update({
+    id: '/projects/$project/cards/$cardId',
+    path: '/projects/$project/cards/$cardId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/': typeof ProjectsProjectIndexRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project': typeof ProjectsProjectIndexRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +78,38 @@ export interface FileRoutesById {
   '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
   '/cards/$cardId': typeof CardsCardIdRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/': typeof ProjectsProjectIndexRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/flagged' | '/settings' | '/cards/$cardId'
+  fullPaths:
+    | '/'
+    | '/flagged'
+    | '/settings'
+    | '/cards/$cardId'
+    | '/projects/$project/flagged'
+    | '/projects/$project/'
+    | '/projects/$project/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/flagged' | '/settings' | '/cards/$cardId'
-  id: '__root__' | '/' | '/flagged' | '/settings' | '/cards/$cardId'
+  to:
+    | '/'
+    | '/flagged'
+    | '/settings'
+    | '/cards/$cardId'
+    | '/projects/$project/flagged'
+    | '/projects/$project'
+    | '/projects/$project/cards/$cardId'
+  id:
+    | '__root__'
+    | '/'
+    | '/flagged'
+    | '/settings'
+    | '/cards/$cardId'
+    | '/projects/$project/flagged'
+    | '/projects/$project/'
+    | '/projects/$project/cards/$cardId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +117,9 @@ export interface RootRouteChildren {
   FlaggedRoute: typeof FlaggedRoute
   SettingsRoute: typeof SettingsRoute
   CardsCardIdRoute: typeof CardsCardIdRoute
+  ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
+  ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
+  ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +152,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsCardIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$project/': {
+      id: '/projects/$project/'
+      path: '/projects/$project'
+      fullPath: '/projects/$project/'
+      preLoaderRoute: typeof ProjectsProjectIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/flagged': {
+      id: '/projects/$project/flagged'
+      path: '/projects/$project/flagged'
+      fullPath: '/projects/$project/flagged'
+      preLoaderRoute: typeof ProjectsProjectFlaggedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/cards/$cardId': {
+      id: '/projects/$project/cards/$cardId'
+      path: '/projects/$project/cards/$cardId'
+      fullPath: '/projects/$project/cards/$cardId'
+      preLoaderRoute: typeof ProjectsProjectCardsCardIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +181,9 @@ const rootRouteChildren: RootRouteChildren = {
   FlaggedRoute: FlaggedRoute,
   SettingsRoute: SettingsRoute,
   CardsCardIdRoute: CardsCardIdRoute,
+  ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
+  ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
+  ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
