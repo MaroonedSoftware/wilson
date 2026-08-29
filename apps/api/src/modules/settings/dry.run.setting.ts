@@ -14,9 +14,16 @@ import type { SettingDefinition } from './setting.definition.js';
  * clean pass turns this off with a `runner.settings` row (`DryRunSettingService.set`), the same way
  * every other operational setting in this table is turned from its default — never by inverting the
  * default itself, which would ship every *other* deployment rehearsing nothing from its first merge.
+ *
+ * `scope: 'project'` (card 0152) — rehearsing merges is a property of how much an operator trusts
+ * *one project's* pipeline, not of the machine running it: a project that has supervised its clean
+ * pass and a freshly registered one sitting on the same daemon are exactly the case this setting
+ * exists to tell apart, so a deployment-wide row would erase the distinction the moment a second
+ * project showed up.
  */
 export const DRY_RUN_ENABLED: SettingDefinition<boolean> = {
     key: 'dry-run-enabled',
+    scope: 'project',
     envVar: 'DRY_RUN_ENABLED',
     parseEnv: raw => {
         const normalized = raw.trim().toLowerCase();

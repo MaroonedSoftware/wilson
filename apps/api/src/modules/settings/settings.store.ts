@@ -7,6 +7,18 @@ import type { DB } from '#modules/data/db.js';
 import type { SettingDefinition } from './setting.definition.js';
 
 /**
+ * The `project` column value every deployment-scoped row is keyed by, in place of whichever
+ * project happens to be current.
+ *
+ * Not a real project name: `runner.projects.name` (and so every `BoardConfig.project`) comes from
+ * `PROJECT_NAME` or a directory, never from this constant, and registering a project is out of
+ * scope for card 0152 that introduced this — so there is nothing for it to collide with today.
+ * Reserved here, once, so `SettingsStore` and the migration that carries existing rows onto it
+ * (`data/migrations/20260829120000_deployment_scoped_settings.sql`) agree on the exact string.
+ */
+export const DEPLOYMENT_SCOPE = '__deployment__';
+
+/**
  * Operational settings, resolved database row -> environment variable -> coded default.
  *
  * "Operational" is deliberate and narrow: policy an operator changes while the system runs, like
@@ -20,7 +32,11 @@ import type { SettingDefinition } from './setting.definition.js';
  *
  * One row per `(project, key)`, keyed the same way every other operational table in this schema is
  * (`runner.card_jobs` among them) — see the migration (`data/migrations/20260826120000_settings.sql`)
- * for the exact shape.
+ * for the exact shape. Card 0152: `project` no longer always means "the current project's row".
+ * `SettingDefinition.scope` says which a given key is; a `'project'` setting is still keyed by
+ * `BoardConfig.project` exactly as every setting was before this, and a `'deployment'` setting is
+ * keyed by the reserved {@link DEPLOYMENT_SCOPE} value instead, so the same row answers `get`
+ * whichever project is current — see `scopeKey` below.
  */
 @Injectable()
 export class SettingsStore {
@@ -35,7 +51,7 @@ export class SettingsStore {
         const row = await this.db
             .selectFrom('runner.settings')
             .select('value')
-            .where('project', '=', this.config.project)
+            .where('project', '=', this.scopeKey(definition))
             .where('key', '=', definition.key)
             .executeTakeFirst();
         if (row) return row.value as T;
@@ -51,8 +67,18 @@ export class SettingsStore {
         const serialized = JSON.stringify(value);
         await this.db
             .insertInto('runner.settings')
-            .values({ project: this.config.project, key: definition.key, value: serialized })
+            .values({ project: this.scopeKey(definition), key: definition.key, value: serialized })
             .onConflict(oc => oc.columns(['project', 'key']).doUpdateSet({ value: serialized, updatedAt: new Date().toISOString() }))
             .execute();
+    }
+
+    /**
+     * The `project` column value a definition's row lives under: the current project for a
+     * `'project'`-scoped setting (unchanged from before `scope` existed), or the reserved
+     * {@link DEPLOYMENT_SCOPE} value for a `'deployment'`-scoped one, so the row is the same
+     * regardless of which project is current when it is read or written.
+     */
+    private scopeKey(definition: SettingDefinition<unknown>): string {
+        return definition.scope === 'deployment' ? DEPLOYMENT_SCOPE : this.config.project;
     }
 }

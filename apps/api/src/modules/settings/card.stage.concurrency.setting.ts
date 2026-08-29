@@ -15,9 +15,17 @@ import type { SettingDefinition } from './setting.definition.js';
  * Parsed with the same fail-fast posture as `configNumber` (`shared/require.config.ts`): an
  * unparseable or non-integer environment value throws rather than silently falling back to the
  * default.
+ *
+ * `scope: 'deployment'` (card 0152) — [[0149]] settled this: "there is exactly one `card.stage`
+ * queue and one worker" (`jobs.module.ts`), and pg-boss fixes that queue's concurrency once, for
+ * the whole process, at `pgboss.work()` time. A second registered project cannot get its own
+ * budget no matter which project a row is keyed by, so keying it by the current project only
+ * produces a row the concurrency reconciler never reads. One budget for the one worker, so one row
+ * for the deployment.
  */
 export const CARD_STAGE_CONCURRENCY: SettingDefinition<number> = {
     key: 'card-stage-concurrency',
+    scope: 'deployment',
     envVar: 'CARD_STAGE_CONCURRENCY',
     parseEnv: raw => {
         const parsed = Number(raw);
