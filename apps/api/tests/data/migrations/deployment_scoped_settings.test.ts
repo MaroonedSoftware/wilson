@@ -84,6 +84,55 @@ describe('deployment_scoped_settings migration', () => {
         });
     });
 
+    /**
+     * The specific regression this migration's own header comment (and card 0152's Constraints)
+     * calls out by name: an earlier version of this migration named `claude-config-dir` and
+     * `card-stage-concurrency` in its WHERE clause but not `poller-interval-ms`, so a pre-existing
+     * `poller-interval-ms` row stayed under its old project key while `SettingsStore` had already
+     * started reading the reserved deployment key for it. This proves the third deployment-scoped
+     * key is actually carried across, not just the first two.
+     */
+    it('moves an existing poller-interval-ms row onto the reserved deployment project', async () => {
+        await inRollbackTx(async trx => {
+            const project = uniqueProject();
+            // Other suites (settings.store.test.ts) write real 'poller-interval-ms' rows straight
+            // to this shared test database, outside any transaction this file could roll back, with
+            // an `updated_at` of whenever they ran. This migration's "keep only the newest row per
+            // key" step compares
+            // across every project for a key, not just this transaction's own inserts, so a
+            // timestamp anywhere near "now" could lose that comparison to one of those. Far enough
+            // in the future that this row is unambiguously the newest sidesteps the race entirely.
+            await insertSetting(trx, project, 'poller-interval-ms', 45_000, '2099-01-01T00:00:00Z');
+
+            await sql.raw(upSql).execute(trx);
+
+            const rows = await rowsForKey(trx, 'poller-interval-ms');
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.project).toBe(DEPLOYMENT_SCOPE);
+            expect(rows[0]?.value).toBe(45_000);
+        });
+    });
+
+    /**
+     * The migration lists the *project*-scoped keys and moves every other row, rather than listing
+     * the deployment-scoped keys and moving only those named ones (the shape that produced the
+     * `poller-interval-ms` regression above). A key belonging to neither list — standing in for a
+     * setting classified `'deployment'` after this migration was written — must still be carried
+     * across by that default, with nothing added here for it.
+     */
+    it('moves a row for a key not named anywhere in the migration onto the deployment project', async () => {
+        await inRollbackTx(async trx => {
+            const project = uniqueProject();
+            await insertSetting(trx, project, 'some-future-deployment-setting', 'x', '2026-08-01T00:00:00Z');
+
+            await sql.raw(upSql).execute(trx);
+
+            const rows = await rowsForKey(trx, 'some-future-deployment-setting');
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.project).toBe(DEPLOYMENT_SCOPE);
+        });
+    });
+
     it('leaves a project-scoped setting untouched under its own project', async () => {
         await inRollbackTx(async trx => {
             const project = uniqueProject();
