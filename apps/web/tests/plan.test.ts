@@ -204,6 +204,35 @@ describe('usePlanTranscript', () => {
         unmount();
         expect(source.closed).toBe(true);
     });
+
+    // Card 0153: `EventSource` cannot set `X-Wilson-Project`, so this stream names itself with
+    // `?project=` instead, the same query fallback `useCardFeed` uses for `/api/feed` and
+    // `routes.setup.ts`'s `ProjectContextRouter` now accepts on both streams.
+    it('names the project as a ?project= query parameter when one is given', () => {
+        renderHook(() => usePlanTranscript('0007', true, 'demo-project'));
+
+        expect(latestSource().url).toBe(`${API_BASE}/api/cards/0007/plan/stream?project=demo-project`);
+    });
+
+    it('still opens against the plain per-card endpoint, with no query at all, when no project is given', () => {
+        renderHook(() => usePlanTranscript('0007', true));
+
+        expect(latestSource().url).toBe(`${API_BASE}/api/cards/0007/plan/stream`);
+    });
+
+    it('closes the previous stream and opens a fresh one naming the new project when the project changes', () => {
+        const { rerender } = renderHook(({ project }: { project?: string }) => usePlanTranscript('0007', true, project), {
+            initialProps: { project: 'first-project' },
+        });
+        const first = latestSource();
+        expect(first.url).toBe(`${API_BASE}/api/cards/0007/plan/stream?project=first-project`);
+
+        rerender({ project: 'second-project' });
+
+        expect(first.closed).toBe(true);
+        expect(FakeEventSource.instances).toHaveLength(2);
+        expect(latestSource().url).toBe(`${API_BASE}/api/cards/0007/plan/stream?project=second-project`);
+    });
 });
 
 const withQueryClient = (queryClient: QueryClient) => {

@@ -55,12 +55,12 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-const renderFeed = () => {
+const renderFeed = (project?: string) => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
     const wrapper = ({ children }: { children: ReactNode }) =>
         createElement(QueryClientProvider, { client: queryClient }, children);
-    const hook = renderHook(() => useCardFeed(), { wrapper });
+    const hook = renderHook(({ project: p }: { project?: string }) => useCardFeed(p), { wrapper, initialProps: { project } });
     return { ...hook, invalidateQueries };
 };
 
@@ -127,5 +127,35 @@ describe('useCardFeed', () => {
         expect(source.closed).toBe(false);
         unmount();
         expect(source.closed).toBe(true);
+    });
+
+    // Card 0153: `EventSource` cannot set `X-Wilson-Project`, so a project-scoped screen names
+    // itself with `?project=` instead — the query fallback `routes.setup.ts`'s `ProjectContextRouter`
+    // now accepts for exactly this reason.
+    it('names the project as a ?project= query parameter when one is given', () => {
+        renderFeed('demo-project');
+        expect(latestSource().url).toBe(`${API_BASE}/api/feed?project=demo-project`);
+    });
+
+    it('url-encodes a project name that needs it, rather than embedding it raw in the query string', () => {
+        renderFeed('needs encoding/slash');
+        expect(latestSource().url).toBe(`${API_BASE}/api/feed?project=needs%20encoding%2Fslash`);
+    });
+
+    it('still opens against the plain feed endpoint, with no query at all, when no project is given', () => {
+        renderFeed(undefined);
+        expect(latestSource().url).toBe(`${API_BASE}/api/feed`);
+    });
+
+    it('closes the previous connection and opens a fresh one naming the new project when the project changes', () => {
+        const { rerender } = renderFeed('first-project');
+        const first = latestSource();
+        expect(first.url).toBe(`${API_BASE}/api/feed?project=first-project`);
+
+        rerender({ project: 'second-project' });
+
+        expect(first.closed).toBe(true);
+        expect(FakeEventSource.instances).toHaveLength(2);
+        expect(latestSource().url).toBe(`${API_BASE}/api/feed?project=second-project`);
     });
 });
