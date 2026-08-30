@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { BREADTH_THRESHOLD, DEPTH_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
+import { BREADTH_THRESHOLD, DEPTH_THRESHOLD, FANOUT_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
 import type { ScopeCheckResult } from '#modules/stages/stage.result.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 
@@ -77,8 +77,15 @@ describe('ScopeCheckVerifier', () => {
                     'ack card endpoint',
                     'start card endpoint',
                 ],
+                // One route file per endpoint — well below FANOUT_THRESHOLD, so this fixture's
+                // breadth-only assertions below are not also tripped by fan-out.
+                sites: 3,
             },
-            { title: 'shared request/response contracts', tasks: ['define named request/response contracts shared by every endpoint'] },
+            {
+                title: 'shared request/response contracts',
+                tasks: ['define named request/response contracts shared by every endpoint'],
+                sites: 1,
+            },
         ],
         verdict: 'refuse',
         reason:
@@ -105,8 +112,13 @@ describe('ScopeCheckVerifier', () => {
             {
                 title: 'port a CLI command to the API transport',
                 tasks: ['port ack', 'port approve', 'port board.init', 'port board.ready', 'port move', 'port release', 'port show', 'port start'],
+                sites: 2,
             },
-            { title: 'remove now-dead CLI-side business logic', tasks: ['delete the container/pg-backed logic the SDK path supersedes'] },
+            {
+                title: 'remove now-dead CLI-side business logic',
+                tasks: ['delete the container/pg-backed logic the SDK path supersedes'],
+                sites: 1,
+            },
         ],
         verdict: 'refuse',
         reason:
@@ -135,9 +147,17 @@ describe('ScopeCheckVerifier', () => {
     const card0079: ScopeCheckResult = {
         summary: 'one health check rewritten, one command deleted, one set of comments fixed',
         groups: [
-            { title: 'rewrite the board.ready health check to ask the API for the card count', tasks: ['rewrite board.ready'] },
-            { title: 'delete the retired run command', tasks: ['delete run.command.ts and its two tombstone tests'] },
-            { title: 'fix stale comments describing what still needs the CLI bootstrap', tasks: ['fix index.ts/plan.command.ts comments'] },
+            { title: 'rewrite the board.ready health check to ask the API for the card count', tasks: ['rewrite board.ready'], sites: 1 },
+            {
+                title: 'delete the retired run command',
+                tasks: ['delete run.command.ts and its two tombstone tests'],
+                sites: 3,
+            },
+            {
+                title: 'fix stale comments describing what still needs the CLI bootstrap',
+                tasks: ['fix index.ts/plan.command.ts comments'],
+                sites: 2,
+            },
         ],
         verdict: 'pass',
         reason:
@@ -155,19 +175,37 @@ describe('ScopeCheckVerifier', () => {
     const card0120: ScopeCheckResult = {
         summary: 'nine distinct pieces: schema, DB binding, repository, agent, registry, SSE feed, service, contract, route',
         groups: [
-            { title: 'schema migration', tasks: ['add the new columns'] },
-            { title: 'DB type binding', tasks: ['bind the new columns to db types'] },
-            { title: 'repository', tasks: ['add repository methods for the new columns'] },
-            { title: 'conversation agent', tasks: ['wire the agent prompt'] },
-            { title: 'session registry', tasks: ['register the new session kind'] },
-            { title: 'SSE feed', tasks: ['stream the new events over SSE'] },
-            { title: 'service integration', tasks: ['integrate the new service'] },
-            { title: 'contract declaration', tasks: ['declare the new contract'] },
-            { title: 'route mounting', tasks: ['mount the new route'] },
+            { title: 'schema migration', tasks: ['add the new columns'], sites: 1 },
+            { title: 'DB type binding', tasks: ['bind the new columns to db types'], sites: 1 },
+            { title: 'repository', tasks: ['add repository methods for the new columns'], sites: 1 },
+            { title: 'conversation agent', tasks: ['wire the agent prompt'], sites: 1 },
+            { title: 'session registry', tasks: ['register the new session kind'], sites: 1 },
+            { title: 'SSE feed', tasks: ['stream the new events over SSE'], sites: 1 },
+            { title: 'service integration', tasks: ['integrate the new service'], sites: 1 },
+            { title: 'contract declaration', tasks: ['declare the new contract'], sites: 1 },
+            { title: 'route mounting', tasks: ['mount the new route'], sites: 1 },
         ],
         verdict: 'pass',
         reason: 'nine different pieces, each done once — no group repeats.',
         division: [],
+    };
+
+    /**
+     * Card 0153's shape (see `FANOUT_THRESHOLD`'s own doc comment): one Tasks-section item — "update
+     * every internal link" — whose work actually lands in ten files. Breadth (`tasks.length` is 1) and
+     * depth (one group) both read straight past this; `sites` is the only place the real fan-out is
+     * visible at all.
+     */
+    const card0153: ScopeCheckResult = {
+        summary: 'one link-migration task that touches every internal link in the app',
+        groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: 10 }],
+        verdict: 'refuse',
+        reason:
+            'one task, but it touches roughly ten files — the same shape that exhausted card 0151\'s step budget nine times over.',
+        division: [
+            { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration' },
+            { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration' },
+        ],
     };
 
     it('refuses card 0075, naming the repetition rather than the bullet or character count', async () => {
@@ -304,7 +342,7 @@ describe('ScopeCheckVerifier', () => {
     it('passes a "pass" whose widest group sits one below the threshold', async () => {
         const belowThreshold: ScopeCheckResult = {
             ...card0079,
-            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c'] }],
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c'], sites: 3 }],
             verdict: 'pass',
             reason: 'three near-identical fields, one below this stage\'s repetition threshold.',
         };
@@ -318,7 +356,7 @@ describe('ScopeCheckVerifier', () => {
     it('requires "refuse" once the widest group reaches the threshold exactly', async () => {
         const atThreshold: ScopeCheckResult = {
             ...card0079,
-            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'] }],
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'], sites: 4 }],
             verdict: 'pass',
             reason: 'four near-identical fields.',
         };
@@ -392,7 +430,7 @@ describe('ScopeCheckVerifier', () => {
         const bothTooLarge: ScopeCheckResult = {
             ...card0120,
             groups: [
-                { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'] },
+                { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'], sites: 4 },
                 // Enough further groups that the depth signal fires too — derived from the constant
                 // rather than a literal, so raising or lowering it does not silently turn this into
                 // a breadth-only case that still passes its `toHaveLength(2)`.
@@ -475,7 +513,7 @@ describe('ScopeCheckVerifier', () => {
     it('pushes the routing failure for a "refuse" whose widest group meets the breadth threshold exactly', async () => {
         const atThreshold: ScopeCheckResult = {
             summary: 'four near-identical fields',
-            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'] }],
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'], sites: 4 }],
             verdict: 'refuse',
             reason: 'four near-identical fields — the same kind of thing repeated four times.',
             division: [
@@ -539,5 +577,138 @@ describe('ScopeCheckVerifier', () => {
         // of bouncing back to `planning` (card 0157's whole point).
         expect(outcome.passed).toBe(false);
         expect(outcome.failures).toEqual([]);
+    });
+
+    /**
+     * `FANOUT_THRESHOLD` (card 0158): the signal that reads each group's own reported `sites` count
+     * rather than its `tasks.length`. Card 0153's shape is the reason it exists — one Tasks-section
+     * item whose work lands in ten files, a shape breadth and depth both read straight past (see the
+     * `card0153` fixture's own comment and `FANOUT_THRESHOLD`'s doc comment).
+     */
+    it('rejects a "pass" backed by card 0153\'s shape, naming fan-out rather than breadth or depth', async () => {
+        const outcome = await verify({ ...card0153, verdict: 'pass', division: [] });
+
+        // Only the fan-out signal fired (one task, one group, but many sites) — breadth and depth
+        // both see nothing remarkable, so exactly one failure, and it must name the group and its
+        // site count rather than tasks or groups.
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toHaveLength(1);
+        expect(outcome.failures[0]).toContain(card0153.groups[0].title);
+        expect(outcome.failures[0]).toContain(`${card0153.groups[0].sites} places`);
+        expect(outcome.failures[0]).toContain(`>= ${FANOUT_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('"pass"');
+    });
+
+    it('pushes the routing failure for a "refuse" supported only by fan-out (card 0153\'s shape)', async () => {
+        const outcome = await verify(card0153);
+
+        // A supported refusal still pushes and still routes to `planning`, exactly as a
+        // breadth- or depth-supported refusal already does (card 0157's "supported" branch) — fan-out
+        // is a third way to earn that support, not a different consequence.
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([`refusing: ${card0153.reason}`]);
+    });
+
+    it('still passes card 0079\'s three-group shape now that fan-out is checked too', async () => {
+        const outcome = await verify(card0079);
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    /**
+     * The fan-out boundary, the same way the breadth and depth boundaries above are pinned: one site
+     * below `FANOUT_THRESHOLD` must not force a refusal, and exactly at it must.
+     */
+    it('passes a "pass" whose widest group sits one site below the fan-out threshold', async () => {
+        const belowThreshold: ScopeCheckResult = {
+            ...card0079,
+            groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: FANOUT_THRESHOLD - 1 }],
+            verdict: 'pass',
+            reason: 'one task touching several files, one below this stage\'s fan-out threshold.',
+        };
+
+        const outcome = await verify(belowThreshold);
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('requires "refuse" once a group\'s reported site count reaches the fan-out threshold exactly', async () => {
+        const atThreshold: ScopeCheckResult = {
+            ...card0079,
+            groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: FANOUT_THRESHOLD }],
+            verdict: 'pass',
+            reason: 'one task touching many files.',
+        };
+
+        const outcome = await verify(atThreshold);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toHaveLength(1);
+        expect(outcome.failures[0]).toContain(`>= ${FANOUT_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('"pass"');
+    });
+
+    it('does not push the routing failure for a "refuse" whose site count sits one below the fan-out threshold', async () => {
+        const belowThreshold: ScopeCheckResult = {
+            ...card0079,
+            groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: FANOUT_THRESHOLD - 1 }],
+            verdict: 'refuse',
+            reason: 'one task touching several files, but not enough to justify refusing on its own.',
+            division: [
+                { title: 'first half', tasks: ['update every internal link'], delivers: 'half the links, working alone' },
+                { title: 'second half', tasks: ['update every internal link'], delivers: 'the rest of the links, working alone' },
+            ],
+        };
+
+        const outcome = await verify(belowThreshold);
+
+        // No signal is met (one task, one group, one below the fan-out line), so this stage does not
+        // believe its own refusal (card 0157's mirror case) — no "refusing: ..." push, `failures`
+        // empty, the card is free to advance.
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([]);
+    });
+
+    it('names all three signals when a "pass" is too broad, too deep, and too fanned out at once', async () => {
+        const allThreeTooLarge: ScopeCheckResult = {
+            ...card0120,
+            groups: [
+                { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'], sites: FANOUT_THRESHOLD },
+                ...card0120.groups.slice(1, DEPTH_THRESHOLD),
+            ],
+        };
+
+        const outcome = await verify(allThreeTooLarge);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toHaveLength(3);
+        expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
+        expect(outcome.failures[0]).toContain('repeats across');
+        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
+        expect(outcome.failures[1]).toContain('distinct groups');
+        expect(outcome.failures[2]).toContain(`>= ${FANOUT_THRESHOLD}`);
+        expect(outcome.failures[2]).toContain('places');
+    });
+
+    /**
+     * `ScopeGroupSchema`'s `sites` field (card 0158) is required and must be at least 1 — a group
+     * reporting no site count, or reporting zero, is a malformed result the same way a division with
+     * only one piece already is above.
+     */
+    it('rejects a group that reports no site count at all', async () => {
+        const groupWithoutSites = { title: card0079.groups[0].title, tasks: card0079.groups[0].tasks };
+        const outcome = await verify({ ...card0079, groups: [groupWithoutSites, ...card0079.groups.slice(1)] });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures[0]).toContain('does not match the scope-check schema');
+    });
+
+    it('rejects a group whose reported site count is below the schema minimum of one', async () => {
+        const outcome = await verify({ ...card0079, groups: [{ ...card0079.groups[0], sites: 0 }, ...card0079.groups.slice(1)] });
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures[0]).toContain('does not match the scope-check schema');
     });
 });

@@ -86,7 +86,7 @@ afterAll(async () => {
 /** A `ScopeCheckResult`-shaped refusal, the exact payload a scope-check `stage.failed` event carries. */
 const scopeCheckRefusal = (overrides: Partial<{ reason: string; division: unknown[] }> = {}) => ({
     summary: 'the plan repeats the same kind of work several times',
-    groups: [{ title: 'endpoint', tasks: ['task 1', 'task 2'] }],
+    groups: [{ title: 'endpoint', tasks: ['task 1', 'task 2'], sites: 2 }],
     verdict: 'refuse' as const,
     reason: 'the plan repeats "endpoint" five times',
     division: [

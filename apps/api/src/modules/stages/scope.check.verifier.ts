@@ -61,7 +61,44 @@ export const BREADTH_THRESHOLD = 4;
  */
 export const DEPTH_THRESHOLD = 6;
 
+/**
+ * How many distinct places a single group's work lands — files, call sites, routes, read from that
+ * group's own `sites` (`ScopeGroupSchema`) — it takes before a plan is judged too fanned-out for one
+ * pass, no matter how few Tasks-section items describe it.
+ *
+ * Breadth (`BREADTH_THRESHOLD`) and depth (`DEPTH_THRESHOLD`) both read the plan's Tasks section as
+ * written: a task that says "update every internal link" or "migrate every importer of lib/sdk.ts"
+ * is one task in one group, however many files it actually touches. Cards 0153, 0155 and 0156 hit
+ * exactly this — the model said `refuse` and named the fan-out in its `reason` prose ("roughly 10
+ * files" / "~10 nav-rendering files", "14 files that import lib/sdk.ts" / "10 importers of
+ * lib/sdk.ts", "~8 route files") — but neither existing threshold could see it, both counted 1 task
+ * in 1 group each time, so the refusal was judged unsupported and (before card 0157) forced back to
+ * `planning` regardless. Card 0151 is the same shape with no scope-check refusal on record to compare
+ * against: a nine-file link migration and a ten-file client rewiring, nine implementing attempts,
+ * every failure the step budget.
+ *
+ * Set at 8 — at or below every figure named above (8, 9, 10, 10, and the disputed 14) — because that
+ * is the full extent of the evidence available here. This board's fuller scope-check history (the
+ * kind of case-by-case audit `DEPTH_THRESHOLD`'s own comment draws on) lives in Postgres, which this
+ * verifier does not query and which this card's own record — the prose quoted above, all this stage
+ * can see — is the only evidence available for calibrating this constant against; no broader board
+ * audit backs this number the way `DEPTH_THRESHOLD`'s does, and that is recorded here rather than
+ * papered over. The two different figures reported for the same lib/sdk.ts case (10 vs. 14) are
+ * themselves evidence for why this signal has to be a number and not prose — and a reason to anchor
+ * on the lower, more conservative one rather than invent a figure the record does not actually
+ * support.
+ *
+ * Card 0079 is the case this must not catch: 21 Tasks-section bullets, three distinct things each
+ * done once. No card on record has ever quoted its per-group site count, so — unlike the catches
+ * above — this is not a measured boundary; but nothing in its record describes repetition across
+ * sites (the opposite of 0151/0153/0155/0156: each of 0079's three things is done once, not fanned
+ * out), so a threshold of 8 is not expected to catch it. If a future scope-check reports otherwise,
+ * that is new evidence this comment does not have.
+ */
+export const FANOUT_THRESHOLD = 8;
+
 const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.tasks.length > max.tasks.length ? g : max));
+const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.sites > max.sites ? g : max));
 
 /**
  * The scope-check stage's exit condition: does the plan fit in one pass.
@@ -77,15 +114,19 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * way it leans — but, as of card 0157, the two directions no longer carry the same consequence. See
  * the last paragraph below.
  *
- * Two signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
+ * Three signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
  * width of the widest group) catches one kind of work repeated until it will not fit — card 0075's
  * eight near-identical endpoints, card 0078's every-CLI-command port. Depth (`DEPTH_THRESHOLD`, the
  * number of groups) catches many different kinds of work collected into one card, each too small on
  * its own to trip breadth — card 0120's nine one-task groups (schema migration, DB type binding,
  * repository, conversation agent, session registry, SSE feed, service integration, contract
- * declaration, route mounting), which breadth alone let through. Card 0079 (21 bullets, three distinct
- * things each done once) is the case neither signal may catch: too few groups for depth, no group wide
- * enough for breadth.
+ * declaration, route mounting), which breadth alone let through. Fan-out (`FANOUT_THRESHOLD`, the
+ * widest group's own `sites` count) catches the shape breadth and depth both read past: one task
+ * whose work actually lands in many files — cards 0153, 0155 and 0156, each a plan the model
+ * correctly refused and could only justify in unchecked prose until this signal existed. Card 0079
+ * (21 bullets, three distinct things each done once) is the case none of the three may catch: too
+ * few groups for depth, no group wide enough for breadth, no group fanned out across enough sites for
+ * fan-out.
  *
  * A well-formed "refuse" is this stage doing its job, not a defect in the report — but the routing
  * that actually matters does not read this class's `passed` field at all. `StageDispatcher.runAgent`
@@ -104,13 +145,15 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * bounced back to `planning`. Cards 0153, 0155 and 0156 hit exactly this, each a further split of the
  * one before, each blocked on a metric the model had already out-argued: it counted files touched
  * across sites, which `BREADTH_THRESHOLD`/`DEPTH_THRESHOLD` cannot see because they count tasks as
- * written in the plan, not sites touched in the diff (a separate problem this card does not fix). The
- * push is now conditioned on the same `tooLarge` the consistency check above already computed: a
- * *supported* refusal (breadth or depth actually met) still pushes and still routes to `planning`,
- * exactly as before. An *unsupported* one pushes nothing, so `failures` can come back empty and the
- * card advances instead. The model's `reason` is not thrown away when that happens — `outcome.result`
- * carries this stage's whole reported result onto the card's event log regardless of `passed`/`failures`
- * (`StageDispatcher.runAgent`), so a human reading the card still finds why the model wanted to refuse.
+ * written in the plan, not sites touched in the diff — a gap card 0158 closed with `FANOUT_THRESHOLD`,
+ * reading each group's own reported `sites` count (`ScopeGroupSchema`) instead of leaving that number
+ * stranded in unchecked `reason` prose. The push is now conditioned on the same `tooLarge` the
+ * consistency check above already computed: a *supported* refusal (breadth, depth, or fan-out
+ * actually met) still pushes and still routes to `planning`, exactly as before. An *unsupported* one
+ * pushes nothing, so `failures` can come back empty and the card advances instead. The model's
+ * `reason` is not thrown away when that happens — `outcome.result` carries this stage's whole reported
+ * result onto the card's event log regardless of `passed`/`failures` (`StageDispatcher.runAgent`), so
+ * a human reading the card still finds why the model wanted to refuse.
  */
 @Injectable()
 export class ScopeCheckVerifier implements StageVerifier {
@@ -142,9 +185,11 @@ export class ScopeCheckVerifier implements StageVerifier {
         }
 
         const widest = largestGroup(groups);
+        const mostFannedOut = mostFannedOutGroup(groups);
         const tooBroad = widest.tasks.length >= BREADTH_THRESHOLD;
         const tooDeep = groups.length >= DEPTH_THRESHOLD;
-        const tooLarge = tooBroad || tooDeep;
+        const tooFannedOut = mostFannedOut.sites >= FANOUT_THRESHOLD;
+        const tooLarge = tooBroad || tooDeep || tooFannedOut;
 
         if (tooLarge && verdict !== 'refuse') {
             if (tooBroad) {
@@ -155,6 +200,11 @@ export class ScopeCheckVerifier implements StageVerifier {
             if (tooDeep) {
                 failures.push(
                     `the plan reports ${groups.length} distinct groups (>= ${DEPTH_THRESHOLD}) — many different kinds of work collected into one card, which is what this stage exists to catch, but the verdict is "pass"`,
+                );
+            }
+            if (tooFannedOut) {
+                failures.push(
+                    `"${mostFannedOut.title}" lands in ${mostFannedOut.sites} places (>= ${FANOUT_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
                 );
             }
         }
