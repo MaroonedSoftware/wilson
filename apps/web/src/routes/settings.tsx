@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Anchor, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
 import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { SdkError } from '@wilson/sdk';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
@@ -47,6 +47,7 @@ function apiErrorMessage(error: unknown): string {
  * refuses must not show as applied, so the query cache only ever holds a value that round-tripped.
  */
 function AutoModeToggle() {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const setting = useQuery({ queryKey: POLLER_QUERY_KEY, queryFn: () => wilson.settings.getPollerSetting() });
     const mutation = useMutation({
@@ -92,6 +93,7 @@ function AutoModeToggle() {
  * from what is currently in effect.
  */
 function PollerIntervalControl() {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const setting = useQuery({ queryKey: POLLER_INTERVAL_QUERY_KEY, queryFn: () => wilson.settings.getPollerInterval() });
     const [draft, setDraft] = useState<number | ''>('');
@@ -159,6 +161,7 @@ function PollerIntervalControl() {
  * what round-tripped; it does not claim the new limit is already in force.
  */
 function CardStageConcurrencyControl() {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const setting = useQuery({ queryKey: CARD_STAGE_CONCURRENCY_QUERY_KEY, queryFn: () => wilson.settings.getCardStageConcurrency() });
     const [draft, setDraft] = useState<number | ''>('');
@@ -250,6 +253,7 @@ function CardStageConcurrencyControl() {
  * endpoint directly and pointing it somewhere the check still permits.
  */
 function NotifyWebhookControl() {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const setting = useQuery({ queryKey: NOTIFY_WEBHOOK_QUERY_KEY, queryFn: () => wilson.settings.getNotifyWebhookSetting() });
     const [webhookDraft, setWebhookDraft] = useState('');
@@ -348,6 +352,7 @@ function NotifyWebhookControl() {
  * attempt would force retyping it blind.
  */
 function ClaudeConfigDirControl() {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const setting = useQuery({ queryKey: CLAUDE_CONFIG_DIR_QUERY_KEY, queryFn: () => wilson.settings.getClaudeConfigDirSetting() });
     const [draft, setDraft] = useState('');
@@ -428,6 +433,7 @@ function Fact({ label, children, muted }: { label: string; children: ReactNode; 
  * does not exist.
  */
 function DeploymentFacts() {
+    const wilson = useWilsonSdk();
     const health = useQuery({ queryKey: ['health'], queryFn: () => wilson.health.getHealth() });
 
     if (health.error) {

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Anchor, Loader, Stack, Text, Title } from '@mantine/core';
 import { Board } from '#src/components/Board.js';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /**
  * Where the header's flagged count (card 0119, `FlaggedIndicator`) sends you: every card needing a
@@ -15,6 +15,7 @@ import { wilson } from '#src/lib/sdk.js';
  * flagged card, grouped by where it is" rather than the full board with most columns empty.
  */
 function FlaggedRoute() {
+    const wilson = useWilsonSdk();
     const columns = useQuery({ queryKey: ['columns'], queryFn: () => wilson.board.listBoardColumns() });
     const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
 

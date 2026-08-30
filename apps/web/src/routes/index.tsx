@@ -4,7 +4,7 @@ import { ActionIcon, Alert, Group, Loader, Tooltip } from '@mantine/core';
 import { IconRefresh } from '@tabler/icons-react';
 import { Board, BoardTitle } from '#src/components/Board.js';
 import { NewCardControl } from '#src/components/NewCardControl.js';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /**
  * The board.
@@ -18,6 +18,7 @@ import { wilson } from '#src/lib/sdk.js';
  * behind a menu.
  */
 function Index() {
+    const wilson = useWilsonSdk();
     const columns = useQuery({ queryKey: ['columns'], queryFn: () => wilson.board.listBoardColumns() });
     const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
 
