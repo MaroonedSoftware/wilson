@@ -764,7 +764,9 @@ export class StageDispatcher {
             worktreeRoot: worktree.path,
             scope,
             commands: new CommandAllowlist(stage.allowedCommands),
-            scopeViolationPolicy: stages.scopeViolation,
+            // The stage's own value wins when it sets one; otherwise the project-wide default applies,
+            // exactly as it did before this field existed (`stage.config.ts`).
+            scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
             events: this.events,
             logger: this.logger,
         };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StageConfigSchema, MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
+import { StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
@@ -148,5 +148,33 @@ describe('StageConfigSchema maxCardInputTokens', () => {
 
     it('rejects a non-integer maxCardInputTokens', () => {
         expect(() => StageConfigSchema.parse({ ...minimalStage, maxCardInputTokens: 1000.5 })).toThrow();
+    });
+});
+
+/**
+ * Card 0164: a stage may override the project-wide `scopeViolation` for itself alone. Absent means
+ * "defer to the project" — resolution happens at `stage.dispatcher.ts`, not here, so the schema's job
+ * is only to leave the field unset by default and to accept the same two values the project-wide
+ * field already does.
+ */
+describe('StageConfigSchema scopeViolation override', () => {
+    it('leaves scopeViolation unset when omitted, rather than defaulting it — resolution to the project value happens at the dispatcher, not here', () => {
+        const stage = StageConfigSchema.parse(minimalStage);
+        expect(stage.scopeViolation).toBeUndefined();
+    });
+
+    it('accepts an explicit "kickback" override', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, scopeViolation: 'kickback' });
+        expect(stage.scopeViolation).toBe('kickback');
+    });
+
+    it('accepts an explicit "widen" override', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, scopeViolation: 'widen' });
+        expect(stage.scopeViolation).toBe('widen');
+    });
+
+    it('rejects an unknown scopeViolation value with the same clarity the project-wide field already gives', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, scopeViolation: 'bogus' })).toThrow();
+        expect(() => ProjectStagesSchema.shape.scopeViolation.parse('bogus')).toThrow();
     });
 });
