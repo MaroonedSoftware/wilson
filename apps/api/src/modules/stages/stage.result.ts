@@ -65,10 +65,28 @@ export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
  * size eight (card 0075: eight near-identical endpoints) or one of any other size (card 0078: every
  * CLI command ported). `title` names the kind, `tasks` are that group's members, quoted or numbered
  * from the plan so a human can find them.
+ *
+ * `sites` is a second, independent count of the same group's fan-out: how many distinct places —
+ * files, call sites, routes — its work actually lands, as opposed to how many Tasks-section items
+ * describe it. The two diverge exactly where breadth (which reads `tasks.length`) goes blind: a
+ * single task that says "update every internal link" or "migrate every importer of lib/sdk.ts" is
+ * one entry in `tasks` no matter how many files it touches, but card 0158's whole reason for
+ * existing is that the model already knows the real number and, before this field, had nowhere
+ * checkable to put it — cards 0153, 0155 and 0156 named it in `reason` prose instead ("roughly 10
+ * files", "~8 route files"), which a verifier cannot check.
  */
 export const ScopeGroupSchema = z.object({
     title: z.string().describe('What kind of work this group is — the label under which its tasks repeat.'),
     tasks: z.array(z.string()).min(1).describe("Which Tasks-section items belong to this group — quote or number them."),
+    sites: z
+        .number()
+        .int()
+        .min(1)
+        .describe(
+            'How many distinct places in the codebase this group\'s work actually lands — files, call sites, routes — not ' +
+                'how many Tasks-section items describe it. A task like "update every internal link" is one entry in `tasks` ' +
+                'but may land in ten files: report the ten.',
+        ),
 });
 
 /**
@@ -96,8 +114,8 @@ export const ScopeDivisionPieceSchema = z.object({
 
 /**
  * What the scope-check stage reports: every Tasks-section item bucketed by kind (`groups`, always
- * present — the breadth evidence), a verdict, why in terms of repetition, and — only when refusing —
- * a concrete division.
+ * present — the breadth, depth and fan-out evidence, the last from each group's own `sites`), a
+ * verdict, why in terms of repetition, and — only when refusing — a concrete division.
  *
  * Unlike `ReviewResultSchema`'s `passed`/`verdict` split — resolved later by `shouldAdvance`
  * (`kickback.ts`), which special-cases the literal string `"revise"` (review's own routing signal) —
