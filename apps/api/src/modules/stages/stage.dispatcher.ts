@@ -361,15 +361,26 @@ export class StageDispatcher {
         const scoped = [...filesInScope(card), ...stage.extraScope];
         const collateral = await collateralPaths(worktree.path, scoped);
 
+        // Every card's preserved patch, not just this one's (card 0161): a split card's plan
+        // routinely names its parent's `last-failed-attempt.patch` as the single most useful
+        // artifact around, and the stage running it has no way to know in advance which card that
+        // will be — `boardCards`, already fetched above for `assertDispatchable`, is every card on
+        // the board. Listed unconditionally, with no `stat` first: most cards have never failed, so
+        // most of these paths do not exist, and an unconditional grant just lets that read fail with
+        // an ordinary "no such file" — the same as any other in-scope path that happens to be
+        // absent — rather than the scope refusal this card exists to remove.
+        const preservedPatchPaths = boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
+
         const scope = new ScopeGuard({
             worktreeRoot: worktree.path,
             allow: scoped,
             alwaysAllowed: stages.alwaysAllowed,
             deny: stages.deny,
             collateral,
-            // The plan lives outside the worktree so it cannot be committed to the card's branch.
-            // Without this it is also unreadable, and the agent infers its own contract.
-            readableExtras: [planPath],
+            // The plan and every card's preserved patch live outside the worktree so neither can be
+            // committed to the card's branch. Without this both are also unreadable, and the agent
+            // either infers its own contract or is refused the one artifact its plan told it to read.
+            readableExtras: [planPath, ...preservedPatchPaths],
         });
 
         await this.events.append({

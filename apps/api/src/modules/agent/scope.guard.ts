@@ -23,9 +23,19 @@ export interface ScopeGuardOptions {
     /**
      * Absolute paths of individual files the agent may read despite living outside the worktree.
      *
-     * Exactly one thing needs this: the plan. It is materialized outside the tree on purpose, so it
-     * can never be committed to the card's branch — which also put it beyond every tool, leaving the
-     * agent to infer its own contract. Exact file paths only, never directories, and read-only.
+     * Two kinds of entry need this: the plan, and a card's preserved `last-failed-attempt.patch`
+     * (`WorktreeManager.failedAttemptPatchPath`, card 0161). Both are materialized outside the tree
+     * on purpose, so neither can ever be committed to the card's branch — which also puts both
+     * beyond every tool unless granted here explicitly, leaving the agent to infer its own contract
+     * or find the one artifact its plan named unreadable.
+     *
+     * Read-only by construction, not by convention: this set is consulted only by `checkRead`, never
+     * by `check` (the write path), so nothing named here can ever become writable through it. That is
+     * the whole point of the mechanism — the guard's job is stopping writes outside the tree and
+     * reads of the wider filesystem, not compartmentalising the operator's own board artifacts from
+     * each other.
+     *
+     * Exact file paths only, never directories.
      */
     readableExtras?: string[];
 }

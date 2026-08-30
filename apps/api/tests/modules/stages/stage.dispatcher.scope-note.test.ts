@@ -137,6 +137,9 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
             }),
             commit: vi.fn(async () => 'committedsha'),
             reclaim: vi.fn(async () => {}),
+            // Card 0161: `run` now calls this unconditionally, once per board card, to grant read
+            // access to every preserved patch — not just on a failure path.
+            failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/run/cards/${cardId}/last-failed-attempt.patch`),
         };
 
         const agents = new StageAgentMap();
