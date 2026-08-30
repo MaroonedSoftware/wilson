@@ -1,4 +1,4 @@
-import { Link, Outlet, createRootRoute } from '@tanstack/react-router';
+import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
 import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { IconSettings } from '@tabler/icons-react';
@@ -16,9 +16,14 @@ import { useCardFeed } from '#src/lib/feed.js';
  * `Notifications` is mounted here too, once, for the same reason — every route below it (a move or
  * an enqueue refused from the card detail view, card 0037) needs somewhere to render a toast, and
  * this is the one place above all of them.
+ *
+ * Card 0153: `useParams({ strict: false })` reads whichever route actually matched, below this one —
+ * a top-level route carries no `project` param at all, so `project` is `undefined` there, same as
+ * before this card; a `/projects/$project/*` route carries its own, and the feed connects naming it.
  */
 function Root() {
-    const feedStatus = useCardFeed();
+    const { project } = useParams({ strict: false });
+    const feedStatus = useCardFeed(project);
 
     return (
         <AppShell header={{ height: 48 }} padding="md">

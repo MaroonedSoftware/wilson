@@ -1,6 +1,6 @@
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
-import { openSseStream, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
+import { firstQueryValue, openSseStream, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -63,7 +63,7 @@ const ANY_PATH = /.*/;
  * it during `serverBuilder.setupRoutes`, which itself runs before `start`); only a request handler,
  * invoked once the server is live, has a container to resolve from.
  *
- * A header naming a project with no `runner.projects` row is refused with the server's own
+ * A header or query-named project with no `runner.projects` row is refused with the server's own
  * sentence (`httpError(400)`, matching every other validation failure's shape — see
  * `board.write.service.ts`) before `runAsProject` ever opens a scope for it, so nothing downstream
  * — a board read, a board write, an SSE stream — ever runs against, or leaks from, a project that
@@ -75,22 +75,32 @@ const ANY_PATH = /.*/;
  * into that map regardless, the same idempotent call `Poller.tick` makes every tick, so a later
  * request (or a job) sees it without a DB round trip.
  *
- * No header at all resolves to `board.project` — `ProjectScopedBoardConfig`'s own fallback to the
- * daemon's configured project when nothing has called `runAsProject` yet (`board.config.ts`) — and
- * is never checked against Postgres: that project was already registered eagerly at boot
- * (`BoardModule.setup`), so every existing caller (the CLI, the app, `curl`) keeps working exactly
- * as it does today, with no new failure mode and no new request cost.
+ * Card 0153: a `?project=` query value is read the same way `resolveLastEventId` already reads
+ * `?lastEventId=` — `firstQueryValue` (`@maroonedsoftware/koa`) — and used only when the header is
+ * absent, for the two SSE routes below (`FeedRouter`, `PlanStreamRouter`), whose `EventSource`
+ * connections cannot set a header at all. Checked here rather than in either SSE route individually,
+ * since this is the one place `runAsProject` is opened; every JSON route still names its project by
+ * header alone in practice; a stray `?project=` would resolve the same way for one too, but no
+ * generated route ever sends one.
+ *
+ * No header and no query-named project resolves to `board.project` — `ProjectScopedBoardConfig`'s
+ * own fallback to the daemon's configured project when nothing has called `runAsProject` yet
+ * (`board.config.ts`) — and is never checked against Postgres: that project was already registered
+ * eagerly at boot (`BoardModule.setup`), so every existing caller (the CLI, the app, `curl`) keeps
+ * working exactly as it does today, with no new failure mode and no new request cost.
  */
 const ProjectContextRouter = () => {
     const router = ServerKitRouter();
     router.all(ANY_PATH, async (ctx, next) => {
         const board = ctx.container.get(BoardConfig);
         const header = ctx.get(PROJECT_HEADER);
-        const project = header || board.project;
+        const queryProject = firstQueryValue(ctx.query.project);
+        const named = header || queryProject;
+        const project = named || board.project;
 
-        if (header) {
-            const row = await ctx.container.get(ProjectRepository).find(header);
-            if (!row) throw httpError(400).withDetails({ reason: `project "${header}" is not registered` });
+        if (named) {
+            const row = await ctx.container.get(ProjectRepository).find(named);
+            if (!row) throw httpError(400).withDetails({ reason: `project "${named}" is not registered` });
             board.register(row);
         }
 

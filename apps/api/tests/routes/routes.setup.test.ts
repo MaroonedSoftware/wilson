@@ -244,6 +244,7 @@ describe('ProjectContextRouter', () => {
         board: BoardConfig,
         find: (name: string) => Promise<ProjectRow | undefined>,
         next: () => Promise<void>,
+        query: Record<string, unknown> = {},
     ): Promise<void> => {
         const router = routers()[0]!;
         const ctx = {
@@ -252,7 +253,7 @@ describe('ProjectContextRouter', () => {
             request: {},
             params: {},
             headers: headerValue ? { 'x-wilson-project': headerValue } : {},
-            query: {},
+            query,
             get: (name: string) => (headerValue && name.toLowerCase() === 'x-wilson-project' ? headerValue : ''),
             container: containerFor(board, find),
         };
@@ -311,6 +312,103 @@ describe('ProjectContextRouter', () => {
 
         expect(next).not.toHaveBeenCalled();
         expect(currentProject()).toBeUndefined();
+    });
+
+    /**
+     * Card 0153: `EventSource` cannot set `X-Wilson-Project`, so the two SSE routes (`FeedRouter`,
+     * `PlanStreamRouter`) name their project with `?project=` instead — read here the same way
+     * `resolveLastEventId` already reads `?lastEventId=`, via `firstQueryValue`. No header is given
+     * on this dispatch, so this exercises the query-only path directly, not the header path the
+     * tests above already cover.
+     */
+    it('registers the query-named project\'s row on the board and runs the request inside its context, when no header is given but a ?project= query value is', async () => {
+        const board = new ProjectScopedBoardConfig('configured-project');
+        const row: ProjectRow = {
+            name: 'other-project',
+            boardRoot: '/other/board',
+            codeRoot: '/other/code',
+            worktreeRoot: '/other/wt',
+            runRoot: '/other/run',
+        };
+        const find = vi.fn(async (name: string) => (name === 'other-project' ? row : undefined));
+        let observedProject: string | undefined;
+        let observedBoardRoot: string | undefined;
+
+        await dispatch(
+            undefined,
+            board,
+            find,
+            async () => {
+                observedProject = currentProject();
+                observedBoardRoot = board.boardRoot;
+            },
+            { project: 'other-project' },
+        );
+
+        expect(find).toHaveBeenCalledWith('other-project');
+        expect(observedProject).toBe('other-project');
+        expect(observedBoardRoot).toBe('/other/board');
+        expect(currentProject()).toBeUndefined();
+    });
+
+    it('prefers the header over a ?project= query value when both name a project, rather than the query silently winning', async () => {
+        const board = new ProjectScopedBoardConfig('configured-project');
+        const headerRow: ProjectRow = {
+            name: 'header-project',
+            boardRoot: '/header/board',
+            codeRoot: '/header/code',
+            worktreeRoot: '/header/wt',
+            runRoot: '/header/run',
+        };
+        const find = vi.fn(async (name: string) => (name === 'header-project' ? headerRow : undefined));
+        let observedProject: string | undefined;
+
+        await dispatch(
+            'header-project',
+            board,
+            find,
+            async () => {
+                observedProject = currentProject();
+            },
+            { project: 'query-project' },
+        );
+
+        expect(find).toHaveBeenCalledWith('header-project');
+        expect(find).not.toHaveBeenCalledWith('query-project');
+        expect(observedProject).toBe('header-project');
+    });
+
+    it('refuses an unregistered ?project= query value with a 400 naming it, and never runs the rest of the request', async () => {
+        const board = new ProjectScopedBoardConfig('configured-project');
+        const find = vi.fn(async () => undefined);
+        const next = vi.fn();
+
+        await expect(dispatch(undefined, board, find, next, { project: 'ghost-project' })).rejects.toMatchObject({
+            statusCode: 400,
+            details: { reason: expect.stringContaining('ghost-project') },
+        });
+
+        expect(next).not.toHaveBeenCalled();
+        expect(currentProject()).toBeUndefined();
+    });
+
+    it('falls back to the board\'s own configured project when a ?project= query value is present but blank, the same as no query at all', async () => {
+        const board = new StaticBoardConfig('configured-project', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const find = vi.fn(async () => undefined);
+        let observed: string | undefined;
+
+        await dispatch(
+            undefined,
+            board,
+            find,
+            async () => {
+                observed = currentProject();
+            },
+            { project: '' },
+        );
+
+        expect(observed).toBe('configured-project');
+        expect(find).not.toHaveBeenCalled();
     });
 });
 

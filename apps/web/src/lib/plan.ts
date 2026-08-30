@@ -53,8 +53,14 @@ const insertBySeq = (turns: PlanTurn[], turn: PlanTurn): PlanTurn[] =>
  *
  * `enabled` lets a caller (`CardDetailView`, for a card in `planning` only) skip opening the stream
  * for every other stage while still calling this hook unconditionally, honouring the rules of hooks.
+ *
+ * `project`, card 0153: `EventSource` cannot set `X-Wilson-Project`, so this names itself with
+ * `?project=` instead, the same query fallback `useCardFeed` (`feed.ts`) uses for `/api/feed` and
+ * `routes.setup.ts`'s `ProjectContextRouter` now accepts on both streams. `undefined` (the default,
+ * from every caller but the project-scoped card route) names none, resolving to the daemon's own
+ * configured project exactly as before this card.
  */
-export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscript {
+export function usePlanTranscript(cardId: string, enabled: boolean, project?: string): PlanTranscript {
     const [turns, turnHandlers] = useListState<PlanTurn>([]);
     const [pendingText, setPendingText] = useState('');
     const [status, setStatus] = useState<PlanStreamStatus>('connecting');
@@ -70,7 +76,8 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
         setError(undefined);
         hasOpenedRef.current = false;
 
-        const source = new EventSource(`${API_BASE}/api/cards/${encodeURIComponent(cardId)}/plan/stream`);
+        const streamUrl = `${API_BASE}/api/cards/${encodeURIComponent(cardId)}/plan/stream`;
+        const source = new EventSource(project ? `${streamUrl}?project=${encodeURIComponent(project)}` : streamUrl);
 
         source.onopen = () => {
             hasOpenedRef.current = true;
@@ -94,7 +101,7 @@ export function usePlanTranscript(cardId: string, enabled: boolean): PlanTranscr
         });
 
         return () => source.close();
-    }, [cardId, enabled]);
+    }, [cardId, enabled, project]);
 
     const commitTurn = (turn: PlanTurn): void => {
         turnHandlers.setState(previous => insertBySeq(previous, turn));

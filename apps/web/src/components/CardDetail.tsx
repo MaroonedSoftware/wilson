@@ -25,13 +25,13 @@ const PANE_HEIGHT = 520;
  * the viewport is too narrow for both side by side, `Grid` otherwise; either way the same two
  * panes, never a third layout that could drift from what each renders alone.
  */
-function PlanningPanes({ card }: { card: CardDetail }) {
+function PlanningPanes({ card, project }: { card: CardDetail; project?: string }) {
     const narrow = useMediaQuery(NARROW_BREAKPOINT);
 
     const conversation = (
         <Stack gap={6} h={PANE_HEIGHT}>
             <Title order={5}>Conversation</Title>
-            <PlanningSessionPane card={card} />
+            <PlanningSessionPane card={card} project={project} />
         </Stack>
     );
     const draft = (
@@ -281,6 +281,7 @@ export function CardDetailView({
     versionsError,
     columns,
     columnsError,
+    project,
 }: {
     card: CardDetail;
     events: CardEvent[] | undefined;
@@ -291,6 +292,10 @@ export function CardDetailView({
     versionsError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
+    /** Card 0153: the project this card was reached under, if any — threaded to `PlanningPanes` so
+     * the planning stream (`usePlanTranscript`) names it. `undefined` from the existing top-level
+     * route, unchanged. */
+    project?: string;
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
 
@@ -353,7 +358,7 @@ export function CardDetailView({
             )}
 
             {card.stage === 'planning' ? (
-                <PlanningPanes card={card} />
+                <PlanningPanes card={card} project={project} />
             ) : (
                 <Stack gap={6}>
                     <Title order={4}>Plan</Title>

@@ -17,13 +17,20 @@ export type FeedStatus = 'live' | 'disconnected';
  * Reconnection needs no code of its own: a plain `EventSource` retries on its own after the
  * connection drops (an API restart, most likely, since every restart drops every open stream), and
  * `onopen`/`onerror` are enough to track whether that retry has landed yet.
+ *
+ * `project`, card 0153: `EventSource` cannot set `X-Wilson-Project`, so a project-scoped screen names
+ * itself with `?project=` instead — the query fallback `routes.setup.ts`'s `ProjectContextRouter` now
+ * accepts for exactly this reason. Left `undefined` (the default, from `__root.tsx` on every screen
+ * that carries no `project` route param) the connection names none, resolving to the daemon's own
+ * configured project exactly as it did before this card.
  */
-export const useCardFeed = (): FeedStatus => {
+export const useCardFeed = (project?: string): FeedStatus => {
     const queryClient = useQueryClient();
     const [status, setStatus] = useState<FeedStatus>('disconnected');
 
     useEffect(() => {
-        const source = new EventSource(`${API_BASE}/api/feed`);
+        const url = project ? `${API_BASE}/api/feed?project=${encodeURIComponent(project)}` : `${API_BASE}/api/feed`;
+        const source = new EventSource(url);
 
         source.onopen = () => setStatus('live');
         source.onerror = () => setStatus('disconnected');
@@ -32,7 +39,7 @@ export const useCardFeed = (): FeedStatus => {
         });
 
         return () => source.close();
-    }, [queryClient]);
+    }, [queryClient, project]);
 
     return status;
 };
