@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Anchor, Loader, Stack } from '@mantine/core';
 import { CardDetailView } from '#src/components/CardDetail.js';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** `limit` passed to both history endpoints — bounds the fetch; the view flags when more may exist. */
 const HISTORY_LIMIT = 50;
@@ -17,6 +17,7 @@ const HISTORY_LIMIT = 50;
  */
 function CardDetailRoute() {
     const { cardId } = Route.useParams();
+    const wilson = useWilsonSdk();
 
     const card = useQuery({ queryKey: ['card', cardId], queryFn: () => wilson.board.getCard(cardId) });
     const events = useQuery({

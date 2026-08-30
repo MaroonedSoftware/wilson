@@ -8,7 +8,7 @@ import { Markdown } from '#src/components/Markdown.js';
 import { formatTimestamp } from '#src/lib/card.js';
 import { reasonFor, useSendPlanTurn } from '#src/lib/mutations.js';
 import { usePlanTranscript } from '#src/lib/plan.js';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** One persisted turn: a role badge and timestamp header over its content, run through the app's
  * one markdown renderer (`Markdown.tsx`) rather than a second one grown for this pane. */
@@ -167,8 +167,13 @@ function Composer({
  * `project`, card 0153: threaded straight through to `usePlanTranscript` so the stream names it too —
  * `openAPlanningSession`/`useSendPlanTurn` below still call the singleton `wilson` client regardless,
  * the propagation this card's plan defers to [[0155]].
+ *
+ * Card 0156: `openAPlanningSession` reads its client through `useWilsonSdk()` rather than importing
+ * the singleton directly, so a card reached through a `/projects/$project/*` route opens its planning
+ * session against that project's client, same as every other read on this pane.
  */
 export function PlanningSessionPane({ card, project }: { card: CardDetail; project?: string }) {
+    const wilson = useWilsonSdk();
     const session = useQuery({ queryKey: ['plan-session', card.id], queryFn: () => wilson.board.openAPlanningSession(card.id) });
     const transcript = usePlanTranscript(card.id, true, project);
     const sendTurn = useSendPlanTurn(card.id);

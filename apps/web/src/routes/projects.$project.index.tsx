@@ -6,6 +6,7 @@ import { IconRefresh } from '@tabler/icons-react';
 import { Board, BoardTitle } from '#src/components/Board.js';
 import { NewCardControl } from '#src/components/NewCardControl.js';
 import { wilsonForProject } from '#src/lib/sdk.js';
+import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
 /**
  * Card 0153: the board at a project-scoped URL, `/projects/$project` — the same screen `/`
@@ -20,6 +21,9 @@ import { wilsonForProject } from '#src/lib/sdk.js';
  * on this screen onto the project-scoped client and route is the 9-file, 14-importer propagation this
  * card's plan defers to [[0155]]. This screen reads the named project correctly; writing back to it
  * is that later card's job.
+ *
+ * Card 0156: wraps its render tree in `WilsonSdkProvider` with `client` so a component reading through
+ * `useWilsonSdk()` gets this project's client rather than `__root.tsx`'s unscoped default.
  */
 function ProjectBoardRoute() {
     const { project } = Route.useParams();
@@ -47,7 +51,7 @@ function ProjectBoardRoute() {
     if (!columns.data || !cards.data) return <Loader size="sm" />;
 
     return (
-        <>
+        <WilsonSdkProvider client={client}>
             <Group justify="space-between" mb="md">
                 <BoardTitle count={cards.data.length} />
                 <Group gap="xs">
@@ -60,7 +64,7 @@ function ProjectBoardRoute() {
                 </Group>
             </Group>
             <Board columns={columns.data} cards={cards.data} />
-        </>
+        </WilsonSdkProvider>
     );
 }
 

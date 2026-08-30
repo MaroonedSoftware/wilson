@@ -1,7 +1,7 @@
 import { Badge } from '@mantine/core';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /**
  * How many cards need a human, wherever they sit on the board (card 0119).
@@ -15,8 +15,13 @@ import { wilson } from '#src/lib/sdk.js';
  * Renders nothing at zero. This sits in the header on every page, permanently — a badge reading
  * "0" would be noise an operator has to learn to ignore, which is the exact failure mode an
  * always-on indicator has to avoid.
+ *
+ * Card 0156: reads its client through `useWilsonSdk()` — rendered in `__root.tsx`'s header, above
+ * every route's `Outlet`, so this always resolves to `__root.tsx`'s own unscoped default regardless
+ * of which route matched below, exactly the singleton this used to import directly.
  */
 export function FlaggedIndicator() {
+    const wilson = useWilsonSdk();
     const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
     const count = cards.data?.filter(card => card.needsHuman).length ?? 0;
 

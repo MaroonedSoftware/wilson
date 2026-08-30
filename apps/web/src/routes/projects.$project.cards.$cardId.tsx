@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Loader, Stack } from '@mantine/core';
 import { CardDetailView } from '#src/components/CardDetail.js';
 import { wilsonForProject } from '#src/lib/sdk.js';
+import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 
 /** `limit` passed to both history endpoints, matching `cards.$cardId.tsx`. */
@@ -21,6 +22,10 @@ const HISTORY_LIMIT = 50;
  * [[0155]]'s job, not this card's; only the error state's own link below, written for this route, is
  * new enough to get it right immediately (`AnchorLink`, this card's chosen fix for `component={Link}`
  * against a parameterised route).
+ *
+ * Card 0156: wraps its render tree in `WilsonSdkProvider` with `client`, so `CardDetailView` and the
+ * `PlanningSessionPane` it may render read this project's client through `useWilsonSdk()` rather than
+ * the unscoped default `__root.tsx` supplies.
  */
 function ProjectCardDetailRoute() {
     const { project, cardId } = Route.useParams();
@@ -53,18 +58,20 @@ function ProjectCardDetailRoute() {
     if (!card.data) return <Loader size="sm" />;
 
     return (
-        <CardDetailView
-            card={card.data}
-            events={events.data}
-            eventsLimit={HISTORY_LIMIT}
-            eventsError={events.error}
-            versions={versions.data}
-            versionsLimit={HISTORY_LIMIT}
-            versionsError={versions.error}
-            columns={columns.data}
-            columnsError={columns.error}
-            project={project}
-        />
+        <WilsonSdkProvider client={client}>
+            <CardDetailView
+                card={card.data}
+                events={events.data}
+                eventsLimit={HISTORY_LIMIT}
+                eventsError={events.error}
+                versions={versions.data}
+                versionsLimit={HISTORY_LIMIT}
+                versionsError={versions.error}
+                columns={columns.data}
+                columnsError={columns.error}
+                project={project}
+            />
+        </WilsonSdkProvider>
     );
 }
 

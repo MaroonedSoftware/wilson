@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Loader, Stack, Text, Title } from '@mantine/core';
 import { Board } from '#src/components/Board.js';
 import { wilsonForProject } from '#src/lib/sdk.js';
+import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 
 /**
@@ -15,6 +16,9 @@ import { AnchorLink } from '#src/lib/router-link.js';
  * The "back to board" link needs `params` (`{ project }`), which is exactly where Mantine's
  * `component={Link}` erases TanStack's typing (this card's Constraints) — `AnchorLink`
  * (`lib/router-link.js`, `createLink(Anchor)`) is the chosen fix, used here instead.
+ *
+ * Card 0156: wraps its render tree in `WilsonSdkProvider` with `client`, matching
+ * `projects.$project.index.tsx`.
  */
 function ProjectFlaggedRoute() {
     const { project } = Route.useParams();
@@ -41,21 +45,23 @@ function ProjectFlaggedRoute() {
     };
 
     return (
-        <Stack gap="md">
-            <AnchorLink to="/projects/$project" params={{ project }} size="sm">
-                ← Back to the board
-            </AnchorLink>
-            <Title order={4} fw={500}>
-                Cards needing a human
-            </Title>
-            {flagged.length === 0 ? (
-                <Text c="dimmed" size="sm">
-                    Nothing is flagged right now.
-                </Text>
-            ) : (
-                <Board columns={stagesWithFlagged} cards={flagged} allCards={cards.data} />
-            )}
-        </Stack>
+        <WilsonSdkProvider client={client}>
+            <Stack gap="md">
+                <AnchorLink to="/projects/$project" params={{ project }} size="sm">
+                    ← Back to the board
+                </AnchorLink>
+                <Title order={4} fw={500}>
+                    Cards needing a human
+                </Title>
+                {flagged.length === 0 ? (
+                    <Text c="dimmed" size="sm">
+                        Nothing is flagged right now.
+                    </Text>
+                ) : (
+                    <Board columns={stagesWithFlagged} cards={flagged} allCards={cards.data} />
+                )}
+            </Stack>
+        </WilsonSdkProvider>
     );
 }
 

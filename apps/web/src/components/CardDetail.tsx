@@ -10,7 +10,7 @@ import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
 import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
-import { wilson } from '#src/lib/sdk.js';
+import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
 const NARROW_BREAKPOINT = '(max-width: 62em)';
@@ -136,8 +136,12 @@ function EnqueueButton({ card }: { card: CardDetail }) {
  * suite, the two honest ways an attempt can not land — and it arrives in `onSuccess`, so both paths
  * end up as a notification either way; there is nowhere on a button to put a sentence, the same
  * reasoning `EnqueueButton` below already relies on.
+ *
+ * Card 0156: reads its client through `useWilsonSdk()` instead of importing the singleton directly,
+ * so a card reached through a `/projects/$project/*` route merges against that project's client.
  */
 function useMergeCard(id: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: () => wilson.board.mergeCard(id),
