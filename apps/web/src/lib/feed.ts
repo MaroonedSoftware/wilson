@@ -23,6 +23,24 @@ export type FeedStatus = 'live' | 'disconnected';
  * accepts for exactly this reason. Left `undefined` (the default, from `__root.tsx` on every screen
  * that carries no `project` route param) the connection names none, resolving to the daemon's own
  * configured project exactly as it did before this card.
+ *
+ * Card 0154: the connection already names its project (above), so the server only ever delivers this
+ * subscriber events for that one project (`FeedRouter`'s own `filter = { source: project }` in
+ * `routes.setup.ts`) — but invalidating a fixed `['cards']` regardless would still miss the board
+ * that is actually on screen. A `/projects/$project` screen (`projects.$project.index.tsx`) reads
+ * `['project', project, 'cards']`, prefixed so its cache can never collide with another project's own
+ * — invalidating that same key is what makes an event on screen actually refetch that screen's board,
+ * and never another project's.
+ *
+ * The plain `['cards']` key is invalidated too, unconditionally, alongside the scoped one: card 0155
+ * deleted the last route that read it as a board of its own (the top-level `/`), but `FlaggedIndicator`
+ * (`__root.tsx`'s shared header) still reads it through the unscoped singleton client, on every screen,
+ * regardless of which project is on screen — its own doc comment defers giving it a project-scoped
+ * cache key to a later card. Dropping the plain-key invalidation here when a project is given would
+ * silently break that badge's live count on every project-scoped screen, which this card's own
+ * acceptance criteria rules out ("every screen behaves exactly as it does today"). Invalidating it
+ * doesn't reopen the bug above: nothing left reads the plain key as a *board*, only this one
+ * project-agnostic widget.
  */
 export const useCardFeed = (project?: string): FeedStatus => {
     const queryClient = useQueryClient();
@@ -31,11 +49,13 @@ export const useCardFeed = (project?: string): FeedStatus => {
     useEffect(() => {
         const url = project ? `${API_BASE}/api/feed?project=${encodeURIComponent(project)}` : `${API_BASE}/api/feed`;
         const source = new EventSource(url);
+        const cardsQueryKey = project ? ['project', project, 'cards'] : ['cards'];
 
         source.onopen = () => setStatus('live');
         source.onerror = () => setStatus('disconnected');
         source.addEventListener('card', () => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
+            void queryClient.invalidateQueries({ queryKey: cardsQueryKey });
+            if (project) void queryClient.invalidateQueries({ queryKey: ['cards'] });
         });
 
         return () => source.close();
