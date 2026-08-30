@@ -3,6 +3,7 @@ import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/cor
 import { Notifications } from '@mantine/notifications';
 import { IconSettings } from '@tabler/icons-react';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
+import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { useCardFeed } from '#src/lib/feed.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
@@ -28,6 +29,14 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * in the header, above `Outlet`, so it always sees this default regardless of which route matched
  * below, exactly as it did before this card. A `/projects/$project/*` route nests its own provider
  * around its own subtree, overriding this default with `wilsonForProject` for whatever it renders.
+ *
+ * Card 0154: `useCardFeed(project)` above is this card's other change — the feed connects naming
+ * whichever project the matched route carries, so an event in another registered project no longer
+ * invalidates or refetches this one's board (see `feed.ts`'s own doc comment). `ProjectSwitcher` sits
+ * beside `FlaggedIndicator` for the same reason that badge does — it belongs above `Outlet`, reachable
+ * from every screen, not folded into any one route. It renders nothing of its own when fewer than two
+ * projects are registered, so a single-project deployment's header looks exactly as it did before
+ * this card.
  */
 function Root() {
     const { project } = useParams({ strict: false });
@@ -42,6 +51,7 @@ function Root() {
                         <Title order={4}>wilson</Title>
                         <Group gap="xs">
                             <FlaggedIndicator />
+                            <ProjectSwitcher />
                             <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
                                 <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
                                     {feedStatus === 'live' ? 'live' : 'snapshot'}

@@ -147,6 +147,63 @@ describe('useCardFeed', () => {
         expect(latestSource().url).toBe(`${API_BASE}/api/feed`);
     });
 
+    // Card 0154: an unscoped subscriber still invalidates the plain `['cards']` key, exactly as
+    // before this card — `/`'s own board (and the shared header, `FlaggedIndicator`) reads that key.
+    it('invalidates the plain cards query, not a project-scoped one, when no project is given', () => {
+        const { invalidateQueries } = renderFeed(undefined);
+
+        act(() => latestSource().emit('card'));
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
+        expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: expect.arrayContaining(['project']) });
+    });
+
+    // Card 0154: a `/projects/$project` screen reads `['project', project, 'cards']`
+    // (`projects.$project.index.tsx`), not the plain `['cards']` key — invalidating only the plain
+    // key, as this hook did before this card, left that screen's own cache untouched, which is
+    // exactly the bug this card fixes (a project-scoped board never actually refetched on its own
+    // feed's events).
+    it('invalidates the project-scoped cards query when a project is given', () => {
+        const { invalidateQueries } = renderFeed('demo-project');
+
+        act(() => latestSource().emit('card'));
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['project', 'demo-project', 'cards'] });
+    });
+
+    // The plain `['cards']` key is invalidated too, alongside the scoped one: `FlaggedIndicator`
+    // (the shared header's "needs human" count) still reads it through the unscoped singleton client
+    // on every screen, project-scoped or not (`feed.ts`'s own doc comment explains why dropping this
+    // would silently break that badge's live update on every `/projects/$project` screen).
+    it('also invalidates the plain cards query when a project is given, so the shared header stays live', () => {
+        const { invalidateQueries } = renderFeed('demo-project');
+
+        act(() => latestSource().emit('card'));
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
+    });
+
+    // The regression this card fixes: two screens for two different projects sharing one
+    // QueryClient (as they would in the real app — TanStack Query's cache is process-wide, not
+    // per-hook). Before this card, every subscriber invalidated the same `['cards']` key regardless
+    // of project, so project A's event would mark project B's board stale too. Seeding project B's
+    // cache entry as fresh and firing only project A's feed proves that no longer happens.
+    it('does not mark another project\'s cache entry stale when this project\'s feed fires an event', () => {
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'project-b', 'cards'], []);
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
+
+        renderHook(() => useCardFeed('project-a'), { wrapper });
+        const [sourceA] = FakeEventSource.instances;
+
+        act(() => sourceA.emit('card'));
+
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['project', 'project-a', 'cards'] });
+        expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['project', 'project-b', 'cards'] });
+        expect(queryClient.getQueryState(['project', 'project-b', 'cards'])?.isInvalidated).toBeFalsy();
+    });
+
     it('closes the previous connection and opens a fresh one naming the new project when the project changes', () => {
         const { rerender } = renderFeed('first-project');
         const first = latestSource();

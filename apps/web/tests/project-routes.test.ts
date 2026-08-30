@@ -12,7 +12,7 @@
 // Files are `.test.ts`, not `.test.tsx`, to match `apps/web/vitest.config.ts`'s
 // `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead.
 import { createElement } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -171,6 +171,37 @@ describe('a project-scoped route, reading through a client built for its own pro
         await screen.findByText('0 cards');
 
         expect(feedSource()?.url).toContain('/api/feed?project=demo');
+    });
+
+    // Card 0154: `useCardFeed` used to invalidate only the plain `['cards']` key regardless of
+    // project — a key this screen's own board query (`['project', project, 'cards']`, above) never
+    // used, so a card event on this project's own feed could never actually refetch this board; only
+    // an unrelated remount or manual refresh would ever show a new card. Driving the real feed
+    // connection and watching the new card land with no manual refresh proves the scoped key this
+    // card added now actually matches what this screen reads.
+    it('refetches this project\'s board on its own feed\'s card event, with no manual refresh', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+        const listCards = vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
+
+        renderApp('/projects/demo');
+        await screen.findByText('0 cards');
+        // Two calls on mount, same as the "sends X-Wilson-Project" test above notes: the
+        // project-scoped board itself, plus the shared header's `FlaggedIndicator`, which still
+        // reads the unscoped singleton's own `['cards']` key — a different cache entry from this
+        // board's `['project', 'demo', 'cards']`, but the same `BoardClient.prototype` method.
+        const callsOnMount = listCards.mock.calls.length;
+
+        listCards.mockResolvedValue([cardSummary('0001', 'planning')]);
+        await act(async () => {
+            feedSource()?.emit('card');
+        });
+
+        // Two more calls: this board's own scoped query refetching (the point of this test), plus
+        // the shared header's unscoped `['cards']` query — `useCardFeed` invalidates both on a
+        // project-scoped event (`feed.ts`'s own doc comment), so `FlaggedIndicator`'s live count
+        // keeps working here too, exactly as it did before this card.
+        expect(await screen.findByText('card 0001')).toBeTruthy();
+        expect(listCards).toHaveBeenCalledTimes(callsOnMount + 2);
     });
 
     // Card 0155 deleted the top-level board route in the same change that moved every link onto
