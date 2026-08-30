@@ -276,7 +276,7 @@ describe('PlanService', () => {
 
             await expect(service.open('0003')).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('not "planning"') },
+                details: { reason: expect.stringContaining('can only be talked through in "planning" or "parking-lot"') },
             });
 
             expect(existsSync(join(worktreeRoot, 'plan-0003'))).toBe(false);
@@ -408,7 +408,7 @@ describe('PlanService', () => {
 
             await expect(service.open(id)).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('not "planning"') },
+                details: { reason: expect.stringContaining('can only be talked through in "planning" or "parking-lot"') },
             });
 
             expect(existsSync(join(worktreeRoot, `plan-${id}`))).toBe(false);
@@ -892,7 +892,7 @@ describe('PlanService', () => {
 
             await expect(service.turn(id, { text: 'hi' })).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('not "planning"') },
+                details: { reason: expect.stringContaining('can only be talked through in "planning" or "parking-lot"') },
             });
 
             const repo = new PlanTurnRepository(config, db);

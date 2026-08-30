@@ -313,7 +313,7 @@ export class PlanService {
     private async assertPlannable(id: string, card: Card): Promise<void> {
         if (card.frontmatter.stage !== 'planning' && card.frontmatter.stage !== 'parking-lot') {
             throw httpError(400).withDetails({
-                reason: `${id} is in stage "${card.frontmatter.stage}", not "planning" — move it there first`,
+                reason: `${id} is in stage "${card.frontmatter.stage}" — a card can only be talked through in "planning" or "parking-lot"; move it to one of those first`,
             });
         }
 
