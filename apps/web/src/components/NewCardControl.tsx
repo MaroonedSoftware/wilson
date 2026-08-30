@@ -28,6 +28,12 @@ import { useCreateCard } from '#src/lib/mutations.js';
  * `title`/`body` state untouched, so a rejected attempt is still on screen to fix and resend. Only a
  * successful create clears the form, closes the modal, and navigates to the new card's own page —
  * the thing just filed, on screen, per this card's Tasks.
+ *
+ * Card 0159: that navigation is the whole of "file and talk" — no separate call, no session that
+ * exists before the card does. Landing on `/cards/$cardId` for a fresh `parking-lot` card is enough
+ * on its own, because `CardDetailView` now gives that stage the same two-pane session `planning`
+ * gets, and `PlanningSessionPane` opens it the moment it mounts. The card just filed is on screen,
+ * already mid-conversation.
  */
 export function NewCardControl() {
     const navigate = useNavigate();
@@ -67,8 +73,8 @@ export function NewCardControl() {
             <Modal opened={opened} onClose={handlers.close} title="File a new card" size="lg">
                 <Stack gap="sm">
                     <Text size="sm" c="dimmed">
-                        Lands in parking-lot, same as <code>wilson card create</code> — promote it into planning when
-                        it's ready.
+                        Lands in parking-lot, same as <code>wilson card create</code> — you can talk it through right
+                        away, and promote it into planning when it's ready.
                     </Text>
                     <TextInput
                         label="Title"

@@ -302,10 +302,16 @@ export class PlanService {
      * Card 0058's two guards, exactly as `open` always ran them, now shared with `turn` (this
      * card's acceptance criteria: "a turn for a card outside `planning`, or one whose real branch
      * already has work, is refused by the same guards `open` applies") — refuses, naming why, a
-     * card that is not in `planning` or whose real branch already has work.
+     * card that is not in `planning` or `parking-lot`, or whose real branch already has work.
+     *
+     * `planning` and `parking-lot` and nothing else (card 0159's Constraints): both are stages the
+     * queue never dispatches — `parking-lot` sits in `NON_STAGE_STATES` and `planning` is
+     * `mode: manual`, and `whyNotDispatchable` refuses both — so a conversation on either cannot
+     * collide with a running stage. Every other manual stage (`backlog`, `ready`, and any other
+     * queue-held stage) still gets refused below, unlike these two.
      */
     private async assertPlannable(id: string, card: Card): Promise<void> {
-        if (card.frontmatter.stage !== 'planning') {
+        if (card.frontmatter.stage !== 'planning' && card.frontmatter.stage !== 'parking-lot') {
             throw httpError(400).withDetails({
                 reason: `${id} is in stage "${card.frontmatter.stage}", not "planning" — move it there first`,
             });
