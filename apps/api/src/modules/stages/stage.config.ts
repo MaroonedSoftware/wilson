@@ -66,6 +66,16 @@ export const StageConfigSchema = z.object({
      */
     extraScope: z.array(z.string()).default([]),
     /**
+     * Override of `ProjectStagesSchema`'s project-wide `scopeViolation`, for this stage alone.
+     *
+     * Absent means "use the project's value" — a board that sets nothing new here behaves exactly as
+     * it does today. A stage that must not widen its own scope (`implementing`, after card 0154) sets
+     * `kickback` here without forcing every other stage's ordinary widening (`testing`'s scratch
+     * files) to become a kickback too. Same enum as the project-wide field, resolved at
+     * `stage.dispatcher.ts` alongside it — the stage's own value wins when present.
+     */
+    scopeViolation: z.enum(['widen', 'kickback']).optional(),
+    /**
      * Run once at worktree creation, before the agent starts.
      *
      * A fresh worktree has no node_modules, and without this the agent spends its budget installing
@@ -216,6 +226,7 @@ export const StageConfigSchema = z.object({
 export type StageConfig = z.infer<typeof StageConfigSchema>;
 
 export const ProjectStagesSchema = z.object({
+    /** Project-wide default. A stage's own `scopeViolation` (`StageConfigSchema`) overrides this. */
     scopeViolation: z.enum(['widen', 'kickback']).default('widen'),
     /** Machine-owned paths no plan should have to mention. */
     alwaysAllowed: z.array(z.string()).default([]),
