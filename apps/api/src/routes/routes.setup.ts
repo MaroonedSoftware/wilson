@@ -11,6 +11,7 @@ import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { BoardRouter } from './board.router.js';
 import { HealthRouter } from './health.router.js';
+import { ProjectsRouter } from './projects.router.js';
 import { SettingsRouter } from './settings.router.js';
 
 /**
@@ -249,6 +250,7 @@ export const routers = (signal?: AbortSignal) => [
     HealthRouter,
     BoardRouter,
     SettingsRouter,
+    ProjectsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
 ];
