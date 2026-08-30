@@ -354,6 +354,66 @@ describe('PlanService', () => {
             const { service } = await freshEnv();
             await expect(service.open('9999')).rejects.toMatchObject({ statusCode: 404 });
         });
+
+        /**
+         * Card 0159: `assertPlannable` now accepts `parking-lot` alongside `planning` — a parked
+         * card gets exactly the same cut worktree and seeded draft `open` has always produced for a
+         * planning card, not a new or different shape for the new stage.
+         */
+        it('accepts a card in "parking-lot", cutting the same worktree and seed "planning" gets', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0040', { stage: 'parking-lot', title: 'Parked thought' }, FULL_BODY), 'seed');
+
+            const session = await service.open('0040');
+
+            expect(session.sessionId).toBe('0040');
+            expect(existsSync(session.worktreePath)).toBe(true);
+            expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
+        });
+
+        /**
+         * Card 0159's Constraints: the branch guard stays untouched — it must still fire for
+         * `parking-lot` exactly as it does for `planning`. Before this card a parked card's `open`
+         * was refused for its stage alone, with a reason that never mentions the branch; this proves
+         * the *branch* guard is the one now doing the refusing.
+         */
+        it('still refuses a "parking-lot" card whose real branch already has work, and cuts nothing', async () => {
+            const { board, service, worktrees, worktreeRoot, runRoot } = await freshEnv();
+            const title = 'Has code already';
+            await board.create(card('0041', { stage: 'parking-lot', title }), 'seed');
+
+            const cardBranch = worktrees.branchName('0041', title);
+            const cardWorktree = await worktrees.create('0041', cardBranch);
+            await writeFile(join(cardWorktree.path, 'src', 'feature.ts'), 'export const f = 1;\n', 'utf8');
+            await worktrees.commit(cardWorktree, 'implementing');
+
+            await expect(service.open('0041')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining(cardBranch) },
+            });
+
+            expect(existsSync(join(worktreeRoot, 'plan-0041'))).toBe(false);
+            expect(existsSync(join(runRoot, 'cards', '0041', 'draft.md'))).toBe(false);
+        });
+
+        /**
+         * Card 0159's Constraints: "and nothing else" — relaxing the check to `planning` or
+         * `parking-lot` must not have loosened it to any manual stage. Every other stage the queue
+         * holds still gets refused, with the same sentence `open` has always given it.
+         */
+        it.each(['backlog', 'testing', 'review', 'ready'])('still refuses a card in "%s", and cuts nothing', async stage => {
+            const { board, service, worktreeRoot, runRoot } = await freshEnv();
+            const id = randomUUID();
+            await board.create(card(id, { stage }), 'seed');
+
+            await expect(service.open(id)).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('not "planning"') },
+            });
+
+            expect(existsSync(join(worktreeRoot, `plan-${id}`))).toBe(false);
+            expect(existsSync(join(runRoot, 'cards', id, 'draft.md'))).toBe(false);
+        });
     });
 
     describe('draft', () => {
@@ -859,6 +919,28 @@ describe('PlanService', () => {
             const repo = new PlanTurnRepository(config, db);
             expect(await repo.since(id, 0)).toEqual([]);
             expect(sessionAgentCalls).toHaveLength(0);
+        });
+
+        /**
+         * Card 0159: `turn` shares `assertPlannable` with `open` (card 0058's guards), so relaxing
+         * the stage check must reach here too — a parked card can hold a turn of conversation, not
+         * only have its session opened.
+         */
+        it('accepts a turn for a card in "parking-lot", storing it and starting an engine session', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'parking-lot' }, FULL_BODY), 'seed');
+
+                const turn = await service.turn(id, { text: 'talk this through' });
+
+                expect(turn.content).toContain('talk this through');
+                const repo = new PlanTurnRepository(config, db);
+                expect(await repo.since(id, 0)).not.toEqual([]);
+                expect(sessionAgentCalls).toHaveLength(1);
+            } finally {
+                planSessions.dispose(id);
+            }
         });
 
         it('404s for a card that does not exist', async () => {

@@ -234,6 +234,44 @@ describe('filing a card', () => {
         });
     });
 
+    /**
+     * Card 0159's Task 3, "File and talk": there is no separate call to open a session — landing on
+     * the new card's own page is enough, because `CardDetailView` now gives `parking-lot` the same
+     * two-pane session `planning` gets, and that pane opens a session the moment it mounts. This is
+     * the whole of the new behaviour NewCardControl.tsx's own doc comment describes.
+     */
+    it('lands on the new card already mid-conversation, not just on its read-only page', async () => {
+        vi.spyOn(wilson.board, 'createCard').mockResolvedValue(detail('0153', 'Talk about this'));
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(detail('0153', 'Talk about this'));
+        const openSession = vi.spyOn(wilson.board, 'openAPlanningSession').mockResolvedValue({
+            sessionId: '0153',
+            worktreePath: '/tmp/plan-0153',
+            draftPath: '/tmp/plan-0153/PLAN.md',
+            model: 'x',
+            instructions: 'x',
+        });
+        vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: '## Note\n\nsomething' });
+        const { router } = renderApp('/');
+
+        const { title, body } = await openModal();
+        fireEvent.change(title, { target: { value: 'Talk about this' } });
+        fireEvent.change(body, { target: { value: '## Note\n\nsomething' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+        });
+
+        await waitFor(() => expect(router.state.location.pathname).toBe('/cards/0153'));
+        expect(await screen.findByText('Conversation')).toBeTruthy();
+        expect(openSession).toHaveBeenCalledWith('0153');
+    });
+
+    it('tells the user in the modal that they can talk the card through right away', async () => {
+        renderApp('/');
+        await openModal();
+
+        expect(screen.getByText(/you can talk it through right away/)).toBeTruthy();
+    });
+
     it('reopening after a cancel starts fresh again — no leftover title or edited body from the previous attempt', async () => {
         renderApp('/');
 

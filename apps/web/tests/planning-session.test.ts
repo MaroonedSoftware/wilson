@@ -281,6 +281,29 @@ describe('a card in planning', () => {
     });
 });
 
+describe('a card in parking-lot', () => {
+    /**
+     * Card 0159: `CardDetailView` now gives `parking-lot` the same two-pane session `planning` has
+     * always had — a parked card is a second way into the conversation cards [[0137]]/[[0138]]
+     * built, not a new or different rendering of it.
+     */
+    it('renders the same two-pane session "planning" gets, and opens the plan stream', async () => {
+        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('parking-lot'));
+
+        renderApp('/cards/0007');
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('Conversation')).toBeTruthy();
+        expect(screen.getByText('Plan')).toBeTruthy();
+        const draft = (await screen.findByRole('textbox', { name: 'Draft' })) as HTMLTextAreaElement;
+        await waitFor(() => expect(draft.value).toBe('the current plan body'));
+
+        await waitFor(() => expect(planStreamSources()).toHaveLength(1));
+        expect(latestPlanStream().url).toContain('/api/cards/0007/plan/stream');
+        expect(wilson.board.openAPlanningSession).toHaveBeenCalledWith('0007');
+    });
+});
+
 describe('a card outside planning', () => {
     it('renders exactly as before — no session UI, and no plan stream opened', async () => {
         vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('implementing'));
