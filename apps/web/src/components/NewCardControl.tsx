@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useDisclosure } from '@mantine/hooks';
 import { Button, Group, Modal, Stack, Text, TextInput, Textarea } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
@@ -30,13 +30,19 @@ import { useCreateCard } from '#src/lib/mutations.js';
  * the thing just filed, on screen, per this card's Tasks.
  *
  * Card 0159: that navigation is the whole of "file and talk" — no separate call, no session that
- * exists before the card does. Landing on `/cards/$cardId` for a fresh `parking-lot` card is enough
- * on its own, because `CardDetailView` now gives that stage the same two-pane session `planning`
- * gets, and `PlanningSessionPane` opens it the moment it mounts. The card just filed is on screen,
- * already mid-conversation.
+ * exists before the card does. Landing on the new card's own page for a fresh `parking-lot` card is
+ * enough on its own, because `CardDetailView` now gives that stage the same two-pane session
+ * `planning` gets, and `PlanningSessionPane` opens it the moment it mounts. The card just filed is on
+ * screen, already mid-conversation.
+ *
+ * Card 0155: that page is `/projects/$project/cards/$cardId`, so the navigation needs a `project` —
+ * read from the router the same way `Markdown.tsx` does. This control only ever renders on the
+ * board's project-scoped route (`projects.$project.index.tsx`); the top-level `/` it used to sit on,
+ * and the `/cards/$cardId` card 0159's paragraph above originally named, are both gone.
  */
 export function NewCardControl() {
     const navigate = useNavigate();
+    const { project } = useParams({ strict: false });
     const [opened, handlers] = useDisclosure(false);
     const [title, setTitle] = useState('');
     const [body, setBody] = useState(CARD_BODY_SKELETON);
@@ -59,7 +65,7 @@ export function NewCardControl() {
                     handlers.close();
                     setTitle('');
                     setBody(CARD_BODY_SKELETON);
-                    void navigate({ to: '/cards/$cardId', params: { cardId: card.id } });
+                    if (project) void navigate({ to: '/projects/$project/cards/$cardId', params: { project, cardId: card.id } });
                 },
             },
         );

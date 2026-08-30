@@ -75,18 +75,19 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
 }
 
 /**
- * A card in its column: a `Link` (a click still opens `/cards/$cardId`) that is also a dnd-kit
- * draggable keyed by the card's id. `Board`'s pointer sensor only starts a drag past a few pixels
- * of movement — without that activation constraint every click would clear the threshold at 0px
- * and the board would stop navigating, which is the one thing dragging must not break.
+ * A card in its column: a `Link` (a click still opens the card's own page, under this board's
+ * project — card 0155) that is also a dnd-kit draggable keyed by the card's id. `Board`'s pointer
+ * sensor only starts a drag past a few pixels of movement — without that activation constraint
+ * every click would clear the threshold at 0px and the board would stop navigating, which is the
+ * one thing dragging must not break.
  */
-function Card({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
+function Card({ card, blockedBy, pending, project }: { card: CardSummary; blockedBy: string[]; pending: boolean; project: string }) {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
     return (
         <Link
             ref={setNodeRef}
-            to="/cards/$cardId"
-            params={{ cardId: card.id }}
+            to="/projects/$project/cards/$cardId"
+            params={{ project, cardId: card.id }}
             style={{ display: 'block', textDecoration: 'none', color: 'inherit', opacity: isDragging ? 0.4 : 1 }}
             {...attributes}
             {...listeners}
@@ -106,13 +107,23 @@ function Card({ card, blockedBy, pending }: { card: CardSummary; blockedBy: stri
  * adds exactly one (`@dnd-kit/sortable`) — so the other parking-lot cards visibly slide out of the
  * way while one is picked up.
  */
-function SortableCard({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
+function SortableCard({
+    card,
+    blockedBy,
+    pending,
+    project,
+}: {
+    card: CardSummary;
+    blockedBy: string[];
+    pending: boolean;
+    project: string;
+}) {
     const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: card.id });
     return (
         <Link
             ref={setNodeRef}
-            to="/cards/$cardId"
-            params={{ cardId: card.id }}
+            to="/projects/$project/cards/$cardId"
+            params={{ project, cardId: card.id }}
             style={{
                 display: 'block',
                 textDecoration: 'none',
@@ -144,11 +155,13 @@ function Column({
     cards,
     stageById,
     pendingId,
+    project,
 }: {
     stage: string;
     cards: CardSummary[];
     stageById: Map<string, string>;
     pendingId: string | null;
+    project: string;
 }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
     const isParkingLot = stage === PARKING_LOT;
@@ -176,12 +189,24 @@ function Column({
                 {isParkingLot ? (
                     <SortableContext items={cards.map(card => card.id)} strategy={verticalListSortingStrategy}>
                         {cards.map(card => (
-                            <SortableCard key={card.id} card={card} blockedBy={unfinishedDeps(card, stageById)} pending={card.id === pendingId} />
+                            <SortableCard
+                                key={card.id}
+                                card={card}
+                                blockedBy={unfinishedDeps(card, stageById)}
+                                pending={card.id === pendingId}
+                                project={project}
+                            />
                         ))}
                     </SortableContext>
                 ) : (
                     cards.map(card => (
-                        <Card key={card.id} card={card} blockedBy={unfinishedDeps(card, stageById)} pending={card.id === pendingId} />
+                        <Card
+                            key={card.id}
+                            card={card}
+                            blockedBy={unfinishedDeps(card, stageById)}
+                            pending={card.id === pendingId}
+                            project={project}
+                        />
                     ))
                 )}
             </Stack>
@@ -216,6 +241,7 @@ export function Board({
     columns,
     cards,
     allCards,
+    project,
 }: {
     columns: BoardColumns;
     cards: CardSummary[];
@@ -226,6 +252,9 @@ export function Board({
      * lookup — see `unfinishedDeps` in `lib/board.ts`.
      */
     allCards?: CardSummary[];
+    /** Card 0155: the project every card's own link routes into — both callers of `Board` render
+     * under a `/projects/$project/*` route and already hold this from `Route.useParams()`. */
+    project: string;
 }) {
     const order = columnOrder(columns, cards);
     const grouped = groupByStage(cards);
@@ -321,7 +350,14 @@ export function Board({
                 <Box pb="md">
                     <Group align="flex-start" gap="lg" wrap="nowrap">
                         {order.map(stage => (
-                            <Column key={stage} stage={stage} cards={grouped.get(stage) ?? []} stageById={stageById} pendingId={pendingId} />
+                            <Column
+                                key={stage}
+                                stage={stage}
+                                cards={grouped.get(stage) ?? []}
+                                stageById={stageById}
+                                pendingId={pendingId}
+                                project={project}
+                            />
                         ))}
                     </Group>
                 </Box>

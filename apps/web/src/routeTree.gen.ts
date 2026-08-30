@@ -9,32 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as FlaggedRouteImport } from './routes/flagged'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as CardsCardIdRouteImport } from './routes/cards.$cardId'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
 import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FlaggedRoute = FlaggedRouteImport.update({
-  id: '/flagged',
-  path: '/flagged',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CardsCardIdRoute = CardsCardIdRouteImport.update({
-  id: '/cards/$cardId',
-  path: '/cards/$cardId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
@@ -55,29 +37,20 @@ const ProjectsProjectCardsCardIdRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
-  '/cards/$cardId': typeof CardsCardIdRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
-  '/cards/$cardId': typeof CardsCardIdRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/flagged': typeof FlaggedRoute
   '/settings': typeof SettingsRoute
-  '/cards/$cardId': typeof CardsCardIdRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -85,38 +58,26 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/flagged'
     | '/settings'
-    | '/cards/$cardId'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/flagged'
     | '/settings'
-    | '/cards/$cardId'
     | '/projects/$project/flagged'
     | '/projects/$project'
     | '/projects/$project/cards/$cardId'
   id:
     | '__root__'
-    | '/'
-    | '/flagged'
     | '/settings'
-    | '/cards/$cardId'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  FlaggedRoute: typeof FlaggedRoute
   SettingsRoute: typeof SettingsRoute
-  CardsCardIdRoute: typeof CardsCardIdRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
   ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
   ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
@@ -124,32 +85,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/flagged': {
-      id: '/flagged'
-      path: '/flagged'
-      fullPath: '/flagged'
-      preLoaderRoute: typeof FlaggedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cards/$cardId': {
-      id: '/cards/$cardId'
-      path: '/cards/$cardId'
-      fullPath: '/cards/$cardId'
-      preLoaderRoute: typeof CardsCardIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$project/': {
@@ -177,10 +117,7 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  FlaggedRoute: FlaggedRoute,
   SettingsRoute: SettingsRoute,
-  CardsCardIdRoute: CardsCardIdRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
   ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
   ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,

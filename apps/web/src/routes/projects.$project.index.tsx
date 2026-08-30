@@ -63,7 +63,7 @@ function ProjectBoardRoute() {
                     </Tooltip>
                 </Group>
             </Group>
-            <Board columns={columns.data} cards={cards.data} />
+            <Board columns={columns.data} cards={cards.data} project={project} />
         </WilsonSdkProvider>
     );
 }

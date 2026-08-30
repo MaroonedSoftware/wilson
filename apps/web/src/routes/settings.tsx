@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Anchor, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
 import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { SdkError } from '@wilson/sdk';
+import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
@@ -471,13 +472,23 @@ function DeploymentFacts() {
  * Settings: card 0114's slice of what card 0106 put behind the API — the page itself, the
  * auto-mode toggle, and the read-only deployment facts above — plus card 0115's two numeric
  * controls, card 0116's webhook/base-URL fields, and card 0141's claude config directory field.
+ *
+ * Card 0155: `/settings` stays a top-level route (this card's Constraints), so "back to the board"
+ * has no route param to read the way a `/projects/$project/*` screen's own back-link does. Reads
+ * `health.data.project` instead — the same query `DeploymentFacts` below already makes (shared
+ * cache, same `['health']` key), so this costs no extra request once that panel has loaded.
  */
 function SettingsRoute() {
+    const wilson = useWilsonSdk();
+    const health = useQuery({ queryKey: ['health'], queryFn: () => wilson.health.getHealth() });
+
     return (
         <Stack gap="lg">
-            <Anchor component={Link} to="/" size="sm">
-                ← Back to the board
-            </Anchor>
+            {health.data && (
+                <AnchorLink to="/projects/$project" params={{ project: health.data.project }} size="sm">
+                    ← Back to the board
+                </AnchorLink>
+            )}
             <Title order={2}>Settings</Title>
 
             <Paper withBorder p="md" radius="sm">

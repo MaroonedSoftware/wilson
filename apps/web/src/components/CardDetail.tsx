@@ -1,8 +1,7 @@
-import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { DraftPane } from '#src/components/DraftPane.js';
@@ -10,6 +9,7 @@ import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
 import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
@@ -297,19 +297,20 @@ export function CardDetailView({
     versionsError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
-    /** Card 0153: the project this card was reached under, if any — threaded to `PlanningPanes` so
-     * the planning stream (`usePlanTranscript`) names it. `undefined` from the existing top-level
-     * route, unchanged. */
-    project?: string;
+    /** Card 0153: the project this card was reached under, threaded to `PlanningPanes` so the
+     * planning stream (`usePlanTranscript`) names it. Card 0155: required rather than optional now
+     * that `ProjectCardDetailRoute` is this view's only caller — the top-level `/cards/$cardId` route
+     * that used to leave this `undefined` is gone. */
+    project: string;
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
 
     return (
         <Stack gap="lg">
             <Stack gap={4}>
-                <Anchor component={Link} to="/" size="sm">
+                <AnchorLink to="/projects/$project" params={{ project }} size="sm">
                     ← Back to the board
-                </Anchor>
+                </AnchorLink>
                 <Group gap="sm" align="baseline">
                     <Text size="sm" c="dimmed" ff="monospace">
                         {card.id}
