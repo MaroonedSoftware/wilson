@@ -15,9 +15,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, HealthClient } from '@wilson/sdk';
+import { BoardClient, HealthClient, ProjectsClient } from '@wilson/sdk';
 import type { BoardColumns, Health } from '@wilson/sdk';
-import { API_BASE } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
 const emptyColumns: BoardColumns = { stages: ['planning'], nonStages: [] };
@@ -50,23 +49,11 @@ class FakeResizeObserver {
 }
 
 /**
- * Stubs global `fetch` for the one hand-written endpoint `ProjectSwitcher` reads through
- * `listRegisteredProjects` (`lib/projects.ts`) — every other request in these tests goes through a
- * mocked SDK client prototype instead (`BoardClient`/`HealthClient`), never real `fetch`.
+ * Stubs the generated `ProjectsClient` that `ProjectSwitcher` reads through `listRegisteredProjects`
+ * (`lib/projects.ts`) — every request in these tests goes through a mocked SDK client prototype
+ * (`BoardClient`/`HealthClient`/`ProjectsClient`), never real `fetch`.
  */
-const stubProjectsEndpoint = (names: string[]) => {
-    const fetchMock = vi.fn(async (url: string) => {
-        if (url === `${API_BASE}/api/projects`) {
-            return new Response(JSON.stringify(names.map(name => ({ name }))), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-            });
-        }
-        throw new Error(`unexpected fetch to ${url}`);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    return fetchMock;
-};
+const stubProjectsEndpoint = (names: string[]) => vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue(names.map(name => ({ name })));
 
 function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
@@ -121,11 +108,11 @@ afterEach(() => {
 
 describe('the project switcher in the header', () => {
     it('renders nothing once the registered projects have loaded and there is only one', async () => {
-        const fetchMock = stubProjectsEndpoint(['demo']);
+        const listProjects = stubProjectsEndpoint(['demo']);
 
         renderApp('/projects/demo');
         await screen.findByText('0 cards');
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/api/projects`));
+        await waitFor(() => expect(listProjects).toHaveBeenCalled());
 
         expect(screen.queryByLabelText('Switch project')).toBeNull();
     });

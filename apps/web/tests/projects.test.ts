@@ -1,38 +1,38 @@
-// Card 0154: `listRegisteredProjects` (`apps/web/src/lib/projects.ts`) is new — a hand-written
-// `fetch` against `GET /api/projects`, for the reason its own doc comment gives (there is no `.ck`
-// contract a cross-project listing belongs to). These tests drive it through the real fetch
-// pipeline, stubbing only the global `fetch` it ultimately calls — the same approach `sdk.test.ts`
-// takes for `wilsonForProject` — rather than mocking the function itself.
+// Card 0154: `listRegisteredProjects` (`apps/web/src/lib/projects.ts`) delegates to the generated
+// `ProjectsClient` (`@wilson/sdk`, backed by `apps/api/data/contracts/projects.ck`, card 0162) through
+// the unscoped `wilson` singleton — not a hand-written `fetch` against `GET /api/projects` as an
+// earlier version of this file argued. These tests drive it the same way `sdk.test.ts` and
+// `project-switcher.test.ts` exercise other SDK-backed calls: stubbing `ProjectsClient.prototype`
+// rather than `fetch`, so the assertion tracks "did this call the generated client" and not the
+// client's own internal transport.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE } from '#src/lib/sdk.js';
+import { ProjectsClient } from '@wilson/sdk';
+import type { Project } from '@wilson/sdk';
 import { listRegisteredProjects } from '#src/lib/projects.js';
 
 afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
 });
 
 describe('listRegisteredProjects', () => {
-    it('requests GET /api/projects against the configured API base', async () => {
-        const fetchMock = vi.fn(async () => new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        await listRegisteredProjects();
-
-        expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/api/projects`);
-    });
-
-    it('resolves to exactly the registered projects the server returns', async () => {
-        const projects = [{ name: 'alpha' }, { name: 'beta' }];
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => new Response(JSON.stringify(projects), { status: 200, headers: { 'content-type': 'application/json' } })),
-        );
+    it('resolves to exactly the registered projects the generated client returns', async () => {
+        const projects: Project[] = [{ name: 'alpha' }, { name: 'beta' }];
+        vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue(projects);
 
         await expect(listRegisteredProjects()).resolves.toEqual(projects);
     });
 
-    it('throws, naming the failing status, rather than resolving when the request fails', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500, statusText: 'Internal Server Error' })));
+    it('calls the generated ProjectsClient exactly once, taking no arguments of its own', async () => {
+        const listProjects = vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([]);
+
+        await listRegisteredProjects();
+
+        expect(listProjects).toHaveBeenCalledTimes(1);
+        expect(listProjects).toHaveBeenCalledWith();
+    });
+
+    it('propagates a rejection from the client rather than swallowing it', async () => {
+        vi.spyOn(ProjectsClient.prototype, 'listProjects').mockRejectedValue(new Error('500 Internal Server Error'));
 
         await expect(listRegisteredProjects()).rejects.toThrow(/500/);
     });
