@@ -110,6 +110,39 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
 };
 
 /**
+ * The `extraScope` the running stage may itself write, beyond this card's own "Files in scope" —
+ * the fact `materializePlan` folds into that stage's own plan so it knows what it can already
+ * write, instead of calling `request_scope` for paths `ScopeGuard`'s allow list (`scoped` in `run`,
+ * above) already covers.
+ *
+ * `ScopeGuard` is built from `[...filesInScope(card), ...stage.extraScope]`, but that allow list
+ * lives inside the guard — nothing the agent reads ever names it. A plan that lists only the card's
+ * own "Files in scope" and says nothing about `extraScope` reads as "everything else is out of
+ * bounds," which is exactly what led card 0154's testing stage to request and be granted four test
+ * files its own `*.test.ts` glob already allowed.
+ *
+ * Deliberately a separate note from `otherStagesScopeNote`, not folded into one list: that one tells
+ * a reviewer "a file here is another stage doing its job"; this one tells the running stage "you may
+ * write these yourself." Merging them would leave a reader guessing which sense applied to which
+ * line.
+ *
+ * Returns the empty string when this stage configures no `extraScope`, so a stage with none gets no
+ * heading and no dangling sentence, matching `otherStagesScopeNote`.
+ */
+const ownScopeNote = (stage: StageConfig): string => {
+    if (stage.extraScope.length === 0) return '';
+
+    return [
+        '## Your scope',
+        '',
+        'Beyond this card\'s own "Files in scope" above, this stage may also write, under its own',
+        'configured scope:',
+        '',
+        ...stage.extraScope.map(g => `- \`${g}\``),
+    ].join('\n');
+};
+
+/**
  * The paths another stage may add on top of this card's own "Files in scope" — the fact
  * `materializePlan` folds into every stage's plan so a file a later stage legitimately adds under
  * its own `extraScope` (`stage.config.ts`) reads as expected, not as undeclared scope creep.
@@ -120,10 +153,12 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
  *
  * Generated from the loaded `stages.yaml`, not duplicated here as a second copy of it: a project
  * that configures different globs, or a different stage entirely, gets those globs with no code
- * change. Excludes the stage this plan is being materialized for — that stage's own `extraScope` is
- * already enforced for it by `ScopeGuard`, so restating it here would say nothing new. Returns the
- * empty string when no other stage configures one, so a project with no `extraScope` anywhere gets
- * no heading and no dangling sentence.
+ * change. Excludes the stage this plan is being materialized for — not because restating it would
+ * say nothing new (`ScopeGuard`'s allow list enforces that stage's own `extraScope` but never shows
+ * it to the agent, which is exactly why `ownScopeNote`, above, exists), but because it is a different
+ * fact for a different reader: this list tells a reviewer "a file here is that stage doing its job,"
+ * not "you may write this." Returns the empty string when no other stage configures one, so a project
+ * with no `extraScope` anywhere gets no heading and no dangling sentence.
  */
 const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): string => {
     const others = stages.stages.filter(s => s.name !== currentStageName && s.extraScope.length > 0);
@@ -319,7 +354,7 @@ export class StageDispatcher {
             this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
-        const planPath = await this.materializePlan(card, pinnedSha, stages, stageName);
+        const planPath = await this.materializePlan(card, pinnedSha, stages, stage);
 
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
         // for the file defining a type it is already using because something in scope imports it.
@@ -342,7 +377,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'stage.dispatched',
-            payload: { provider: stage.provider, model: stage.model, planPath, scope: filesInScope(card) },
+            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped },
         });
 
         try {
@@ -697,16 +732,16 @@ export class StageDispatcher {
      * The board is a sibling repo, so the plan is not in the tree the agent is editing. Materializing
      * it outside means it can never be accidentally committed to the card's branch.
      *
-     * Appends `otherStagesScopeNote` after the card's own body — the one place every stage's agent,
-     * review included, actually reads (card 0139). `stages` is the same config `run` already loaded
-     * for this dispatch, not a second load.
+     * Appends `ownScopeNote` and `otherStagesScopeNote` after the card's own body — the one place
+     * every stage's agent, review included, actually reads (card 0139). `stages` is the same config
+     * `run` already loaded for this dispatch, not a second load.
      */
-    private async materializePlan(card: Card, sha: string | undefined, stages: ProjectStages, currentStageName: string): Promise<string> {
+    private async materializePlan(card: Card, sha: string | undefined, stages: ProjectStages, stage: StageConfig): Promise<string> {
         const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
         await mkdir(dir, { recursive: true });
         const path = join(dir, 'plan.md');
-        const note = otherStagesScopeNote(stages, currentStageName);
-        const material = note ? `${serializeCard(card).trimEnd()}\n\n${note}\n` : serializeCard(card);
+        const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name)].filter(note => note.length > 0);
+        const material = notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
         await writeFile(path, material, 'utf8');
         this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
         return path;
