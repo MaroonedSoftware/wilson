@@ -303,6 +303,32 @@ describe('useSaveAPlanDraft', () => {
         expect(invalidateQueries).not.toHaveBeenCalled();
     });
 
+    it("writes only the card's own key, never the events/versions queries CardDetailView mounts alongside it", async () => {
+        // Regression test for the review finding on `matchesCard`: an earlier version matched any key
+        // containing 'card' and the id *anywhere*, so `['project', 'demo', 'card', '0007', 'events']`
+        // and `[..., 'versions']` — both real queries `projects.$project.cards.$cardId.tsx` mounts next
+        // to the card query itself — also matched, and `setQueriesData` would have overwritten their
+        // cached arrays with the saved `CardDetail` object, corrupting them for `EventsTimeline`/
+        // `VersionsList`'s `.length`/`.map`. `matchesCard` now requires the key's own last two elements
+        // to be exactly `['card', id]`, so a sibling key one segment longer must not match.
+        vi.spyOn(wilson.board, 'saveAPlanDraft').mockResolvedValue(savedCard);
+        const queryClient = new QueryClient();
+        const events = [{ id: 'e1' }];
+        const versions = [{ id: 'v1' }];
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], { ...savedCard, body: 'stale' });
+        queryClient.setQueryData(['project', 'demo', 'card', '0007', 'events'], events);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007', 'versions'], versions);
+
+        const { result } = renderHook(() => useSaveAPlanDraft('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('the approved draft');
+        });
+
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007'])).toEqual(savedCard);
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007', 'events'])).toEqual(events);
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007', 'versions'])).toEqual(versions);
+    });
+
     it("does not show a notification on refusal — DraftPane reads the error itself so the draft is never lost to a toast", async () => {
         vi.spyOn(wilson.board, 'saveAPlanDraft').mockRejectedValue(
             new SdkError(
