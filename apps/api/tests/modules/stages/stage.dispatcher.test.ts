@@ -717,4 +717,120 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
 
         expect(receivedBaseSha).toBe(worktree.baseSha);
     });
+
+    /**
+     * Card 0164: `scopeViolationPolicy` on the `ToolContext` used to be `stages.scopeViolation`
+     * alone — the project-wide value, unconditionally. It is now `stage.scopeViolation ??
+     * stages.scopeViolation`, so a stage can override the project's default for itself without
+     * touching any other stage. `runAgent` is exercised directly (as above) with a fake adapter that
+     * captures the `ToolContext` it was actually handed — the point is what the dispatcher resolves,
+     * not anything the adapter or the scope tool does with it.
+     */
+    describe('resolves scopeViolationPolicy per stage (card 0164)', () => {
+        const buildDispatcherCapturingContext = () => {
+            let capturedPolicy: string | undefined;
+            const agents = new StageAgentMap();
+            agents.set('api', {
+                run: async input => {
+                    capturedPolicy = input.context.scopeViolationPolicy;
+                    return { result: { summary: 'did the thing' }, usage: { inputTokens: 10 }, truncated: false };
+                },
+            });
+            const verifiers = new StageVerifierMap();
+            verifiers.set('testing', { verify: async () => ({ passed: true, failures: [], changedPaths: [] }) });
+            const resultSchemas = new StageResultSchemaMap();
+            resultSchemas.set('testing', {} as never);
+
+            const dispatcher = new StageDispatcher(
+                { project: 'test' } as BoardConfig,
+                {} as BoardRepository,
+                {} as WorktreeManager,
+                agents,
+                verifiers,
+                resultSchemas,
+                {} as EventLog,
+                silentLogger as never,
+            );
+            return { dispatcher, getPolicy: () => capturedPolicy };
+        };
+
+        it("uses the stage's own scopeViolation when it sets one, even though the project default disagrees", async () => {
+            const { dispatcher, getPolicy } = buildDispatcherCapturingContext();
+            const strictStage = makeStage({ adapter: 'api' as never, verifier: 'testing', scopeViolation: 'kickback' });
+            const permissiveProjectStages = { scopeViolation: 'widen' as const, alwaysAllowed: [], deny: [], stages: [strictStage] };
+
+            await (
+                dispatcher as unknown as {
+                    runAgent(input: {
+                        card: Card;
+                        stage: StageConfig;
+                        worktree: typeof worktree;
+                        scope: ScopeGuard;
+                        planPath: string;
+                        stages: typeof permissiveProjectStages;
+                    }): Promise<StageOutcome>;
+                }
+            ).runAgent({ card, stage: strictStage, worktree, scope, planPath: '/run/plan.md', stages: permissiveProjectStages });
+
+            expect(getPolicy()).toBe('kickback');
+        });
+
+        it('falls back to the project-wide value when the stage sets nothing — the pre-card-0164 behaviour', async () => {
+            const { dispatcher, getPolicy } = buildDispatcherCapturingContext();
+            const defaultStage = makeStage({ adapter: 'api' as never, verifier: 'testing' });
+            const strictProjectStages = { scopeViolation: 'kickback' as const, alwaysAllowed: [], deny: [], stages: [defaultStage] };
+
+            await (
+                dispatcher as unknown as {
+                    runAgent(input: {
+                        card: Card;
+                        stage: StageConfig;
+                        worktree: typeof worktree;
+                        scope: ScopeGuard;
+                        planPath: string;
+                        stages: typeof strictProjectStages;
+                    }): Promise<StageOutcome>;
+                }
+            ).runAgent({ card, stage: defaultStage, worktree, scope, planPath: '/run/plan.md', stages: strictProjectStages });
+
+            expect(getPolicy()).toBe('kickback');
+        });
+
+        it('leaves one stage widening while a sibling stage in the same project kicks back', async () => {
+            const strictStage = makeStage({ name: 'implementing', adapter: 'api' as never, verifier: 'testing', scopeViolation: 'kickback' });
+            const permissiveStage = makeStage({ name: 'testing', adapter: 'api' as never, verifier: 'testing' });
+            const projectStages = { scopeViolation: 'widen' as const, alwaysAllowed: [], deny: [], stages: [strictStage, permissiveStage] };
+
+            const strict = buildDispatcherCapturingContext();
+            await (
+                strict.dispatcher as unknown as {
+                    runAgent(input: {
+                        card: Card;
+                        stage: StageConfig;
+                        worktree: typeof worktree;
+                        scope: ScopeGuard;
+                        planPath: string;
+                        stages: typeof projectStages;
+                    }): Promise<StageOutcome>;
+                }
+            ).runAgent({ card, stage: strictStage, worktree, scope, planPath: '/run/plan.md', stages: projectStages });
+
+            const permissive = buildDispatcherCapturingContext();
+            await (
+                permissive.dispatcher as unknown as {
+                    runAgent(input: {
+                        card: Card;
+                        stage: StageConfig;
+                        worktree: typeof worktree;
+                        scope: ScopeGuard;
+                        planPath: string;
+                        stages: typeof projectStages;
+                    }): Promise<StageOutcome>;
+                }
+            ).runAgent({ card, stage: permissiveStage, worktree, scope, planPath: '/run/plan.md', stages: projectStages });
+
+            expect(strict.getPolicy()).toBe('kickback');
+            expect(permissive.getPolicy()).toBe('widen');
+        });
+    });
 });
