@@ -6,10 +6,12 @@ import type { SseResponse } from '@maroonedsoftware/koa';
 import { FeedRouter, PlanStreamRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
+import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { BoardConfig, ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository, type ProjectRow } from '#modules/board/project.repository.js';
+import { ProjectsService } from '#modules/board/projects.service.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
 import { uniqueProject } from '#tests/support/test.db.js';
 
@@ -23,41 +25,45 @@ import { uniqueProject } from '#tests/support/test.db.js';
  * ContractKit emits JSON handlers, and an SSE stream isn't one.
  *
  * `SettingsRouter` (card 0106) joined the same way the board router did: generated from
- * `settings.ck`, and mounted here alongside the others.
+ * `settings.ck`, and mounted here alongside the others. `ProjectsRouter` (card 0162) joined the
+ * same way again: generated from `projects.ck`, mounted right after `SettingsRouter`.
  */
 describe('routers', () => {
-    // Card 0150: `ProjectContextRouter` is mounted first, ahead of the five routers that were the
-    // whole array before this card — see the `ProjectContextRouter` describe block below for what
-    // it actually does; this test only pins its position.
-    it('mounts the project-context router first, then the generated health, board and settings routers plus the two hand-written SSE routers, and nothing else', () => {
+    // Card 0150: `ProjectContextRouter` is mounted first, ahead of the routers that were the whole
+    // array before this card — see the `ProjectContextRouter` describe block below for what it
+    // actually does; this test only pins its position. Card 0162 added `ProjectsRouter` as the
+    // fifth entry, after `SettingsRouter` and before the two hand-written SSE routers.
+    it('mounts the project-context router first, then the generated health, board, settings and projects routers plus the two hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(6);
+        expect(mounted).toHaveLength(7);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(SettingsRouter);
+        expect(mounted[4]).toBe(ProjectsRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[4].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[5].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[5].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[6].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
     // signal, so shutdown can drain an open `/api/feed` stream instead of waiting out the
     // force-close grace period. Card 0133's `PlanStreamRouter` takes the same signal for the same
-    // reason. The other three routers have no long-lived connection to drain and must come back
-    // untouched regardless of whether a signal is given.
+    // reason. The other routers have no long-lived connection to drain and must come back untouched
+    // regardless of whether a signal is given.
     it('accepts a lifecycle signal and still mounts the same routers plus working feed and plan-stream routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(6);
+        expect(mounted).toHaveLength(7);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(SettingsRouter);
-        expect(mounted[4].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[5].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[4]).toBe(ProjectsRouter);
+        expect(mounted[5].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[6].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
@@ -220,6 +226,103 @@ describe('routers', () => {
     it('does not route an undeclared method to the dry-run settings path', () => {
         expect(SettingsRouter.match('/api/settings/dry-run', 'POST').route).toBe(false);
         expect(SettingsRouter.match('/api/settings/dry-run', 'DELETE').route).toBe(false);
+    });
+
+    // Card 0162: the registered projects, read over the API for the first time — card 0154's
+    // project switcher needs this and had no endpoint to ask.
+    it('routes GET /api/projects to the projects router', () => {
+        expect(ProjectsRouter.match('/api/projects', 'GET').route).toBe(true);
+    });
+
+    it('does not route an undeclared method to the projects path', () => {
+        expect(ProjectsRouter.match('/api/projects', 'POST').route).toBe(false);
+        expect(ProjectsRouter.match('/api/projects', 'PUT').route).toBe(false);
+        expect(ProjectsRouter.match('/api/projects', 'DELETE').route).toBe(false);
+    });
+});
+
+/**
+ * Card 0162. `ProjectsRouter`'s handler, driven through `@koa/router`'s own public `routes()`
+ * dispatch — the same pattern `plan.stream.route.test.ts` uses for `PlanStreamRouter` and this
+ * file's own `ProjectContextRouter` describe block uses above. A fake container hands back a fake
+ * `ProjectsService` rather than a real one; `ProjectsService`'s own mapping behaviour (dropping
+ * every path field down to `name`) has its own coverage in `projects.service.test.ts`.
+ */
+describe('ProjectsRouter', () => {
+    const dispatchProjects = (service: { list: () => Promise<Array<{ name: string }>> }): Promise<Record<string, unknown>> => {
+        const ctx: Record<string, unknown> = {
+            method: 'GET',
+            path: '/api/projects',
+            request: {},
+            params: {},
+            headers: {},
+            query: {},
+            container: {
+                get: (token: unknown) => {
+                    if (token === ProjectsService) return service;
+                    throw new Error(`unexpected container.get(${String(token)})`);
+                },
+            },
+        };
+        return ProjectsRouter.routes()(ctx as never, async () => {}).then(() => ctx);
+    };
+
+    it('answers 200 with the JSON array ProjectsService.list() resolves, verbatim', async () => {
+        const list = async () => [{ name: 'wilson' }, { name: 'other-project' }];
+
+        const ctx = await dispatchProjects({ list });
+
+        expect(ctx.status).toBe(200);
+        expect(ctx.type).toBe('application/json');
+        expect(ctx.body).toEqual([{ name: 'wilson' }, { name: 'other-project' }]);
+    });
+
+    it('answers 200 with an empty array when no project is registered, rather than refusing the request', async () => {
+        const ctx = await dispatchProjects({ list: async () => [] });
+
+        expect(ctx.status).toBe(200);
+        expect(ctx.body).toEqual([]);
+    });
+});
+
+/**
+ * Card 0162. The acceptance criterion this proves directly: "`GET /api/projects` with no
+ * `X-Wilson-Project` header returns the registered projects and does not refuse." Composing
+ * `ProjectContextRouter`'s own `routes()` with `ProjectsRouter`'s, passing the first's `next` as a
+ * call into the second, mirrors exactly how `setupRoutes` mounts the two as separate `app.use(...)`
+ * middlewares in the real server (koa-compose runs each router's `routes()` in mount order) —
+ * without booting a real HTTP server, following this file's own established dispatch-not-boot style.
+ */
+describe('GET /api/projects end to end through ProjectContextRouter', () => {
+    it('runs inside the daemon\'s own configured project and answers with the registered projects, given no project header at all', async () => {
+        const board = new StaticBoardConfig('configured-project', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const find = vi.fn(async () => undefined);
+        const list = vi.fn(async () => [{ name: 'configured-project' }]);
+        const ctx: Record<string, unknown> = {
+            method: 'GET',
+            path: '/api/projects',
+            request: {},
+            params: {},
+            headers: {},
+            query: {},
+            get: () => '',
+            container: {
+                get: (token: unknown) => {
+                    if (token === BoardConfig) return board;
+                    if (token === ProjectRepository) return { find };
+                    if (token === ProjectsService) return { list };
+                    throw new Error(`unexpected container.get(${String(token)})`);
+                },
+            },
+        };
+        const contextRouter = routers()[0]!;
+
+        await contextRouter.routes()(ctx as never, () => ProjectsRouter.routes()(ctx as never, async () => {}));
+
+        expect(find).not.toHaveBeenCalled();
+        expect(list).toHaveBeenCalled();
+        expect(ctx.status).toBe(200);
+        expect(ctx.body).toEqual([{ name: 'configured-project' }]);
     });
 });
 
