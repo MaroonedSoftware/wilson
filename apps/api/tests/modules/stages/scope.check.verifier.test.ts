@@ -211,20 +211,20 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures[0]).toContain('"pass"');
     });
 
-    it('rejects a "refuse" backed by no reported breadth', async () => {
+    it('does not block routing on a "refuse" backed by no reported breadth or depth (card 0157)', async () => {
         const division = [
             { title: 'health', tasks: ['rewrite board.ready'], delivers: 'the rewritten health check alone' },
             { title: 'cleanup', tasks: ['delete run.command.ts and its two tombstone tests'], delivers: 'the deletion alone' },
         ];
         const outcome = await verify({ ...card0079, verdict: 'refuse', division });
 
+        // `passed` still reads false for any "refuse" (see the class doc comment) — it tracks a clean,
+        // uncontradicted "pass", not whether the card advances. Routing is decided by `failures` alone,
+        // and here it must come back empty: neither breadth nor depth backs this refusal, so this stage
+        // no longer obeys it (card 0157 — 0153/0155/0156 were bounced back to `planning` by exactly
+        // this before the fix, despite the model having correctly out-argued the metric).
         expect(outcome.passed).toBe(false);
-        // Two failures: the breadth-mismatch complaint, plus the unconditional "refusing: ..." entry
-        // every "refuse" verdict carries so the dispatcher's own routing check sees it (see the class
-        // doc comment).
-        expect(outcome.failures).toHaveLength(2);
-        expect(outcome.failures[0]).toContain('no group repeats');
-        expect(outcome.failures[1]).toBe(`refusing: ${card0079.reason}`);
+        expect(outcome.failures).toEqual([]);
     });
 
     it('accepts a division piece that depends on another piece in the same division', async () => {
@@ -447,15 +447,97 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([]);
     });
 
-    it('rejects a "refuse" on card 0079\'s shape, naming that neither breadth nor depth was reported', async () => {
+    it('still reports unrelated division defects on an unsupported "refuse", even though the routing failure no longer fires (card 0157)', async () => {
         const division = [
             { title: 'health', tasks: ['rewrite board.ready'], delivers: 'the rewritten health check alone' },
-            { title: 'cleanup', tasks: ['delete run.command.ts and its two tombstone tests'], delivers: 'the deletion alone' },
+            // Two genuine division defects — an empty `delivers` and a piece depending on itself —
+            // unrelated to breadth/depth, to prove the card 0157 change only silences the two pushes
+            // that read `tooLarge`, not the rest of this method's consistency checking.
+            { title: 'cleanup', tasks: ['delete run.command.ts and its two tombstone tests'], delivers: '', dependsOn: ['cleanup'] },
         ];
         const outcome = await verify({ ...card0079, verdict: 'refuse', division });
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures[0]).toContain('neither breadth nor depth');
-        expect(outcome.failures[1]).toBe(`refusing: ${card0079.reason}`);
+        expect(outcome.failures.some(f => f.includes('does not say what it would deliver on its own'))).toBe(true);
+        expect(outcome.failures.some(f => f.includes('lists itself as a dependency'))).toBe(true);
+        // Neither the old mirror-case complaint nor the routing push survives an unsupported refusal.
+        expect(outcome.failures.some(f => f.includes('neither breadth nor depth'))).toBe(false);
+        expect(outcome.failures.some(f => f.startsWith('refusing:'))).toBe(false);
+    });
+
+    /**
+     * Card 0157's own boundary: the "refusing: ..." push now reads the same `tooLarge` the
+     * consistency check above computes, rather than firing on `verdict === 'refuse'` alone. These two
+     * tests pin that condition at the exact line `BREADTH_THRESHOLD`/`DEPTH_THRESHOLD` draw — a
+     * *supported* refusal must still push and still route to `planning`, exactly as it did before this
+     * card (first Acceptance criterion; card 0120 must keep being caught).
+     */
+    it('pushes the routing failure for a "refuse" whose widest group meets the breadth threshold exactly', async () => {
+        const atThreshold: ScopeCheckResult = {
+            summary: 'four near-identical fields',
+            groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c', 'field d'] }],
+            verdict: 'refuse',
+            reason: 'four near-identical fields — the same kind of thing repeated four times.',
+            division: [
+                { title: 'fields a and b', tasks: ['field a', 'field b'], delivers: 'fields a and b, working alone' },
+                { title: 'fields c and d', tasks: ['field c', 'field d'], delivers: 'fields c and d, working alone' },
+            ],
+        };
+        expect(atThreshold.groups[0].tasks).toHaveLength(BREADTH_THRESHOLD);
+
+        const outcome = await verify(atThreshold);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([`refusing: ${atThreshold.reason}`]);
+    });
+
+    it('pushes the routing failure for a "refuse" whose group count meets the depth threshold exactly', async () => {
+        const half = DEPTH_THRESHOLD / 2;
+        const atThreshold: ScopeCheckResult = {
+            ...card0120,
+            groups: card0120.groups.slice(0, DEPTH_THRESHOLD),
+            verdict: 'refuse',
+            reason: `${DEPTH_THRESHOLD} distinct pieces collected into one card.`,
+            division: [
+                { title: 'first half', tasks: card0120.groups.slice(0, half).flatMap(g => g.tasks), delivers: 'the first half, working alone' },
+                {
+                    title: 'second half',
+                    tasks: card0120.groups.slice(half, DEPTH_THRESHOLD).flatMap(g => g.tasks),
+                    delivers: 'the second half, working alone',
+                },
+            ],
+        };
+        expect(atThreshold.groups).toHaveLength(DEPTH_THRESHOLD);
+
+        const outcome = await verify(atThreshold);
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([`refusing: ${atThreshold.reason}`]);
+    });
+
+    it('does not push the routing failure for a "refuse" whose group count sits one below the depth threshold (card 0157)', async () => {
+        const belowThreshold: ScopeCheckResult = {
+            ...card0120,
+            groups: card0120.groups.slice(0, DEPTH_THRESHOLD - 1),
+            verdict: 'refuse',
+            reason: `${DEPTH_THRESHOLD - 1} distinct pieces collected into one card.`,
+            division: [
+                { title: 'first half', tasks: card0120.groups.slice(0, 2).flatMap(g => g.tasks), delivers: 'the first half, working alone' },
+                {
+                    title: 'second half',
+                    tasks: card0120.groups.slice(2, DEPTH_THRESHOLD - 1).flatMap(g => g.tasks),
+                    delivers: 'the second half, working alone',
+                },
+            ],
+        };
+        expect(belowThreshold.groups).toHaveLength(DEPTH_THRESHOLD - 1);
+
+        const outcome = await verify(belowThreshold);
+
+        // Neither signal is met, so this refusal is unfounded by this stage's own evidence: no
+        // "refusing: ..." push, `failures` comes back empty, and the card is free to advance instead
+        // of bouncing back to `planning` (card 0157's whole point).
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures).toEqual([]);
     });
 });
