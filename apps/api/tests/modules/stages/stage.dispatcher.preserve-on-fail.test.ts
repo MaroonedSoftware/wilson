@@ -197,8 +197,15 @@ describe('StageDispatcher.run names the failed-attempt patch on a failing stage 
         const result = await dispatcher.run('0001', 'testing');
 
         expect(result.passed).toBe(true);
-        expect(worktrees.failedAttemptPatchPath).not.toHaveBeenCalled();
+        // Card 0161: `run` now also calls `failedAttemptPatchPath` unconditionally, once per board
+        // card, to grant read access to every preserved patch — so the call itself no longer signals
+        // a failure. What still distinguishes a pass is that no patch path is named on the event.
+        expect(worktrees.failedAttemptPatchPath).toHaveBeenCalledWith('0001');
         expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.passed' }));
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
+        const passedEvent = events.append.mock.calls
+            .map(([event]: [{ type: string; payload?: Record<string, unknown> }]) => event)
+            .find((event: { type: string }) => event.type === 'stage.passed');
+        expect(passedEvent?.payload).not.toHaveProperty('patchPath');
     });
 });
