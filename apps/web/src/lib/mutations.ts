@@ -23,14 +23,21 @@ import { wilson } from './sdk.js';
  * (now the only kind there is) would show a card's old stage until it was manually reloaded.
  *
  * `matchesCardsList`/`matchesCard` match either shape — this file's own unprefixed keys or a route's
- * `['project', project, ...]`-prefixed ones — by looking for `'cards'`/`'card'` and the id anywhere
- * in the key rather than requiring them as a prefix. `useMergeCard` (`CardDetail.tsx`) reuses these
- * two rather than repeating the same predicate a third time — that hook already lives outside this
- * file ("outside this card's Files in scope", card 0156), but the bug it copied from `useStartCard`
- * is the same one.
+ * `['project', project, ...]`-prefixed ones — by looking for `'cards'` anywhere in the key (there is
+ * only ever one list per scope) and, for a single card, requiring the key's own last two elements to
+ * be `['card', id]` rather than looking for `'card'`/id anywhere in the key: `CardDetail.tsx`'s route
+ * also mounts `['project', project, 'card', id, 'events']` and `[..., 'versions']` alongside the card
+ * query itself, and an anywhere-match would catch those two as well — `useSaveAPlanDraft` below calls
+ * `setQueriesData` with a `CardDetail`, which would silently overwrite `events`'/`versions`' cached
+ * arrays with that object and crash `EventsTimeline`/`VersionsList`'s `.length`/`.map` on the next
+ * render. `useMergeCard` (`CardDetail.tsx`) reuses both predicates rather than repeating them a third
+ * time — that hook already lives outside this file ("outside this card's Files in scope", card 0156).
  */
 const matchesCardsList = (queryKey: readonly unknown[]) => queryKey.includes('cards');
-const matchesCard = (queryKey: readonly unknown[], id: string) => queryKey.includes('card') && queryKey.includes(id);
+const matchesCard = (queryKey: readonly unknown[], id: string) => {
+    const last = queryKey.length - 1;
+    return queryKey[last] === id && queryKey[last - 1] === 'card';
+};
 
 export function invalidateCardsList(queryClient: QueryClient) {
     void queryClient.invalidateQueries({ predicate: query => matchesCardsList(query.queryKey) });
