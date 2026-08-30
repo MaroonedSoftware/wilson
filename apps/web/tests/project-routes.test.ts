@@ -173,14 +173,20 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(feedSource()?.url).toContain('/api/feed?project=demo');
     });
 
-    it('opens the shared board feed with no project at all from the existing top-level board', async () => {
-        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
-        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
-
+    // Card 0155 deleted the top-level board route in the same change that moved every link onto
+    // its `/projects/$project` counterpart — this used to render the board with no project at all
+    // (`GET /api/feed`, no `?project=`), which is exactly what a stray old bookmark or link would
+    // still try to do if the route had merely been superseded rather than actually removed. The
+    // shell around it (the header, the feed subscription in `__root.tsx`) still mounts — nothing
+    // about the route not matching is fatal — but no board renders inside it.
+    it('no longer renders a board at the old top-level route — that page is deleted, not merely superseded', async () => {
         renderApp('/');
-        await screen.findByText('0 cards');
 
-        expect(feedSource()?.url).toBe(`${API_BASE}/api/feed`);
+        expect(await screen.findByText('Not Found')).toBeTruthy();
+        expect(screen.queryByText(/\d+ cards/)).toBeNull();
+        // The shell itself is unaffected: the header's own feed subscription (unscoped — no
+        // project param on this path) still opens, same as it always has.
+        await waitFor(() => expect(feedSource()?.url).toBe(`${API_BASE}/api/feed`));
     });
 
     it('shows only that project\'s flagged cards at /projects/$project/flagged, and its back link returns to that project\'s board', async () => {

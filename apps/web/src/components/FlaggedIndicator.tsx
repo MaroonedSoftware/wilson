@@ -19,24 +19,28 @@ import { useWilsonSdk } from '#src/lib/sdk-context.js';
  * Card 0156: reads its client through `useWilsonSdk()` — rendered in `__root.tsx`'s header, above
  * every route's `Outlet`, so this always resolves to `__root.tsx`'s own unscoped default regardless
  * of which route matched below, exactly the singleton this used to import directly.
+ *
+ * Card 0155: `/flagged` moved to `/projects/$project/flagged`, a parameterised route the badge's
+ * `count` (from the same unscoped client) can't name via the currently-matched route's own params —
+ * that would point at whichever project happens to be on screen, not the project this count is
+ * actually for. Reads `health.data.project` instead: the same unscoped client's own configured
+ * project, matching what `['cards']` above just counted. Also sidesteps `component={Link}`'s erased
+ * `params` typing (this card's Constraints) by wrapping the badge in a plain `Link` instead of
+ * handing it in as `component` — simpler here than a second `createLink` wrapper for `Badge`.
  */
 export function FlaggedIndicator() {
     const wilson = useWilsonSdk();
     const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
+    const health = useQuery({ queryKey: ['health'], queryFn: () => wilson.health.getHealth() });
     const count = cards.data?.filter(card => card.needsHuman).length ?? 0;
 
-    if (count === 0) return null;
+    if (count === 0 || !health.data) return null;
 
     return (
-        <Badge
-            component={Link}
-            to="/flagged"
-            color="red"
-            variant="filled"
-            size="sm"
-            style={{ cursor: 'pointer', textDecoration: 'none' }}
-        >
-            {count} needs human
-        </Badge>
+        <Link to="/projects/$project/flagged" params={{ project: health.data.project }} style={{ textDecoration: 'none' }}>
+            <Badge color="red" variant="filled" size="sm" style={{ cursor: 'pointer' }}>
+                {count} needs human
+            </Badge>
+        </Link>
     );
 }

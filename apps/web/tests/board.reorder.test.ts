@@ -15,6 +15,12 @@
 // the vertical twin of board.dnd.test.ts's horizontal `STEP`. Each parking-lot card gets its own
 // non-overlapping 25px-tall rect stacked at `index * STEP`, so one `ArrowDown` per card crossed lands
 // squarely on the next one, deterministically.
+//
+// Card 0155 deleted the top-level `/` board — this file now opens the same board at its
+// project-scoped URL, `/projects/demo`, whose route reads through `wilsonForProject(project)`
+// (`projects.$project.index.tsx`) rather than the singleton `wilson` this file used to mock
+// directly. The mock moves to `BoardClient`'s own prototype (shared by every instance, the
+// singleton included) — the same fix `project-routes.test.ts` made for the same reason.
 import { createElement } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -22,11 +28,13 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { SdkError } from '@wilson/sdk';
+import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
-import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 import { byClass, byElement, withStubbedRects, type RectRule } from './support/rectStub.js';
+
+/** Every test below opens the board at this project-scoped URL. */
+const BOARD_PATH = '/projects/demo';
 
 const card = (id: string, stage: string, position?: number): CardSummary => ({
     id,
@@ -155,17 +163,17 @@ function renderedOrder(): string[] {
 
 describe('reordering the parking lot (the real Board.tsx)', () => {
     it('reorders immediately on drop — before the reposition request even settles — and sends the new neighbours', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
         // A deliberately unsettled request, the same shape board.dnd.test.ts's own in-flight test
         // uses: proves the reorder is visible immediately (`onMutate`'s cache write), not merely
         // after a fast-resolving mock happens to settle before this test gets around to asserting.
         let resolveReposition!: (value: unknown) => void;
         const repositionCard = vi
-            .spyOn(wilson.board, 'repositionCard')
+            .spyOn(BoardClient.prototype, 'repositionCard')
             .mockImplementation(() => new Promise(resolve => (resolveReposition = resolve)));
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0001');
         const anchor = screen.getByText('0001').closest('a')!;
 
@@ -187,13 +195,13 @@ describe('reordering the parking lot (the real Board.tsx)', () => {
     });
 
     it("restores the previous order and shows the API's refusal reason when the reposition fails", async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
-        const repositionCard = vi.spyOn(wilson.board, 'repositionCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
+        const repositionCard = vi.spyOn(BoardClient.prototype, 'repositionCard').mockRejectedValue(
             new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'the parking lot changed underneath you' } }, new Headers()),
         );
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0001');
         const anchor = screen.getByText('0001').closest('a')!;
 
@@ -210,11 +218,11 @@ describe('reordering the parking lot (the real Board.tsx)', () => {
     });
 
     it('does not call repositionCard when dropped back on the position it started at', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1)]);
-        const repositionCard = vi.spyOn(wilson.board, 'repositionCard').mockResolvedValue({} as never);
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1)]);
+        const repositionCard = vi.spyOn(BoardClient.prototype, 'repositionCard').mockResolvedValue({} as never);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0001');
         const anchor = screen.getByText('0001').closest('a')!;
 
@@ -266,15 +274,15 @@ function crossColumnRectRules(cardId: string, startStage: string): RectRule[] {
 
 describe('dragging a card out of the parking lot (the real Board.tsx)', () => {
     it('still uses moveCard, not repositionCard — the reorder branch never fires for a cross-column drop', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0)]);
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockResolvedValue(
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0)]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: '0001', title: 'card 0001', stage: 'implementing', dependsOn: [], needsHuman: false, sections: {}, body: '' } as any,
         );
-        const repositionCard = vi.spyOn(wilson.board, 'repositionCard');
+        const repositionCard = vi.spyOn(BoardClient.prototype, 'repositionCard');
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0001');
         const anchor = screen.getByText('0001').closest('a')!;
 
@@ -295,12 +303,12 @@ describe('dragging a card out of the parking lot (the real Board.tsx)', () => {
 
 describe('a card outside the parking lot (the real Board.tsx)', () => {
     it('cannot be reordered — a drop elsewhere in its own column resolves to the column itself, not a neighbour card', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0004', 'testing'), card('0005', 'testing')]);
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockResolvedValue({} as never);
-        const repositionCard = vi.spyOn(wilson.board, 'repositionCard');
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0004', 'testing'), card('0005', 'testing')]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue({} as never);
+        const repositionCard = vi.spyOn(BoardClient.prototype, 'repositionCard');
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0004');
         const anchor = screen.getByText('0004').closest('a')!;
 

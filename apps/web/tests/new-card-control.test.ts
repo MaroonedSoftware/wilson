@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 //
 // Card 0142: the board gains its one control for filing a card — `NewCardControl`, rendered by
-// `routes/index.tsx` beside the refresh button. These tests render the real route tree at `/` (the
-// same approach board.dnd.test.ts and card-detail.actions.test.ts take) with `wilson`'s SDK calls
-// mocked, so the modal wiring, the `parking-lot`-only stage, the skeleton seed, the navigate-on-
+// `routes/projects.$project.index.tsx` beside the refresh button. These tests render the real route
+// tree (the same approach board.dnd.test.ts and card-detail.actions.test.ts take) with the SDK's
+// calls mocked, so the modal wiring, the `parking-lot`-only stage, the skeleton seed, the navigate-on-
 // success, and the keep-what-was-typed-on-refusal behaviour are all exercised as actually written —
 // not re-implemented here.
+//
+// Card 0155 deleted the top-level `/` board — this file now opens it at its project-scoped URL,
+// `/projects/demo`, whose route (and the card page `NewCardControl` navigates to) reads through
+// `wilsonForProject(project)` rather than the singleton `wilson`. The mocks below sit on
+// `BoardClient`'s own prototype (shared by every instance, the singleton `NewCardControl`'s own
+// `useCreateCard` still writes through included) — the same fix `project-routes.test.ts` made for
+// the same reason.
 //
 // Files are `.test.ts`, not `.test.tsx`, to match `apps/web/vitest.config.ts`'s
 // `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead.
@@ -15,10 +22,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SdkError } from '@wilson/sdk';
+import { BoardClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
-import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+
+/** Every test below opens the board at this project-scoped URL. */
+const BOARD_PATH = '/projects/demo';
 
 const columns: BoardColumns = {
     stages: ['planning', 'implementing', 'testing'],
@@ -63,10 +72,10 @@ function renderApp(path: string) {
 }
 
 beforeEach(() => {
-    vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
-    vi.spyOn(wilson.board, 'listCards').mockResolvedValue([] as CardSummary[]);
-    vi.spyOn(wilson.board, 'listCardEvents').mockResolvedValue([]);
-    vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+    vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([] as CardSummary[]);
+    vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('scrollTo', vi.fn());
@@ -116,7 +125,7 @@ async function openModal() {
 
 describe('the board toolbar', () => {
     it('offers a "New card" control beside the refresh button', async () => {
-        renderApp('/');
+        renderApp(BOARD_PATH);
         expect(await screen.findByRole('button', { name: 'New card' })).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Refresh the board' })).toBeTruthy();
     });
@@ -124,8 +133,8 @@ describe('the board toolbar', () => {
 
 describe('filing a card', () => {
     it('opens with the body already seeded from the six-heading skeleton, and closes on Cancel without creating anything', async () => {
-        const createCard = vi.spyOn(wilson.board, 'createCard');
-        renderApp('/');
+        const createCard = vi.spyOn(BoardClient.prototype, 'createCard');
+        renderApp(BOARD_PATH);
 
         const { body } = await openModal();
         expect(body.value).toContain('## Goal');
@@ -141,7 +150,7 @@ describe('filing a card', () => {
     });
 
     it('disables Create until a title is typed, even with the seeded body present', async () => {
-        renderApp('/');
+        renderApp(BOARD_PATH);
         const { title } = await openModal();
 
         expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true);
@@ -151,9 +160,9 @@ describe('filing a card', () => {
     });
 
     it('files into parking-lot with the (possibly edited) body, and lands on the new card without a stage picker anywhere in the form', async () => {
-        const createCard = vi.spyOn(wilson.board, 'createCard').mockResolvedValue(detail('0150', 'Capture this thought'));
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(detail('0150', 'Capture this thought'));
-        const { router } = renderApp('/');
+        const createCard = vi.spyOn(BoardClient.prototype, 'createCard').mockResolvedValue(detail('0150', 'Capture this thought'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(detail('0150', 'Capture this thought'));
+        const { router } = renderApp(BOARD_PATH);
 
         const { title, body } = await openModal();
         // No stage picker in the form at all — this control never offers one (the plan's
@@ -172,16 +181,16 @@ describe('filing a card', () => {
             body: '## Note\n\nsomething worth capturing',
         });
 
-        await waitFor(() => expect(router.state.location.pathname).toBe('/cards/0150'));
+        await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo/cards/0150'));
         expect(await screen.findByText('Capture this thought')).toBeTruthy();
         // The modal closed rather than staying open over the new page.
         expect(screen.queryByLabelText('Title')).toBeNull();
     });
 
     it('trims a title padded with whitespace before sending it', async () => {
-        const createCard = vi.spyOn(wilson.board, 'createCard').mockResolvedValue(detail('0151', 'Padded'));
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(detail('0151', 'Padded'));
-        renderApp('/');
+        const createCard = vi.spyOn(BoardClient.prototype, 'createCard').mockResolvedValue(detail('0151', 'Padded'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(detail('0151', 'Padded'));
+        renderApp(BOARD_PATH);
 
         const { title } = await openModal();
         fireEvent.change(title, { target: { value: '  Padded  ' } });
@@ -193,10 +202,10 @@ describe('filing a card', () => {
     });
 
     it("shows the server's own refusal sentence and keeps the typed title and body on screen, rather than losing them", async () => {
-        vi.spyOn(wilson.board, 'createCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'createCard').mockRejectedValue(
             new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'title already in use' } }, new Headers()),
         );
-        const { router } = renderApp('/');
+        const { router } = renderApp(BOARD_PATH);
 
         const { title, body } = await openModal();
         fireEvent.change(title, { target: { value: 'Duplicate title' } });
@@ -210,15 +219,15 @@ describe('filing a card', () => {
         expect(screen.queryByText('400 Bad Request')).toBeNull();
 
         // Still on the board, modal still open, nothing typed was lost.
-        expect(router.state.location.pathname).toBe('/');
+        expect(router.state.location.pathname).toBe(BOARD_PATH);
         expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Duplicate title');
         expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('my own words, not the skeleton');
     });
 
     it('accepts a card filed with plain prose instead of the skeleton headings', async () => {
-        const createCard = vi.spyOn(wilson.board, 'createCard').mockResolvedValue(detail('0152', 'Just a note'));
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(detail('0152', 'Just a note'));
-        renderApp('/');
+        const createCard = vi.spyOn(BoardClient.prototype, 'createCard').mockResolvedValue(detail('0152', 'Just a note'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(detail('0152', 'Just a note'));
+        renderApp(BOARD_PATH);
 
         const { title, body } = await openModal();
         fireEvent.change(title, { target: { value: 'Just a note' } });
@@ -241,17 +250,17 @@ describe('filing a card', () => {
      * the whole of the new behaviour NewCardControl.tsx's own doc comment describes.
      */
     it('lands on the new card already mid-conversation, not just on its read-only page', async () => {
-        vi.spyOn(wilson.board, 'createCard').mockResolvedValue(detail('0153', 'Talk about this'));
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(detail('0153', 'Talk about this'));
-        const openSession = vi.spyOn(wilson.board, 'openAPlanningSession').mockResolvedValue({
+        vi.spyOn(BoardClient.prototype, 'createCard').mockResolvedValue(detail('0153', 'Talk about this'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(detail('0153', 'Talk about this'));
+        const openSession = vi.spyOn(BoardClient.prototype, 'openAPlanningSession').mockResolvedValue({
             sessionId: '0153',
             worktreePath: '/tmp/plan-0153',
             draftPath: '/tmp/plan-0153/PLAN.md',
             model: 'x',
             instructions: 'x',
         });
-        vi.spyOn(wilson.board, 'getAPlanDraft').mockResolvedValue({ body: '## Note\n\nsomething' });
-        const { router } = renderApp('/');
+        vi.spyOn(BoardClient.prototype, 'getAPlanDraft').mockResolvedValue({ body: '## Note\n\nsomething' });
+        const { router } = renderApp(BOARD_PATH);
 
         const { title, body } = await openModal();
         fireEvent.change(title, { target: { value: 'Talk about this' } });
@@ -260,20 +269,20 @@ describe('filing a card', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Create' }));
         });
 
-        await waitFor(() => expect(router.state.location.pathname).toBe('/cards/0153'));
+        await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo/cards/0153'));
         expect(await screen.findByText('Conversation')).toBeTruthy();
         expect(openSession).toHaveBeenCalledWith('0153');
     });
 
     it('tells the user in the modal that they can talk the card through right away', async () => {
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await openModal();
 
         expect(screen.getByText(/you can talk it through right away/)).toBeTruthy();
     });
 
     it('reopening after a cancel starts fresh again — no leftover title or edited body from the previous attempt', async () => {
-        renderApp('/');
+        renderApp(BOARD_PATH);
 
         const first = await openModal();
         fireEvent.change(first.title, { target: { value: 'Abandoned draft' } });

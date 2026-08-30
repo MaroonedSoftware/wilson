@@ -21,6 +21,13 @@ import { Anchor, type AnchorProps } from '@mantine/core';
  *
  * This is the one approach used everywhere this card links to a parameterised route; every existing,
  * parameterless `component={Link}` usage is left exactly as it was.
+ *
+ * Card 0155: `settings.tsx`'s and `CardDetail.tsx`'s own `component={Link}` spots above stopped
+ * being parameterless once their "back to board" target moved under `/projects/$project` — both now
+ * use `AnchorLink` too. `FlaggedIndicator`'s `/flagged` badge hit the same wall but isn't an
+ * `Anchor`; rather than add a second `createLink`-wrapped component for `Badge`, it wraps a plain
+ * `Link` around the badge instead — no polymorphic `component` prop, so no erased typing to fix.
+ * `cards.$cardId.tsx`, the third spot named above, no longer exists.
  */
 const MantineAnchor = forwardRef<HTMLAnchorElement, Omit<AnchorProps, 'href'>>((props, ref) => <Anchor ref={ref} {...props} />);
 

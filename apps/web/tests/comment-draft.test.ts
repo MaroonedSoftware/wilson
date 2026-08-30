@@ -16,9 +16,10 @@
 // installs for `getBoundingClientRect` so dnd-kit's own geometry math has something to read under
 // jsdom. Tests that only ever reach an *outdated* comment need no stub: `locateAnchor` reporting
 // outdated is exactly the branch that skips placing a highlight at all.
-import { createElement } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createElement, useState } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError, type PlanComment } from '@wilson/sdk';
@@ -73,15 +74,55 @@ const comment = (overrides: Partial<PlanComment> = {}): PlanComment => ({
     ...overrides,
 });
 
+/**
+ * Card 0155 moved every route under `/projects/$project/`, and `Markdown` — which
+ * `CommentableDraft` renders — now reads the current project from the router
+ * (`useParams({ strict: false })`) to build a `[[nnnn]]` card link. So this component no longer
+ * renders outside a router at all: without one `useRouter` throws, and every case in this file
+ * fails on that rather than on anything it is testing.
+ *
+ * A one-route memory router rather than the app's real `routeTree`: this file renders
+ * `CommentableDraft` directly, the way `draft-pane.test.ts` renders `DraftPane`, and going through
+ * the real card route would drag in `CardDetail` and everything it fetches. `useParams`'s
+ * `strict: false` means the absent `project` is `undefined` here, which is exactly what it is for
+ * any markdown rendered outside a project route — and no case below asserts on a card link.
+ *
+ * Repaired by hand while card 0155 was flagged, not by its testing stage, which exhausted its step
+ * budget four times; see that card's history.
+ *
+ * Two cases below (the "reworded surroundings" and "revision removes the quote" tests) simulate a
+ * later revision by handing `CommentableDraft` new props after the initial render. Testing
+ * Library's own `rerender` replaces the whole tree it was given, which for every other case here is
+ * just `CommentableDraft` itself — but this file's tree is `RouterProvider`, and swapping in a bare
+ * `CommentableDraft` for that same root would tear the router back out, hitting the exact
+ * `useParams`-outside-a-router crash this file exists to avoid. `withLiveProps` below keeps the
+ * router mounted for the whole test and re-renders through ordinary React state instead.
+ */
 function renderDraft(text: string, cardId = '0007', queryClient = new QueryClient()) {
+    let setLiveProps: ((props: { cardId: string; text: string }) => void) | undefined;
+    function Root() {
+        const [props, setProps] = useState({ cardId, text });
+        setLiveProps = setProps;
+        return createElement(CommentableDraft, props);
+    }
+    const rootRoute = createRootRoute({ component: Root });
+    const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) });
     const utils = render(
         createElement(
             MantineProvider,
             null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(CommentableDraft, { cardId, text })),
+            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router } as never)),
         ),
     );
-    return { queryClient, ...utils };
+    return {
+        queryClient,
+        ...utils,
+        /** Feeds `CommentableDraft` new props in place, without disturbing the `RouterProvider`
+         * that wraps it — see this function's own doc comment above. */
+        setLiveProps: (props: { cardId: string; text: string }) => {
+            act(() => setLiveProps?.(props));
+        },
+    };
 }
 
 /** Selects `[start, end)` of `text` inside the one text node under `p` — the paragraph
@@ -236,23 +277,11 @@ describe('CommentableDraft — anchored comments', () => {
         vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment()]);
 
         await withStubbedRangeRects(RECT, async () => {
-            const { container, rerender } = renderDraft(TEXT);
+            const { container, setLiveProps } = renderDraft(TEXT);
             await waitFor(() => expect(container.querySelector('mark')).toBeTruthy());
 
             const reworded = 'A quick brown fox jumps clean over one very lazy dog.';
-            const queryClient = new QueryClient();
-            queryClient.setQueryData(['plan-comments', '0007'], [comment()]);
-            rerender(
-                createElement(
-                    MantineProvider,
-                    null,
-                    createElement(
-                        QueryClientProvider,
-                        { client: queryClient },
-                        createElement(CommentableDraft, { cardId: '0007', text: reworded }),
-                    ),
-                ),
-            );
+            setLiveProps({ cardId: '0007', text: reworded });
 
             await waitFor(() => expect(container.querySelector('mark')).toBeTruthy());
             expect(screen.queryByText('Outdated comments')).toBeNull();
@@ -295,23 +324,11 @@ describe('CommentableDraft — outdated comments', () => {
 
             // Starts found — "brown fox" is right there in TEXT — so the highlight path (needing
             // the Range-rect stub) runs before the revision below ever removes the quote.
-            const { container, rerender } = renderDraft(TEXT);
+            const { container, setLiveProps } = renderDraft(TEXT);
             await waitFor(() => expect(container.querySelector('mark')).toBeTruthy());
             expect(screen.queryByText('Outdated comments')).toBeNull();
 
-            const queryClient = new QueryClient();
-            queryClient.setQueryData(['plan-comments', '0007'], [withRemoved]);
-            rerender(
-                createElement(
-                    MantineProvider,
-                    null,
-                    createElement(
-                        QueryClientProvider,
-                        { client: queryClient },
-                        createElement(CommentableDraft, { cardId: '0007', text: 'The fox is gone from this sentence entirely.' }),
-                    ),
-                ),
-            );
+            setLiveProps({ cardId: '0007', text: 'The fox is gone from this sentence entirely.' });
 
             expect(await screen.findByText('Outdated comments')).toBeTruthy();
         }));

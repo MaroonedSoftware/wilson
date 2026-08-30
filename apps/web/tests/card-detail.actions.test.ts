@@ -4,9 +4,15 @@
 // stage, and enqueue it for the one it's in. Both endpoints (card 0080) and the SDK methods
 // already existed before this card; what's new is `lib/mutations.ts`'s `useMoveCard`/`useStartCard`
 // and the `MoveControl`/`EnqueueButton` this card adds to `CardDetail.tsx`. These tests render the
-// real route tree at `/cards/$cardId` (the same approach flagged.test.ts and settings.test.ts take)
-// with `wilson`'s SDK calls mocked, so the mutation wiring, the invalidate-not-patch rule, and the
-// refusal-surfacing are all exercised as actually written.
+// real route tree (the same approach flagged.test.ts and settings.test.ts take) with the SDK's
+// calls mocked, so the mutation wiring, the invalidate-not-patch rule, and the refusal-surfacing are
+// all exercised as actually written.
+//
+// Card 0155 moved the card's own page to `/projects/$project/cards/$cardId`, which reads through
+// `wilsonForProject(project)` — a client built fresh per route (`lib/sdk.ts`), not the singleton
+// `wilson` this file used to mock directly. The mock now sits on `BoardClient`'s own prototype
+// (shared by every instance, the singleton included), the same fix `project-routes.test.ts` made
+// for the same reason.
 //
 // Files are `.test.ts`, not `.test.tsx`, to match `apps/web/vitest.config.ts`'s
 // `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead.
@@ -17,10 +23,12 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SdkError } from '@wilson/sdk';
+import { BoardClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail } from '@wilson/sdk';
-import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+
+/** Every test below opens this card at its project-scoped URL. */
+const CARD_PATH = '/projects/demo/cards/0007';
 
 const columns: BoardColumns = {
     stages: ['planning', 'implementing', 'testing'],
@@ -74,9 +82,9 @@ function renderApp(path: string) {
 }
 
 beforeEach(() => {
-    vi.spyOn(wilson.board, 'listCardEvents').mockResolvedValue([]);
-    vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
-    vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
+    vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     // jsdom has no layout engine, so floating-ui's own `scrollIntoView` call on the active option
@@ -129,9 +137,9 @@ afterEach(() => {
 
 describe('the move control', () => {
     it("offers the board's configured stages and non-stages, not a hard-coded list", async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const select = await screen.findByRole('combobox', { name: 'Move to stage' });
@@ -148,16 +156,16 @@ describe('the move control', () => {
     });
 
     it('requests a move but does not render the new stage until the query re-fetches', async () => {
-        const getCard = vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        const getCard = vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         let resolveMove: ((card: CardDetail) => void) | undefined;
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockImplementation(
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockImplementation(
             () =>
                 new Promise<CardDetail>(resolve => {
                     resolveMove = resolve;
                 }),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
         // Scoped to the badge's own class: the closed `Select` keeps every option's text mounted
         // (hidden) in the DOM too, so an unscoped `getByText('planning')` would find both.
@@ -190,8 +198,8 @@ describe('the move control', () => {
     });
 
     it("shows the API's reason when a move is refused, rather than swallowing it", async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
-        vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'moveCard').mockRejectedValue(
             new SdkError(
                 400,
                 'Bad Request',
@@ -200,7 +208,7 @@ describe('the move control', () => {
             ),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const select = await screen.findByRole('combobox', { name: 'Move to stage' });
@@ -220,16 +228,16 @@ describe('the move control', () => {
 
 describe('the enqueue button', () => {
     it('enqueues the card and disables itself while the request is in flight', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         let resolveStart: ((card: CardDetail) => void) | undefined;
-        const startCard = vi.spyOn(wilson.board, 'startCard').mockImplementation(
+        const startCard = vi.spyOn(BoardClient.prototype, 'startCard').mockImplementation(
             () =>
                 new Promise<CardDetail>(resolve => {
                     resolveStart = resolve;
                 }),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = (await screen.findByRole('button', { name: 'Enqueue' })) as HTMLButtonElement;
@@ -246,8 +254,8 @@ describe('the enqueue button', () => {
     });
 
     it('refuses a card a job is already carrying, and shows the reason', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
-        const startCard = vi.spyOn(wilson.board, 'startCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const startCard = vi.spyOn(BoardClient.prototype, 'startCard').mockRejectedValue(
             new SdkError(
                 400,
                 'Bad Request',
@@ -256,7 +264,7 @@ describe('the enqueue button', () => {
             ),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = await screen.findByRole('button', { name: 'Enqueue' });
@@ -269,8 +277,8 @@ describe('the enqueue button', () => {
     });
 
     it('refuses a card whyNotDispatchable rejects, and shows the reason the same way', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
-        const startCard = vi.spyOn(wilson.board, 'startCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const startCard = vi.spyOn(BoardClient.prototype, 'startCard').mockRejectedValue(
             new SdkError(
                 400,
                 'Bad Request',
@@ -279,7 +287,7 @@ describe('the enqueue button', () => {
             ),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = await screen.findByRole('button', { name: 'Enqueue' });
@@ -297,32 +305,32 @@ describe('the enqueue button', () => {
 // (`MergeResult.merged: false`) rather than a refusal, always ends in a notification either way.
 describe('the merge control', () => {
     it('is not rendered for a card outside ready', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         expect(screen.queryByRole('button', { name: 'Merge' })).toBeNull();
     });
 
     it('is rendered for a card in ready', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         expect(await screen.findByRole('button', { name: 'Merge' })).toBeTruthy();
     });
 
     it('merges the card and shows a success notification naming the commit', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
-        const mergeCard = vi.spyOn(wilson.board, 'mergeCard').mockResolvedValue({
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+        const mergeCard = vi.spyOn(BoardClient.prototype, 'mergeCard').mockResolvedValue({
             ...card('merged'),
             merged: true,
             commit: 'abc1234def5678',
         });
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = await screen.findByRole('button', { name: 'Merge' });
@@ -338,14 +346,14 @@ describe('the merge control', () => {
     // `merged: false` is a normal 200, not a thrown error — the two honest ways an attempt can not
     // land (a conflict or a failed suite), and the reason still has to reach the operator.
     it('shows the reason as a notification when a 200 reports merged: false, rather than swallowing it', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
-        vi.spyOn(wilson.board, 'mergeCard').mockResolvedValue({
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(BoardClient.prototype, 'mergeCard').mockResolvedValue({
             ...card('ready'),
             merged: false,
             reason: 'card/0007-do-the-thing conflicts with main: src/index.ts',
         });
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = await screen.findByRole('button', { name: 'Merge' });
@@ -359,8 +367,8 @@ describe('the merge control', () => {
     });
 
     it('shows the reason as a notification when the request itself is refused', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('ready'));
-        vi.spyOn(wilson.board, 'mergeCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(BoardClient.prototype, 'mergeCard').mockRejectedValue(
             new SdkError(
                 400,
                 'Bad Request',
@@ -369,7 +377,7 @@ describe('the merge control', () => {
             ),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         const button = await screen.findByRole('button', { name: 'Merge' });

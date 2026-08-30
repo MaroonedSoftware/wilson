@@ -1,15 +1,15 @@
-import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
-import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { invalidateCard, invalidateCardsList, reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
@@ -139,6 +139,11 @@ function EnqueueButton({ card }: { card: CardDetail }) {
  *
  * Card 0156: reads its client through `useWilsonSdk()` instead of importing the singleton directly,
  * so a card reached through a `/projects/$project/*` route merges against that project's client.
+ *
+ * Card 0155: invalidates through `invalidateCardsList`/`invalidateCard` (`lib/mutations.js`) rather
+ * than the literal `['cards']`/`['card', id]` keys this hook copied from `useStartCard` — those keys
+ * stopped matching anything the moment a card's own page moved to `/projects/$project/cards/$cardId`
+ * and started keying its query `['project', project, 'card', id]` instead.
  */
 function useMergeCard(id: string) {
     const wilson = useWilsonSdk();
@@ -146,8 +151,8 @@ function useMergeCard(id: string) {
     return useMutation({
         mutationFn: () => wilson.board.mergeCard(id),
         onSuccess: result => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
-            void queryClient.invalidateQueries({ queryKey: ['card', id] });
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
             if (result.merged) {
                 notifications.show({ color: 'green', title: 'Merged', message: `Landed on main as ${result.commit?.slice(0, 8) ?? result.commit}` });
             } else {
@@ -297,19 +302,20 @@ export function CardDetailView({
     versionsError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
-    /** Card 0153: the project this card was reached under, if any — threaded to `PlanningPanes` so
-     * the planning stream (`usePlanTranscript`) names it. `undefined` from the existing top-level
-     * route, unchanged. */
-    project?: string;
+    /** Card 0153: the project this card was reached under, threaded to `PlanningPanes` so the
+     * planning stream (`usePlanTranscript`) names it. Card 0155: required rather than optional now
+     * that `ProjectCardDetailRoute` is this view's only caller — the top-level `/cards/$cardId` route
+     * that used to leave this `undefined` is gone. */
+    project: string;
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
 
     return (
         <Stack gap="lg">
             <Stack gap={4}>
-                <Anchor component={Link} to="/" size="sm">
+                <AnchorLink to="/projects/$project" params={{ project }} size="sm">
                     ← Back to the board
-                </Anchor>
+                </AnchorLink>
                 <Group gap="sm" align="baseline">
                     <Text size="sm" c="dimmed" ff="monospace">
                         {card.id}

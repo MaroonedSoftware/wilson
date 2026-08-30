@@ -3,10 +3,19 @@
 // Card 0137: a card in `planning` gets a two-pane session — the conversation
 // (`PlanningSessionPane`, `lib/plan.ts`'s `usePlanTranscript`) beside the card's current body,
 // read-only, standing in for the draft pane [[0138]] builds. Every other stage keeps rendering
-// exactly as it did before. These tests render the real route tree at `/cards/$cardId` (the same
-// approach card-detail.actions.test.ts takes) with `wilson`'s SDK calls mocked, so the two-pane
-// gating, the streamed transcript, the composer, and the inline failure surfaces are all exercised
-// as actually wired up in CardDetail.tsx and PlanningSession.tsx.
+// exactly as it did before. These tests render the real route tree (the same approach
+// card-detail.actions.test.ts takes) with the SDK's calls mocked, so the two-pane gating, the
+// streamed transcript, the composer, and the inline failure surfaces are all exercised as actually
+// wired up in CardDetail.tsx and PlanningSession.tsx.
+//
+// Card 0155 moved the card's own page to `/projects/$project/cards/$cardId`, which reads
+// `getCard`/`listCardEvents`/`listCardVersions`/`listBoardColumns`/`openAPlanningSession` through
+// `wilsonForProject(project)` — a client built fresh per route (`lib/sdk.ts`), not the singleton
+// `wilson` this file used to mock directly. The mock now sits on `BoardClient`'s own prototype
+// (shared by every instance, the singleton included), the same fix `card-detail.actions.test.ts`
+// made for the same reason. `getAPlanDraft`/`sendAPlanTurn` still go through the singleton
+// (`lib/plan.ts`/`lib/mutations.ts` — card [[0156]]'s own scope, untouched here), so those two stay
+// mocked on `wilson.board` exactly as before.
 //
 // Files are `.test.ts`, not `.test.tsx`, to match `apps/web/vitest.config.ts`'s
 // `include: ['./tests/**/*.test.ts']` — JSX is written via `createElement` instead.
@@ -16,10 +25,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SdkError } from '@wilson/sdk';
+import { BoardClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, PlanTurn } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+
+/** Every test below opens this card at its project-scoped URL — the only kind there is since
+ * card 0155 deleted `/cards/$cardId`. */
+const CARD_PATH = '/projects/demo/cards/0007';
 
 const columns: BoardColumns = {
     stages: ['planning', 'implementing', 'testing'],
@@ -108,10 +121,14 @@ function renderApp(path: string) {
 }
 
 beforeEach(() => {
-    vi.spyOn(wilson.board, 'listCardEvents').mockResolvedValue([]);
-    vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
-    vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
-    vi.spyOn(wilson.board, 'openAPlanningSession').mockResolvedValue(session);
+    // These four are read through the project-scoped route's own client
+    // (`wilsonForProject(project)`, `projects.$project.cards.$cardId.tsx`) — the mock has to sit on
+    // `BoardClient`'s own prototype (shared by every instance) rather than on the singleton
+    // `wilson.board` other files' fixtures mock. See this file's header.
+    vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+    vi.spyOn(BoardClient.prototype, 'openAPlanningSession').mockResolvedValue(session);
     // Card [[0138]]'s `DraftPane` (the other half of this two-pane view) fetches the session's
     // draft unconditionally whenever `planning` renders — every test in this file gets it
     // pre-mocked to the same body `card()` returns, so a suite that isn't specifically exercising
@@ -157,9 +174,9 @@ afterEach(() => {
 
 describe('a card in planning', () => {
     it('renders the two-pane session — conversation and the live, editable draft (card [[0138]]) — and opens the plan stream', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         expect(await screen.findByText('Conversation')).toBeTruthy();
@@ -175,13 +192,13 @@ describe('a card in planning', () => {
 
         await waitFor(() => expect(planStreamSources()).toHaveLength(1));
         expect(latestPlanStream().url).toContain('/api/cards/0007/plan/stream');
-        expect(wilson.board.openAPlanningSession).toHaveBeenCalledWith('0007');
+        expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalledWith('0007');
     });
 
     it('renders a turn already on the transcript, and an in-progress reply as it streams in rather than leaving it absent', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
         await waitFor(() => expect(planStreamSources()).toHaveLength(1));
 
@@ -198,7 +215,7 @@ describe('a card in planning', () => {
     });
 
     it('sends a turn from the composer, echoes it immediately, and folds the reply in on success', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         let resolveTurn: ((turn: PlanTurn) => void) | undefined;
         const sendAPlanTurn = vi.spyOn(wilson.board, 'sendAPlanTurn').mockImplementation(
             () =>
@@ -207,9 +224,9 @@ describe('a card in planning', () => {
                 }),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
-        await waitFor(() => expect(wilson.board.openAPlanningSession).toHaveBeenCalled());
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalled());
 
         const textarea = await screen.findByRole('textbox', { name: 'Message' });
         const send = screen.getByRole('button', { name: 'Send' });
@@ -231,14 +248,14 @@ describe('a card in planning', () => {
     });
 
     it("shows the server's own refusal sentence inline next to the composer, not a generic message", async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         vi.spyOn(wilson.board, 'sendAPlanTurn').mockRejectedValue(
             new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'this card has no open planning session' } }, new Headers()),
         );
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
-        await waitFor(() => expect(wilson.board.openAPlanningSession).toHaveBeenCalled());
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalled());
 
         const textarea = await screen.findByRole('textbox', { name: 'Message' });
         fireEvent.change(textarea, { target: { value: 'hello' } });
@@ -256,9 +273,9 @@ describe('a card in planning', () => {
     });
 
     it('shows an inline alert when the stream fails to open, instead of swallowing the failure', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
         await waitFor(() => expect(planStreamSources()).toHaveLength(1));
 
@@ -269,15 +286,15 @@ describe('a card in planning', () => {
     });
 
     it('opens exactly one session for the card, not a second one on top of it', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
-        await waitFor(() => expect(wilson.board.openAPlanningSession).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalledTimes(1));
         // Give any stray effect a turn to run before asserting it stayed at one.
         await act(async () => {});
-        expect(wilson.board.openAPlanningSession).toHaveBeenCalledTimes(1);
+        expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -288,9 +305,9 @@ describe('a card in parking-lot', () => {
      * built, not a new or different rendering of it.
      */
     it('renders the same two-pane session "planning" gets, and opens the plan stream', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('parking-lot'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('parking-lot'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         expect(await screen.findByText('Conversation')).toBeTruthy();
@@ -300,15 +317,15 @@ describe('a card in parking-lot', () => {
 
         await waitFor(() => expect(planStreamSources()).toHaveLength(1));
         expect(latestPlanStream().url).toContain('/api/cards/0007/plan/stream');
-        expect(wilson.board.openAPlanningSession).toHaveBeenCalledWith('0007');
+        expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalledWith('0007');
     });
 });
 
 describe('a card outside planning', () => {
     it('renders exactly as before — no session UI, and no plan stream opened', async () => {
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue(card('implementing'));
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('implementing'));
 
-        renderApp('/cards/0007');
+        renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
 
         expect(screen.queryByText('Conversation')).toBeNull();
@@ -317,7 +334,7 @@ describe('a card outside planning', () => {
         expect(screen.getByText('Plan')).toBeTruthy();
         expect(screen.getByText('the current plan body')).toBeTruthy();
 
-        expect(wilson.board.openAPlanningSession).not.toHaveBeenCalled();
+        expect(BoardClient.prototype.openAPlanningSession).not.toHaveBeenCalled();
         expect(planStreamSources()).toHaveLength(0);
     });
 });

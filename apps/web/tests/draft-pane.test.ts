@@ -3,13 +3,21 @@
 // Card 0138's `DraftPane.tsx` replaces card 0137's read-only placeholder in the `planning` pane
 // with the session's live draft: an editable `Textarea` fed by `usePlanDraft`, and an `Approve…`
 // control gated behind `ApproveDialog`'s diff and explicit confirmation. This file renders
-// `DraftPane` directly — it takes only a `card` prop and has no router dependency — with `wilson`'s
-// SDK calls mocked, covering: the fetched draft landing in the editable text, the approve control's
-// disabled states, the diff shown before any write, a refusal left on screen rather than lost, a
-// successful save, and the "whose edit wins" collision the component's own doc comment describes.
+// `DraftPane` directly with `wilson`'s SDK calls mocked, covering: the fetched draft landing in the
+// editable text, the approve control's disabled states, the diff shown before any write, a refusal
+// left on screen rather than lost, a successful save, and the "whose edit wins" collision the
+// component's own doc comment describes.
+//
+// Card 0155 gave `Markdown` (rendered by `CommentableDraft`, which `DraftPane`'s "Preview" mode
+// renders) a `useParams({ strict: false })` call to build a `[[nnnn]]` card link scoped to the
+// current project — so `DraftPane` no longer renders outside a router at all: switching to Preview
+// throws (`useMatch` reading `null`) without one. `renderDraftPane` below wraps the tree in the same
+// one-route memory router `comment-draft.test.ts` uses for the same reason, rather than the app's
+// real `routeTree` — nothing here needs a real project, just a router to call `useParams` inside of.
 import { createElement } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
@@ -37,11 +45,13 @@ const card = (overrides: Partial<CardDetail> = {}): CardDetail => ({
 });
 
 function renderDraftPane(cardDetail: CardDetail, queryClient = new QueryClient()) {
+    const rootRoute = createRootRoute({ component: () => createElement(DraftPane, { card: cardDetail }) });
+    const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) });
     render(
         createElement(
             MantineProvider,
             null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(DraftPane, { card: cardDetail })),
+            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router } as never)),
         ),
     );
     return { queryClient };
@@ -68,6 +78,10 @@ beforeEach(() => {
             dispatchEvent: vi.fn(),
         })),
     );
+    // TanStack Router's scroll restoration calls this on every load, including the router's own
+    // initial load `renderDraftPane` triggers — jsdom does not implement it. Same stand-in
+    // planning-session.test.ts uses.
+    vi.stubGlobal('scrollTo', vi.fn());
 });
 
 afterEach(() => {

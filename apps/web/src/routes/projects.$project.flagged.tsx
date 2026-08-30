@@ -58,7 +58,7 @@ function ProjectFlaggedRoute() {
                         Nothing is flagged right now.
                     </Text>
                 ) : (
-                    <Board columns={stagesWithFlagged} cards={flagged} allCards={cards.data} />
+                    <Board columns={stagesWithFlagged} cards={flagged} allCards={cards.data} project={project} />
                 )}
             </Stack>
         </WilsonSdkProvider>

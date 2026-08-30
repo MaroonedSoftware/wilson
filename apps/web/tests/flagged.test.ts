@@ -1,20 +1,34 @@
 // @vitest-environment jsdom
 //
 // Card 0119: an aggregate count of cards needing a human, shown in the shared header
-// (`FlaggedIndicator`, mounted by `__root.tsx`) and linking to `/flagged`, a filtered view of the
-// board built from the same `Board` component card 0057 already renders red borders and reason
-// badges with. These tests render the real route tree — header, live feed wiring, and the flagged
-// route all exercised as written, not re-implemented here — the same approach settings.test.ts
-// takes for card 0114/0115.
+// (`FlaggedIndicator`, mounted by `__root.tsx`) and linking to a project's flagged view, built from
+// the same `Board` component card 0057 already renders red borders and reason badges with. These
+// tests render the real route tree — header, live feed wiring, and the flagged route all exercised
+// as written, not re-implemented here — the same approach settings.test.ts takes for card 0114/0115.
+//
+// Card 0155 deleted the top-level `/` board and moved `/flagged` to `/projects/$project/flagged`.
+// The board itself is now only ever reached at `/projects/$project`, whose route reads through
+// `wilsonForProject(project)` (`projects.$project.index.tsx`) rather than the singleton `wilson` —
+// so the mocks below sit on `BoardClient`/`HealthClient`'s own prototypes (shared by every instance,
+// the singleton `FlaggedIndicator` itself reads through included), the same fix
+// `project-routes.test.ts` made for the same reason. `FlaggedIndicator`'s own link now names the
+// project from `health.data.project` (`FlaggedIndicator.tsx`), so `baseHealth.project` below is the
+// same project every test opens the board at, keeping the header's link and the rendered board
+// pointed at the same place.
 import { createElement } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BoardClient, HealthClient } from '@wilson/sdk';
 import type { BoardColumns, CardSummary, Health } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+
+/** Every test below that renders the board opens it at this project-scoped URL. */
+const BOARD_PATH = '/projects/demo';
+const FLAGGED_PATH = '/projects/demo/flagged';
 
 const card = (id: string, stage: string, needsHuman = false, dependsOn: string[] = []): CardSummary => ({
     id,
@@ -31,7 +45,7 @@ const columns: BoardColumns = {
 
 const baseHealth: Health = {
     ok: true,
-    project: 'wilson',
+    project: 'demo',
     head: 'abc1234',
     startedAt: '2026-01-01T00:00:00.000Z',
     boardRoot: '/deploy/board',
@@ -97,8 +111,8 @@ function renderApp(path: string) {
 
 beforeEach(() => {
     FakeEventSource.instances = [];
-    vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(columns);
-    vi.spyOn(wilson.health, 'getHealth').mockResolvedValue(baseHealth);
+    vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+    vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue(baseHealth);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
 
@@ -132,28 +146,28 @@ afterEach(() => {
 
 describe('the flagged count in the header', () => {
     it('shows nothing when no card needs a human', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review')]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review')]);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
 
         await screen.findByText('planning'); // board has loaded
         expect(screen.queryByText(/needs human/)).toBeNull();
     });
 
     it('shows the count of flagged cards, wherever they sit on the board', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
             card('0001', 'planning'),
             card('0002', 'review', true),
             card('0003', 'implementing', true),
         ]);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
 
         expect(await screen.findByText('2 needs human')).toBeTruthy();
     });
 
     it('is visible from /settings, not only the board', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
 
         renderApp('/settings');
@@ -164,9 +178,9 @@ describe('the flagged count in the header', () => {
     });
 
     it('increments live as a card is flagged while the page is open, with no reload', async () => {
-        const listCards = vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'review')]);
+        const listCards = vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'review')]);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('review'); // board loaded, count starts silent
         expect(screen.queryByText(/needs human/)).toBeNull();
 
@@ -180,9 +194,9 @@ describe('the flagged count in the header', () => {
     });
 
     it('decrements live as a card is acked, with no reload', async () => {
-        const listCards = vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
+        const listCards = vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         expect(await screen.findByText('1 needs human')).toBeTruthy();
 
         listCards.mockResolvedValue([card('0001', 'review', false)]);
@@ -191,13 +205,20 @@ describe('the flagged count in the header', () => {
             source.emit('card');
         });
 
-        await waitFor(() => expect(screen.queryByText(/needs human/)).toBeNull());
+        // Scoped to the header: the board itself (`Board.tsx`'s own per-card "needs human" badge,
+        // card 0057) is a *project-scoped* query the feed's `['cards']` invalidation does not reach
+        // — scoping the card feed to a project is card [[0154]]'s job, out of this card's scope — so
+        // the board keeps showing the acked card as flagged until an unrelated refetch reconciles it.
+        // The header's own count, read through the same unscoped `['cards']` query the feed does
+        // invalidate, is what this test is actually about.
+        const header = document.querySelector('header')!;
+        await waitFor(() => expect(within(header).queryByText(/needs human/)).toBeNull());
     });
 
     it('sends you to the flagged cards themselves when clicked, not a page that just says a number', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'review', true)]);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         const badge = await screen.findByText('1 needs human');
         fireEvent.click(badge);
 
@@ -208,17 +229,17 @@ describe('the flagged count in the header', () => {
 
 describe('the /flagged route', () => {
     it('says nothing is flagged rather than an empty board when there are no flagged cards', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review')]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review')]);
 
-        renderApp('/flagged');
+        renderApp(FLAGGED_PATH);
 
         expect(await screen.findByText('Nothing is flagged right now.')).toBeTruthy();
     });
 
     it('shows only the flagged cards, not the whole board', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review', true)]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'planning'), card('0002', 'review', true)]);
 
-        renderApp('/flagged');
+        renderApp(FLAGGED_PATH);
 
         await screen.findByText('card 0002');
         expect(screen.queryByText('card 0001')).toBeNull();
@@ -230,24 +251,24 @@ describe('the /flagged route', () => {
         // lookup (`stageById`, built by `lib/board.ts`'s `stagesById`) has to be built from the full
         // card list — passed separately as `allCards` — or a merged-but-unflagged dependency reads
         // as missing from the board, and `unfinishedDeps` treats "missing" the same as "unfinished".
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
             card('0001', 'merged', false),
             card('0002', 'review', true, ['0001']),
         ]);
 
-        renderApp('/flagged');
+        renderApp(FLAGGED_PATH);
 
         await screen.findByText('card 0002');
         expect(screen.queryByText(/blocked on/)).toBeNull();
     });
 
     it('still flags a dependency that is genuinely unfinished, on the flagged card it belongs to', async () => {
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
             card('0001', 'implementing', false),
             card('0002', 'review', true, ['0001']),
         ]);
 
-        renderApp('/flagged');
+        renderApp(FLAGGED_PATH);
 
         await screen.findByText('card 0002');
         expect(await screen.findByText('blocked on 0001')).toBeTruthy();
