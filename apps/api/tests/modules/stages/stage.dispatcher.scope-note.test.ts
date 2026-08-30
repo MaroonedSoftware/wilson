@@ -166,7 +166,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
             silentLogger as never,
         );
 
-        return { config, dispatcher };
+        return { config, dispatcher, events };
     };
 
     it('names another stage\'s extraScope, but not the dispatched stage\'s own', async () => {
@@ -210,5 +210,71 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         const materialized = await readFile(join(config.runRoot, 'cards', '0001', 'plan.md'), 'utf8');
         expect(materialized).not.toContain('Also in scope');
         expect(materialized).not.toContain('extraScope');
+    });
+
+    /**
+     * Card 0163: a stage with its own `extraScope` was never told about it. `ScopeGuard`'s allow list
+     * (`scoped` in `stage.dispatcher.ts`'s `run`) already includes `stage.extraScope`, but the plan
+     * materialized for the agent said nothing about it — only `otherStagesScopeNote`, which
+     * deliberately excludes the running stage. That silence is what led card 0154's `testing` stage
+     * to call `request_scope` for a plain `*.test.ts` file its own `extraScope` already covered.
+     * `ownScopeNote` fixes this by folding a "## Your scope" section into the plan, naming the
+     * running stage's own `extraScope` — distinct from "## Also in scope", which is about *other*
+     * stages. Reuses this describe block's `setUp`, `stagesYaml` and `noExtraScopeYaml`.
+     */
+    it('names the dispatched stage\'s own extraScope under "## Your scope", separate from "## Also in scope"', async () => {
+        const { config, dispatcher } = await setUp(stagesYaml, 'testing');
+
+        const result = await dispatcher.run('0001', 'testing');
+        expect(result.passed).toBe(true);
+
+        const materialized = await readFile(join(config.runRoot, 'cards', '0001', 'plan.md'), 'utf8');
+        expect(materialized).toContain('## Your scope');
+        // The section names testing's own extraScope glob directly (not "other stage" phrasing).
+        expect(materialized).toContain('- `apps/api/tests/**`');
+        // The two sections stay distinguishable: "Your scope" is what this stage may itself write;
+        // "Also in scope" (asserted above, in the card 0139 suite) is what other stages may write.
+        const ownIndex = materialized.indexOf('## Your scope');
+        const otherIndex = materialized.indexOf('## Also in scope');
+        expect(ownIndex).toBeGreaterThan(-1);
+        expect(otherIndex).toBeGreaterThan(-1);
+        expect(ownIndex).not.toBe(otherIndex);
+    });
+
+    it('adds no "## Your scope" heading for a stage that configures no extraScope', async () => {
+        const { config, dispatcher } = await setUp(stagesYaml, 'implementing');
+
+        const result = await dispatcher.run('0001', 'implementing');
+        expect(result.passed).toBe(true);
+
+        const materialized = await readFile(join(config.runRoot, 'cards', '0001', 'plan.md'), 'utf8');
+        expect(materialized).not.toContain('## Your scope');
+    });
+
+    it('adds no "## Your scope" heading anywhere when no stage configures extraScope', async () => {
+        const { config, dispatcher } = await setUp(noExtraScopeYaml, 'implementing');
+
+        const result = await dispatcher.run('0001', 'implementing');
+        expect(result.passed).toBe(true);
+
+        const materialized = await readFile(join(config.runRoot, 'cards', '0001', 'plan.md'), 'utf8');
+        expect(materialized).not.toContain('## Your scope');
+        expect(materialized).not.toContain('extraScope');
+    });
+
+    it('records the dispatched stage\'s full writable scope, including its own extraScope, on stage.dispatched', async () => {
+        const { dispatcher, events } = await setUp(stagesYaml, 'testing');
+
+        const result = await dispatcher.run('0001', 'testing');
+        expect(result.passed).toBe(true);
+
+        const dispatched = events.append.mock.calls
+            .map(([event]: [{ type: string; payload?: { scope?: string[] } }]) => event)
+            .find((event: { type: string }) => event.type === 'stage.dispatched');
+        expect(dispatched).toBeDefined();
+        // Before card 0163, this payload carried only `filesInScope(card)` (`src/x.ts`), understating
+        // what ScopeGuard actually allowed — `testing`'s own `apps/api/tests/**` was enforced but
+        // never recorded here.
+        expect(dispatched.payload.scope).toEqual(expect.arrayContaining(['src/x.ts', 'apps/api/tests/**']));
     });
 });
