@@ -8,7 +8,7 @@ import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
-import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { invalidateCard, invalidateCardsList, reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
@@ -139,6 +139,11 @@ function EnqueueButton({ card }: { card: CardDetail }) {
  *
  * Card 0156: reads its client through `useWilsonSdk()` instead of importing the singleton directly,
  * so a card reached through a `/projects/$project/*` route merges against that project's client.
+ *
+ * Card 0155: invalidates through `invalidateCardsList`/`invalidateCard` (`lib/mutations.js`) rather
+ * than the literal `['cards']`/`['card', id]` keys this hook copied from `useStartCard` — those keys
+ * stopped matching anything the moment a card's own page moved to `/projects/$project/cards/$cardId`
+ * and started keying its query `['project', project, 'card', id]` instead.
  */
 function useMergeCard(id: string) {
     const wilson = useWilsonSdk();
@@ -146,8 +151,8 @@ function useMergeCard(id: string) {
     return useMutation({
         mutationFn: () => wilson.board.mergeCard(id),
         onSuccess: result => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
-            void queryClient.invalidateQueries({ queryKey: ['card', id] });
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
             if (result.merged) {
                 notifications.show({ color: 'green', title: 'Merged', message: `Landed on main as ${result.commit?.slice(0, 8) ?? result.commit}` });
             } else {

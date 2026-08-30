@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import {
     SdkError,
@@ -10,6 +10,35 @@ import {
     type PlanTurn,
 } from '@wilson/sdk';
 import { wilson } from './sdk.js';
+
+/**
+ * Card 0155: deleting the top-level `/` and `/cards/$cardId` routes left `['cards']`/`['card', id]`
+ * — the keys every mutation below was written against — naming caches that no longer exist. A
+ * `/projects/$project/*` route keys its own board and card queries `['project', project, 'cards']`/
+ * `['project', project, 'card', cardId]` (`projects.$project.index.tsx`,
+ * `projects.$project.cards.$cardId.tsx`, both from card [[0153]]), and `invalidateQueries`'s default
+ * match only ever matches a key that *starts with* the one it's given — `['project', 'demo', 'card',
+ * id]` does not start with `['card', id]`, so a plain `{ queryKey: ['card', id] }` silently never
+ * touched it even before this card, and every screen reached only through a project-scoped route
+ * (now the only kind there is) would show a card's old stage until it was manually reloaded.
+ *
+ * `matchesCardsList`/`matchesCard` match either shape — this file's own unprefixed keys or a route's
+ * `['project', project, ...]`-prefixed ones — by looking for `'cards'`/`'card'` and the id anywhere
+ * in the key rather than requiring them as a prefix. `useMergeCard` (`CardDetail.tsx`) reuses these
+ * two rather than repeating the same predicate a third time — that hook already lives outside this
+ * file ("outside this card's Files in scope", card 0156), but the bug it copied from `useStartCard`
+ * is the same one.
+ */
+const matchesCardsList = (queryKey: readonly unknown[]) => queryKey.includes('cards');
+const matchesCard = (queryKey: readonly unknown[], id: string) => queryKey.includes('card') && queryKey.includes(id);
+
+export function invalidateCardsList(queryClient: QueryClient) {
+    void queryClient.invalidateQueries({ predicate: query => matchesCardsList(query.queryKey) });
+}
+
+export function invalidateCard(queryClient: QueryClient, id: string) {
+    void queryClient.invalidateQueries({ predicate: query => matchesCard(query.queryKey, id) });
+}
 
 /**
  * The reason an API refusal names, out of `SdkError.body.details.reason` — the board write surface
@@ -43,8 +72,8 @@ export function useMoveCard(id: string) {
     return useMutation({
         mutationFn: (stage: string) => wilson.board.moveCard(id, { stage }),
         onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
-            void queryClient.invalidateQueries({ queryKey: ['card', id] });
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not move the card', message: reasonFor(err) });
@@ -65,6 +94,13 @@ export function useMoveCard(id: string) {
  * stand in for the server's sparse ones until the response (or a feed event) brings the real ones
  * back — and hands the already-reordered array in as `optimisticCards`. This hook only owns the
  * cache write, the rollback on refusal, and the reconciling refetch.
+ *
+ * Card 0155: writes through every query matching `matchesCardsList` (`getQueriesData`/
+ * `setQueryData` per matched key) rather than the single literal `['cards']` key this hook used
+ * before the top-level board's route was deleted — the board a drag actually happened on is reached
+ * through a `/projects/$project/*` route now, whose own list lives at `['project', project,
+ * 'cards']`, and writing only `['cards']` would leave that screen showing the pre-drag order until
+ * an unrelated refetch happened to reconcile it.
  */
 export function useRepositionCard() {
     const queryClient = useQueryClient();
@@ -72,16 +108,18 @@ export function useRepositionCard() {
         mutationFn: ({ id, beforeId, afterId }: { id: string; beforeId?: string; afterId?: string; optimisticCards: CardSummary[] }) =>
             wilson.board.repositionCard(id, { beforeId, afterId }),
         onMutate: ({ optimisticCards }) => {
-            const previous = queryClient.getQueryData<CardSummary[]>(['cards']);
-            queryClient.setQueryData(['cards'], optimisticCards);
+            const previous = queryClient.getQueriesData<CardSummary[]>({ predicate: query => matchesCardsList(query.queryKey) });
+            previous.forEach(([key]) => queryClient.setQueryData(key, optimisticCards));
             return { previous };
         },
         onError: (err, _vars, context) => {
-            if (context?.previous) queryClient.setQueryData(['cards'], context.previous);
+            context?.previous.forEach(([key, data]) => {
+                if (data) queryClient.setQueryData(key, data);
+            });
             notifications.show({ color: 'red', title: 'Could not reorder the card', message: reasonFor(err) });
         },
         onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
+            invalidateCardsList(queryClient);
         },
     });
 }
@@ -95,8 +133,8 @@ export function useStartCard(id: string) {
     return useMutation({
         mutationFn: () => wilson.board.startCard(id),
         onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ['cards'] });
-            void queryClient.invalidateQueries({ queryKey: ['card', id] });
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not enqueue the card', message: reasonFor(err) });
@@ -128,16 +166,18 @@ export function useSendPlanTurn(id: string) {
  * and renders it next to the draft, which must stay on screen rather than be lost to a toast that
  * outlives neither the mistake nor the unsaved edit.
  *
- * Success writes the response straight into `['card', id]`'s cache, the same "only ever show what
- * round-tripped" rule `settings.tsx`'s controls follow, so the card's page reflects its new version
- * the moment the write lands rather than waiting on a refetch.
+ * Success writes the response straight into the card's own query cache, the same "only ever show
+ * what round-tripped" rule `settings.tsx`'s controls follow, so the card's page reflects its new
+ * version the moment the write lands rather than waiting on a refetch. Card 0155: written through
+ * every query matching `matchesCard`, not the literal `['card', id]` key alone — a card reached
+ * through a `/projects/$project/*` route keeps its own copy at `['project', project, 'card', id]`.
  */
 export function useSaveAPlanDraft(id: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (body: string) => wilson.board.saveAPlanDraft(id, { body }),
         onSuccess: result => {
-            queryClient.setQueryData(['card', id], result);
+            queryClient.setQueriesData<CardDetail>({ predicate: query => matchesCard(query.queryKey, id) }, result);
         },
     });
 }

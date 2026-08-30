@@ -14,6 +14,13 @@
 // stage-name `Badge` text, walked up to the nearest `.mantine-Stack-root` ancestor, which is the
 // column `Stack` `useDroppable`'s `setNodeRef` is attached to (Mantine keeps that class name stable
 // across its hashed ones, the same fact `rectStub.ts`'s `byClass` rules already lean on).
+//
+// Card 0155 deleted the top-level `/` board and its `/cards/$cardId` card page — this file now opens
+// the same board at its project-scoped URL, `/projects/demo`, whose route reads through
+// `wilsonForProject(project)` (`projects.$project.index.tsx`) rather than the singleton `wilson`
+// this file used to mock directly. The mock moves to `BoardClient`'s own prototype (shared by every
+// instance, the singleton included) — the same fix `project-routes.test.ts` made for the same
+// reason.
 import { createElement } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -21,11 +28,13 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { SdkError } from '@wilson/sdk';
+import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
-import { wilson } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
 import { byClass, byElement, withStubbedRects, type RectRule } from './support/rectStub.js';
+
+/** Every test below opens the board at this project-scoped URL. */
+const BOARD_PATH = '/projects/demo';
 
 const card = (id: string, stage: string): CardSummary => ({ id, title: `card ${id}`, stage, dependsOn: [], needsHuman: false });
 
@@ -162,14 +171,14 @@ async function drop(anchor: Element) {
 
 describe('dragging a card between columns (the real Board.tsx)', () => {
     it('resolves a keyboard drag onto a specific column, and calls moveCard with the dragged card\'s own id', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockResolvedValue(
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: '0007', title: 'card 0007', stage: 'testing', dependsOn: [], needsHuman: false, sections: {}, body: '' } as any,
         );
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0007');
         const anchor = screen.getByText('0007').closest('a')!;
 
@@ -201,11 +210,11 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     });
 
     it('does not call moveCard when dropped back on the column it started in, having actually resolved over that column', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockResolvedValue({} as never);
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue({} as never);
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0007');
         const anchor = screen.getByText('0007').closest('a')!;
 
@@ -222,12 +231,12 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     });
 
     it('keeps the card in its starting column, reading as pending, while the move request is in flight', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
         let resolveMove!: (value: unknown) => void;
-        vi.spyOn(wilson.board, 'moveCard').mockImplementation(() => new Promise(resolve => (resolveMove = resolve)));
+        vi.spyOn(BoardClient.prototype, 'moveCard').mockImplementation(() => new Promise(resolve => (resolveMove = resolve)));
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0007');
         const anchor = screen.getByText('0007').closest('a')!;
         const paper = anchor.querySelector('.mantine-Paper-root')!;
@@ -256,9 +265,9 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     });
 
     it("surfaces the API's refusal reason as a notification and leaves the card in its starting column", async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockRejectedValue(
             new SdkError(
                 400,
                 'Bad Request',
@@ -267,7 +276,7 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
             ),
         );
 
-        renderApp('/');
+        renderApp(BOARD_PATH);
         await screen.findByText('card 0007');
         const anchor = screen.getByText('0007').closest('a')!;
 
@@ -289,12 +298,12 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
 });
 
 describe('clicking a card that is also draggable', () => {
-    it('still opens /cards/$cardId', async () => {
-        vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(wilson.board, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+    it('still opens the card\'s own project-scoped page', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
         // The click navigates before the destination route's own queries matter to this test —
         // mocked only so an unmocked SDK call doesn't print noise.
-        vi.spyOn(wilson.board, 'getCard').mockResolvedValue({
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue({
             id: '0007',
             title: 'card 0007',
             stage: 'implementing',
@@ -303,12 +312,12 @@ describe('clicking a card that is also draggable', () => {
             sections: {},
             body: '',
         } as never);
-        vi.spyOn(wilson.board, 'listCardEvents').mockResolvedValue([]);
-        vi.spyOn(wilson.board, 'listCardVersions').mockResolvedValue([]);
+        vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
+        vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
 
-        const { router } = renderApp('/');
+        const { router } = renderApp(BOARD_PATH);
         const anchor = (await screen.findByText('card 0007')).closest('a')!;
-        expect(anchor.getAttribute('href')).toBe('/cards/0007');
+        expect(anchor.getAttribute('href')).toBe('/projects/demo/cards/0007');
 
         // A plain click, not a drag — no keyboard/pointer activation sequence at all. dnd-kit's
         // sensors only ever intercept a *drag* (a pointer move past the activation distance, or the
@@ -318,6 +327,6 @@ describe('clicking a card that is also draggable', () => {
             fireEvent.click(anchor);
         });
 
-        await waitFor(() => expect(router.state.location.pathname).toBe('/cards/0007'));
+        await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo/cards/0007'));
     });
 });
