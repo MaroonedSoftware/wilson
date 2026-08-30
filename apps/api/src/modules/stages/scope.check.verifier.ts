@@ -74,7 +74,8 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * from tasks — and citing only dependencies on other pieces — the model itself reported). A model
  * that says "pass" while its own `groups` show an eight-wide repeat, or nine groups of different work,
  * or says "refuse" while reporting neither, has produced an inconsistent report regardless of which
- * way it leans, and this stage's whole value is in not passing that through uncaught.
+ * way it leans — but, as of card 0157, the two directions no longer carry the same consequence. See
+ * the last paragraph below.
  *
  * Two signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
  * width of the widest group) catches one kind of work repeated until it will not fit — card 0075's
@@ -93,9 +94,23 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
  * signal), not `"refuse"`. Left alone, a well-formed refusal would report zero failures, the
  * dispatcher's `passed` would come out `true`, and the card would advance to `implementing` instead
  * of being kicked back to `planning` — exactly backwards from this stage's whole purpose. So `verify`
- * pushes an entry onto `failures` whenever `verdict === 'refuse'`, unconditionally on whether the
- * report was otherwise internally consistent: that is what makes the dispatcher's own
+ * pushes `refusing: ${reason}` onto `failures` — that is what makes the dispatcher's own
  * `failures.length === 0` check go false and routes the card through `stage.onFail` (`planning`).
+ *
+ * That push used to be unconditional on `verdict === 'refuse'` alone, and that was a bug (card 0157):
+ * it fired even when the consistency check just above had judged the very same refusal unfounded —
+ * neither group at `BREADTH_THRESHOLD` nor group count at `DEPTH_THRESHOLD` — so a refusal this stage
+ * had itself flagged as unsupported by its own reported evidence was still obeyed, and the card still
+ * bounced back to `planning`. Cards 0153, 0155 and 0156 hit exactly this, each a further split of the
+ * one before, each blocked on a metric the model had already out-argued: it counted files touched
+ * across sites, which `BREADTH_THRESHOLD`/`DEPTH_THRESHOLD` cannot see because they count tasks as
+ * written in the plan, not sites touched in the diff (a separate problem this card does not fix). The
+ * push is now conditioned on the same `tooLarge` the consistency check above already computed: a
+ * *supported* refusal (breadth or depth actually met) still pushes and still routes to `planning`,
+ * exactly as before. An *unsupported* one pushes nothing, so `failures` can come back empty and the
+ * card advances instead. The model's `reason` is not thrown away when that happens — `outcome.result`
+ * carries this stage's whole reported result onto the card's event log regardless of `passed`/`failures`
+ * (`StageDispatcher.runAgent`), so a human reading the card still finds why the model wanted to refuse.
  */
 @Injectable()
 export class ScopeCheckVerifier implements StageVerifier {
@@ -143,11 +158,9 @@ export class ScopeCheckVerifier implements StageVerifier {
                 );
             }
         }
-        if (!tooLarge && verdict === 'refuse') {
-            failures.push(
-                `verdict is "refuse" but no group repeats ${BREADTH_THRESHOLD} or more times (widest: "${widest.title}" x${widest.tasks.length}) and only ${groups.length} distinct groups were reported (< ${DEPTH_THRESHOLD}) — neither breadth nor depth is this stage's signal, and neither was reported`,
-            );
-        }
+        // The mirror case — `refuse` with neither signal reported — used to push its own failure here.
+        // It no longer does (card 0157): see the comment beside the `refusing: ${reason}` push below,
+        // which is where that decision now lives.
 
         if (verdict === 'refuse') {
             // A division is only real if it is built from work the model actually reported seeing.
@@ -179,18 +192,29 @@ export class ScopeCheckVerifier implements StageVerifier {
             failures.push('verdict is "pass" but a division was proposed; a pass should carry none');
         }
 
-        if (verdict === 'refuse') {
+        if (verdict === 'refuse' && tooLarge) {
             // See the class doc comment: the dispatcher's real routing check is `failures.length ===
             // 0`, not this method's `passed` field, and `shouldAdvance` never special-cases "refuse".
-            // Pushed unconditionally — even when every check above found nothing wrong with the
-            // report — so a well-formed refusal still fails the dispatcher's check and is kicked back
-            // to `planning` instead of advancing to `implementing`.
+            // Pushed whenever the evidence backs the refusal — even when every check above found
+            // nothing else wrong with the report — so a well-founded refusal still fails the
+            // dispatcher's check and is kicked back to `planning` instead of advancing to
+            // `implementing`.
             failures.push(`refusing: ${reason}`);
         }
+        // else (verdict === 'refuse' but !tooLarge): a refusal this stage has itself judged unfounded
+        // (card 0157 — cards 0153/0155/0156, each a further split of the one before, hit exactly this).
+        // Nothing is pushed here, so this check no longer contributes to the dispatcher's routing and
+        // the card is free to advance instead of bouncing back to `planning` on a verdict this stage
+        // does not believe. The model's `reason` is not lost: `StageDispatcher` records this stage's
+        // whole reported result — `reason` included — on the card's event log whether the stage passes
+        // or fails (`outcome.result`, populated from the run's own report independently of `failures`),
+        // so a human reading the card still sees why the model wanted to refuse, even though it moved on.
 
         // `passed` is only ever read by this verifier's own callers, not by the dispatcher's routing
-        // (see the class doc comment) — kept `false` for a refusal for the same reason: passing here
-        // would mean "send the card to implementing", which a refusal must never do.
+        // (see the class doc comment) — kept `false` for any `refuse`, supported or not: this field
+        // tracks whether the verdict was a clean, uncontradicted "pass", not whether the card actually
+        // advances, which `failures.length` alone decides. An unfounded refusal above leaves `failures`
+        // empty and so does advance, even though it is reported as `passed: false` here.
         return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [] };
     }
 }
