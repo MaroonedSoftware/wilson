@@ -15,6 +15,7 @@ import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
 import { BoardWriteService } from './board.write.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
+import { ProjectsService } from './projects.service.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 /**
@@ -108,6 +109,10 @@ export const BoardModule: ServerKitModule = {
         // and this module's own `start` hook below can inject it once the container exists; `setup`
         // only registers tokens, it does not resolve them, so the ordering is safe.
         registry.register(ProjectRepository).useClass(ProjectRepository).asSingleton();
+        // Card 0162. `GET /api/projects`'s service, resolved the same way as every other operation
+        // service in this module — `ProjectRepository` above is already a registered token by the
+        // time anything resolves this, since `setup` only registers, it never resolves.
+        registry.register(ProjectsService).useClass(ProjectsService).asTransient();
     },
     /**
      * Card 0149. Register every project already in `runner.projects`, not just the one this process's

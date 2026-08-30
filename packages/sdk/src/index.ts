@@ -1,6 +1,7 @@
 // Auto-generated barrel file
 export * from './board.client.js';
 export * from './health.client.js';
+export * from './projects.client.js';
 export * from './sdk-options.js';
 export * from './settings.client.js';
 export * from './types/index.js';
