@@ -87,6 +87,20 @@ describe('BoardService', () => {
             expect(summary.branch).toBeUndefined();
         });
 
+        // Card 0160: most cards never record a `branch` (card 0095) — `resolvedBranch` still has to
+        // answer with `WorktreeManager.branchName`'s derivation from the title in that case, not
+        // come back undefined the way `branch` itself does above.
+        it('derives resolvedBranch from the title for a card that never recorded a branch', async () => {
+            const cards = [card('0002', { title: 'Fix the thing', branch: undefined })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.branch).toBeUndefined();
+            expect(summary.resolvedBranch).toBe(worktrees.branchName('0002', 'Fix the thing'));
+        });
+
         // Card 0091: `position` orders the parking lot on the wire now, instead of being left off
         // CardSummary entirely.
         it("carries a card's position through to the summary when it has one", async () => {
@@ -125,6 +139,20 @@ describe('BoardService', () => {
 
             expect(detail.body).toBe('full body');
             expect(detail.sections).toEqual({ goal: 'Do it.', 'files-in-scope': '- src/a.ts' });
+        });
+
+        // Card 0160: `getById` stitches `resolvedBranch` on just like `list` does, whether or not the
+        // card ever recorded a `branch` of its own.
+        it('resolves the branch on a single card the same way list does', async () => {
+            const recorded = card('0001', { branch: 'card/0001-custom' });
+            const unrecorded = card('0002', { title: 'Fix the thing', branch: undefined });
+            const boardRepository = {
+                read: async (id: string) => (id === '0001' ? recorded : unrecorded),
+            } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+
+            expect((await service.getById('0001')).resolvedBranch).toBe('card/0001-custom');
+            expect((await service.getById('0002')).resolvedBranch).toBe(worktrees.branchName('0002', 'Fix the thing'));
         });
 
         it('translates a missing card into a 404 rather than letting it become a 500', async () => {
