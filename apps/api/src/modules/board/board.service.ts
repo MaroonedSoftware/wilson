@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
+import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { CardEvent, CardDetail, CardSummary, CardVersion, ListQuery } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
@@ -53,17 +54,28 @@ export class BoardService {
         private readonly boardRepository: BoardRepository,
         private readonly eventLog: EventLog,
         private readonly boardConfig: BoardConfig,
+        private readonly worktrees: WorktreeManager,
     ) {}
+
+    /**
+     * Card 0160. Adds `resolvedBranch` on top of whatever `toCardSummary`/`toCardDetail` already
+     * built — `WorktreeManager.resolveBranch` is the one place that answers "which branch is this
+     * card's work on" (card 0095), and this is the only shape both `list` and `getById` need it
+     * stitched onto.
+     */
+    private withResolvedBranch<T extends CardSummary>(card: Card, summary: T): T {
+        return { ...summary, resolvedBranch: this.worktrees.resolveBranch(card) };
+    }
 
     async list(): Promise<CardSummary[]> {
         const cards = await this.boardRepository.list();
-        return cards.map(toCardSummary);
+        return cards.map(card => this.withResolvedBranch(card, toCardSummary(card)));
     }
 
     async getById(id: string): Promise<CardDetail> {
         try {
             const card = await this.boardRepository.read(id);
-            return toCardDetail(card);
+            return this.withResolvedBranch(card, toCardDetail(card));
         } catch (err) {
             if (err instanceof CardNotFoundError) throw httpError(404);
             throw err;

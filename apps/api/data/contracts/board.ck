@@ -34,6 +34,15 @@ contract CardSummary: {
     title: string
     stage: string
     branch?: string
+    # Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
+    # recorded one, otherwise the same derivation from the card's title `branchName` computes.
+    # `branch` alone cannot answer "which branch is this card's work on" for most cards (card 0095),
+    # and re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this
+    # is that single answer carried onto the wire rather than a second copy of its logic. Optional
+    # because only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write
+    # response built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it
+    # absent rather than guess.
+    resolvedBranch?: string
     dependsOn: array(string)
     # Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
     # `?? false` — every card has an answer to "does this need a human", even if that answer is no.

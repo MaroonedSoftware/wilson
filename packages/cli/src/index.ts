@@ -17,6 +17,7 @@ import cardAckCommand from './commands/card/ack.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
 import cardDependCommand from './commands/card/depend.command.js';
+import cardDiffCommand from './commands/card/diff.command.js';
 import cardEditCommand from './commands/card/edit.command.js';
 import cardMoveCommand from './commands/card/move.command.js';
 import cardNextCommand from './commands/card/next.command.js';
@@ -55,6 +56,7 @@ const app = await createCliApp({
         reg(['card', 'approve'], cardApproveCommand),
         reg(['card', 'create'], cardCreateCommand),
         reg(['card', 'depend'], cardDependCommand),
+        reg(['card', 'diff'], cardDiffCommand),
         reg(['card', 'edit'], cardEditCommand),
         reg(['card', 'rename'], cardRenameCommand),
         reg(['card', 'show'], cardShowCommand),
