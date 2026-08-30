@@ -19,6 +19,7 @@
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError, type PlanComment } from '@wilson/sdk';
@@ -73,12 +74,30 @@ const comment = (overrides: Partial<PlanComment> = {}): PlanComment => ({
     ...overrides,
 });
 
+/**
+ * Card 0155 moved every route under `/projects/$project/`, and `Markdown` — which
+ * `CommentableDraft` renders — now reads the current project from the router
+ * (`useParams({ strict: false })`) to build a `[[nnnn]]` card link. So this component no longer
+ * renders outside a router at all: without one `useRouter` throws, and every case in this file
+ * fails on that rather than on anything it is testing.
+ *
+ * A one-route memory router rather than the app's real `routeTree`: this file renders
+ * `CommentableDraft` directly, the way `draft-pane.test.ts` renders `DraftPane`, and going through
+ * the real card route would drag in `CardDetail` and everything it fetches. `useParams`'s
+ * `strict: false` means the absent `project` is `undefined` here, which is exactly what it is for
+ * any markdown rendered outside a project route — and no case below asserts on a card link.
+ *
+ * Repaired by hand while card 0155 was flagged, not by its testing stage, which exhausted its step
+ * budget four times; see that card's history.
+ */
 function renderDraft(text: string, cardId = '0007', queryClient = new QueryClient()) {
+    const rootRoute = createRootRoute({ component: () => createElement(CommentableDraft, { cardId, text }) });
+    const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) });
     const utils = render(
         createElement(
             MantineProvider,
             null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(CommentableDraft, { cardId, text })),
+            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router } as never)),
         ),
     );
     return { queryClient, ...utils };
