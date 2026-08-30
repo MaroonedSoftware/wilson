@@ -20,10 +20,10 @@ const NARROW_BREAKPOINT = '(max-width: 62em)';
 const PANE_HEIGHT = 520;
 
 /**
- * Card 0137: a card in `planning` gets a two-pane session — the conversation
- * (`PlanningSessionPane`) beside the session's live draft (`DraftPane`, card [[0138]]). `Tabs` when
- * the viewport is too narrow for both side by side, `Grid` otherwise; either way the same two
- * panes, never a third layout that could drift from what each renders alone.
+ * Card 0137: a card in `planning` — and, since card 0159, `parking-lot` — gets a two-pane session:
+ * the conversation (`PlanningSessionPane`) beside the session's live draft (`DraftPane`, card
+ * [[0138]]). `Tabs` when the viewport is too narrow for both side by side, `Grid` otherwise; either
+ * way the same two panes, never a third layout that could drift from what each renders alone.
  */
 function PlanningPanes({ card, project }: { card: CardDetail; project?: string }) {
     const narrow = useMediaQuery(NARROW_BREAKPOINT);
@@ -271,9 +271,10 @@ function VersionsList({ versions, limit, error }: { versions: CardVersion[] | un
  * A card, in full: what it is (title, stage, branch, plan) and what has happened to it (events,
  * versions) — plus, since card 0037, its two operator actions: move it to another stage, and
  * enqueue it for the one it's in. The plan itself stays read-only, matching the card 0036 contract —
- * no editing the plan, no approving it, no cancelling a running job — except in `planning` itself
- * (card 0137, [[0138]]), where an operator can hold the planning conversation from here, hand-edit
- * the live draft it produces, and approve it as a new version, all without a terminal.
+ * no editing the plan, no approving it, no cancelling a running job — except in `planning` and, since
+ * card 0159, `parking-lot` (card 0137, [[0138]]), where an operator can hold the planning
+ * conversation from here, hand-edit the live draft it produces, and approve it as a new version, all
+ * without a terminal.
  */
 export function CardDetailView({
     card,
@@ -361,7 +362,7 @@ export function CardDetailView({
                 </Stack>
             )}
 
-            {card.stage === 'planning' ? (
+            {card.stage === 'planning' || card.stage === 'parking-lot' ? (
                 <PlanningPanes card={card} project={project} />
             ) : (
                 <Stack gap={6}>
