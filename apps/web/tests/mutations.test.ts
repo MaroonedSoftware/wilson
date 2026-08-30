@@ -48,7 +48,15 @@ describe('useMoveCard', () => {
             body: '',
         });
         const queryClient = new QueryClient();
-        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        // Card 0155 deleted the top-level board and card routes: the only board and card queries
+        // left in the app are a project route's own `['project', project, ...]`-prefixed ones
+        // (`projects.$project.index.tsx`, `projects.$project.cards.$cardId.tsx`), so this seeds one
+        // of each — plus an unrelated key — and asserts on the actual cache effect rather than the
+        // literal arguments `invalidateQueries` is called with, which is now a `predicate` function,
+        // not an exact key (this file's own header, and `mutations.ts`'s doc comment on `useMoveCard`).
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        queryClient.setQueryData(['unrelated'], {});
         const setQueryData = vi.spyOn(queryClient, 'setQueryData');
 
         const { result } = renderHook(() => useMoveCard('0007'), { wrapper: withClient(queryClient) });
@@ -56,8 +64,9 @@ describe('useMoveCard', () => {
             await result.current.mutateAsync('implementing');
         });
 
-        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
-        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['card', '0007'] });
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
         // The runner is the sole writer (PROJECT.md, Architecture) — a successful move must only
         // ever trigger a re-fetch, never poke the new stage into the cache directly.
         expect(setQueryData).not.toHaveBeenCalled();
@@ -163,15 +172,19 @@ describe('useRepositionCard', () => {
     it('invalidates the cards list on success, to reconcile with the server\'s own order', async () => {
         vi.spyOn(wilson.board, 'repositionCard').mockResolvedValue({} as never);
         const queryClient = new QueryClient();
-        queryClient.setQueryData(['cards'], [card('0001', 0), card('0002', 1)]);
-        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        // Card 0155: only a project-scoped board (`['project', project, 'cards']`) is reachable now
+        // — asserting the actual cache effect (invalidated) rather than the literal `invalidateQueries`
+        // arguments, which is a `predicate` function since this card, not an exact `['cards']` key.
+        queryClient.setQueryData(['project', 'demo', 'cards'], [card('0001', 0), card('0002', 1)]);
+        queryClient.setQueryData(['unrelated'], {});
 
         const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
         await act(async () => {
             await result.current.mutateAsync({ id: '0001', beforeId: '0002', optimisticCards: [card('0002', 0), card('0001', 1)] });
         });
 
-        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
     });
 });
 
@@ -187,7 +200,12 @@ describe('useStartCard', () => {
             body: '',
         });
         const queryClient = new QueryClient();
-        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+        // Card 0155: the only board and card queries reachable now carry a `['project', project, ...]`
+        // prefix — same reasoning as `useMoveCard`'s test above, and the same `predicate` (not exact
+        // key) that `invalidateQueries` is actually called with since this card.
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        queryClient.setQueryData(['unrelated'], {});
         const setQueryData = vi.spyOn(queryClient, 'setQueryData');
 
         const { result } = renderHook(() => useStartCard('0007'), { wrapper: withClient(queryClient) });
@@ -195,8 +213,9 @@ describe('useStartCard', () => {
             await result.current.mutateAsync();
         });
 
-        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cards'] });
-        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['card', '0007'] });
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
         expect(setQueryData).not.toHaveBeenCalled();
     });
 
@@ -259,7 +278,15 @@ describe('useSaveAPlanDraft', () => {
     it('sends the body to plan/save and writes the response straight into the card cache — not an invalidate', async () => {
         const saveAPlanDraft = vi.spyOn(wilson.board, 'saveAPlanDraft').mockResolvedValue(savedCard);
         const queryClient = new QueryClient();
-        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+        // Card 0155: a card reached through a `/projects/$project/*` route keeps its own copy at
+        // `['project', project, 'card', id]` (`mutations.ts`'s doc comment on this hook) — writing
+        // through `setQueriesData({ predicate: matchesCard }, result)` rather than the literal
+        // `['card', id]` key this test used to assert on. `setQueriesData` only ever touches queries
+        // already in the cache, so this file seeds one project-scoped copy (with stale data) plus an
+        // unrelated key, and asserts on the actual written value rather than the literal arguments
+        // `setQueryData` is called with.
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], { ...savedCard, body: 'stale' });
+        queryClient.setQueryData(['unrelated'], {});
         const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
 
         const { result } = renderHook(() => useSaveAPlanDraft('0007'), { wrapper: withClient(queryClient) });
@@ -271,7 +298,8 @@ describe('useSaveAPlanDraft', () => {
         // Card [[0138]]'s own contract (`mutations.ts`'s doc comment): the card's new version reaches
         // the screen the moment the write lands, straight from the response, not from a refetch a
         // caller would otherwise have to wait on.
-        expect(setQueryData).toHaveBeenCalledWith(['card', '0007'], savedCard);
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007'])).toEqual(savedCard);
+        expect(queryClient.getQueryData(['unrelated'])).toEqual({});
         expect(invalidateQueries).not.toHaveBeenCalled();
     });
 
