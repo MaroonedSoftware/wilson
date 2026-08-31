@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
+import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { CardEvent, CardDetail, CardSummary, CardVersion, ListQuery } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
@@ -15,6 +16,16 @@ const DEFAULT_HISTORY_LIMIT = 50;
 const MAX_HISTORY_LIMIT = 200;
 
 const clampLimit = (limit: number | undefined): number => Math.min(limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+
+/**
+ * Card 0178. How far back {@link BoardService.withStageEnteredAt} looks for the transition that
+ * answers `stageEnteredAt` — the same window `wilson card show` already fetches for the same
+ * derivation (packages/cli/src/commands/card/show.command.ts). A stage that racks up more events
+ * than this before its next transition (an agent's tool calls, mostly) pushes the transition out
+ * of the window; `withStageEnteredAt` notices when that happened and answers `undefined` rather
+ * than guessing from whatever the window's earliest event happens to be.
+ */
+const STAGE_ENTERED_LOOKBACK = 20;
 
 /**
  * Exported so `BoardWriteService` can shape a card the same way after a write as this service does
@@ -67,15 +78,34 @@ export class BoardService {
         return { ...summary, resolvedBranch: this.worktrees.resolveBranch(card) };
     }
 
+    /**
+     * Card 0178. Adds `stageEnteredAt` on top of whatever `toCardSummary`/`toCardDetail` already
+     * built — the moment `card` entered its current stage, read from its own event tail and
+     * derived the same way `wilson card show` derives it (`stageEnteredAt`, time.in.stage.ts).
+     * Left absent when the fetched history has no events at all, rather than guessing.
+     *
+     * `eventLog.tail` returning fewer rows than `STAGE_ENTERED_LOOKBACK` asked for means there was
+     * nothing more to fetch — this tail *is* the card's complete history, so `stageEnteredAt` can
+     * trust the earliest row in it as the stage's start when no transition turns up. A full window
+     * proves nothing either way: there could be exactly that many events, or there could be more
+     * sitting before it that this fetch never reached — the same ambiguity `stageEnteredAt`'s
+     * `fullHistory` option exists to resolve as "unknown" rather than "the window's earliest event".
+     */
+    private async withStageEnteredAt<T extends CardSummary>(card: Card, summary: T): Promise<T> {
+        const events = await this.eventLog.tail(this.boardConfig.project, card.frontmatter.id, STAGE_ENTERED_LOOKBACK);
+        const fullHistory = events.length < STAGE_ENTERED_LOOKBACK;
+        return { ...summary, stageEnteredAt: stageEnteredAt(events, { fullHistory }) };
+    }
+
     async list(): Promise<CardSummary[]> {
         const cards = await this.boardRepository.list();
-        return cards.map(card => this.withResolvedBranch(card, toCardSummary(card)));
+        return Promise.all(cards.map(card => this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))));
     }
 
     async getById(id: string): Promise<CardDetail> {
         try {
             const card = await this.boardRepository.read(id);
-            return this.withResolvedBranch(card, toCardDetail(card));
+            return await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card)));
         } catch (err) {
             if (err instanceof CardNotFoundError) throw httpError(404);
             throw err;

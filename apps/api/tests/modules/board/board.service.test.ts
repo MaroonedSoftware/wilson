@@ -24,6 +24,11 @@ const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, sections
     body,
 });
 
+// Card 0178: `list`/`getById` now read each card's event tail to derive `stageEnteredAt`. Most
+// tests below don't care about that field, so this fake answers every `tail` call with no events —
+// the same "history cannot answer the question" case that leaves `stageEnteredAt` absent.
+const noHistory = { tail: async () => [] } as unknown as EventLog;
+
 /**
  * `BoardService` is a thin translation layer over `BoardRepository` and `EventLog`, so every test
  * here hands it hand-rolled fakes for those two collaborators — the same idiom
@@ -35,7 +40,7 @@ describe('BoardService', () => {
         it('maps board cards into summaries, leaving body and sections behind', async () => {
             const cards = [card('0001', { title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'] }, { Goal: 'x' }, 'the body')];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const summaries = await service.list();
 
@@ -58,7 +63,7 @@ describe('BoardService', () => {
         it('defaults needsHuman to false on the wire when the frontmatter omits it, so the web never sees an absent flag', async () => {
             const cards = [card('0001', { needsHuman: undefined })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
@@ -69,7 +74,7 @@ describe('BoardService', () => {
         it('carries needsHuman and its reason through to the summary when the frontmatter sets them', async () => {
             const cards = [card('0001', { needsHuman: true, needsHumanReason: 'waiting on legal sign-off' })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
@@ -80,7 +85,7 @@ describe('BoardService', () => {
         it('leaves branch undefined for a card that has none, rather than sending null', async () => {
             const cards = [card('0001', { branch: undefined })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
@@ -93,7 +98,7 @@ describe('BoardService', () => {
         it('derives resolvedBranch from the title for a card that never recorded a branch', async () => {
             const cards = [card('0002', { title: 'Fix the thing', branch: undefined })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
@@ -106,7 +111,7 @@ describe('BoardService', () => {
         it("carries a card's position through to the summary when it has one", async () => {
             const cards = [card('0001', { stage: 'parking-lot', position: 1500 })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
@@ -116,11 +121,124 @@ describe('BoardService', () => {
         it('leaves position undefined for a card nothing has ever dragged, rather than sending null', async () => {
             const cards = [card('0001', { stage: 'parking-lot', position: undefined })];
             const boardRepository = { list: async () => cards } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const [summary] = await service.list();
 
             expect(summary.position).toBeUndefined();
+        });
+
+        // Card 0178: a moved card's summary reports when it entered its current stage — the same
+        // `transition.written` moment `wilson card show` already surfaces for a single card.
+        it("reports stageEnteredAt as the card's most recent transition", async () => {
+            const cards = [card('0001', { stage: 'review' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const enteredReview = DateTime.fromISO('2024-01-02T00:00:00.000Z');
+            const eventLog = {
+                tail: async () => [
+                    { id: '1', stage: 'implementing', type: 'stage.dispatched', payload: {}, createdAt: DateTime.fromISO('2024-01-01T00:00:00.000Z') },
+                    { id: '2', stage: 'review', type: 'transition.written', payload: {}, createdAt: enteredReview },
+                ],
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toEqual(enteredReview);
+        });
+
+        // Card 0178: a card whose fetched event history has no events at all has no answer to "when
+        // did this enter its stage" — the field stays absent rather than guessing.
+        it('omits stageEnteredAt for a card with no usable event history', async () => {
+            const cards = [card('0001')];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toBeUndefined();
+        });
+
+        it("reads each card's own event tail for this board's project, not some other card's or project's", async () => {
+            const cards = [card('0001')];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            let seenArgs: [string, string] | undefined;
+            const eventLog = {
+                tail: async (project: string, id: string) => {
+                    seenArgs = [project, id];
+                    return [];
+                },
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await service.list();
+
+            expect(seenArgs).toEqual(['proj', '0001']);
+        });
+
+        // Card 0178 review: a card mid-stage can rack up more events than the lookback window (an
+        // agent's own tool calls, mostly) without ever transitioning within it. A full window with
+        // no `transition.written` in it does not mean the card never transitioned — it means the
+        // transition, if any, fell outside the window this fetch happened to cover. Falling back to
+        // the window's earliest event in that case would report a wrong, too-recent timestamp as
+        // fact; this proves `stageEnteredAt` comes back absent instead.
+        it('omits stageEnteredAt, rather than guessing, when the lookback window is full but holds no transition', async () => {
+            const cards = [card('0001', { stage: 'implementing' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const fullWindowNoTransition = Array.from({ length: 20 }, (_, i) => ({
+                id: String(i),
+                stage: 'implementing',
+                type: 'tool.executed',
+                payload: {},
+                createdAt: DateTime.fromISO('2024-01-01T00:00:00.000Z').plus({ minutes: i }),
+            }));
+            const eventLog = { tail: async () => fullWindowNoTransition } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toBeUndefined();
+        });
+
+        // Card 0178 review: the same full-window case, but the transition is present in the
+        // window — the fix must not turn a genuinely answerable case into a guess either.
+        it('still reports stageEnteredAt when the lookback window is full and the transition is within it', async () => {
+            const cards = [card('0001', { stage: 'review' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const enteredReview = DateTime.fromISO('2024-01-01T00:10:00.000Z');
+            const fullWindow = Array.from({ length: 20 }, (_, i) => ({
+                id: String(i),
+                stage: i < 10 ? 'implementing' : 'review',
+                type: i === 10 ? 'transition.written' : 'tool.executed',
+                payload: {},
+                createdAt: i === 10 ? enteredReview : DateTime.fromISO('2024-01-01T00:00:00.000Z').plus({ minutes: i }),
+            }));
+            const eventLog = { tail: async () => fullWindow } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toEqual(enteredReview);
+        });
+
+        // Card 0178: only a handful of a card's most recent events are fetched to answer
+        // `stageEnteredAt` — the same bounded lookback `wilson card show` already uses, not the
+        // card's entire history.
+        it('bounds the event tail it reads to a small lookback window rather than the full history', async () => {
+            const cards = [card('0001')];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            let seenLimit: number | undefined;
+            const eventLog = {
+                tail: async (_project: string, _id: string, limit: number) => {
+                    seenLimit = limit;
+                    return [];
+                },
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await service.list();
+
+            expect(seenLimit).toBe(20);
         });
     });
 
@@ -133,7 +251,7 @@ describe('BoardService', () => {
                     return found;
                 },
             } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const detail = await service.getById('0001');
 
@@ -149,10 +267,35 @@ describe('BoardService', () => {
             const boardRepository = {
                 read: async (id: string) => (id === '0001' ? recorded : unrecorded),
             } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             expect((await service.getById('0001')).resolvedBranch).toBe('card/0001-custom');
             expect((await service.getById('0002')).resolvedBranch).toBe(worktrees.branchName('0002', 'Fix the thing'));
+        });
+
+        // Card 0178: `getById` stitches `stageEnteredAt` on just like `list` does.
+        it('reports stageEnteredAt as the moment the card last transitioned', async () => {
+            const found = card('0001', { stage: 'review' });
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const enteredReview = DateTime.fromISO('2024-01-02T00:00:00.000Z');
+            const eventLog = {
+                tail: async () => [{ id: '1', stage: 'review', type: 'transition.written', payload: {}, createdAt: enteredReview }],
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const detail = await service.getById('0001');
+
+            expect(detail.stageEnteredAt).toEqual(enteredReview);
+        });
+
+        it('omits stageEnteredAt for a card with no usable event history', async () => {
+            const found = card('0001');
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            const detail = await service.getById('0001');
+
+            expect(detail.stageEnteredAt).toBeUndefined();
         });
 
         it('translates a missing card into a 404 rather than letting it become a 500', async () => {
@@ -161,7 +304,7 @@ describe('BoardService', () => {
                     throw new CardNotFoundError('card 0001 does not exist');
                 },
             } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             await expect(service.getById('missing')).rejects.toMatchObject({ statusCode: 404 });
         });
@@ -173,7 +316,7 @@ describe('BoardService', () => {
                     throw boom;
                 },
             } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             await expect(service.getById('0001')).rejects.toBe(boom);
         });
@@ -246,7 +389,7 @@ describe('BoardService', () => {
                     return [];
                 },
             } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             await service.versions('0001', {});
             await service.versions('0001', { limit: 10000 });
@@ -258,7 +401,7 @@ describe('BoardService', () => {
             const createdAt = DateTime.fromISO('2024-01-01T00:00:00.000Z');
             const versions: CardVersionSummary[] = [{ id: 'v1', message: 'create', createdAt }];
             const boardRepository = { versions: async () => versions } as unknown as BoardRepository;
-            const service = new BoardService(boardRepository, {} as unknown as EventLog, config, worktrees);
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             expect(await service.versions('0001', {})).toEqual(versions);
         });
