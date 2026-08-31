@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
 import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -37,12 +43,14 @@ const ProjectsProjectCardsCardIdRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project': typeof ProjectsProjectIndexRoute
@@ -50,6 +58,7 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
@@ -58,18 +67,21 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/settings'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/settings'
     | '/projects/$project/flagged'
     | '/projects/$project'
     | '/projects/$project/cards/$cardId'
   id:
     | '__root__'
+    | '/'
     | '/settings'
     | '/projects/$project/flagged'
     | '/projects/$project/'
@@ -77,6 +89,7 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
   ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
@@ -85,6 +98,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -117,6 +137,7 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
   ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,

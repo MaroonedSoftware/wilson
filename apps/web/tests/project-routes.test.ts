@@ -17,7 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, SdkError } from '@wilson/sdk';
+import { BoardClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { API_BASE } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -205,15 +205,19 @@ describe('a project-scoped route, reading through a client built for its own pro
     });
 
     // Card 0155 deleted the top-level board route in the same change that moved every link onto
-    // its `/projects/$project` counterpart — this used to render the board with no project at all
-    // (`GET /api/feed`, no `?project=`), which is exactly what a stray old bookmark or link would
-    // still try to do if the route had merely been superseded rather than actually removed. The
-    // shell around it (the header, the feed subscription in `__root.tsx`) still mounts — nothing
-    // about the route not matching is fatal — but no board renders inside it.
-    it('no longer renders a board at the old top-level route — that page is deleted, not merely superseded', async () => {
+    // its `/projects/$project` counterpart, leaving `/` a 404 with no board and no per-project fan-out
+    // — exactly what a stray old bookmark or link would still try to do if the route had merely been
+    // superseded rather than actually removed. Card 0169 gave `/` its own content back (the
+    // dashboard), but that content is still not a board: no card count, no per-project fetch, just
+    // the registered projects by name (`routes/index.tsx`'s own doc comment — the fan-out was
+    // considered and rejected, not deferred). The shell around it (the header, the feed subscription
+    // in `__root.tsx`) still mounts regardless of which of the two it renders.
+    it('renders the dashboard, not a board, at the top-level route', async () => {
+        vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
+
         renderApp('/');
 
-        expect(await screen.findByText('Not Found')).toBeTruthy();
+        expect(await screen.findByText('Dashboard')).toBeTruthy();
         expect(screen.queryByText(/\d+ cards/)).toBeNull();
         // The shell itself is unaffected: the header's own feed subscription (unscoped — no
         // project param on this path) still opens, same as it always has.
