@@ -235,9 +235,28 @@ describe('routers', () => {
     });
 
     it('does not route an undeclared method to the projects path', () => {
-        expect(ProjectsRouter.match('/api/projects', 'POST').route).toBe(false);
         expect(ProjectsRouter.match('/api/projects', 'PUT').route).toBe(false);
         expect(ProjectsRouter.match('/api/projects', 'DELETE').route).toBe(false);
+    });
+
+    // Card 0168: registering a project, and correcting an already-registered one's paths — the two
+    // writes this card added beside the read `GET /api/projects` already had.
+    it('routes POST /api/projects to the projects router', () => {
+        expect(ProjectsRouter.match('/api/projects', 'POST').route).toBe(true);
+    });
+
+    it('routes PATCH /api/projects/:name to the projects router', () => {
+        expect(ProjectsRouter.match('/api/projects/wilson', 'PATCH').route).toBe(true);
+    });
+
+    // No GET /api/projects/{name} — card 0168's contract deliberately adds no read that would
+    // disclose the four paths a create/update request carries. No other undeclared method reaches
+    // the named-project path either, the same as every other write path on this surface.
+    it('does not route an undeclared method to the /api/projects/:name path', () => {
+        expect(ProjectsRouter.match('/api/projects/wilson', 'GET').route).toBe(false);
+        expect(ProjectsRouter.match('/api/projects/wilson', 'POST').route).toBe(false);
+        expect(ProjectsRouter.match('/api/projects/wilson', 'PUT').route).toBe(false);
+        expect(ProjectsRouter.match('/api/projects/wilson', 'DELETE').route).toBe(false);
     });
 });
 
@@ -282,6 +301,127 @@ describe('ProjectsRouter', () => {
 
         expect(ctx.status).toBe(200);
         expect(ctx.body).toEqual([]);
+    });
+});
+
+/**
+ * Card 0168. `POST /api/projects` and `PATCH /api/projects/:name`, driven the same way the `GET`
+ * describe block above drives `list` — through the matched layer's own handler function, rather
+ * than `ProjectsRouter.routes()` itself: the full middleware stack for a write also runs
+ * `bodyParserMiddleware`, which reads a real request stream this fake `ctx` has none of. Skipping
+ * straight to the handler (the last function in the matched layer's `stack`) and setting
+ * `ctx.parsedBody` directly is the same shortcut `bodyParserMiddleware` itself exists to make
+ * unnecessary in production — here it stands in for "the body already parsed". `ProjectsService`'s
+ * own validation and refusal behaviour has its coverage in `projects.service.test.ts`; this only
+ * proves the handler wires a valid or invalid body through to it and answers with the status and
+ * body the contract promises.
+ */
+describe('ProjectsRouter writes (card 0168)', () => {
+    const dispatchWrite = (
+        method: 'POST' | 'PATCH',
+        path: string,
+        parsedBody: unknown,
+        params: Record<string, string>,
+        service: Partial<{ create: (body: unknown) => Promise<unknown>; update: (name: string, body: unknown) => Promise<unknown> }>,
+    ): Promise<Record<string, unknown>> => {
+        const match = ProjectsRouter.match(path, method);
+        const layer = match.pathAndMethod[match.pathAndMethod.length - 1];
+        if (!layer) throw new Error(`no layer matched ${method} ${path}`);
+        const handler = layer.stack[layer.stack.length - 1] as (ctx: Record<string, unknown>, next: () => Promise<void>) => Promise<void>;
+        const ctx: Record<string, unknown> = {
+            method,
+            path,
+            request: {},
+            params,
+            headers: {},
+            query: {},
+            parsedBody,
+            container: {
+                get: (token: unknown) => {
+                    if (token === ProjectsService) return service;
+                    throw new Error(`unexpected container.get(${String(token)})`);
+                },
+            },
+        };
+        return handler(ctx, async () => {}).then(() => ctx);
+    };
+
+    const createBody = { name: 'wilson', boardRoot: '/board', codeRoot: '/code', worktreeRoot: '/wt', runRoot: '/run' };
+
+    it('answers 201 with the Project ProjectsService.create() resolves, given a request matching CreateProjectRequest', async () => {
+        const create = vi.fn(async () => ({ name: 'wilson' }));
+
+        const ctx = await dispatchWrite('POST', '/api/projects', createBody, {}, { create });
+
+        expect(create).toHaveBeenCalledWith(createBody);
+        expect(ctx.status).toBe(201);
+        expect(ctx.type).toBe('application/json');
+        expect(ctx.body).toEqual({ name: 'wilson' });
+    });
+
+    it('rejects a create body missing a required path field with a 400, and never calls the service', async () => {
+        const create = vi.fn(async () => ({ name: 'wilson' }));
+        const withoutBoardRoot = { name: createBody.name, codeRoot: createBody.codeRoot, worktreeRoot: createBody.worktreeRoot, runRoot: createBody.runRoot };
+
+        await expect(dispatchWrite('POST', '/api/projects', withoutBoardRoot, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a create body carrying an unrecognised field with a 400, since CreateProjectRequest is a strict object', async () => {
+        const create = vi.fn(async () => ({ name: 'wilson' }));
+
+        await expect(dispatchWrite('POST', '/api/projects', { ...createBody, extra: 'nope' }, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(create).not.toHaveBeenCalled();
+    });
+
+    it('lets ProjectsService.create()\'s own refusal (e.g. a 409 for a taken name) propagate through the handler unchanged', async () => {
+        const create = vi.fn(async () => {
+            throw Object.assign(new Error('taken'), { statusCode: 409, details: { reason: 'project "wilson" is already registered' } });
+        });
+
+        await expect(dispatchWrite('POST', '/api/projects', createBody, {}, { create })).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('answers 200 with the Project ProjectsService.update() resolves, given a request matching UpdateProjectRequest', async () => {
+        const update = vi.fn(async () => ({ name: 'wilson' }));
+
+        const ctx = await dispatchWrite('PATCH', '/api/projects/wilson', { boardRoot: '/new-board' }, { name: 'wilson' }, { update });
+
+        expect(update).toHaveBeenCalledWith('wilson', { boardRoot: '/new-board' });
+        expect(ctx.status).toBe(200);
+        expect(ctx.type).toBe('application/json');
+        expect(ctx.body).toEqual({ name: 'wilson' });
+    });
+
+    it('accepts an empty update body, since every UpdateProjectRequest field is optional', async () => {
+        const update = vi.fn(async () => ({ name: 'wilson' }));
+
+        const ctx = await dispatchWrite('PATCH', '/api/projects/wilson', {}, { name: 'wilson' }, { update });
+
+        expect(update).toHaveBeenCalledWith('wilson', {});
+        expect(ctx.status).toBe(200);
+    });
+
+    it('rejects an update body carrying a name field with a 400, since UpdateProjectRequest is a strict object with no name field', async () => {
+        const update = vi.fn(async () => ({ name: 'wilson' }));
+
+        await expect(dispatchWrite('PATCH', '/api/projects/wilson', { name: 'renamed' }, { name: 'wilson' }, { update })).rejects.toMatchObject({
+            statusCode: 400,
+        });
+
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('lets ProjectsService.update()\'s own refusal (e.g. a 404 for an unregistered name) propagate through the handler unchanged', async () => {
+        const update = vi.fn(async () => {
+            throw Object.assign(new Error('missing'), { statusCode: 404, details: { reason: 'project "ghost" is not registered' } });
+        });
+
+        await expect(dispatchWrite('PATCH', '/api/projects/ghost', { boardRoot: '/x' }, { name: 'ghost' }, { update })).rejects.toMatchObject({
+            statusCode: 404,
+        });
     });
 });
 
