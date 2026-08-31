@@ -582,6 +582,24 @@ describe('the edit body control', () => {
         expect(screen.queryByRole('button', { name: 'Edit body' })).toBeNull();
     });
 
+    it('is not rendered while the card is in parking-lot either — same DraftPane branch as planning', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('parking-lot'));
+        vi.spyOn(BoardClient.prototype, 'openAPlanningSession').mockResolvedValue({
+            sessionId: '0007',
+            worktreePath: '/tmp/plan-0007',
+            draftPath: '/tmp/plan-0007/PLAN.md',
+            model: 'x',
+            instructions: 'x',
+        });
+        vi.spyOn(BoardClient.prototype, 'getAPlanDraft').mockResolvedValue({ body: 'the plan' });
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('Conversation')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit body' })).toBeNull();
+    });
+
     it('opens a modal seeded with the current body and saves on submit', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         const editCardBody = vi.spyOn(BoardClient.prototype, 'editCardBody').mockResolvedValue(card('testing', { body: 'the rewritten plan' }));
