@@ -8,7 +8,7 @@ import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { filesInScope, formatTimestamp } from '#src/lib/card.js';
-import { invalidateCard, invalidateCardsList, reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
+import { invalidateCard, invalidateCardsList, reasonFor, useAckCard, useMoveCard, useReleaseCard, useStartCard } from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
@@ -184,6 +184,40 @@ function MergeControl({ card }: { card: CardDetail }) {
 }
 
 /**
+ * Card 0087's other safe-cancel operator action, beside `EnqueueButton`/`MergeControl` in the
+ * action row. Renders unconditionally, the same reasoning `EnqueueButton` above already relies on
+ * (this card's Constraints): there is no client-side signal for "a job carries this card" to hide
+ * behind, so a card nothing is carrying just gets the server's own refusal as a notification
+ * (`useReleaseCard`, `lib/mutations.ts`) rather than a control this file guessed should be hidden.
+ */
+function ReleaseControl({ card }: { card: CardDetail }) {
+    const releaseCard = useReleaseCard(card.id);
+
+    return (
+        <Button size="xs" variant="light" color="orange" onClick={() => releaseCard.mutate()} loading={releaseCard.isPending}>
+            Release
+        </Button>
+    );
+}
+
+/**
+ * The needs-human panel's own way to clear the flag (card 0087's `POST .../ack`), replacing the
+ * `wilson card ack {id}` hint that used to point an operator at a terminal for this. No optimistic
+ * clearing (this card's Constraints): the panel above keeps rendering until the refetched card
+ * actually says `needsHuman: false` (`useAckCard`'s invalidation), the same rule `MoveControl`
+ * follows for a stage change.
+ */
+function AckButton({ card }: { card: CardDetail }) {
+    const ackCard = useAckCard(card.id);
+
+    return (
+        <Button size="xs" variant="light" color="red" onClick={() => ackCard.mutate()} loading={ackCard.isPending}>
+            Acknowledge
+        </Button>
+    );
+}
+
+/**
  * The timeline an operator reads to answer "why is this card not moving" — newest event first,
  * each tagged with the stage it happened in, favouring legibility over density.
  */
@@ -338,19 +372,18 @@ export function CardDetailView({
                 <Group gap="xs" align="center">
                     <MoveControl card={card} columns={columns} columnsError={columnsError} />
                     <EnqueueButton card={card} />
+                    <ReleaseControl card={card} />
                     <MergeControl card={card} />
                 </Group>
             </Stack>
 
             {card.needsHuman && (
                 <Paper withBorder p="sm" radius="sm" style={{ borderColor: 'var(--mantine-color-red-6)' }}>
-                    <Stack gap={4}>
+                    <Stack gap={6}>
                         <Text size="sm" fw={500} c="red">
                             {card.needsHumanReason ?? 'This card is flagged for a human.'}
                         </Text>
-                        <Text size="xs" c="dimmed">
-                            Clear it with <Code>wilson card ack {card.id}</Code>.
-                        </Text>
+                        <AckButton card={card} />
                     </Stack>
                 </Paper>
             )}

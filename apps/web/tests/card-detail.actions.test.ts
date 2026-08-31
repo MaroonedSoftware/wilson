@@ -45,6 +45,13 @@ const card = (stage: string): CardDetail => ({
     body: 'the plan',
 });
 
+/** A flagged card, for the needs-human panel's own tests below. */
+const flaggedCard = (stage: string): CardDetail => ({
+    ...card(stage),
+    needsHuman: true,
+    needsHumanReason: 'the job crashed twice in a row',
+});
+
 /**
  * The root layout mounts `useCardFeed` on every route — jsdom has no `EventSource`, so without a
  * stand-in the shell throws before `/cards/$cardId` ever renders. Not the behaviour under test.
@@ -386,5 +393,121 @@ describe('the merge control', () => {
         });
 
         expect(await screen.findByText('cannot merge 0007: it is in "implementing", not "ready"')).toBeTruthy();
+    });
+});
+
+// Card 0176: the needs-human panel clears the flag itself rather than pointing an operator at a
+// terminal (`wilson card ack {id}`) — an Acknowledge button calling `POST .../ack`.
+describe('the needs-human panel', () => {
+    it('renders an Acknowledge button and no wilson card ack hint', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(flaggedCard('testing'));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+        expect(screen.queryByText(/wilson card ack/)).toBeNull();
+    });
+
+    it('acknowledges the card but keeps the panel until the query re-fetches', async () => {
+        const getCard = vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(flaggedCard('testing'));
+        let resolveAck: ((card: CardDetail) => void) | undefined;
+        const acknowledgeAFlaggedCard = vi.spyOn(BoardClient.prototype, 'acknowledgeAFlaggedCard').mockImplementation(
+            () =>
+                new Promise<CardDetail>(resolve => {
+                    resolveAck = resolve;
+                }),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Acknowledge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(acknowledgeAFlaggedCard).toHaveBeenCalledWith('0007');
+        // The request is in flight; no optimistic clearing — the panel (and its button) still renders.
+        expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+
+        getCard.mockResolvedValue(card('testing'));
+        await act(async () => {
+            resolveAck?.(card('testing'));
+        });
+
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull());
+    });
+
+    it("shows the API's reason when acknowledgement is refused, rather than swallowing it", async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(flaggedCard('testing'));
+        vi.spyOn(BoardClient.prototype, 'acknowledgeAFlaggedCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is not flagged' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Acknowledge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(await screen.findByText('card 0007 is not flagged')).toBeTruthy();
+        // The panel is still up — no optimistic clearing on a refusal either.
+        expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+    });
+});
+
+// Card 0176: the safe-cancel counterpart to Enqueue/Merge — a Release button that calls
+// `POST .../release` and always ends in a notification, since a refusal (a job genuinely mid-run)
+// is the only client-side signal there ever is for "a job carries this card".
+describe('the release control', () => {
+    it('releases the card and shows a success notification naming releasedAs', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const releaseCard = vi.spyOn(BoardClient.prototype, 'releaseCard').mockResolvedValue({
+            ...card('testing'),
+            releasedAs: 'orphan',
+        });
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Release' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(releaseCard).toHaveBeenCalledWith('0007');
+        expect(await screen.findByText('Released')).toBeTruthy();
+        expect(await screen.findByText(/orphan/)).toBeTruthy();
+    });
+
+    it('shows the reason as a notification when release is refused, rather than swallowing it', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const releaseCard = vi.spyOn(BoardClient.prototype, 'releaseCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'job job-42 is actively running card 0007' } },
+                new Headers(),
+            ),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Release' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(releaseCard).toHaveBeenCalledWith('0007');
+        expect(await screen.findByText('job job-42 is actively running card 0007')).toBeTruthy();
     });
 });

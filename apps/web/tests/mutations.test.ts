@@ -12,9 +12,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SdkError, type CardDetail, type CardSummary, type PlanComment } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import {
+    useAckCard,
     useAddPlanComment,
     useCreateCard,
     useMoveCard,
+    useReleaseCard,
     useRepositionCard,
     useResolvePlanComment,
     useSaveAPlanDraft,
@@ -260,6 +262,112 @@ describe('useStartCard', () => {
 
         await waitFor(() =>
             expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: 'plan is missing "Acceptance criteria"' })),
+        );
+    });
+});
+
+describe('useAckCard', () => {
+    it('invalidates the cards list and the card itself on success, with no direct write', async () => {
+        vi.spyOn(wilson.board, 'acknowledgeAFlaggedCard').mockResolvedValue({
+            id: '0007',
+            title: 'x',
+            stage: 'testing',
+            dependsOn: [],
+            needsHuman: false,
+            sections: {},
+            body: '',
+        });
+        const queryClient = new QueryClient();
+        // Same reasoning as useMoveCard/useStartCard's own tests above: only a project-scoped
+        // ['project', project, ...] key is reachable since card 0155, matched by the predicate
+        // invalidateCardsList/invalidateCard actually call invalidateQueries with.
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        queryClient.setQueryData(['unrelated'], {});
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useAckCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync();
+        });
+
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
+        // No optimistic clearing of needsHuman — the panel disappears only once the invalidated
+        // query actually re-fetches (this card's Constraints).
+        expect(setQueryData).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification", async () => {
+        vi.spyOn(wilson.board, 'acknowledgeAFlaggedCard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is not flagged' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useAckCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate();
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not acknowledge the card', message: 'card 0007 is not flagged' }),
+            ),
+        );
+    });
+});
+
+describe('useReleaseCard', () => {
+    it('invalidates the cards list and the card itself, and shows a success notification naming releasedAs', async () => {
+        vi.spyOn(wilson.board, 'releaseCard').mockResolvedValue({
+            id: '0007',
+            title: 'x',
+            stage: 'testing',
+            dependsOn: [],
+            needsHuman: false,
+            sections: {},
+            body: '',
+            releasedAs: 'queued',
+        });
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        queryClient.setQueryData(['unrelated'], {});
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useReleaseCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync();
+        });
+
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
+        expect(setQueryData).not.toHaveBeenCalled();
+        expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ color: 'green', title: 'Released', message: expect.stringContaining('queued') }));
+    });
+
+    it("shows the API's own refusal reason as a notification when a job is genuinely mid-run", async () => {
+        vi.spyOn(wilson.board, 'releaseCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'job job-42 is actively running card 0007' } },
+                new Headers(),
+            ),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useReleaseCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate();
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not release the card', message: 'job job-42 is actively running card 0007' }),
+            ),
         );
     });
 });
