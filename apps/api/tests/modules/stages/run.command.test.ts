@@ -43,6 +43,36 @@ describe('scrubbedEnv', () => {
     it('injects CI=true regardless of the parent process', () => {
         expect(scrubbedEnv().CI).toBe('true');
     });
+
+    /**
+     * Card 0027: `scrubbedEnv` grew an optional `port` argument, injected explicitly as `PORT` so a
+     * dev server a stage starts does not collide with another card's. Absent whenever no range is
+     * configured (the default), which every test above already exercises via `scrubbedEnv()` with no
+     * argument — these cover the new argument itself.
+     */
+    describe('the injected PORT argument', () => {
+        afterEach(() => {
+            delete process.env.PORT;
+        });
+
+        it('adds no PORT when no port is given, exactly as before this argument existed', () => {
+            expect(scrubbedEnv().PORT).toBeUndefined();
+        });
+
+        it('sets PORT to the given port, stringified', () => {
+            expect(scrubbedEnv(4321).PORT).toBe('4321');
+        });
+
+        // The point matches `run.command.ts`'s own doc comment on this argument: the daemon's own
+        // PORT, if it has one, is its own and must never leak through — only the explicitly given
+        // one may appear.
+        it("never leaks the parent process's own PORT through — only the explicitly given one appears", () => {
+            process.env.PORT = '9999';
+
+            expect(scrubbedEnv().PORT).toBeUndefined();
+            expect(scrubbedEnv(4321).PORT).toBe('4321');
+        });
+    });
 });
 
 describe('runConfiguredCommand environment', () => {
@@ -80,6 +110,39 @@ describe('runConfiguredCommand environment', () => {
 
         const failure = await runConfiguredCommand(tmpdir(), `node ${scriptPath}`);
         expect(failure).toBeUndefined();
+    });
+
+    /**
+     * Card 0027: `runConfiguredCommand` grew a fourth, optional `port` argument threaded straight
+     * through to `scrubbedEnv`, so a `setupCommand` sees the same `PORT` the agent's bash tool would.
+     * The daemon's own `PORT`, set here on the parent process to a different value, must never reach
+     * the child — only the explicitly given one may.
+     */
+    it("gives the child the given port as PORT, never the parent process's own PORT", async () => {
+        process.env.PORT = '9999';
+
+        scriptDir = mkdtempSync(join(tmpdir(), 'card-0027-port-'));
+        const scriptPath = join(scriptDir, 'print-port.js');
+        writeFileSync(scriptPath, "console.error(process.env.PORT ?? 'unset');\nprocess.exit(1);\n");
+
+        const failure = await runConfiguredCommand(tmpdir(), `node ${scriptPath}`, undefined, 4321);
+
+        expect(failure).toBeDefined();
+        expect(failure!.reason).toContain('4321');
+        expect(failure!.reason).not.toContain('9999');
+
+        delete process.env.PORT;
+    });
+
+    it('gives the child no PORT at all when no port is given, exactly as before this argument existed', async () => {
+        scriptDir = mkdtempSync(join(tmpdir(), 'card-0027-no-port-'));
+        const scriptPath = join(scriptDir, 'print-port.js');
+        writeFileSync(scriptPath, "console.error(process.env.PORT ?? 'unset');\nprocess.exit(1);\n");
+
+        const failure = await runConfiguredCommand(tmpdir(), `node ${scriptPath}`);
+
+        expect(failure).toBeDefined();
+        expect(failure!.reason).toContain('unset');
     });
 });
 

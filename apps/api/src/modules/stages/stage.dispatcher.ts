@@ -14,8 +14,11 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
+import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
@@ -211,6 +214,14 @@ const withCollateralCaveats = (outcome: StageOutcome, collateral: string[]): Sta
  */
 @Injectable()
 export class StageDispatcher {
+    // `settings`/`portAllocator` are optional for the same reason `WorktreeManager`'s own `leases`
+    // constructor param is (`worktree.manager.ts`): most of this class's own tests, and several
+    // others across the suite, construct it directly rather than through DI, one positional argument
+    // at a time. Card 0027 added these two after every one of those call sites already existed;
+    // requiring them would break each at the type level for tests this card is told not to touch
+    // ("Do not write tests; the testing stage adds them"). Left undefined, the port-allocation step
+    // below is skipped entirely — the same "nothing to do" outcome a card with no worktree already
+    // gets. Production wiring (`stages.module.ts`'s `useClass`) always supplies both via DI.
     constructor(
         private readonly config: BoardConfig,
         private readonly board: BoardRepository,
@@ -220,6 +231,8 @@ export class StageDispatcher {
         private readonly resultSchemas: StageResultSchemaMap,
         private readonly events: EventLog,
         private readonly logger: Logger,
+        private readonly settings?: SettingsStore,
+        private readonly portAllocator?: DevServerPortAllocator,
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
@@ -304,6 +317,31 @@ export class StageDispatcher {
             );
         }
 
+        // Card 0027. Acquired here, once the worktree above has actually landed, and before either
+        // `setupCommand` (just below) or the agent's own bash tool sees the tree — both read
+        // `scrubbedEnv`'s `PORT` (`run.command.ts`/`bash.tool.ts`), so a dev server either of them
+        // starts must see the same one. `WorktreeManager.reclaimUnlocked` (card 0165) already
+        // releases every lease this card holds on every route that ends its worktree, this card's own
+        // Constraints leave that side untouched — so nothing frees this port explicitly here.
+        //
+        // Off unless `DEV_SERVER_PORT_RANGE` is configured: `range` is `undefined` on a fresh
+        // deployment, exactly `CARD_STAGE_CONCURRENCY`'s own "unset environment resolves to the coded
+        // default" shape, and `port` then stays `undefined` all the way through — no lease row, no
+        // `PORT`, identical to every dispatch before this card. A `worktree: none` stage has no tree
+        // to bind a dev server in, so it takes no lease at all, configured range or not.
+        let port: number | undefined;
+        if (stage.worktree !== 'none' && this.settings && this.portAllocator) {
+            const range = await this.settings.get(DEV_SERVER_PORT_RANGE);
+            if (range) {
+                const allocation = await this.portAllocator.acquire(range, this.config.project, cardId);
+                if (!allocation.ok) {
+                    throw new Error(`could not allocate a dev server port for ${cardId}: ${allocation.reason}`);
+                }
+                port = allocation.port;
+                this.logger.info(`${cardId} ${stageName} allocated dev server port ${port}`);
+            }
+        }
+
         // Before the agent sees the tree, not as its first task: a fresh worktree has no
         // node_modules, and card 0001 twice spent its whole run installing dependencies and
         // confirming the baseline built, then reported that as the work.
@@ -325,7 +363,7 @@ export class StageDispatcher {
             const failure = await pnpmStoreLock.run(
                 `${cardId} ${stageName} setup`,
                 message => this.logger.info(message),
-                () => runConfiguredCommand(worktree.path, setupCommand),
+                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port),
                 waitedMs => {
                     installWaitedMs = waitedMs;
                 },
@@ -392,7 +430,7 @@ export class StageDispatcher {
         });
 
         try {
-            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, stages });
+            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, stages, port });
 
             // A write is allowed as collateral without a `request_scope` round trip, but it is still
             // a widening — reported here, always, so the review sees it and a stage can never widen
@@ -765,8 +803,10 @@ export class StageDispatcher {
         scope: ScopeGuard;
         planPath: string;
         stages: Awaited<ReturnType<typeof loadStages>>;
+        /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
+        port?: number;
     }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, stages } = input;
+        const { card, stage, worktree, scope, planPath, stages, port } = input;
 
         const context: ToolContext = {
             project: this.config.project,
@@ -778,6 +818,7 @@ export class StageDispatcher {
             // The stage's own value wins when it sets one; otherwise the project-wide default applies,
             // exactly as it did before this field existed (`stage.config.ts`).
             scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
+            port,
             events: this.events,
             logger: this.logger,
         };

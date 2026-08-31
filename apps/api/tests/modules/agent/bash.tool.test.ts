@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -89,5 +89,37 @@ describe('bashTool', () => {
         expect(message).toContain('error');
         expect(events).toHaveLength(1);
         expect(events[0]?.type).toBe('tool.denied');
+    });
+
+    /**
+     * Card 0027: `bashTool` now runs the child with `scrubbedEnv(ctx.port)` instead of
+     * `scrubbedEnv()`, so a dev server the agent starts through this tool sees the same `PORT` a
+     * `setupCommand` run by `StageDispatcher` would. `ctx.port` is `StageDispatcher`'s allocated
+     * port for this stage's worktree — plumbed straight from `ToolContext`, which this test controls
+     * directly rather than going through the dispatcher.
+     */
+    describe('the PORT the child process sees (card 0027)', () => {
+        it('is the value of ctx.port when the stage was given one', async () => {
+            const { context } = buildContext([`node ${join(root, 'print-port.js')}`]);
+            await writeFile(join(root, 'print-port.js'), "console.log(process.env.PORT ?? 'unset');\n");
+            (context as unknown as { port?: number }).port = 4321;
+            const execute = bashTool(context).execute as unknown as ExecuteFn;
+
+            const message = await execute({ command: `node ${join(root, 'print-port.js')}` });
+
+            expect(message.trim()).toBe('4321');
+        });
+
+        it('is unset when ctx.port is undefined — the default for a stage with no configured range', async () => {
+            const { context } = buildContext([`node ${join(root, 'print-port-unset.js')}`]);
+            await writeFile(join(root, 'print-port-unset.js'), "console.log(process.env.PORT ?? 'unset');\n");
+            // buildContext never sets `port`, so ToolContext.port is undefined here, exactly the
+            // shape every stage without a configured DEV_SERVER_PORT_RANGE has.
+            const execute = bashTool(context).execute as unknown as ExecuteFn;
+
+            const message = await execute({ command: `node ${join(root, 'print-port-unset.js')}` });
+
+            expect(message.trim()).toBe('unset');
+        });
     });
 });

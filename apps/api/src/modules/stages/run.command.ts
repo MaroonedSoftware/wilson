@@ -17,7 +17,15 @@ export interface CommandFailure {
  */
 export const PASSED_THROUGH = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_ENV'];
 
-export const scrubbedEnv = (): NodeJS.ProcessEnv => {
+/**
+ * `port`, when given, is `StageDispatcher`'s `DevServerPortAllocator` result for this stage's
+ * worktree (card 0027) — injected explicitly as `PORT`, never read from `process.env.PORT`: the
+ * daemon's own `PORT`, if it has one, is its own, and passing it through here would be exactly the
+ * collision this card exists to prevent. Absent whenever no port range is configured (the default),
+ * so a deploy that never sets `DEV_SERVER_PORT_RANGE` gets an environment identical to before this
+ * parameter existed.
+ */
+export const scrubbedEnv = (port?: number): NodeJS.ProcessEnv => {
     const env: NodeJS.ProcessEnv = {};
     for (const key of PASSED_THROUGH) {
         const value = process.env[key];
@@ -25,6 +33,7 @@ export const scrubbedEnv = (): NodeJS.ProcessEnv => {
     }
     // Card-injected, so a dev server started by a stage does not collide with another card's.
     env.CI = 'true';
+    if (port !== undefined) env.PORT = String(port);
     return env;
 };
 
@@ -37,13 +46,22 @@ export const scrubbedEnv = (): NodeJS.ProcessEnv => {
  * scrubbed the same way the bash tool scrubs it: `setupCommand`, `buildCommand` and `testCommand`
  * are exactly as much "a build script" as anything the agent runs, and this process's env holds the
  * same provider keys and credentials the agent path is careful to withhold.
+ *
+ * `port` is threaded straight through to `scrubbedEnv` (card 0027) — optional and defaulting to
+ * `undefined`, so the exit-condition verifiers, which never have a port to give, are unaffected.
+ * Only `StageDispatcher`'s `setupCommand` call passes one, and only when a range is configured.
  */
-export const runConfiguredCommand = async (cwd: string, command: string, timeoutMs = 10 * 60 * 1000): Promise<CommandFailure | undefined> => {
+export const runConfiguredCommand = async (
+    cwd: string,
+    command: string,
+    timeoutMs = 10 * 60 * 1000,
+    port?: number,
+): Promise<CommandFailure | undefined> => {
     const [file, ...args] = command.trim().split(/\s+/).filter(Boolean);
     if (!file) return { reason: 'configured command is empty' };
 
     try {
-        await exec(file, args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv() });
+        await exec(file, args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv(port) });
         return undefined;
     } catch (err) {
         const e = err as Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean };

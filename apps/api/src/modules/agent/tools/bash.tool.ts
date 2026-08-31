@@ -58,7 +58,11 @@ export const bashTool = (ctx: ToolContext) =>
                     cwd: ctx.worktreeRoot,
                     timeout: timeout_ms ?? DEFAULT_TIMEOUT_MS,
                     maxBuffer: MAX_OUTPUT,
-                    env: scrubbedEnv(),
+                    // `ctx.port` is `StageDispatcher`'s allocated port for this stage's worktree (card
+                    // 0027), so a dev server the agent starts here sees the same `PORT` a
+                    // `setupCommand` run through `runConfiguredCommand` would. Undefined whenever no
+                    // range is configured, exactly as before this field existed.
+                    env: scrubbedEnv(ctx.port),
                 });
 
             // `pnpm install` writes to the same shared content-addressable store `setupCommand`
