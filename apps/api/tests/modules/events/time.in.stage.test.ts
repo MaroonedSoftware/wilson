@@ -1,6 +1,6 @@
 import { DateTime, Duration } from 'luxon';
 import { describe, expect, it } from 'vitest';
-import { timeInCurrentStage } from '#modules/events/time.in.stage.js';
+import { stageEnteredAt, timeInCurrentStage } from '#modules/events/time.in.stage.js';
 import type { CardEventRow } from '#modules/events/event.log.js';
 
 const event = (type: CardEventRow['type'], createdAt: string): CardEventRow => ({
@@ -9,6 +9,28 @@ const event = (type: CardEventRow['type'], createdAt: string): CardEventRow => (
     type,
     payload: {},
     createdAt: DateTime.fromISO(createdAt, { zone: 'utc' }),
+});
+
+describe('stageEnteredAt', () => {
+    it('returns undefined when there are no events', () => {
+        expect(stageEnteredAt([])).toBeUndefined();
+    });
+
+    it('answers with the earliest event when the card has never transitioned', () => {
+        const events = [event('stage.dispatched', '2024-01-01T00:00:00.000Z'), event('scope.requested', '2024-01-01T01:00:00.000Z')];
+
+        expect(stageEnteredAt(events)?.toISO()).toBe(events[0]!.createdAt.toISO());
+    });
+
+    it('answers with the most recent transition.written event, ignoring later non-transition events', () => {
+        const events = [
+            event('stage.dispatched', '2024-01-01T00:00:00.000Z'),
+            event('transition.written', '2024-01-02T00:00:00.000Z'),
+            event('stage.dispatched', '2024-01-02T06:00:00.000Z'),
+        ];
+
+        expect(stageEnteredAt(events)?.toISO()).toBe(events[1]!.createdAt.toISO());
+    });
 });
 
 describe('timeInCurrentStage', () => {

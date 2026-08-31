@@ -49,6 +49,16 @@ contract CardSummary: {
     needsHuman: boolean
     needsHumanReason?: string
     position?: int
+    # Card 0178. The moment this card entered its current stage — the most recent
+    # `transition.written` event's timestamp, or its earliest recorded event if the card has never
+    # transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
+    # (apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).
+    # Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
+    # `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
+    # shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
+    # event history holds no events at all — a history that cannot answer the question, not the same
+    # fact as "just entered".
+    stageEnteredAt?: datetime
 }
 
 contract CardDetail: CardSummary & {
