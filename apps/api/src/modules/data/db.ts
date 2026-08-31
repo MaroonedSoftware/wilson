@@ -147,6 +147,18 @@ export interface Projects {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * An exclusive claim on a machine-global resource — see the migration
+ * (`data/migrations/20260831120000_leases.sql`) for why `resourceKey` alone is the primary key
+ * rather than `(project, resourceKey)`.
+ */
+export interface Leases {
+    resourceKey: string;
+    project: string;
+    cardId: string;
+    acquiredAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -157,4 +169,5 @@ export interface DB {
     'runner.planTurns': PlanTurns;
     'runner.planComments': PlanComments;
     'runner.projects': Projects;
+    'runner.leases': Leases;
 }
