@@ -60,11 +60,12 @@ describe('apiClient', () => {
         expect(apiClient(ctx)).toBeInstanceOf(WilsonSdk);
     });
 
-    // Card 0150: `apiClient` wires `resolveProject(ctx)` into `WilsonSdk`'s `project` option, which
-    // `createSdkFetch` (`packages/sdk/src/sdk-options.ts`) turns into an `X-Wilson-Project` header on
-    // every call. Exercised through a real fetch, not a mock of `WilsonSdk` itself, so this proves the
-    // header actually leaves on the wire rather than that some option object merely got constructed.
-    describe('the project header it sends (Card 0150)', () => {
+    // Card 0150, folded into `headers` by card 0170: `apiClient` wires `resolveProject(ctx)` into
+    // `WilsonSdk`'s stock `headers` option (a plain `X-Wilson-Project` entry, omitted when unset), which
+    // `createSdkFetch` (`packages/sdk/src/sdk-options.ts`) spreads into every request. Exercised through
+    // a real fetch, not a mock of `WilsonSdk` itself, so this proves the header actually leaves on the
+    // wire rather than that some option object merely got constructed.
+    describe('the project header it sends (Card 0150 / 0170)', () => {
         afterEach(() => {
             vi.unstubAllGlobals();
         });
@@ -98,11 +99,15 @@ describe('apiClient', () => {
 });
 
 /**
- * Card 0150. `createSdkFetch`'s own new behavior, directly: `options.project`, when set, becomes an
- * `X-Wilson-Project` header on every request; when unset, the header is omitted outright rather than
- * sent empty, so a request from an SDK built before this card is byte-identical to one built after.
+ * Card 0170. `packages/sdk/src/sdk-options.ts` went back to the generated template: the hand-added
+ * `project` field card 0150 put on `SdkOptions`, and the `if (options.project) headers[...] = ...`
+ * line in `createSdkFetch` that read it, are both gone — `sdk-options.ts` is now byte-identical to
+ * what `generateSdkOptions()` emits. `X-Wilson-Project` travels entirely through the template's own
+ * `headers` option now (a plain object or a thunk, spread into every request), the same mechanism
+ * `apiClient` above and `wilsonForProject` (`apps/web/src/lib/sdk.ts`) build on. These tests exercise
+ * `createSdkFetch` directly, one level under the `apiClient` block above.
  */
-describe('createSdkFetch project header (Card 0150)', () => {
+describe('createSdkFetch header handling (Card 0170)', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
     });
@@ -113,9 +118,9 @@ describe('createSdkFetch project header (Card 0150)', () => {
         return fetchMock;
     };
 
-    it('sends X-Wilson-Project set to the configured project on every request', async () => {
+    it('sends X-Wilson-Project when it is passed through the stock `headers` option', async () => {
         const fetchMock = stubbedFetch();
-        const sdkFetch = createSdkFetch({ baseUrl: 'http://api.example.com', project: 'acme' });
+        const sdkFetch = createSdkFetch({ baseUrl: 'http://api.example.com', headers: { 'X-Wilson-Project': 'acme' } });
 
         await sdkFetch('/api/cards', { method: 'GET' });
 
@@ -123,9 +128,15 @@ describe('createSdkFetch project header (Card 0150)', () => {
         expect(headers['X-Wilson-Project']).toBe('acme');
     });
 
-    it('sends no X-Wilson-Project header at all when no project is configured', async () => {
+    it('ignores a bare `project` option outright — that field no longer exists on SdkOptions, so nothing but `headers` can put it on the wire', async () => {
         const fetchMock = stubbedFetch();
-        const sdkFetch = createSdkFetch({ baseUrl: 'http://api.example.com' });
+        // `SdkOptions` no longer declares `project` (that's this card's whole point), so this only
+        // type-checks by going through `as unknown as Parameters<typeof createSdkFetch>[0]` — a caller
+        // can no longer reach for the old field even by accident, and this proves that if one somehow
+        // does (a stale caller, an untyped config blob), nothing reads it any more. Before this card,
+        // `createSdkFetch` read `options.project` directly and this would have sent the header.
+        const legacyOptions = { baseUrl: 'http://api.example.com', project: 'acme' };
+        const sdkFetch = createSdkFetch(legacyOptions as unknown as Parameters<typeof createSdkFetch>[0]);
 
         await sdkFetch('/api/cards', { method: 'GET' });
 
