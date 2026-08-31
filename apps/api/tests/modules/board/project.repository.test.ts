@@ -158,5 +158,36 @@ describe('ProjectRepository', () => {
             expect((await repo.find(target))?.boardRoot).toBe('/tmp/target-only');
             expect((await repo.find(bystander))?.boardRoot).toBe('/tmp/board');
         });
+
+        /**
+         * `PATCH /api/projects/{name}` with every field absent is a valid request under the
+         * contract's own semantics (every `UpdateProjectRequest` field is optional), so `update`
+         * must accept an empty patch rather than reaching Kysely's `set()` with nothing in it —
+         * `set({})` compiles to `update "runner"."projects" set  where "name" = $1`, a SET clause
+         * with no assignments, which Postgres rejects with a syntax error rather than treating as a
+         * no-op. This goes at the repository directly, against the real connection, because a fake
+         * would only prove the test agrees with itself about what an empty `set()` does — the whole
+         * bug was Postgres disagreeing.
+         */
+        it('reports a match and writes nothing for an empty patch against a project that exists, without throwing', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+            const created = row(name);
+            await repo.create(created);
+
+            const matched = await repo.update(name, {});
+
+            expect(matched).toBe(true);
+            expect(await repo.find(name)).toEqual(created);
+        });
+
+        it('reports no match for an empty patch against a name that was never created, without throwing', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+
+            const matched = await repo.update(name, {});
+
+            expect(matched).toBe(false);
+        });
     });
 });
