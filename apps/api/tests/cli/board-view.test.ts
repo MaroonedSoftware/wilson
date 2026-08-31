@@ -216,23 +216,37 @@ describe('filesInScope', () => {
         expect(filesInScope({})).toEqual([]);
     });
 
+    // Card 0166: `CardDetail.sections` is keyed by the wire slug `sectionKey` publishes
+    // (`board.service.ts`) — the heading lowercased with spaces turned to hyphens — not by the
+    // literal heading text. `GET /api/cards/:id` really does answer with `files-in-scope`, never
+    // `'Files in scope'`; reading the heading here was why `card show` always reported zero.
+    it('reads the wire-keyed slug, not the literal heading', () => {
+        const sections = { 'files-in-scope': '- src/a.ts' };
+        expect(filesInScope(sections)).toEqual(['src/a.ts']);
+    });
+
+    it('does not fall back to the literal heading key when only that is present', () => {
+        const sections = { 'Files in scope': '- src/a.ts' };
+        expect(filesInScope(sections)).toEqual([]);
+    });
+
     it('parses -, * and + bullet markers alike', () => {
-        const sections = { 'Files in scope': '- src/a.ts\n* src/b.ts\n+ src/c.ts' };
+        const sections = { 'files-in-scope': '- src/a.ts\n* src/b.ts\n+ src/c.ts' };
         expect(filesInScope(sections)).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
     });
 
     it('strips inline code backticks around a glob', () => {
-        const sections = { 'Files in scope': '- `packages/cli/src/**`' };
+        const sections = { 'files-in-scope': '- `packages/cli/src/**`' };
         expect(filesInScope(sections)).toEqual(['packages/cli/src/**']);
     });
 
     it('drops blank lines and an HTML-comment placeholder line', () => {
-        const sections = { 'Files in scope': '- src/a.ts\n\n<!-- nothing else -->\n' };
+        const sections = { 'files-in-scope': '- src/a.ts\n\n<!-- nothing else -->\n' };
         expect(filesInScope(sections)).toEqual(['src/a.ts']);
     });
 
     it('trims surrounding whitespace on each line', () => {
-        const sections = { 'Files in scope': '   -   src/a.ts   ' };
+        const sections = { 'files-in-scope': '   -   src/a.ts   ' };
         expect(filesInScope(sections)).toEqual(['src/a.ts']);
     });
 });
