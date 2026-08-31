@@ -63,8 +63,16 @@ export class ProjectRepository {
      * Set whichever of the four path columns `patch` names, for the named project, leaving the
      * others untouched. Returns whether a row matched `name`, so the caller can answer 404 rather
      * than succeeding silently against nothing.
+     *
+     * An empty `patch` (every field absent, a valid `PATCH` body under the contract's own semantics)
+     * is short-circuited to a `find` rather than reaching `set()`: Kysely compiles `set({})` to
+     * `update ... set  where ...`, a SET clause with nothing in it, which Postgres rejects as a
+     * syntax error rather than a no-op.
      */
     async update(name: string, patch: Partial<Omit<ProjectRow, 'name'>>): Promise<boolean> {
+        if (Object.keys(patch).length === 0) {
+            return (await this.find(name)) !== undefined;
+        }
         const result = await this.db.updateTable('runner.projects').set(patch).where('name', '=', name).executeTakeFirst();
         return result.numUpdatedRows > 0n;
     }
