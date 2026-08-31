@@ -24,6 +24,12 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * a top-level route carries no `project` param at all, so `project` is `undefined` there, same as
  * before this card; a `/projects/$project/*` route carries its own, and the feed connects naming it.
  *
+ * Card 0169: the `wilson` title links to `/`, the app's only home affordance before this card. `/`
+ * is parameterless, so this doesn't need `AnchorLink`'s typed-params fix — but unlike `Settings`'s
+ * `ActionIcon`, Mantine's `Title` doesn't merge a `component`'s own props into its polymorphic type
+ * (`component?: any`, no `to`), so `component={Link}` doesn't typecheck here. Wraps a plain `Link`
+ * around the `Title` instead, the same shape `FlaggedIndicator` already uses to link its badge.
+ *
  * Card 0156: wraps everything below in `WilsonSdkProvider` with the unscoped `wilson` singleton — the
  * default every top-level route's components read through `useWilsonSdk()`. `FlaggedIndicator` sits
  * in the header, above `Outlet`, so it always sees this default regardless of which route matched
@@ -48,7 +54,9 @@ function Root() {
                 <Notifications />
                 <AppShell.Header>
                     <Group h="100%" px="md" justify="space-between">
-                        <Title order={4}>wilson</Title>
+                        <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+                            <Title order={4}>wilson</Title>
+                        </Link>
                         <Group gap="xs">
                             <FlaggedIndicator />
                             <ProjectSwitcher />
