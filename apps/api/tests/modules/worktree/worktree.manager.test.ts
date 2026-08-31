@@ -4,9 +4,10 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { LeaseService } from '#modules/lease/lease.service.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -331,6 +332,47 @@ describe('WorktreeManager', () => {
 
     it('is safe to reclaim something that was never created', async () => {
         await expect(manager.reclaim('9999')).resolves.toBeUndefined();
+    });
+
+    /**
+     * Card 0165: a lease cannot outlive the worktree it was taken for, so `reclaimUnlocked` releases
+     * the card's leases before deleting the tree. `manager` (the shared fixture above) is built with
+     * no third constructor argument at all, and every other test in this file already reclaims
+     * through it without incident — proof by the whole rest of the suite that leaving `leases` out
+     * is still safe, exactly as the constructor's own doc comment claims. These tests build a second
+     * manager, against the same underlying git repo, that does take one.
+     */
+    describe('releasing leases on reclaim', () => {
+        const buildManagerWithLeases = async (leases: LeaseService): Promise<WorktreeManager> => {
+            const base = await mkdtemp(join(tmpdir(), 'worktree-mgr-leases-'));
+            const config = new StaticBoardConfig('leases-test-project', join(base, 'board'), codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            return new WorktreeManager(config, silentLogger as never, leases);
+        };
+
+        it('releases the leases held by the card whose worktree is reclaimed', async () => {
+            const fakeLeases = { releaseAll: vi.fn(async () => undefined) } as unknown as LeaseService;
+            const managerWithLeases = await buildManagerWithLeases(fakeLeases);
+            await managerWithLeases.create('0001', 'card/0001-thing');
+
+            await managerWithLeases.reclaim('0001');
+
+            expect(fakeLeases.releaseAll).toHaveBeenCalledWith('leases-test-project', '0001');
+        });
+
+        it('does not let a failure to release leases stop the reclaim itself', async () => {
+            const fakeLeases = {
+                releaseAll: vi.fn(async () => {
+                    throw new Error('boom');
+                }),
+            } as unknown as LeaseService;
+            const managerWithLeases = await buildManagerWithLeases(fakeLeases);
+            const worktree = await managerWithLeases.create('0001', 'card/0001-thing');
+
+            await expect(managerWithLeases.reclaim('0001')).resolves.toBeUndefined();
+
+            expect(existsSync(worktree.path)).toBe(false);
+            expect(fakeLeases.releaseAll).toHaveBeenCalledWith('leases-test-project', '0001');
+        });
     });
 
     /**

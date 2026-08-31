@@ -5,6 +5,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
 import { conflictingPaths, git, isClean, mergeTree } from '#modules/board/git.js';
+import { LeaseService } from '#modules/lease/lease.service.js';
 import { codeRootLock } from './code.root.lock.js';
 
 export interface Worktree {
@@ -36,9 +37,15 @@ export const DRY_RUN_INTEGRATION_BRANCH = 'dry-run-integration';
  */
 @Injectable()
 export class WorktreeManager {
+    // `leases` is optional so a test that constructs this class directly — bypassing DI, the way
+    // most of this class's own tests and several others across the suite already do — keeps
+    // working unchanged: no service means `reclaimUnlocked` below skips the release step
+    // entirely, the same "nothing to release" outcome `releaseAll` itself would report for a card
+    // holding none. Production wiring always supplies the real one via DI.
     constructor(
         private readonly config: BoardConfig,
         private readonly logger: Logger,
+        private readonly leases?: LeaseService,
     ) {}
 
     private path(cardId: string): string {
@@ -181,6 +188,12 @@ export class WorktreeManager {
      * they do — `Mutex` is deliberately not reentrant (see its doc comment), so calling the public
      * `reclaim` from inside them would deadlock rather than nest. Splitting it is the whole cost of
      * that choice, and it buys the lock the ability to tell a second caller from its own holder.
+     *
+     * Card 0165: releasing the card's leases here, rather than only in the public `reclaim`, means
+     * a lease cannot outlive a worktree through any of the three routes that end one — including
+     * `create`/`resume`'s own reclaim-before-recreate, so a card whose previous attempt left a
+     * lease held (a daemon killed mid-stage, say) frees it the moment that same card is dispatched
+     * again, without needing anything to notice first.
      */
     private async reclaimUnlocked(cardId: string): Promise<void> {
         const path = this.path(cardId);
@@ -188,6 +201,12 @@ export class WorktreeManager {
         // reclaimed is worse than an attempt that goes unpreserved.
         await this.preserveUncommitted(cardId, path).catch(err => {
             this.logger.warn(`could not preserve uncommitted work for ${cardId} before reclaim: ${(err as Error).message}`);
+        });
+        // Same "never block the reclaim" contract as the preservation above: a card that cannot be
+        // reclaimed is worse than a lease that needs sweeping later (LeaseService.acquire does
+        // that sweeping on the next attempt to take it).
+        await this.leases?.releaseAll(this.config.project, cardId).catch(err => {
+            this.logger.warn(`could not release leases for ${cardId} before reclaim: ${(err as Error).message}`);
         });
         await git(this.config.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);
         await rm(path, { recursive: true, force: true });

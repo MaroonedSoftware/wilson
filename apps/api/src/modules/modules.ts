@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
+import { LeaseModule } from './lease/lease.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { StagesModule } from './stages/stages.module.js';
 import { WorktreeModule } from './worktree/worktree.module.js';
@@ -18,12 +19,19 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * to start (after Stages, what `CardStageJob` dispatches into, and after Settings, whose
  * `PollerSettingService` it asks at start-up) and first to shut down (before anything it might
  * still be running against tears down underneath it).
+ *
+ * Lease is listed after Board and before Worktree (card 0165): `LeaseService` depends on
+ * `BoardRepository`, and `WorktreeManager` now depends on `LeaseService` to release a card's
+ * leases when its worktree is reclaimed. `setup` only registers tokens, so — as with every other
+ * ordering note here — the actual container resolution does not depend on this order; it is for a
+ * reader tracing the dependency the same direction the list reads.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
     BoardModule,
     HealthModule,
+    LeaseModule,
     WorktreeModule,
     AgentModule,
     StagesModule,
