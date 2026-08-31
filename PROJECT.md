@@ -804,14 +804,17 @@ what is done, what is not, and what each remaining one is actually waiting on.
   (cards 0137, 0138). No `plan-review` stage was built and none is planned — approval
   into `backlog` is the gate instead.
 - **ContractKit contract, the API, and the web board.**
+- **Multi-project registry, port allocation, dry-run toggle.** The registry landed as
+  cards 0148–0156 and 0162: `runner.projects`, ambient project context, the
+  `X-Wilson-Project` header, project-scoped app routes, and `GET /api/projects`. Port
+  allocation followed on top of it — card 0165 built leasing as a mechanism with no
+  consumer, card 0027 made ports its first resource type, and card 0167 closed the one
+  gap that consumer found. It is off unless `DEV_SERVER_PORT_RANGE` is set. The
+  dry-run toggle is card 0144. Filesystem reconciliation was once on this list and is
+  not coming: with the board in Postgres there is no file to reconcile against.
 
 **Not done:**
 
-- **Multi-project registry, port allocation, dry-run toggle.** Nothing allocates a
-  port today. Card 0027 is the resource-leasing half of this and waits on the registry
-  existing — not on a position in a list. Filesystem reconciliation was once on this
-  list and is not coming: with the board in Postgres there is no file to reconcile
-  against.
 - **Plugins: card sources and context providers.**
 - **Compose stack.** Card 0074's remaining half — mounting a `CLAUDE_CONFIG_DIR` at a
   volume — waits here. The setting itself does not (card 0141).
