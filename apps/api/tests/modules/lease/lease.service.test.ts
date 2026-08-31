@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomInt, randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:net';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql, type Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { LeaseService } from '#modules/lease/lease.service.js';
+import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
@@ -267,5 +269,115 @@ describe('LeaseService.releaseAll', () => {
         await leases.releaseAll(projectA, '0001');
 
         await expect(leases.list()).resolves.toContainEqual({ resourceKey, project: projectB, cardId: '0001' });
+    });
+});
+
+/**
+ * Card 0167. `release` is the one addition this card makes: give back a single resource without
+ * dropping every other lease the same card holds, which is what `releaseAll` above would do.
+ */
+describe('LeaseService.release', () => {
+    it("releases one resource, leaving the same card's other leases held", async () => {
+        const project = uniqueProject();
+        const resourceKeyA = uniqueResourceKey();
+        const resourceKeyB = uniqueResourceKey();
+        await insertCard(project, '0001');
+        await leases.acquire(resourceKeyA, project, '0001');
+        await leases.acquire(resourceKeyB, project, '0001');
+
+        await leases.release(resourceKeyA, project, '0001');
+
+        const held = await leases.list();
+        expect(held.some(l => l.resourceKey === resourceKeyA)).toBe(false);
+        expect(held).toContainEqual({ resourceKey: resourceKeyB, project, cardId: '0001' });
+    });
+
+    it('frees nothing when the resource is held by a different card', async () => {
+        const project = uniqueProject();
+        const resourceKey = uniqueResourceKey();
+        await insertCard(project, '0001');
+        await insertCard(project, '0002');
+        await leases.acquire(resourceKey, project, '0001');
+
+        await leases.release(resourceKey, project, '0002');
+
+        await expect(leases.list()).resolves.toContainEqual({ resourceKey, project, cardId: '0001' });
+    });
+
+    it('is not an error to release a resource nobody holds', async () => {
+        const project = uniqueProject();
+        const resourceKey = uniqueResourceKey();
+        await insertCard(project, '0001');
+
+        await expect(leases.release(resourceKey, project, '0001')).resolves.toBeUndefined();
+    });
+
+    /**
+     * The same condition `acquire`'s own steal-path `DELETE` applies, exercised end to end: '0001'
+     * once held this key but it was swept as orphaned and stolen by '0002' (see "is stolen
+     * automatically..." above). '0001' calling `release` on a key it no longer actually holds must
+     * delete nothing — in particular, it must not free '0002''s current claim just because the
+     * resource key and project match.
+     */
+    it("does not release the current holder's claim when the caller no longer actually holds the key", async () => {
+        const project = uniqueProject();
+        const resourceKey = uniqueResourceKey();
+        await insertCard(project, '0001');
+        await insertCard(project, '0002');
+        // Deliberately no recordLiveClaim for '0001', so '0002' below steals it as orphaned.
+        await expect(leases.acquire(resourceKey, project, '0001')).resolves.toEqual({ acquired: true });
+        await expect(leases.acquire(resourceKey, project, '0002')).resolves.toEqual({ acquired: true });
+
+        await leases.release(resourceKey, project, '0001');
+
+        await expect(leases.list()).resolves.toContainEqual({ resourceKey, project, cardId: '0002' });
+    });
+
+    it('lets a released resource be acquired again immediately, by another card', async () => {
+        const project = uniqueProject();
+        const resourceKey = uniqueResourceKey();
+        await insertCard(project, '0001');
+        await insertCard(project, '0002');
+        await leases.acquire(resourceKey, project, '0001');
+
+        await leases.release(resourceKey, project, '0001');
+
+        await expect(leases.acquire(resourceKey, project, '0002')).resolves.toEqual({ acquired: true });
+    });
+});
+
+/**
+ * Card 0167's motivating caller, wired up for real: `DevServerPortAllocator` on top of the real
+ * `LeaseService` above (not the stub `dev.server.port.allocator.test.ts` uses), with a real socket
+ * bound to model "the machine already has this port". Acceptance criterion: "After an allocation
+ * that steps over ports the machine already has bound, only the port actually returned is still
+ * leased by that card."
+ */
+describe('DevServerPortAllocator.acquire, against the real LeaseService', () => {
+    const occupied: Server[] = [];
+    afterEach(async () => {
+        await Promise.all(occupied.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+    });
+
+    const occupy = (port: number): Promise<Server> =>
+        new Promise((resolve, reject) => {
+            const server = createServer();
+            server.once('error', reject);
+            server.listen(port, () => resolve(server));
+        });
+
+    it('leaves only the port actually returned leased, after stepping over one already bound on this machine', async () => {
+        const project = uniqueProject();
+        await insertCard(project, '0001');
+        // A high, randomised port so concurrent test files binding their own ports do not collide.
+        const port = 47000 + randomInt(2000);
+        occupied.push(await occupy(port));
+        const allocator = new DevServerPortAllocator(leases);
+
+        const result = await allocator.acquire({ start: port, end: port + 1 }, project, '0001');
+
+        expect(result).toEqual({ ok: true, port: port + 1 });
+        const held = (await leases.list()).filter(l => l.project === project);
+        expect(held).toEqual([{ resourceKey: `port:${port + 1}`, project, cardId: '0001' }]);
     });
 });

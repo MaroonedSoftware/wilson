@@ -27,7 +27,8 @@ describe('DevServerPortAllocator.acquire', () => {
         await Promise.all(occupied.splice(0).map(close));
     });
 
-    const fakeLeases = (acquire: LeaseService['acquire']): LeaseService => ({ acquire }) as unknown as LeaseService;
+    const fakeLeases = (acquire: LeaseService['acquire'], release?: LeaseService['release']): LeaseService =>
+        ({ acquire, release: release ?? vi.fn(async () => undefined) }) as unknown as LeaseService;
 
     it('takes the first port in the range once the lease for it is granted and the port is free on this machine', async () => {
         const acquire = vi.fn(async (): Promise<AcquireResult> => ({ acquired: true }));
@@ -61,20 +62,24 @@ describe('DevServerPortAllocator.acquire', () => {
      * loop must move on to the next candidate rather than handing back a port something is already
      * listening on.
      */
-    it('skips a port that wins its lease but is already bound on this machine, and moves to the next candidate', async () => {
+    it('skips a port that wins its lease but is already bound on this machine, releasing that lease before moving to the next candidate', async () => {
         const port = 41020;
         occupied.push(await occupy(port));
 
         const acquire = vi.fn(async (): Promise<AcquireResult> => ({ acquired: true }));
-        const allocator = new DevServerPortAllocator(fakeLeases(acquire));
+        const release = vi.fn(async () => undefined);
+        const allocator = new DevServerPortAllocator(fakeLeases(acquire, release));
 
         const result = await allocator.acquire({ start: port, end: port + 1 }, 'proj', '0001');
 
         expect(result).toEqual({ ok: true, port: port + 1 });
-        // The lease for the occupied port was still taken (and left held — the allocator's own doc
-        // comment says there is no per-resource release), so both candidates were tried.
+        // Both candidates' leases were taken, but the occupied one is given back (card 0167's
+        // `LeaseService.release`) rather than left held for the rest of this card's run.
         expect(acquire).toHaveBeenCalledWith(`port:${port}`, 'proj', '0001');
         expect(acquire).toHaveBeenCalledWith(`port:${port + 1}`, 'proj', '0001');
+        expect(release).toHaveBeenCalledWith(`port:${port}`, 'proj', '0001');
+        expect(release).not.toHaveBeenCalledWith(`port:${port + 1}`, 'proj', '0001');
+        expect(release).toHaveBeenCalledTimes(1);
     });
 
     it('gives up with a reason naming the range when every candidate is held', async () => {
@@ -98,11 +103,14 @@ describe('DevServerPortAllocator.acquire', () => {
         const acquire = vi.fn(async (resourceKey: string): Promise<AcquireResult> =>
             resourceKey === `port:${port}` ? { acquired: true } : { acquired: false, heldBy: { resourceKey, project: 'other', cardId: '0099' } },
         );
-        const allocator = new DevServerPortAllocator(fakeLeases(acquire));
+        const release = vi.fn(async () => undefined);
+        const allocator = new DevServerPortAllocator(fakeLeases(acquire, release));
 
         const result = await allocator.acquire({ start: port, end: port + 1 }, 'proj', '0001');
 
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.reason).toContain(`${port}-${port + 1}`);
+        // The bound candidate's lease is given back even though the whole range ultimately fails.
+        expect(release).toHaveBeenCalledWith(`port:${port}`, 'proj', '0001');
     });
 });
