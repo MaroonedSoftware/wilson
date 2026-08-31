@@ -1,7 +1,8 @@
 import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
-import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
+import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { IconSettings } from '@tabler/icons-react';
+import { IconMoon, IconSettings, IconSun } from '@tabler/icons-react';
+import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { useCardFeed } from '#src/lib/feed.js';
@@ -43,6 +44,13 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * from every screen, not folded into any one route. It renders nothing of its own when fewer than two
  * projects are registered, so a single-project deployment's header looks exactly as it did before
  * this card.
+ *
+ * Card 0172: replaces what card 0169's home `Link` wraps — a bare `Title` — with `WilsonMark` beside
+ * the same `Title`, and adds the color-scheme toggle (`ColorSchemeToggle` below). The `Link to="/"`
+ * itself is untouched (this card's Constraints: it's the app's only way home, and dropping it would
+ * regress silently since nothing else asserts it — `dashboard.test.ts`'s "the header title" tests
+ * already cover it and keep passing unchanged, because `title.closest('a')` still resolves to this
+ * same `Link`).
  */
 function Root() {
     const { project } = useParams({ strict: false });
@@ -55,7 +63,10 @@ function Root() {
                 <AppShell.Header>
                     <Group h="100%" px="md" justify="space-between">
                         <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-                            <Title order={4}>wilson</Title>
+                            <Group gap={8} wrap="nowrap">
+                                <WilsonMark size={24} />
+                                <Title order={4}>wilson</Title>
+                            </Group>
                         </Link>
                         <Group gap="xs">
                             <FlaggedIndicator />
@@ -65,6 +76,7 @@ function Root() {
                                     {feedStatus === 'live' ? 'live' : 'snapshot'}
                                 </Badge>
                             </Tooltip>
+                            <ColorSchemeToggle />
                             <Tooltip label="Settings">
                                 <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
                                     <IconSettings size={18} />
@@ -78,6 +90,25 @@ function Root() {
                 </AppShell.Main>
             </AppShell>
         </WilsonSdkProvider>
+    );
+}
+
+/**
+ * Flips between light and dark (card 0172's Constraints: `defaultColorScheme="auto"` with a
+ * persisted toggle). `toggleColorScheme` already resolves `"auto"` against the OS preference before
+ * deciding which way to flip (`useMantineColorScheme`'s own implementation), so this never needs to
+ * read `"auto"` itself — only `useComputedColorScheme` for which icon to show right now.
+ */
+function ColorSchemeToggle() {
+    const { toggleColorScheme } = useMantineColorScheme();
+    const computedColorScheme = useComputedColorScheme('light');
+
+    return (
+        <Tooltip label="Toggle color scheme">
+            <ActionIcon onClick={toggleColorScheme} variant="subtle" aria-label="Toggle color scheme">
+                {computedColorScheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+            </ActionIcon>
+        </Tooltip>
     );
 }
 

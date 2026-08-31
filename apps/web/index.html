@@ -3,7 +3,35 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content="wilson — a kanban board that dispatches cards to agents and tracks them through review." />
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#1a1b1e" media="(prefers-color-scheme: dark)" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <title>wilson</title>
+        <!--
+          Pre-paint color scheme, run before anything renders so there is no light-then-dark flash.
+          This is `@mantine/core`'s own `ColorSchemeScript` component, hand-copied rather than
+          rendered: `ColorSchemeScript` is meant for a server-rendered `<head>` that can emit it
+          before the client bundle loads at all; this is a plain Vite SPA with no such render, and by
+          the time `main.tsx` could render the component the page has already painted once. Keep this
+          in sync with `main.tsx`'s `localStorageColorSchemeManager()` and `defaultColorScheme="auto"`
+          — same localStorage key (`mantine-color-scheme-value`, Mantine's own default) and same
+          fallback, or the two would disagree the instant React mounts.
+        -->
+        <script>
+            try {
+                var _wilsonColorScheme = window.localStorage.getItem('mantine-color-scheme-value');
+                var wilsonColorScheme =
+                    _wilsonColorScheme === 'light' || _wilsonColorScheme === 'dark' || _wilsonColorScheme === 'auto' ? _wilsonColorScheme : 'auto';
+                var wilsonComputedColorScheme =
+                    wilsonColorScheme !== 'auto'
+                        ? wilsonColorScheme
+                        : window.matchMedia('(prefers-color-scheme: dark)').matches
+                          ? 'dark'
+                          : 'light';
+                document.documentElement.setAttribute('data-mantine-color-scheme', wilsonComputedColorScheme);
+            } catch (e) {}
+        </script>
     </head>
     <body>
         <div id="root"></div>
