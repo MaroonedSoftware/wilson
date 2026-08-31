@@ -28,6 +28,7 @@ import cardShowCommand from './commands/card/show.command.js';
 import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
+import projectCreateCommand from './commands/project/create.command.js';
 
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
@@ -67,6 +68,7 @@ const app = await createCliApp({
         reg(['card', 'split'], cardSplitCommand),
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
+        reg(['project', 'create'], projectCreateCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

@@ -106,4 +106,88 @@ describe('ProjectRepository', () => {
             expect(after.some(r => r.name === name)).toBe(true);
         });
     });
+
+    /**
+     * Card 0168. `update`'s one caller is `ProjectsService.update`, which validates paths before
+     * calling this — these tests go straight at the repository, the same way `create`'s own tests
+     * above do, against a real connection rather than a fake.
+     */
+    describe('update (card 0168)', () => {
+        it('sets only the named columns, leaving every other path column exactly as it was', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+            await repo.create(row(name));
+
+            const matched = await repo.update(name, { boardRoot: '/tmp/board-corrected' });
+
+            expect(matched).toBe(true);
+            expect(await repo.find(name)).toEqual(row(name, { boardRoot: '/tmp/board-corrected' }));
+        });
+
+        it('sets every named column when the patch carries more than one', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+            await repo.create(row(name));
+
+            const matched = await repo.update(name, { worktreeRoot: '/tmp/wt-corrected', runRoot: '/tmp/run-corrected' });
+
+            expect(matched).toBe(true);
+            expect(await repo.find(name)).toEqual(row(name, { worktreeRoot: '/tmp/wt-corrected', runRoot: '/tmp/run-corrected' }));
+        });
+
+        it('reports no match, and writes nothing, for a name that was never created', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+
+            const matched = await repo.update(name, { boardRoot: '/tmp/ghost-board' });
+
+            expect(matched).toBe(false);
+            expect(await repo.find(name)).toBeUndefined();
+        });
+
+        it('does not touch another project\'s row with the same patch', async () => {
+            const repo = new ProjectRepository(db);
+            const base = uniqueProject();
+            const target = `${base}-target`;
+            const bystander = `${base}-bystander`;
+            await repo.create(row(target));
+            await repo.create(row(bystander));
+
+            await repo.update(target, { boardRoot: '/tmp/target-only' });
+
+            expect((await repo.find(target))?.boardRoot).toBe('/tmp/target-only');
+            expect((await repo.find(bystander))?.boardRoot).toBe('/tmp/board');
+        });
+
+        /**
+         * `PATCH /api/projects/{name}` with every field absent is a valid request under the
+         * contract's own semantics (every `UpdateProjectRequest` field is optional), so `update`
+         * must accept an empty patch rather than reaching Kysely's `set()` with nothing in it —
+         * `set({})` compiles to `update "runner"."projects" set  where "name" = $1`, a SET clause
+         * with no assignments, which Postgres rejects with a syntax error rather than treating as a
+         * no-op. This goes at the repository directly, against the real connection, because a fake
+         * would only prove the test agrees with itself about what an empty `set()` does — the whole
+         * bug was Postgres disagreeing.
+         */
+        it('reports a match and writes nothing for an empty patch against a project that exists, without throwing', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+            const created = row(name);
+            await repo.create(created);
+
+            const matched = await repo.update(name, {});
+
+            expect(matched).toBe(true);
+            expect(await repo.find(name)).toEqual(created);
+        });
+
+        it('reports no match for an empty patch against a name that was never created, without throwing', async () => {
+            const repo = new ProjectRepository(db);
+            const name = uniqueProject();
+
+            const matched = await repo.update(name, {});
+
+            expect(matched).toBe(false);
+        });
+    });
 });
