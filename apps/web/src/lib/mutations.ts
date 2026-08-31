@@ -150,6 +150,51 @@ export function useStartCard(id: string) {
 }
 
 /**
+ * Acknowledges a flagged card (card 0087's `POST .../ack`) — the needs-human panel's own way to
+ * clear itself, this card's operator-facing end. Same shape as `useStartCard` above: success only
+ * invalidates, never writes `needsHuman` itself, so the panel keeps rendering until the refetched
+ * card actually says `needsHuman: false` (the runner is sole writer — PROJECT.md, Architecture,
+ * this card's Constraints). A refusal is a red notification naming the server's own reason.
+ */
+export function useAckCard(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => wilson.board.acknowledgeAFlaggedCard(id),
+        onSuccess: () => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not acknowledge the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Releases a card a job is carrying (card 0087's `POST .../release`) — the safe-cancel operator
+ * action, joining `useStartCard`/`useMergeCard` as this card's other operator-facing end. Same
+ * invalidation as `useStartCard`; success also shows a green notification naming which of the two
+ * safe-to-cancel cases it was (`ReleaseResult.releasedAs`), following `useMergeCard`'s pattern
+ * (`CardDetail.tsx`) since there is nowhere on a button to put that either. A genuine refusal — a
+ * job actually mid-run — is a red notification naming the server's own reason, same as every other
+ * mutation in this file.
+ */
+export function useReleaseCard(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => wilson.board.releaseCard(id),
+        onSuccess: result => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+            notifications.show({ color: 'green', title: 'Released', message: `Card is now ${result.releasedAs}` });
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not release the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
  * Sends one turn of a card's planning conversation (card 0133's `POST .../plan/turn`), card 0137's
  * composer. Unlike the mutations above, a refusal is not a notification: `PlanningSession.tsx`
  * reads `error` itself and shows the server's own sentence inline next to the composer, the same
