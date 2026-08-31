@@ -270,6 +270,19 @@ describe('BoardWriteService', () => {
             );
         });
 
+        // Card 0178: `stageEnteredAt` is populated only in the read path `BoardService.list`/
+        // `getById` serve — a write response built through this service's shared `toCardDetail`
+        // leaves it absent even right after writing the very transition that would answer it,
+        // rather than this service re-deriving the same fact a second way.
+        it('leaves stageEnteredAt absent on the response to a move, even though it just wrote the transition that would answer it', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0002', { stage: 'implementing' }), 'seed');
+
+            const detail = await service.move('0002', { stage: 'testing' });
+
+            expect(detail.stageEnteredAt).toBeUndefined();
+        });
+
         it("clears a flagged card's needsHuman fields on an ordinary move to a different stage", async () => {
             const { board, service } = freshBoard();
             await board.create(card('0003', { stage: 'implementing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');

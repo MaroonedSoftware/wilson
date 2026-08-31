@@ -175,6 +175,26 @@ describe('BoardService', () => {
 
             expect(seenArgs).toEqual(['proj', '0001']);
         });
+
+        // Card 0178: only a handful of a card's most recent events are fetched to answer
+        // `stageEnteredAt` — the same bounded lookback `wilson card show` already uses, not the
+        // card's entire history.
+        it('bounds the event tail it reads to a small lookback window rather than the full history', async () => {
+            const cards = [card('0001')];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            let seenLimit: number | undefined;
+            const eventLog = {
+                tail: async (_project: string, _id: string, limit: number) => {
+                    seenLimit = limit;
+                    return [];
+                },
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await service.list();
+
+            expect(seenLimit).toBe(20);
+        });
     });
 
     describe('getById', () => {
