@@ -22,6 +22,13 @@ export interface ToolContext {
     scopeViolationPolicy: ScopeViolationPolicy;
     events: EventLog;
     logger: Logger;
+    /**
+     * The dev server port `StageDispatcher` allocated for this stage's worktree (card 0027), read by
+     * `bash.tool.ts` and handed to `scrubbedEnv` so a dev server the agent starts sees the same
+     * `PORT` a `setupCommand` run would. Undefined whenever the stage has no worktree or no port
+     * range is configured — the default, and the only case most stages are in.
+     */
+    port?: number;
 }
 
 /** Raised when `request_scope` is refused under the `kickback` policy, to fail the stage. */
