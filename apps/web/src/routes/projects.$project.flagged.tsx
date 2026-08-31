@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Loader, Stack, Text, Title } from '@mantine/core';
+import { Alert, Stack, Text, Title } from '@mantine/core';
 import { Board } from '#src/components/Board.js';
+import { BoardSkeleton } from '#src/components/BoardSkeleton.js';
 import { wilsonForProject } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 import { AnchorLink } from '#src/lib/router-link.js';
@@ -19,6 +20,10 @@ import { AnchorLink } from '#src/lib/router-link.js';
  *
  * Card 0156: wraps its render tree in `WilsonSdkProvider` with `client`, matching
  * `projects.$project.index.tsx`.
+ *
+ * Card 0175: a cold load renders `BoardSkeleton` instead of a bare `Loader` in the pending branch,
+ * matching the board route beside this file. This route gets the skeleton only, not a second text
+ * filter — the flagged view is already a filter over the board.
  */
 function ProjectFlaggedRoute() {
     const { project } = Route.useParams();
@@ -35,7 +40,7 @@ function ProjectFlaggedRoute() {
             </Alert>
         );
     }
-    if (!columns.data || !cards.data) return <Loader size="sm" />;
+    if (!columns.data || !cards.data) return <BoardSkeleton />;
 
     const flagged = cards.data.filter(card => card.needsHuman);
     const flaggedStages = new Set(flagged.map(card => card.stage));
