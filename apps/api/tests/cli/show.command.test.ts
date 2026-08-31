@@ -21,9 +21,24 @@ const detail = (overrides: Partial<Record<string, unknown>> = {}) => ({
     dependsOn: [],
     needsHuman: false,
     body: '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n',
-    sections: { 'Files in scope': '- src/a.ts' },
+    // Card 0166: the wire keys sections by slug (`sectionKey`, board.service.ts), not by the literal
+    // heading — `filesInScope` (board-view.ts) reads `sections['files-in-scope']`.
+    sections: { 'files-in-scope': '- src/a.ts' },
     ...overrides,
 });
+
+const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
+    id: '0001',
+    title: 'x',
+    stage: 'implementing',
+    dependsOn: [],
+    needsHuman: false,
+    ...overrides,
+});
+
+// A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
+// needs its own. Mirrors `list.command.test.ts`'s `columns()`.
+const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
 describe('wilson card show', () => {
     it('fetches the card and its recent events, and prints the plain-text view', async () => {
@@ -46,18 +61,96 @@ describe('wilson card show', () => {
         expect(logger.info).toHaveBeenCalledWith('  src/a.ts');
     });
 
-    it('shows the branch, the blocked dependencies, and the flag reason when the card carries them', async () => {
+    it('shows the branch, the unsatisfied dependency, and the flag reason when the card carries them', async () => {
         fetchMock.mockResolvedValueOnce(
             jsonResponse(detail({ branch: 'card/0001', dependsOn: ['0002'], needsHuman: true, needsHumanReason: 'stuck' })),
         );
-        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'implementing' })])); // listCards
+        fetchMock.mockResolvedValueOnce(columns()); // listBoardColumns
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
 
+        // `Promise.all([api.board.listCards(), api.board.listBoardColumns()])` calls both array
+        // elements synchronously in that order, so the mock queue reflects it: cards first, columns
+        // second, after the card and its events.
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards');
+        expect(urlOf(fetchMock.mock.calls[2]!)).not.toContain('/api/cards/0001');
+        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/stages');
+
         expect(logger.info).toHaveBeenCalledWith('branch:   card/0001');
         expect(logger.info).toHaveBeenCalledWith('blocked:  0002');
         expect(logger.info).toHaveBeenCalledWith('needs human: stuck');
+    });
+
+    it('names only the unmerged dependency when one dependency has merged and one has not — card 0154', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0155', '0162'] })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]),
+        );
+        fetchMock.mockResolvedValueOnce(columns());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        // Card 0154 displayed `blocked: 0155, 0162` even though 0155 was long merged; `wilson card
+        // next` (which goes through `unsatisfiedDependencies`) correctly reported only 0162.
+        expect(logger.info).toHaveBeenCalledWith('blocked:  0162');
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        expect(messages.some((m: string) => typeof m === 'string' && m.includes('0155'))).toBe(false);
+    });
+
+    it('shows no blocked: line at all when every dependency has merged', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002'] })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'merged' })]));
+        fetchMock.mockResolvedValueOnce(columns());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+    });
+
+    it('shows a dropped or poisoned dependency as one that will never clear, distinct from one still waiting', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002', '0003'] })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]),
+        );
+        fetchMock.mockResolvedValueOnce(columns());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        expect(logger.info).toHaveBeenCalledWith('blocked:  0002 (dropped — will never merge), 0003');
+    });
+
+    it('issues no extra request when the card names no dependencies', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: [] })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0001');
+
+        expect(result).toBe(0);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+    });
+
+    it('reports zero files in scope, without throwing, when the plan genuinely has no Files in scope section', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ sections: { goal: 'do it' } })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0001');
+
+        expect(result).toBe(0);
+        expect(logger.info).toHaveBeenCalledWith('\nfiles in scope (0):');
     });
 
     it('lists recent events with their type and stage', async () => {
