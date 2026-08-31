@@ -56,7 +56,8 @@ contract CardSummary: {
     # Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
     # `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
     # shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
-    # event history holds no events at all — a history that cannot answer the question, not the same
+    # event history holds no events at all, or whose fetched window is full of events with no
+    # transition among them — a history that cannot answer the question either way, not the same
     # fact as "just entered".
     stageEnteredAt?: datetime
 }

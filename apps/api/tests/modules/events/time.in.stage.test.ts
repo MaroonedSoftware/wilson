@@ -31,6 +31,31 @@ describe('stageEnteredAt', () => {
 
         expect(stageEnteredAt(events)?.toISO()).toBe(events[1]!.createdAt.toISO());
     });
+
+    // Card 0178 review: a caller passing a bounded tail (`EventLog.tail`'s `limit`) cannot tell
+    // "never transitioned" apart from "the transition fell outside this window" just by looking at
+    // `events` — `fullHistory: false` is how it says which case it might be in.
+    it('answers with the earliest event when fullHistory is explicitly true, same as the default', () => {
+        const events = [event('stage.dispatched', '2024-01-01T00:00:00.000Z'), event('scope.requested', '2024-01-01T01:00:00.000Z')];
+
+        expect(stageEnteredAt(events, { fullHistory: true })?.toISO()).toBe(events[0]!.createdAt.toISO());
+    });
+
+    it('still answers with the most recent transition.written event when fullHistory is false, since a transition was found', () => {
+        const events = [
+            event('stage.dispatched', '2024-01-01T00:00:00.000Z'),
+            event('transition.written', '2024-01-02T00:00:00.000Z'),
+            event('stage.dispatched', '2024-01-02T06:00:00.000Z'),
+        ];
+
+        expect(stageEnteredAt(events, { fullHistory: false })?.toISO()).toBe(events[1]!.createdAt.toISO());
+    });
+
+    it('answers undefined, not the earliest event, when fullHistory is false and no transition.written is present', () => {
+        const events = [event('stage.dispatched', '2024-01-01T00:00:00.000Z'), event('scope.requested', '2024-01-01T01:00:00.000Z')];
+
+        expect(stageEnteredAt(events, { fullHistory: false })).toBeUndefined();
+    });
 });
 
 describe('timeInCurrentStage', () => {
@@ -73,6 +98,15 @@ describe('timeInCurrentStage', () => {
         const result = timeInCurrentStage(events, now);
 
         expect(result?.as('hours')).toBe(2);
+    });
+
+    // Card 0178 review: `timeInCurrentStage` forwards `fullHistory` to `stageEnteredAt` unchanged,
+    // so the same truncated-tail case answers undefined here too, rather than a bogus duration.
+    it('returns undefined, not a duration from the earliest event, when fullHistory is false and no transition.written is present', () => {
+        const events = [event('stage.dispatched', '2024-01-01T00:00:00.000Z'), event('scope.requested', '2024-01-01T01:00:00.000Z')];
+        const now = DateTime.fromISO('2024-01-01T03:00:00.000Z', { zone: 'utc' });
+
+        expect(timeInCurrentStage(events, now, { fullHistory: false })).toBeUndefined();
     });
 
     it('is pure: it never reads the clock itself, only what is passed in as now', () => {

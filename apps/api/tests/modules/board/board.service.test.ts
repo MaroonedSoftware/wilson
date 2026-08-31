@@ -176,6 +176,51 @@ describe('BoardService', () => {
             expect(seenArgs).toEqual(['proj', '0001']);
         });
 
+        // Card 0178 review: a card mid-stage can rack up more events than the lookback window (an
+        // agent's own tool calls, mostly) without ever transitioning within it. A full window with
+        // no `transition.written` in it does not mean the card never transitioned — it means the
+        // transition, if any, fell outside the window this fetch happened to cover. Falling back to
+        // the window's earliest event in that case would report a wrong, too-recent timestamp as
+        // fact; this proves `stageEnteredAt` comes back absent instead.
+        it('omits stageEnteredAt, rather than guessing, when the lookback window is full but holds no transition', async () => {
+            const cards = [card('0001', { stage: 'implementing' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const fullWindowNoTransition = Array.from({ length: 20 }, (_, i) => ({
+                id: String(i),
+                stage: 'implementing',
+                type: 'tool.executed',
+                payload: {},
+                createdAt: DateTime.fromISO('2024-01-01T00:00:00.000Z').plus({ minutes: i }),
+            }));
+            const eventLog = { tail: async () => fullWindowNoTransition } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toBeUndefined();
+        });
+
+        // Card 0178 review: the same full-window case, but the transition is present in the
+        // window — the fix must not turn a genuinely answerable case into a guess either.
+        it('still reports stageEnteredAt when the lookback window is full and the transition is within it', async () => {
+            const cards = [card('0001', { stage: 'review' })];
+            const boardRepository = { list: async () => cards } as unknown as BoardRepository;
+            const enteredReview = DateTime.fromISO('2024-01-01T00:10:00.000Z');
+            const fullWindow = Array.from({ length: 20 }, (_, i) => ({
+                id: String(i),
+                stage: i < 10 ? 'implementing' : 'review',
+                type: i === 10 ? 'transition.written' : 'tool.executed',
+                payload: {},
+                createdAt: i === 10 ? enteredReview : DateTime.fromISO('2024-01-01T00:00:00.000Z').plus({ minutes: i }),
+            }));
+            const eventLog = { tail: async () => fullWindow } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            const [summary] = await service.list();
+
+            expect(summary.stageEnteredAt).toEqual(enteredReview);
+        });
+
         // Card 0178: only a handful of a card's most recent events are fetched to answer
         // `stageEnteredAt` — the same bounded lookback `wilson card show` already uses, not the
         // card's entire history.

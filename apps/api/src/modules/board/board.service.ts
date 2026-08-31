@@ -19,9 +19,11 @@ const clampLimit = (limit: number | undefined): number => Math.min(limit ?? DEFA
 
 /**
  * Card 0178. How far back {@link BoardService.withStageEnteredAt} looks for the transition that
- * answers `stageEnteredAt` — no need for more than a handful of a card's most recent events, the
- * same window `wilson card show` already fetches for the same derivation
- * (packages/cli/src/commands/card/show.command.ts).
+ * answers `stageEnteredAt` — the same window `wilson card show` already fetches for the same
+ * derivation (packages/cli/src/commands/card/show.command.ts). A stage that racks up more events
+ * than this before its next transition (an agent's tool calls, mostly) pushes the transition out
+ * of the window; `withStageEnteredAt` notices when that happened and answers `undefined` rather
+ * than guessing from whatever the window's earliest event happens to be.
  */
 const STAGE_ENTERED_LOOKBACK = 20;
 
@@ -81,10 +83,18 @@ export class BoardService {
      * built — the moment `card` entered its current stage, read from its own event tail and
      * derived the same way `wilson card show` derives it (`stageEnteredAt`, time.in.stage.ts).
      * Left absent when the fetched history has no events at all, rather than guessing.
+     *
+     * `eventLog.tail` returning fewer rows than `STAGE_ENTERED_LOOKBACK` asked for means there was
+     * nothing more to fetch — this tail *is* the card's complete history, so `stageEnteredAt` can
+     * trust the earliest row in it as the stage's start when no transition turns up. A full window
+     * proves nothing either way: there could be exactly that many events, or there could be more
+     * sitting before it that this fetch never reached — the same ambiguity `stageEnteredAt`'s
+     * `fullHistory` option exists to resolve as "unknown" rather than "the window's earliest event".
      */
     private async withStageEnteredAt<T extends CardSummary>(card: Card, summary: T): Promise<T> {
         const events = await this.eventLog.tail(this.boardConfig.project, card.frontmatter.id, STAGE_ENTERED_LOOKBACK);
-        return { ...summary, stageEnteredAt: stageEnteredAt(events) };
+        const fullHistory = events.length < STAGE_ENTERED_LOOKBACK;
+        return { ...summary, stageEnteredAt: stageEnteredAt(events, { fullHistory }) };
     }
 
     async list(): Promise<CardSummary[]> {
