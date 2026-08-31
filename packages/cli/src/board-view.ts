@@ -129,11 +129,14 @@ export const staleDaemonCards = (cards: CardSummary[], eventsByCard: Map<string,
 
 /**
  * The globs a plan names under "Files in scope". Mirrors `filesInScope` in
- * `apps/api/src/modules/board/card.js`, operating on `CardDetail.sections` instead of a locally-read
- * `Card`.
+ * `apps/api/src/modules/board/card.ts`, operating on `CardDetail.sections` instead of a locally-read
+ * `Card` — and that is not just a different container. `Card.sections` is keyed by the literal
+ * heading (`'Files in scope'`); `CardDetail.sections` is what `sectionKey`
+ * (`apps/api/src/modules/board/board.service.ts`) publishes over the wire, the heading lowercased
+ * with spaces turned to hyphens (`'files-in-scope'`). Read the wire key here, not the heading.
  */
 export const filesInScope = (sections: Record<string, string>): string[] => {
-    const raw = sections['Files in scope'];
+    const raw = sections['files-in-scope'];
     if (!raw) return [];
     return raw
         .split('\n')

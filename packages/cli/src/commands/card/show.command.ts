@@ -2,7 +2,7 @@ import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { DateTime } from 'luxon';
 import type { CardEvent } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
-import { filesInScope, timeInCurrentStage } from '../../board-view.js';
+import { deadDependencies, describeDependency, filesInScope, timeInCurrentStage, unsatisfiedDependencies } from '../../board-view.js';
 
 interface ShowOpts {
     json?: boolean;
@@ -43,6 +43,18 @@ const command: CommandModule<ShowOpts> = {
         const events = await api.board.listCardEvents(cardId, { limit: 20 });
         const timeInStage = timeInCurrentStage(events, DateTime.utc());
 
+        // Satisfaction can't be judged from this one card, so the board's other cards are needed to
+        // say what's really blocking — but only when there is a dependency to check at all, so a card
+        // naming none stays a single request (`wilson card next` always fetches the board, but it has
+        // to look at every card anyway; `show` doesn't).
+        let blockedOn: string[] = [];
+        if (card.dependsOn.length > 0) {
+            const [cards, columns] = await Promise.all([api.board.listCards(), api.board.listBoardColumns()]);
+            const outstanding = unsatisfiedDependencies(card, cards);
+            const dead = deadDependencies(card, cards, columns.nonStages);
+            blockedOn = outstanding.map(id => describeDependency(id, cards, dead));
+        }
+
         if (opts.json) {
             const scope = filesInScope(card.sections);
             ctx.logger.info(
@@ -69,7 +81,7 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`stage:    ${card.stage}`);
         if (timeInStage) ctx.logger.info(`for:      ${timeInStage.shiftTo('days', 'hours', 'minutes').toHuman()}`);
         ctx.logger.info(`branch:   ${card.branch ?? '—'}`);
-        if (card.dependsOn.length > 0) ctx.logger.info(`blocked:  ${card.dependsOn.join(', ')}`);
+        if (blockedOn.length > 0) ctx.logger.info(`blocked:  ${blockedOn.join(', ')}`);
         if (card.needsHuman) ctx.logger.info(`needs human: ${card.needsHumanReason ?? '(no reason given)'}`);
 
         const scope = filesInScope(card.sections);
