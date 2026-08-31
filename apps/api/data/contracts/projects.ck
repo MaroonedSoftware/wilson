@@ -30,6 +30,48 @@ contract Project: {
     name: string
 }
 
+# Card 0168. The four paths `runner.projects` carries beyond `name` — `BoardModule` seeds them from
+# this same process's own environment on first boot (`resolveProjectRow`, board.module.ts), and
+# registering a second project needs the same four values from somewhere, since nothing else on this
+# machine knows them.
+#
+# Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
+# `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
+# "a request that could name an arbitrary filesystem path would be a remote write primitive, which
+# this is not". That reasoning was weighed and not followed here. The grounds: `security: none`
+# above is justified, on every contract that carries it, by the API binding to 127.0.0.1 with no
+# auth boundary yet (card 0019) — and anything that can already reach this port can already `INSERT`
+# a row into `runner.projects` directly, so accepting paths here grants nothing that is not already
+# granted. No confinement root is added either: that would be new configuration, considered and
+# rejected rather than overlooked. Authenticating the API (card 0019) is what actually settles the
+# question `init` answered one way and this answers the other.
+#
+# Only `isAbsolute` is checked — not existence, writability, or that a board lives there — the same
+# restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
+# is discovered by use, not by a check guessing at what "working" means. `ProjectsService.create`
+# normalises with `resolve()`, as `BoardModule` already does for the seeded row.
+contract CreateProjectRequest: {
+    name: string
+    boardRoot: string
+    codeRoot: string
+    worktreeRoot: string
+    runRoot: string
+}
+
+# Every field optional, unlike `CreateProjectRequest`: this is `patch`, not `put` (see the operation
+# below), so a field present is set and a field absent is left as it is — the same partial-update
+# meaning `board.ck`'s `PATCH /api/cards/{id}` comment gives `EditCardRequest`. There is deliberately
+# no `name` here — `runner.projects.name` is the same value the `project` column carries in every
+# other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
+# orphan every card, event, version and setting rather than failing. The name lives in the path
+# (`/api/projects/{name}`) and nowhere in any request body on this contract.
+contract UpdateProjectRequest: {
+    boardRoot?: string
+    codeRoot?: string
+    worktreeRoot?: string
+    runRoot?: string
+}
+
 # No project header or `?project=` is required, and none is refused: `ProjectContextRouter`
 # (routes.setup.ts) only refuses a project that is *named and unregistered* — with neither set, it
 # falls back to the daemon's own configured project and calls `next`, the same as every other route
@@ -43,6 +85,57 @@ operation /api/projects: {
             200: {
                 application/json: array(Project)
             }
+        }
+    }
+    # Card 0168. Returns `Project` — the name alone, not the four paths just sent — the same
+    # response shape `get` above answers with. Card 0162 withheld those four paths from an
+    # unauthenticated read surface on purpose; echoing them back from a write would reverse that
+    # quietly, for a caller that already has them. `ProjectsService.create` is where the path
+    # validation and the duplicate-name refusal live.
+    post: {
+        name: Register project
+        service: ProjectsService.create
+        request: {
+            application/json: CreateProjectRequest
+        }
+        response: {
+            201: {
+                application/json: Project
+            }
+            # A path missing, empty, or not absolute. `init`'s precedent for a malformed request,
+            # carried via `details` as every other refusal on this surface is.
+            400:
+            # The name is already registered. `init`'s own precedent for "this already exists",
+            # not a primary-key error reaching the client.
+            409:
+        }
+    }
+}
+
+# Card 0168. `name` is not a field of `UpdateProjectRequest` above — it lives here, in the path,
+# because it is the one thing this operation must never change. `POST /api/projects` is the only
+# creator of a `runner.projects` row; this corrects one already registered.
+operation /api/projects/{name}: {
+    params: {
+        name: string
+    }
+    # Not `put`. Fields present in the body are set; fields absent are left as they are — see
+    # `UpdateProjectRequest`'s own comment, and `board.ck`'s `PATCH /api/cards/{id}` for the same
+    # reasoning stated once and not repeated differently here.
+    patch: {
+        name: Update project paths
+        service: ProjectsService.update
+        request: {
+            application/json: UpdateProjectRequest
+        }
+        response: {
+            200: {
+                application/json: Project
+            }
+            # A path present in the body but empty or not absolute.
+            400:
+            # No project registered under this name.
+            404:
         }
     }
 }

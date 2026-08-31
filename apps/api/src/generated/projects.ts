@@ -13,3 +13,53 @@ export const Project = z.strictObject({
     name: z.string(),
 });
 export type Project = z.infer<typeof Project>;
+
+/**
+ * Card 0168. The four paths `runner.projects` carries beyond `name` — `BoardModule` seeds them from
+ * this same process's own environment on first boot (`resolveProjectRow`, board.module.ts), and
+ * registering a second project needs the same four values from somewhere, since nothing else on this
+ * machine knows them.
+ *
+ * Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
+ * `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
+ * "a request that could name an arbitrary filesystem path would be a remote write primitive, which
+ * this is not". That reasoning was weighed and not followed here. The grounds: `security: none`
+ * above is justified, on every contract that carries it, by the API binding to 127.0.0.1 with no
+ * auth boundary yet (card 0019) — and anything that can already reach this port can already `INSERT`
+ * a row into `runner.projects` directly, so accepting paths here grants nothing that is not already
+ * granted. No confinement root is added either: that would be new configuration, considered and
+ * rejected rather than overlooked. Authenticating the API (card 0019) is what actually settles the
+ * question `init` answered one way and this answers the other.
+ *
+ * Only `isAbsolute` is checked — not existence, writability, or that a board lives there — the same
+ * restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
+ * is discovered by use, not by a check guessing at what "working" means. `ProjectsService.create`
+ * normalises with `resolve()`, as `BoardModule` already does for the seeded row.
+ * generated from [CreateProjectRequest](file://./../../data/contracts/projects.ck#L53)
+ */
+export const CreateProjectRequest = z.strictObject({
+    name: z.string(),
+    boardRoot: z.string(),
+    codeRoot: z.string(),
+    worktreeRoot: z.string(),
+    runRoot: z.string(),
+});
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+/**
+ * Every field optional, unlike `CreateProjectRequest`: this is `patch`, not `put` (see the operation
+ * below), so a field present is set and a field absent is left as it is — the same partial-update
+ * meaning `board.ck`'s `PATCH /api/cards/{id}` comment gives `EditCardRequest`. There is deliberately
+ * no `name` here — `runner.projects.name` is the same value the `project` column carries in every
+ * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
+ * orphan every card, event, version and setting rather than failing. The name lives in the path
+ * (`/api/projects/{name}`) and nowhere in any request body on this contract.
+ * generated from [UpdateProjectRequest](file://./../../data/contracts/projects.ck#L68)
+ */
+export const UpdateProjectRequest = z.strictObject({
+    boardRoot: z.string().optional(),
+    codeRoot: z.string().optional(),
+    worktreeRoot: z.string().optional(),
+    runRoot: z.string().optional(),
+});
+export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;

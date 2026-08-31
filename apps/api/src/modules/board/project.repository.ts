@@ -58,4 +58,14 @@ export class ProjectRepository {
     async create(row: ProjectRow): Promise<void> {
         await this.db.insertInto('runner.projects').values(row).execute();
     }
+
+    /**
+     * Set whichever of the four path columns `patch` names, for the named project, leaving the
+     * others untouched. Returns whether a row matched `name`, so the caller can answer 404 rather
+     * than succeeding silently against nothing.
+     */
+    async update(name: string, patch: Partial<Omit<ProjectRow, 'name'>>): Promise<boolean> {
+        const result = await this.db.updateTable('runner.projects').set(patch).where('name', '=', name).executeTakeFirst();
+        return result.numUpdatedRows > 0n;
+    }
 }
