@@ -43,18 +43,19 @@ export class DevServerPortAllocator {
      * A lease is coordination between cards on this board (`runner.leases`); it knows nothing about
      * a Postgres container, an editor's dev server, or another developer's process already listening
      * on that port. So a won lease is checked against the machine with {@link isPortFree} before it is
-     * handed back — and when the probe finds the port taken, the lease already won for it is left
-     * held (there is no per-resource release on `LeaseService`, only `releaseAll` for a whole card,
-     * which fires when this card's worktree is reclaimed) and the loop moves on to the next
-     * candidate. That still leaves a time-of-check/time-of-use gap between this probe and whatever the
-     * caller actually binds to the port later — closing that gap would need an atomic
-     * "reserve-and-hold" the OS does not offer for TCP ports, so it is accepted here, not solved.
+     * handed back — and when the probe finds the port taken, the lease already won for it is released
+     * (card 0167's `LeaseService.release`) before the loop moves on to the next candidate, so stepping
+     * over an occupied port does not leave it held for the rest of this card's run. That still leaves
+     * a time-of-check/time-of-use gap between this probe and whatever the caller actually binds to the
+     * port later — closing that gap would need an atomic "reserve-and-hold" the OS does not offer for
+     * TCP ports, so it is accepted here, not solved.
      */
     async acquire(range: DevServerPortRange, project: string, cardId: string): Promise<PortAcquireResult> {
         for (let port = range.start; port <= range.end; port++) {
             const result = await this.leases.acquire(resourceKeyFor(port), project, cardId);
             if (!result.acquired) continue;
             if (await isPortFree(port)) return { ok: true, port };
+            await this.leases.release(resourceKeyFor(port), project, cardId);
         }
         return { ok: false, reason: `every port in ${range.start}-${range.end} is held or already bound on this machine` };
     }

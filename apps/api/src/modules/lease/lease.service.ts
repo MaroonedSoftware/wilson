@@ -103,6 +103,29 @@ export class LeaseService {
         await this.db.deleteFrom('runner.leases').where('project', '=', project).where('cardId', '=', cardId).execute();
     }
 
+    /**
+     * Release `resourceKey` if `cardId` currently holds it. Safe to call when it does not.
+     *
+     * Card 0167. For a caller that wins a lease on a candidate it turns out not to want — a port a
+     * probe finds already bound, say — without dropping every other lease `cardId` holds the way
+     * {@link releaseAll} would. Matches on `resourceKey`, `project`, and `cardId` together, the same
+     * three columns {@link acquire}'s own steal-path `DELETE` conditions on and for the same reason:
+     * a caller can only ever be releasing its own claim, never someone else's, even if the row it
+     * thinks it holds was already stolen out from under it as orphaned.
+     *
+     * "Not currently held by you" and "released" are indistinguishable on purpose: a caller cannot
+     * always know whether it still holds a key it once won, and either way the state it wanted — that
+     * key not being held by it — now holds. So this reports nothing back, the same as `releaseAll`.
+     */
+    async release(resourceKey: string, project: string, cardId: string): Promise<void> {
+        await this.db
+            .deleteFrom('runner.leases')
+            .where('resourceKey', '=', resourceKey)
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .execute();
+    }
+
     /** What is currently held, across every project — the "way to see what is held" card 0165 asks for. */
     async list(): Promise<LeaseHolder[]> {
         return this.db.selectFrom('runner.leases').select(['resourceKey', 'project', 'cardId']).orderBy('resourceKey').execute();
