@@ -15,11 +15,14 @@ import {
     useAckCard,
     useAddPlanComment,
     useCreateCard,
+    useEditCardBody,
     useMoveCard,
     useReleaseCard,
+    useRenameCard,
     useRepositionCard,
     useResolvePlanComment,
     useSaveAPlanDraft,
+    useSetCardDependency,
     useStartCard,
 } from '#src/lib/mutations.js';
 
@@ -667,5 +670,197 @@ describe('useResolvePlanComment', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
         expect(notifications.show).not.toHaveBeenCalled();
         expect((result.current.error as SdkError).body).toMatchObject({ details: { reason: 'comment already resolved' } });
+    });
+});
+
+// Card 0177: renaming a card, editing its body, and setting/removing a dependency, all from the
+// card page rather than the CLI. `renameCard`/`editCardBody`/`setCardDependency` already existed on
+// the SDK; these three hooks are the new bit.
+describe('useRenameCard', () => {
+    const renamed: CardDetail = {
+        id: '0007',
+        title: 'The new title',
+        stage: 'testing',
+        dependsOn: [],
+        needsHuman: false,
+        sections: {},
+        body: 'the plan',
+    };
+
+    it('sends the typed title to renameCard', async () => {
+        const renameCard = vi.spyOn(wilson.board, 'renameCard').mockResolvedValue(renamed);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useRenameCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('The new title');
+        });
+
+        expect(renameCard).toHaveBeenCalledWith('0007', { title: 'The new title' });
+    });
+
+    it("writes the response straight into every query matching ['card', '0007'] — not an invalidate", async () => {
+        vi.spyOn(wilson.board, 'renameCard').mockResolvedValue(renamed);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], { ...renamed, title: 'stale' });
+        queryClient.setQueryData(['unrelated'], {});
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+        const { result } = renderHook(() => useRenameCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('The new title');
+        });
+
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007'])).toEqual(renamed);
+        expect(queryClient.getQueryData(['unrelated'])).toEqual({});
+        expect(invalidateQueries).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not rename the card'", async () => {
+        vi.spyOn(wilson.board, 'renameCard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'title already in use' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useRenameCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('Duplicate title');
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not rename the card', message: 'title already in use' }),
+            ),
+        );
+    });
+});
+
+describe('useEditCardBody', () => {
+    const edited: CardDetail = {
+        id: '0007',
+        title: 'Do the thing',
+        stage: 'testing',
+        dependsOn: [],
+        needsHuman: false,
+        sections: {},
+        body: 'the edited body',
+    };
+
+    it('sends the new body to editCardBody', async () => {
+        const editCardBody = vi.spyOn(wilson.board, 'editCardBody').mockResolvedValue(edited);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useEditCardBody('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('the edited body');
+        });
+
+        expect(editCardBody).toHaveBeenCalledWith('0007', { body: 'the edited body' });
+    });
+
+    it("writes the response straight into every query matching ['card', '0007'] — not an invalidate", async () => {
+        vi.spyOn(wilson.board, 'editCardBody').mockResolvedValue(edited);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], { ...edited, body: 'stale' });
+        queryClient.setQueryData(['unrelated'], {});
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+        const { result } = renderHook(() => useEditCardBody('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('the edited body');
+        });
+
+        expect(queryClient.getQueryData(['project', 'demo', 'card', '0007'])).toEqual(edited);
+        expect(queryClient.getQueryData(['unrelated'])).toEqual({});
+        expect(invalidateQueries).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not edit the card'", async () => {
+        vi.spyOn(wilson.board, 'editCardBody').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'body is empty' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useEditCardBody('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('');
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Could not edit the card', message: 'body is empty' })),
+        );
+    });
+});
+
+describe('useSetCardDependency', () => {
+    const withDependency: CardDetail = {
+        id: '0007',
+        title: 'Do the thing',
+        stage: 'testing',
+        dependsOn: ['0003'],
+        needsHuman: false,
+        sections: {},
+        body: 'the plan',
+    };
+
+    it('adds a dependency by sending only dependsOnId, with no remove flag', async () => {
+        const setCardDependency = vi.spyOn(wilson.board, 'setCardDependency').mockResolvedValue(withDependency);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useSetCardDependency('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ dependsOnId: '0003' });
+        });
+
+        expect(setCardDependency).toHaveBeenCalledWith('0007', { dependsOnId: '0003' });
+    });
+
+    it('removes a dependency by sending remove: true', async () => {
+        const setCardDependency = vi.spyOn(wilson.board, 'setCardDependency').mockResolvedValue({ ...withDependency, dependsOn: [] });
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useSetCardDependency('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ dependsOnId: '0003', remove: true });
+        });
+
+        expect(setCardDependency).toHaveBeenCalledWith('0007', { dependsOnId: '0003', remove: true });
+    });
+
+    it('invalidates the cards list and the card itself on success, with no direct write', async () => {
+        vi.spyOn(wilson.board, 'setCardDependency').mockResolvedValue(withDependency);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        queryClient.setQueryData(['unrelated'], {});
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useSetCardDependency('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ dependsOnId: '0003' });
+        });
+
+        expect(queryClient.getQueryState(['project', 'demo', 'cards'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
+        expect(setQueryData).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not update the dependency'", async () => {
+        vi.spyOn(wilson.board, 'setCardDependency').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'no such card 0099' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useSetCardDependency('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ dependsOnId: '0099' });
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not update the dependency', message: 'no such card 0099' }),
+            ),
+        );
     });
 });

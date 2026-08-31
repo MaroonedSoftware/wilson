@@ -6,6 +6,7 @@ import {
     type CardSummary,
     type CreateCardRequest,
     type CreatePlanCommentRequest,
+    type DependCardRequest,
     type PlanComment,
     type PlanTurn,
 } from '@wilson/sdk';
@@ -293,6 +294,83 @@ export function useCreateCard() {
         mutationFn: (body: CreateCardRequest): Promise<CardDetail> => wilson.board.createCard(body),
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not create card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Renames a card (card 0094's `POST .../rename`) — its own sub-resource action, not folded into
+ * `editCardBody`'s body PATCH: the generated SDK method for that route is pinned to `{ body }`
+ * (`board.client.ts`'s own doc comment on `renameCard`; `packages/sdk/src/types/board.ts`), and a
+ * second field there would force renaming it and every caller for no behavioural gain.
+ *
+ * Success writes the response straight into the card's own query cache (`setQueriesData` with
+ * `matchesCard`, the `useSaveAPlanDraft` pattern above) rather than invalidating: the rename modal
+ * (`CardEditControls.tsx`'s `RenameControl`) closes back onto the card's header the moment this
+ * resolves, and the new title should already be there rather than waiting on a second round trip —
+ * the same immediacy `useSaveAPlanDraft` gives a just-saved draft. A refusal is a red notification
+ * naming the server's own reason (`reasonFor`), this file's default for every mutation that is not a
+ * composer mid-typing.
+ */
+export function useRenameCard(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (title: string): Promise<CardDetail> => wilson.board.renameCard(id, { title }),
+        onSuccess: result => {
+            queryClient.setQueriesData<CardDetail>({ predicate: query => matchesCard(query.queryKey, id) }, result);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not rename the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Edits a card's body (card 0094's `PATCH .../id`, `EditCardRequest`) — a partial update of `body`
+ * alone, never `title`: frontmatter is not editable through this route (decision 5;
+ * `board.client.ts`'s own doc comment on `editCardBody`), which is exactly why renaming above is its
+ * own request shape rather than a second field here.
+ *
+ * Only ever reachable for a card outside `planning`/`parking-lot` — `CardEditControls.tsx`'s
+ * `EditBodyControl` is rendered solely in `CardDetail.tsx`'s non-planning branch, since those two
+ * stages already get `DraftPane`'s session editor (cards 0138/0159) and a second door onto the same
+ * field would let the two drift (this card's Constraints). Same immediacy as `useRenameCard` above
+ * and for the same reason: `setQueriesData` with `matchesCard`, so the edited body is on screen the
+ * moment the write lands. A refusal is a red notification naming the server's own reason.
+ */
+export function useEditCardBody(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: string): Promise<CardDetail> => wilson.board.editCardBody(id, { body }),
+        onSuccess: result => {
+            queryClient.setQueriesData<CardDetail>({ predicate: query => matchesCard(query.queryKey, id) }, result);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not edit the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Adds or removes a dependency (card 0080's `POST .../depend`, `DependCardRequest`) — `remove: true`
+ * drops one, absent records one, mirroring `wilson card depend`'s `--remove` flag. Unlike
+ * `useRenameCard`/`useEditCardBody` above, success only invalidates (`invalidateCard` +
+ * `invalidateCardsList`, the `useMoveCard` pattern) rather than writing the response straight into
+ * the cache: a card's dependencies feed `assertDispatchable` the same way its stage does, so this
+ * waits on the refetch the same way a stage transition does, rather than trusting a client-held copy
+ * of a server-computed fact. An unknown id, or removing one that was never recorded, is a red
+ * notification naming the server's own reason.
+ */
+export function useSetCardDependency(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: DependCardRequest): Promise<CardDetail> => wilson.board.setCardDependency(id, body),
+        onSuccess: () => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not update the dependency', message: reasonFor(err) });
         },
     });
 }
