@@ -8,6 +8,7 @@ import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { ScopeCheckVerifier } from './scope.check.verifier.js';
 import { seedStageConfigFromBoardRepo } from './stage.config.seed.js';
+import { StageConfigService } from './stage.config.service.js';
 import { PostgresStageConfigStore, StageConfigStore } from './stage.config.store.js';
 import { StageDispatcher } from './stage.dispatcher.js';
 import { StagesService } from './stages.service.js';
@@ -49,6 +50,8 @@ export const StagesModule: ServerKitModule = {
         registry.register(StageConfigStore).useClass(PostgresStageConfigStore).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
         registry.register(StagesService).useClass(StagesService).asTransient();
+        // The document's own surface (`stages.ck`): `wilson stages show|edit|set|versions`.
+        registry.register(StageConfigService).useClass(StageConfigService).asTransient();
     },
     /**
      * Carry each registered project's `config/stages.yaml` into `runner.stage_configs` if it has no
