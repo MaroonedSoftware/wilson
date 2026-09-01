@@ -9,9 +9,9 @@
 // `theme.ts` exports an object shaped the right way.
 import { createElement } from 'react';
 import { cleanup, render } from '@testing-library/react';
-import { MantineProvider } from '@mantine/core';
+import { Anchor, MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { theme } from '#src/theme.js';
+import { theme, cssVariablesResolver } from '#src/theme.js';
 
 beforeEach(() => {
     // jsdom does not implement matchMedia; MantineProvider reads it (colour-scheme detection) on
@@ -45,6 +45,21 @@ function renderedCssVariables(): string {
     return document.querySelector('style[data-mantine-styles]')?.textContent ?? '';
 }
 
+/** Same as `renderedCssVariables`, but also wires `cssVariablesResolver` — the way `main.tsx` passes
+ * it to `MantineProvider` — so scheme-scoped variables it sets (card 0179) show up in the output too. */
+function renderedCssVariablesWithResolver(): string {
+    render(createElement(MantineProvider, { theme, cssVariablesResolver }));
+    return document.querySelector('style[data-mantine-styles]')?.textContent ?? '';
+}
+
+/** `convertCssVariables` (`@mantine/core`) emits each scheme's block as its own
+ * `:root[data-mantine-color-scheme="<scheme>"], :host([data-mantine-color-scheme="<scheme>"]){...}`
+ * rule. Pulls just that rule's declarations out of the full stylesheet text so an assertion about one
+ * scheme can't accidentally match a declaration meant for the other. */
+function schemeBlock(css: string, scheme: 'dark' | 'light'): string {
+    return css.match(new RegExp(`data-mantine-color-scheme="${scheme}"\\][^{]*\\{([^}]*)\\}`))?.[1] ?? '';
+}
+
 describe('theme.ts wired into MantineProvider', () => {
     it('sets primaryColor to "dark" — the monochrome default brand/README.md calls for', () => {
         expect(renderedCssVariables()).toMatch(/--mantine-primary-color-filled:\s*var\(--mantine-color-dark-filled\)/);
@@ -58,5 +73,62 @@ describe('theme.ts wired into MantineProvider', () => {
     it('sets a monospace stack for code-like text (mono lowercase "wilson" beside commands)', () => {
         const match = renderedCssVariables().match(/--mantine-font-family-monospace:\s*([^;]*);/);
         expect(match?.[1]).toMatch(/mono/i);
+    });
+});
+
+describe('cssVariablesResolver (card 0179 — links unreadable in dark mode)', () => {
+    // Without the resolver, Mantine's own default derives `--mantine-color-anchor` from
+    // `primaryColor: 'dark'` — `var(--mantine-color-dark-4)` (`#424242`) in the dark scheme — which is
+    // what made every `Anchor` in the app fail WCAG AA against the dark-scheme body. Pinning down that
+    // baseline first is what makes the next test's override provable rather than assumed.
+    it('defaults to the unreadable dark-4 token in the dark scheme when the resolver is not passed', () => {
+        const dark = schemeBlock(renderedCssVariables(), 'dark');
+        expect(dark).toMatch(/--mantine-color-anchor:\s*var\(--mantine-color-dark-4\);/);
+    });
+
+    // This is the actual fix: the resolver overrides that default to `theme.colors.dark[0]`
+    // (`#C9C9C9`), the shade `theme.ts`'s doc comment measures at 9.37:1 against the dark-scheme body.
+    it('overrides --mantine-color-anchor for the dark scheme to theme.colors.dark[0]', () => {
+        const dark = schemeBlock(renderedCssVariablesWithResolver(), 'dark');
+        expect(dark).toMatch(/--mantine-color-anchor:\s*#C9C9C9;/);
+    });
+
+    // The Constraints are explicit that light must not regress from its current 13.58:1 — this
+    // resolver's own `light: {}` is what leaves Mantine's default (`var(--mantine-color-dark-6)`,
+    // resolved from `primaryColor` for the light scheme) in place, identical with or without the
+    // resolver wired in.
+    it('leaves the light scheme\'s anchor colour at Mantine\'s own default, resolver or not', () => {
+        const withoutResolver = schemeBlock(renderedCssVariables(), 'light');
+        const withResolver = schemeBlock(renderedCssVariablesWithResolver(), 'light');
+        expect(withResolver).toBe(withoutResolver);
+        expect(withResolver).toMatch(/--mantine-color-anchor:\s*var\(--mantine-color-dark-6\);/);
+    });
+});
+
+/** Renders a bare `Anchor` under the given theme (or Mantine's own defaults, if `undefined`) and
+ * returns the underline state Mantine records on the rendered `<a>` — `Anchor.mjs` passes `underline`
+ * through `mod={{ underline }}`, which lands as a `data-underline` attribute (`Anchor.module.css`
+ * keys its `:hover`/`:active`/at-rest underline rules off exactly that attribute's value: `'hover'`,
+ * `'not-hover'`, or `'always'`). Reading the attribute is what proves which behaviour is actually
+ * wired up, rather than trusting that passing `defaultProps` did something. */
+function renderedAnchorUnderline(providerTheme?: typeof theme): string | null {
+    const { container } = render(createElement(MantineProvider, { theme: providerTheme }, createElement(Anchor, { href: '#' }, 'a link')));
+    return container.querySelector('a')?.getAttribute('data-underline') ?? null;
+}
+
+describe('components.Anchor default underline (card 0179 — links unreadable in dark mode)', () => {
+    // Baseline: Mantine's own default is `underline: 'hover'` — no decoration at rest, only on
+    // hover/active. That is not a persistent affordance, which matters once colour alone can't carry
+    // it either (the dark-scheme anchor colour above is set equal to body text).
+    it('is "hover" — no decoration at rest — under Mantine\'s own defaults, without this app\'s theme', () => {
+        expect(renderedAnchorUnderline(undefined)).toBe('hover');
+    });
+
+    // The fix: `theme.ts`'s `components.Anchor` overrides the default to `underline: 'always'`, so
+    // every text `Anchor`/`AnchorLink` in the app is underlined at rest, not just on hover — the
+    // affordance the doc comment beside `cssVariablesResolver` says carries "this is a link" now that
+    // colour no longer can.
+    it('is "always" — underlined at rest — once this app\'s theme is wired in', () => {
+        expect(renderedAnchorUnderline(theme)).toBe('always');
     });
 });
