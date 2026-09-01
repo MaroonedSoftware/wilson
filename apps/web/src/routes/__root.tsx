@@ -1,7 +1,7 @@
 import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
 import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { IconMoon, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
@@ -51,10 +51,16 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * regress silently since nothing else asserts it — `dashboard.test.ts`'s "the header title" tests
  * already cover it and keep passing unchanged, because `title.closest('a')` still resolves to this
  * same `Link`).
+ *
+ * Card 0173: the snapshot badge used to sit behind a tooltip reading "Not connected — use refresh"
+ * with nothing here that actually did that — the only way to reconnect was a full page reload. An
+ * `ActionIcon` beside the badge calls `feed.reconnect()` (`lib/feed.ts`) instead, which invalidates
+ * every query and tears down and reopens the `EventSource`; the tooltip now names the control next to
+ * it rather than describing an action this screen couldn't take.
  */
 function Root() {
     const { project } = useParams({ strict: false });
-    const feedStatus = useCardFeed(project);
+    const feed = useCardFeed(project);
 
     return (
         <WilsonSdkProvider client={wilson}>
@@ -71,10 +77,15 @@ function Root() {
                         <Group gap="xs">
                             <FlaggedIndicator />
                             <ProjectSwitcher />
-                            <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
-                                <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
-                                    {feedStatus === 'live' ? 'live' : 'snapshot'}
+                            <Tooltip label={feed.status === 'live' ? 'Updates as cards move' : 'Not connected — see refresh'}>
+                                <Badge color={feed.status === 'live' ? 'green' : 'gray'} variant="light" size="sm">
+                                    {feed.status === 'live' ? 'live' : 'snapshot'}
                                 </Badge>
+                            </Tooltip>
+                            <Tooltip label="Refresh">
+                                <ActionIcon onClick={feed.reconnect} variant="subtle" aria-label="Refresh">
+                                    <IconRefresh size={18} />
+                                </ActionIcon>
                             </Tooltip>
                             <ColorSchemeToggle />
                             <Tooltip label="Settings">

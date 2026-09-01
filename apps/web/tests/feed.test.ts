@@ -73,7 +73,7 @@ describe('useCardFeed', () => {
 
     it('reports disconnected until the stream actually opens', () => {
         const { result } = renderFeed();
-        expect(result.current).toBe('disconnected');
+        expect(result.current.status).toBe('disconnected');
     });
 
     it('flips to live once the connection opens', () => {
@@ -81,17 +81,17 @@ describe('useCardFeed', () => {
 
         act(() => latestSource().onopen?.());
 
-        expect(result.current).toBe('live');
+        expect(result.current.status).toBe('live');
     });
 
     it('drops back to disconnected on error, so a restart shows up rather than staying silent', () => {
         const { result } = renderFeed();
 
         act(() => latestSource().onopen?.());
-        expect(result.current).toBe('live');
+        expect(result.current.status).toBe('live');
 
         act(() => latestSource().onerror?.());
-        expect(result.current).toBe('disconnected');
+        expect(result.current.status).toBe('disconnected');
     });
 
     it('recovers to live once the browser reconnects after the error', () => {
@@ -101,7 +101,7 @@ describe('useCardFeed', () => {
         act(() => latestSource().onerror?.());
         act(() => latestSource().onopen?.());
 
-        expect(result.current).toBe('live');
+        expect(result.current.status).toBe('live');
     });
 
     it('invalidates the cards query on a card event, instead of patching state from the payload', () => {
@@ -214,5 +214,48 @@ describe('useCardFeed', () => {
         expect(first.closed).toBe(true);
         expect(FakeEventSource.instances).toHaveLength(2);
         expect(latestSource().url).toBe(`${API_BASE}/api/feed?project=second-project`);
+    });
+
+    // Card 0173: `reconnect` is the header's refresh affordance — not optimistic anything (this
+    // card's Constraints), so it invalidates every query rather than guessing at what changed.
+    describe('reconnect', () => {
+        it('invalidates every query, not just the cards key', () => {
+            const { result, invalidateQueries } = renderFeed();
+
+            act(() => result.current.reconnect());
+
+            expect(invalidateQueries).toHaveBeenCalledWith();
+        });
+
+        it('closes the current connection and opens a fresh one', () => {
+            const { result } = renderFeed();
+            const first = latestSource();
+
+            act(() => result.current.reconnect());
+
+            expect(first.closed).toBe(true);
+            expect(FakeEventSource.instances).toHaveLength(2);
+            expect(latestSource()).not.toBe(first);
+        });
+
+        it('drops the status back to disconnected immediately, rather than showing live until the new source errors', () => {
+            const { result } = renderFeed();
+            act(() => latestSource().onopen?.());
+            expect(result.current.status).toBe('live');
+
+            act(() => result.current.reconnect());
+
+            expect(result.current.status).toBe('disconnected');
+        });
+
+        it('flips back to live once the fresh connection opens', () => {
+            const { result } = renderFeed();
+            act(() => latestSource().onopen?.());
+
+            act(() => result.current.reconnect());
+            act(() => latestSource().onopen?.());
+
+            expect(result.current.status).toBe('live');
+        });
     });
 });

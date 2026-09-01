@@ -1,9 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from './sdk.js';
 
 /** Whether the board is watching the live feed or showing whatever it last fetched. */
 export type FeedStatus = 'live' | 'disconnected';
+
+/**
+ * `useCardFeed`'s return value (card 0173). `status` is exactly what this hook always returned —
+ * `FeedStatus` itself is untouched, so anything that only ever read the status string against a
+ * pre-0173 tree still compiles against this same type. `reconnect` is the one thing this card adds:
+ * the header's refresh affordance (`__root.tsx`) calls it instead of a tooltip that only ever told a
+ * person to do this themselves, with no way here to actually do it.
+ */
+export interface CardFeed {
+    status: FeedStatus;
+    /** Invalidates every query and tears down and reopens the `EventSource` — for when the
+     * connection dropped and the browser's own retry hasn't landed yet. Not optimistic anything: it
+     * doesn't guess at what changed, it goes and asks. */
+    reconnect: () => void;
+}
 
 /**
  * Subscribes to `/api/feed` for the lifetime of the app and invalidates the cards query on every
@@ -14,9 +29,12 @@ export type FeedStatus = 'live' | 'disconnected';
  * the snapshot already gives for free. An event only ever means "go re-fetch the list" — the runner
  * is the sole writer, and rendering a client-side guess at the next state would render a lie.
  *
- * Reconnection needs no code of its own: a plain `EventSource` retries on its own after the
- * connection drops (an API restart, most likely, since every restart drops every open stream), and
- * `onopen`/`onerror` are enough to track whether that retry has landed yet.
+ * The browser's own retry already covers the common case: a plain `EventSource` reconnects on its
+ * own after the connection drops (an API restart, most likely, since every restart drops every open
+ * stream), and `onopen`/`onerror` are enough to track whether that retry has landed yet. Card 0173
+ * adds `reconnect` (`CardFeed`, above) for when that hasn't happened yet and a person wants to force
+ * it rather than wait — bumping `generation` below re-runs this effect exactly as a `project` change
+ * already does, closing whatever `EventSource` is currently open and opening a new one.
  *
  * `project`, card 0153: `EventSource` cannot set `X-Wilson-Project`, so a project-scoped screen names
  * itself with `?project=` instead — the query fallback `routes.setup.ts`'s `ProjectContextRouter` now
@@ -42,9 +60,13 @@ export type FeedStatus = 'live' | 'disconnected';
  * doesn't reopen the bug above: nothing left reads the plain key as a *board*, only this one
  * project-agnostic widget.
  */
-export const useCardFeed = (project?: string): FeedStatus => {
+export const useCardFeed = (project?: string): CardFeed => {
     const queryClient = useQueryClient();
     const [status, setStatus] = useState<FeedStatus>('disconnected');
+    // Bumped by `reconnect` below to force the effect to tear down the current `EventSource` and
+    // open a fresh one — the same cleanup-then-recreate the effect already does on every `project`
+    // change, just triggered by a click instead of a route change.
+    const [generation, setGeneration] = useState(0);
 
     useEffect(() => {
         const url = project ? `${API_BASE}/api/feed?project=${encodeURIComponent(project)}` : `${API_BASE}/api/feed`;
@@ -59,7 +81,13 @@ export const useCardFeed = (project?: string): FeedStatus => {
         });
 
         return () => source.close();
-    }, [queryClient, project]);
+    }, [queryClient, project, generation]);
 
-    return status;
+    const reconnect = useCallback(() => {
+        void queryClient.invalidateQueries();
+        setStatus('disconnected');
+        setGeneration(generationValue => generationValue + 1);
+    }, [queryClient]);
+
+    return { status, reconnect };
 };
