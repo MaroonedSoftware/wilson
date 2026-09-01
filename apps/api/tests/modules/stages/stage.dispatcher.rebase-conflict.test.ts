@@ -74,8 +74,7 @@ const conflictingWorktrees = (reason: string, targetSha: string) => ({
 
 const setUp = async (reason: string, targetSha: string) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-rebase-conflict-'));
-    const boardRoot = join(base, 'board');
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+    const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
     const events = { append: vi.fn(async () => {}) };
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     await board.create(baseCard, 'initial');

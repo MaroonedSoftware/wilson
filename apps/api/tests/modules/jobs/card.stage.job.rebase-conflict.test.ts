@@ -64,7 +64,6 @@ describe('CardStageJob routes RebaseConflictError to a flag, not a retry (card 0
 
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string, card: Card = baseCard) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-rebase-conflict-'));
-        const boardRoot = join(base, 'board');
         const stageConfigs = new StaticStageConfigStore(`
 stages:
   - name: testing
@@ -77,7 +76,6 @@ stages:
 
         const config = new StaticBoardConfig(
             uniqueProject(),
-            boardRoot,
             join(base, 'code'),
             join(base, 'worktrees'),
             join(base, 'run'),

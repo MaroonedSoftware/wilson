@@ -75,8 +75,6 @@ describe('StageDispatcher dev server port allocation', () => {
         outPath: string;
     }) => {
         const { base, cardId, stageWorktree, settingsGet, acquire, outPath } = opts;
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
 
         const scriptPath = join(base, `setup-${cardId}.js`);
         await writeSetupScript(scriptPath, outPath);
@@ -92,7 +90,7 @@ stages:
 ${stageWorktree ? `    worktree: ${stageWorktree}\n` : ''}    setupCommand: node ${scriptPath}
 `;
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(makeCard(cardId), 'initial');

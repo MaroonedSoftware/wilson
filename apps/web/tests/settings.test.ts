@@ -49,7 +49,6 @@ const baseHealth: Health = {
     project: 'wilson',
     head: 'abc1234',
     startedAt: '2026-01-01T00:00:00.000Z',
-    boardRoot: '/deploy/board',
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
@@ -596,8 +595,7 @@ describe('deployment facts', () => {
 
         renderApp('/settings');
 
-        expect(await screen.findByText('/deploy/board')).toBeTruthy();
-        expect(screen.getByText('/deploy/code')).toBeTruthy();
+        expect(await screen.findByText('/deploy/code')).toBeTruthy();
         expect(screen.getByText('/deploy/worktrees')).toBeTruthy();
         expect(screen.getByText(/environment-only/)).toBeTruthy();
 

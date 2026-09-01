@@ -1,13 +1,9 @@
-import { Container, Registry } from 'injectkit';
+import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
-import { Logger } from '@maroonedsoftware/logger';
-import { runAsProject } from '#modules/board/project.context.js';
-import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { ScopeCheckVerifier } from './scope.check.verifier.js';
-import { seedStageConfigFromBoardRepo } from './stage.config.seed.js';
 import { StageConfigService } from './stage.config.service.js';
 import { PostgresStageConfigStore, StageConfigStore } from './stage.config.store.js';
 import { StageDispatcher } from './stage.dispatcher.js';
@@ -52,17 +48,5 @@ export const StagesModule: ServerKitModule = {
         registry.register(StagesService).useClass(StagesService).asTransient();
         // The document's own surface (`stages.ck`): `wilson stages show|edit|set|versions`.
         registry.register(StageConfigService).useClass(StageConfigService).asTransient();
-    },
-    /**
-     * Carry each registered project's `config/stages.yaml` into `runner.stage_configs` if it has no
-     * row yet — see `seedStageConfigFromBoardRepo`. After `Board` has registered every project's
-     * paths (module order in `modules.ts`) and before `Jobs` starts dispatching against the config.
-     */
-    start: async (container: Container) => {
-        const store = container.get(StageConfigStore);
-        const logger = container.get(Logger);
-        for (const row of await container.get(ProjectRepository).list()) {
-            await runAsProject(row.name, () => seedStageConfigFromBoardRepo(store, row, logger));
-        }
     },
 };

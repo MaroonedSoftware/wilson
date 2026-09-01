@@ -109,7 +109,6 @@ const INCOMPLETE_BODY = FULL_BODY.replace('Keep it small.\n\n', '');
 const EMPTY_SCOPE_BODY = FULL_BODY.replace('- src/thing.ts', '<!-- none yet -->');
 
 let db: Kysely<DB>;
-let boardRoot: string;
 
 /** The stage config every `freshEnv` reads — a store, not a `stages.yaml` under `boardRoot`. */
 const stageConfigs = new StaticStageConfigStore(
@@ -139,9 +138,6 @@ const stageConfigs = new StaticStageConfigStore(
 
 beforeAll(async () => {
     db = testDb();
-
-    const base = await mkdtemp(join(tmpdir(), 'plan-service-'));
-    boardRoot = join(base, 'board');
 });
 
 afterAll(async () => {
@@ -170,7 +166,7 @@ const freshEnv = async () => {
 
     const worktreeRoot = join(base, 'worktrees');
     const runRoot = join(base, 'run');
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, worktreeRoot, runRoot);
+    const config = new StaticBoardConfig(uniqueProject(), codeRoot, worktreeRoot, runRoot);
     const board = new PostgresBoardRepository(config, db, fakeEvents);
     const worktrees = new WorktreeManager(config, silentLogger);
     const service = new PlanService(board, config, worktrees, db, stageConfigs);

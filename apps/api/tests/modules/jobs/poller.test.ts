@@ -173,7 +173,7 @@ const buildPoller = (
         scopeConflict: ReturnType<typeof vi.fn>;
     }> = {},
 ) => {
-    const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
     const scopeConflict = deps.scopeConflict ?? noConflict;
     const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1'), scopeConflict };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
@@ -458,7 +458,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
     });
 
     it('logs and swallows a failure instead of throwing, so one bad tick does not kill the loop', async () => {
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const boom = new Error('database is on fire');
         const board = { list: vi.fn(async () => Promise.reject(boom)) };
         const logger = fakeLogger();
@@ -487,20 +487,17 @@ describe('Poller tick — what it will and will not enqueue', () => {
  * real `ProjectRepository`, ticking every registered project in turn.
  */
 describe('Poller tick — multiple registered projects (card 0149)', () => {
-    const projectRow = (name: string, boardRootDir: string): ProjectRow => ({
+    /**
+     * One registered project's row. Both projects read the shared `stageConfigs`
+     * above: which project's stage config a store answers for is `PostgresStageConfigStore`'s
+     * concern, keyed by `BoardConfig.project` the same way the fakes here are, not this block's.
+     */
+    const projectRow = (name: string): ProjectRow => ({
         name,
-        boardRoot: boardRootDir,
         codeRoot: `/tmp/${name}/code`,
         worktreeRoot: `/tmp/${name}/worktrees`,
         runRoot: `/tmp/${name}/run`,
     });
-
-    /**
-     * A fresh boardRoot directory for one project. Both projects read the shared `stageConfigs`
-     * above: which project's stage config a store answers for is `PostgresStageConfigStore`'s
-     * concern, keyed by `BoardConfig.project` the same way the fakes here are, not this block's.
-     */
-    const projectBoardRoot = (): Promise<string> => mkdtemp(join(tmpdir(), 'poller-multi-project-'));
 
     /**
      * A `CardJobs` fake keyed by `(project, cardId)`, the same pair the real, Postgres-backed
@@ -523,9 +520,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
     };
 
     it('ticks every registered project, enqueuing each against its own project — even when both boards use the same card id', async () => {
-        const alphaBoardRoot = await projectBoardRoot();
-        const betaBoardRoot = await projectBoardRoot();
-        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+        const rows = [projectRow('alpha'), projectRow('beta')];
 
         const config = new ProjectScopedBoardConfig('alpha');
         // Deliberately left unregistered here: `tick` must register every row itself
@@ -573,9 +568,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
      * registered projects in the same tick.
      */
     it('logs and skips a project whose own tick throws, without stopping the walk over the other registered projects', async () => {
-        const alphaBoardRoot = await projectBoardRoot();
-        const betaBoardRoot = await projectBoardRoot();
-        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+        const rows = [projectRow('alpha'), projectRow('beta')];
 
         const config = new ProjectScopedBoardConfig('alpha');
         const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
@@ -617,7 +610,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
      * Nothing can be dispatched at all when the daemon cannot learn which projects exist.
      */
     it('logs and dispatches nothing when listing the registered projects itself fails', async () => {
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const boom = new Error('database is on fire');
         const projects = { list: vi.fn(async () => Promise.reject(boom)) } as unknown as ProjectRepository;
         const board = { list: vi.fn(async () => [card('0001', 'implementing')]) };
@@ -836,7 +829,7 @@ describe('Poller start/stop', () => {
         };
         const cardJobs = statefulCardJobs();
         const broker = fakeBroker();
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,

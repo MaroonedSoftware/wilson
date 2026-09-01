@@ -45,7 +45,6 @@ const stageConfigs = new StaticStageConfigStore(stagesYaml);
  */
 describe('pre-dispatch checks run in a defined order', () => {
     let codeRoot: string;
-    let boardRoot: string;
     let board: BoardConfig;
 
     beforeAll(async () => {
@@ -68,9 +67,7 @@ describe('pre-dispatch checks run in a defined order', () => {
         await commit('two\n', 'second');
         await commit('three\n', 'third');
 
-        boardRoot = join(base, 'board');
-
-        board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
     });
 
     it('records the daemon as stale even when a later check stops the dispatch', async () => {

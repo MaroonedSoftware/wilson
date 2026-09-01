@@ -61,9 +61,8 @@ describe('CardStageJob', () => {
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-'));
-        const boardRoot = join(base, 'board');
 
-        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
@@ -651,14 +650,11 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
 
     beforeEach(async () => {
         const alphaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-alpha-'));
-        const alphaBoardRoot = join(alphaBase, 'board');
-
         const betaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-beta-'));
-        const betaBoardRoot = join(betaBase, 'board');
 
         board = new ProjectScopedBoardConfig(alpha);
-        board.register({ name: alpha, boardRoot: alphaBoardRoot, codeRoot: join(alphaBase, 'code'), worktreeRoot: join(alphaBase, 'wt'), runRoot: join(alphaBase, 'run') });
-        board.register({ name: beta, boardRoot: betaBoardRoot, codeRoot: join(betaBase, 'code'), worktreeRoot: join(betaBase, 'wt'), runRoot: join(betaBase, 'run') });
+        board.register({ name: alpha, codeRoot: join(alphaBase, 'code'), worktreeRoot: join(alphaBase, 'wt'), runRoot: join(alphaBase, 'run') });
+        board.register({ name: beta, codeRoot: join(betaBase, 'code'), worktreeRoot: join(betaBase, 'wt'), runRoot: join(betaBase, 'run') });
 
         dispatcher = { run: vi.fn(async () => outcome({ transitionedTo: 'testing' })) };
         broker = { send: vi.fn(async () => 'job-1') };
@@ -727,11 +723,9 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
 
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-notify-'));
-        const boardRoot = join(base, 'board');
 
         const board = new StaticBoardConfig(
             'test',
-            boardRoot,
             join(base, 'code'),
             join(base, 'worktrees'),
             join(base, 'run'),
@@ -870,9 +864,8 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-scope-conflict-'));
-        const boardRoot = join(base, 'board');
 
-        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };

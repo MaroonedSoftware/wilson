@@ -238,7 +238,7 @@ describe('TestingVerifier — scratch-named test files', () => {
         await exec('git', ['add', '-A'], { cwd: codeRoot });
         await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-        const config = new StaticBoardConfig('test', join(base, 'board'), codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         manager = new WorktreeManager(config, silentLogger as never);
         verifier = new TestingVerifier(manager, silentLogger as never);
     });
@@ -314,7 +314,7 @@ describe('TestingVerifier — format check (card 0041)', () => {
         await exec('git', ['add', '-A'], { cwd: codeRoot });
         await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-        const config = new StaticBoardConfig('test', join(base, 'board'), codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         manager = new WorktreeManager(config, silentLogger as never);
         verifier = new TestingVerifier(manager, silentLogger as never);
     });

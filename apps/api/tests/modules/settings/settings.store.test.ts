@@ -17,7 +17,7 @@ afterAll(async () => {
 });
 
 const buildStore = (project: string, env: Record<string, string> = {}): SettingsStore => {
-    const config = new StaticBoardConfig(project, '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run');
     return new SettingsStore(config, db, new AppConfig(env));
 };
 

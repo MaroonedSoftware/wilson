@@ -15,7 +15,7 @@ export const ProjectsRouter = ServerKitRouter();
  * falls back to the daemon's own configured project and calls `next`, the same as every other route
  * on this surface. That catch-all is already correct for a route that lists every project, so no
  * exemption was added for it.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L81)
+ * from [projects.ck](file://./../../data/contracts/projects.ck#L80)
  * anonymous access, no security required
  */
 ProjectsRouter.get('/api/projects', async ctx => {
@@ -33,7 +33,7 @@ ProjectsRouter.get('/api/projects', async ctx => {
  * unauthenticated read surface on purpose; echoing them back from a write would reverse that
  * quietly, for a caller that already has them. `ProjectsService.create` is where the path
  * validation and the duplicate-name refusal live.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L95)
+ * from [projects.ck](file://./../../data/contracts/projects.ck#L94)
  * anonymous access, no security required
  */
 ProjectsRouter.post('/api/projects', bodyParserMiddleware(['json']), async ctx => {
@@ -51,7 +51,7 @@ ProjectsRouter.post('/api/projects', bodyParserMiddleware(['json']), async ctx =
  * Not `put`. Fields present in the body are set; fields absent are left as they are — see
  * `UpdateProjectRequest`'s own comment, and `board.ck`'s `PATCH /api/cards/{id}` for the same
  * reasoning stated once and not repeated differently here.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L125)
+ * from [projects.ck](file://./../../data/contracts/projects.ck#L124)
  * anonymous access, no security required
  */
 ProjectsRouter.patch('/api/projects/:name', bodyParserMiddleware(['json']), async ctx => {

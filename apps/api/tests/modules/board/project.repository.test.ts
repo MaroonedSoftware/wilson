@@ -21,7 +21,6 @@ afterAll(async () => {
 
 const row = (name: string, overrides: Partial<Omit<ProjectRow, 'name'>> = {}): ProjectRow => ({
     name,
-    boardRoot: '/tmp/board',
     codeRoot: '/tmp/code',
     worktreeRoot: '/tmp/wt',
     runRoot: '/tmp/run',
@@ -38,7 +37,7 @@ describe('ProjectRepository', () => {
     it('reads back exactly what it created, name and every path included', async () => {
         const repo = new ProjectRepository(db);
         const name = uniqueProject();
-        const created = row(name, { boardRoot: '/tmp/board-x', codeRoot: '/tmp/code-x', worktreeRoot: '/tmp/wt-x', runRoot: '/tmp/run-x' });
+        const created = row(name, { codeRoot: '/tmp/code-x', worktreeRoot: '/tmp/wt-x', runRoot: '/tmp/run-x' });
 
         await repo.create(created);
 
@@ -55,11 +54,11 @@ describe('ProjectRepository', () => {
     it('refuses to create a second row for a name that already exists, leaving the first untouched', async () => {
         const repo = new ProjectRepository(db);
         const name = uniqueProject();
-        await repo.create(row(name, { boardRoot: '/tmp/original-board' }));
+        await repo.create(row(name, { codeRoot: '/tmp/original-code' }));
 
-        await expect(repo.create(row(name, { boardRoot: '/tmp/impostor-board' }))).rejects.toThrow();
+        await expect(repo.create(row(name, { codeRoot: '/tmp/impostor-code' }))).rejects.toThrow();
 
-        expect((await repo.find(name))?.boardRoot).toBe('/tmp/original-board');
+        expect((await repo.find(name))?.codeRoot).toBe('/tmp/original-code');
     });
 
     /**
@@ -76,8 +75,8 @@ describe('ProjectRepository', () => {
             const base = uniqueProject();
             const first = `${base}-a`;
             const second = `${base}-b`;
-            await repo.create(row(second, { boardRoot: '/tmp/second-board' }));
-            await repo.create(row(first, { boardRoot: '/tmp/first-board' }));
+            await repo.create(row(second, { codeRoot: '/tmp/second-code' }));
+            await repo.create(row(first, { codeRoot: '/tmp/first-code' }));
 
             const rows = await repo.list();
             const names = rows.map(r => r.name);
@@ -89,8 +88,8 @@ describe('ProjectRepository', () => {
             // Name ascending: the alphabetically earlier name (`-a`) must come before `-b`, even
             // though it was the second one created.
             expect(firstIndex).toBeLessThan(secondIndex);
-            expect(rows.find(r => r.name === first)).toEqual(row(first, { boardRoot: '/tmp/first-board' }));
-            expect(rows.find(r => r.name === second)).toEqual(row(second, { boardRoot: '/tmp/second-board' }));
+            expect(rows.find(r => r.name === first)).toEqual(row(first, { codeRoot: '/tmp/first-code' }));
+            expect(rows.find(r => r.name === second)).toEqual(row(second, { codeRoot: '/tmp/second-code' }));
         });
 
         it('reflects a project created after an earlier list() call, without needing a fresh repository instance', async () => {
@@ -118,10 +117,10 @@ describe('ProjectRepository', () => {
             const name = uniqueProject();
             await repo.create(row(name));
 
-            const matched = await repo.update(name, { boardRoot: '/tmp/board-corrected' });
+            const matched = await repo.update(name, { codeRoot: '/tmp/code-corrected' });
 
             expect(matched).toBe(true);
-            expect(await repo.find(name)).toEqual(row(name, { boardRoot: '/tmp/board-corrected' }));
+            expect(await repo.find(name)).toEqual(row(name, { codeRoot: '/tmp/code-corrected' }));
         });
 
         it('sets every named column when the patch carries more than one', async () => {
@@ -139,7 +138,7 @@ describe('ProjectRepository', () => {
             const repo = new ProjectRepository(db);
             const name = uniqueProject();
 
-            const matched = await repo.update(name, { boardRoot: '/tmp/ghost-board' });
+            const matched = await repo.update(name, { codeRoot: '/tmp/ghost-code' });
 
             expect(matched).toBe(false);
             expect(await repo.find(name)).toBeUndefined();
@@ -153,10 +152,10 @@ describe('ProjectRepository', () => {
             await repo.create(row(target));
             await repo.create(row(bystander));
 
-            await repo.update(target, { boardRoot: '/tmp/target-only' });
+            await repo.update(target, { codeRoot: '/tmp/target-only' });
 
-            expect((await repo.find(target))?.boardRoot).toBe('/tmp/target-only');
-            expect((await repo.find(bystander))?.boardRoot).toBe('/tmp/board');
+            expect((await repo.find(target))?.codeRoot).toBe('/tmp/target-only');
+            expect((await repo.find(bystander))?.codeRoot).toBe('/tmp/code');
         });
 
         /**

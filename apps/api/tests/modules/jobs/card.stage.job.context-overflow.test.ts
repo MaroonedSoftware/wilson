@@ -64,7 +64,6 @@ describe('CardStageJob routes a context-window overflow to a flag, not a poisoni
 
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string, card: Card = baseCard) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-context-overflow-'));
-        const boardRoot = join(base, 'board');
         const stageConfigs = new StaticStageConfigStore(`
 stages:
   - name: testing
@@ -77,7 +76,6 @@ stages:
 
         const config = new StaticBoardConfig(
             uniqueProject(),
-            boardRoot,
             join(base, 'code'),
             join(base, 'worktrees'),
             join(base, 'run'),

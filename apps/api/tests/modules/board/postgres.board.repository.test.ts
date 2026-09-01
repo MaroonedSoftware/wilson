@@ -1,6 +1,3 @@
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
 import { PostgresBoardRepository, CardNotFoundError } from '#modules/board/postgres.board.repository.js';
@@ -40,7 +37,7 @@ describe('PostgresBoardRepository', () => {
 
     beforeEach(() => {
         const events = { append: async () => {} };
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     });
 
@@ -255,7 +252,7 @@ describe('PostgresBoardRepository', () => {
         });
 
         it('scopes by project, leaving a same-id card in a different project alone', async () => {
-            const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+            const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const otherBoard = new PostgresBoardRepository(otherConfig, db, { append: async () => {} } as unknown as EventLog);
             await board.create(card('0001'), 'create');
             await otherBoard.create(card('0001'), 'create');
@@ -310,7 +307,6 @@ describe('PostgresBoardRepository.scopeConflict (card 0104)', () => {
     beforeEach(async () => {
         events = new EventLog(db, silentLogger);
 
-        const boardRoot = await mkdtemp(join(tmpdir(), 'board-repository-scope-'));
         stages = parseStages(`
 stages:
   - name: implementing
@@ -333,7 +329,7 @@ stages:
     onFail: implementing
 `);
 
-        config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         board = new PostgresBoardRepository(config, db, events);
     });
 

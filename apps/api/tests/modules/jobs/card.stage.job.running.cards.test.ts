@@ -65,9 +65,8 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-running-'));
-        const boardRoot = join(base, 'board');
 
-        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };

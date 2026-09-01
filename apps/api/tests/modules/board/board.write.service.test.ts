@@ -41,12 +41,11 @@ const fakeLogger = (): Logger & { warn: ReturnType<typeof vi.fn> } =>
 const exec = promisify(execFile);
 
 let db: Kysely<DB>;
-let boardRoot: string;
 
 /**
  * The stage config every `freshBoard` below reads. Stage config is a `StageConfigStore` now rather
- * than `config/stages.yaml` under `boardRoot`, so this is one in-memory store shared across the
- * file; `boardRoot` itself is only still here because `StaticBoardConfig` wants one.
+ * than `config/stages.yaml` under a board directory, so this is one in-memory store shared across the
+ * file.
  */
 const stageConfigs = new StaticStageConfigStore(
     [
@@ -78,9 +77,6 @@ const stageConfigs = new StaticStageConfigStore(
 
 beforeAll(async () => {
     db = testDb();
-
-    const base = await mkdtemp(join(tmpdir(), 'board-write-service-'));
-    boardRoot = join(base, 'board');
 });
 
 afterAll(async () => {
@@ -129,7 +125,7 @@ const freshBoard = (
     runningCards: RunningCards = new RunningCards(),
 ) => {
     const events = { append: vi.fn(async () => {}) };
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     const logger = fakeLogger();
     // `broker` is faked, but `CardJobs` is the real thing wired to the test db — `start`/`release`
@@ -165,7 +161,7 @@ const freshBoard = (
  * and `service.division` reads it back exactly as it would in production.
  */
 const freshBoardWithRealEvents = () => {
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const eventLog = new EventLog(db, fakeLogger());
     const board = new PostgresBoardRepository(config, db, eventLog);
     const logger = fakeLogger();
@@ -1619,7 +1615,7 @@ describe('BoardWriteService', () => {
 
         const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, stages: StaticStageConfigStore, dryRun = false) => {
             const events = { append: vi.fn(async () => {}) };
-            const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+            const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
             const logger = fakeLogger();
             const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
@@ -1761,7 +1757,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             // The real thing, not a double: computeMerge/commitMerge/create/reclaim all run against
             // codeRoot's actual git state, the same idiom worktree.manager.test.ts uses, so the branch
             // `create` leaves behind is a real ref this test can check for afterward.
@@ -1863,7 +1859,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             const worktrees = new WorktreeManager(config, fakeLogger());
 
             const cardWorktree = await worktrees.create('0096', 'card/0096-thing');
@@ -1925,7 +1921,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             const worktrees = new WorktreeManager(config, fakeLogger());
             const events = { append: vi.fn(async () => {}) };
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);

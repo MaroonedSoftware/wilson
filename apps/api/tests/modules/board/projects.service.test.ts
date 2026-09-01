@@ -12,7 +12,6 @@ import type { ProjectRepository, ProjectRow } from '#modules/board/project.repos
 describe('ProjectsService', () => {
     const row = (name: string): ProjectRow => ({
         name,
-        boardRoot: `/board/${name}`,
         codeRoot: `/code/${name}`,
         worktreeRoot: `/wt/${name}`,
         runRoot: `/run/${name}`,
@@ -28,7 +27,7 @@ describe('ProjectsService', () => {
         expect(result).toEqual([{ name: 'alpha' }, { name: 'beta' }]);
     });
 
-    // The contract withholds `boardRoot`/`codeRoot`/`worktreeRoot`/`runRoot` deliberately (see
+    // The contract withholds `codeRoot`/`worktreeRoot`/`runRoot` deliberately (see
     // projects.ck's own comment) — an unauthenticated surface (card 0019) should return the minimum
     // that serves a project switcher, not everything `ProjectRepository.list()` happens to read.
     // `toEqual` above already pins the exact shape, but this asserts the withholding directly so a
@@ -41,7 +40,6 @@ describe('ProjectsService', () => {
         const [project] = await service.list();
 
         expect(Object.keys(project!)).toEqual(['name']);
-        expect(project).not.toHaveProperty('boardRoot');
         expect(project).not.toHaveProperty('codeRoot');
         expect(project).not.toHaveProperty('worktreeRoot');
         expect(project).not.toHaveProperty('runRoot');
@@ -60,9 +58,8 @@ describe('ProjectsService', () => {
      * this file's header gives for `list`'s own tests.
      */
     describe('create (card 0168)', () => {
-        const request = (overrides: Partial<{ name: string; boardRoot: string; codeRoot: string; worktreeRoot: string; runRoot: string }> = {}) => ({
+        const request = (overrides: Partial<{ name: string; codeRoot: string; worktreeRoot: string; runRoot: string }> = {}) => ({
             name: 'wilson',
-            boardRoot: '/board',
             codeRoot: '/code',
             worktreeRoot: '/wt',
             runRoot: '/run',
@@ -82,7 +79,7 @@ describe('ProjectsService', () => {
             const result = await service.create(request());
 
             expect(result).toEqual({ name: 'wilson' });
-            expect(created).toEqual([{ name: 'wilson', boardRoot: '/board', codeRoot: '/code', worktreeRoot: '/wt', runRoot: '/run' }]);
+            expect(created).toEqual([{ name: 'wilson', codeRoot: '/code', worktreeRoot: '/wt', runRoot: '/run' }]);
         });
 
         // Stored paths are resolve()d, so `/a/b/../c` and `/a/c` register identically — the same
@@ -97,16 +94,16 @@ describe('ProjectsService', () => {
             } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            await service.create(request({ boardRoot: '/a/b/../c' }));
+            await service.create(request({ codeRoot: '/a/b/../c' }));
 
-            expect(created[0]?.boardRoot).toBe('/a/c');
+            expect(created[0]?.codeRoot).toBe('/a/c');
         });
 
         it('refuses an already-registered name with 409, and never calls create', async () => {
             const create = async () => {
                 throw new Error('create should not have been called');
             };
-            const repository = { find: async () => ({ name: 'wilson', boardRoot: '/x', codeRoot: '/x', worktreeRoot: '/x', runRoot: '/x' }), create } as unknown as ProjectRepository;
+            const repository = { find: async () => ({ name: 'wilson', codeRoot: '/x', worktreeRoot: '/x', runRoot: '/x' }), create } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
             await expect(service.create(request())).rejects.toMatchObject({
@@ -115,7 +112,7 @@ describe('ProjectsService', () => {
             });
         });
 
-        it.each(['boardRoot', 'codeRoot', 'worktreeRoot', 'runRoot'])(
+        it.each(['codeRoot', 'worktreeRoot', 'runRoot'])(
             'refuses a relative %s with 400, and never checks for a duplicate name or writes a row',
             async field => {
                 const find = async () => {
@@ -145,12 +142,12 @@ describe('ProjectsService', () => {
             } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            await expect(service.create(request({ boardRoot: '' }))).rejects.toMatchObject({ statusCode: 400 });
+            await expect(service.create(request({ codeRoot: '' }))).rejects.toMatchObject({ statusCode: 400 });
         });
     });
 
     /**
-     * Card 0168. `update` is `PATCH /api/projects/{name}`'s service — a partial update of the four
+     * Card 0168. `update` is `PATCH /api/projects/{name}`'s service — a partial update of the three
      * path columns for one already-registered name.
      */
     describe('update (card 0168)', () => {
@@ -164,10 +161,10 @@ describe('ProjectsService', () => {
             } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            const result = await service.update('wilson', { boardRoot: '/new-board' });
+            const result = await service.update('wilson', { codeRoot: '/new-code' });
 
             expect(result).toEqual({ name: 'wilson' });
-            expect(patches).toEqual([{ name: 'wilson', boardRoot: '/new-board' }]);
+            expect(patches).toEqual([{ name: 'wilson', codeRoot: '/new-code' }]);
         });
 
         it('leaves fields absent from the request out of the patch entirely, rather than sending them as undefined overwrites', async () => {
@@ -207,9 +204,9 @@ describe('ProjectsService', () => {
             const repository = { update } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            await expect(service.update('wilson', { boardRoot: 'relative/path' })).rejects.toMatchObject({
+            await expect(service.update('wilson', { codeRoot: 'relative/path' })).rejects.toMatchObject({
                 statusCode: 400,
-                details: { reason: expect.stringContaining('boardRoot') },
+                details: { reason: expect.stringContaining('codeRoot') },
             });
         });
 
@@ -217,7 +214,7 @@ describe('ProjectsService', () => {
             const repository = { update: async () => false } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            await expect(service.update('ghost', { boardRoot: '/new-board' })).rejects.toMatchObject({
+            await expect(service.update('ghost', { codeRoot: '/new-code' })).rejects.toMatchObject({
                 statusCode: 404,
                 details: { reason: expect.stringContaining('ghost') },
             });
@@ -227,7 +224,7 @@ describe('ProjectsService', () => {
             const repository = { update: async () => true } as unknown as ProjectRepository;
             const service = new ProjectsService(repository);
 
-            const result = await service.update('wilson', { boardRoot: '/new-board' });
+            const result = await service.update('wilson', { codeRoot: '/new-code' });
 
             expect(Object.keys(result)).toEqual(['name']);
         });

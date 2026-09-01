@@ -26,7 +26,7 @@ afterAll(async () => {
 describe('BoardBootstrapService', () => {
     describe('init', () => {
         const freshProject = () => {
-            const cfg = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+            const cfg = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             return { cfg, store: new PostgresStageConfigStore(cfg, db) };
         };
 

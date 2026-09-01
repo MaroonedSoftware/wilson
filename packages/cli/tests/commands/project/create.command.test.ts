@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { default: command } = await import('#src/commands/project/create.command.js');
 
 interface CreateOpts {
-    boardRoot: string;
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
@@ -48,7 +47,6 @@ const buildCtx = () => {
 };
 
 const opts: CreateOpts = {
-    boardRoot: '/repo/board',
     codeRoot: '/repo/code',
     worktreeRoot: '/repo/worktrees',
     runRoot: '/repo/run',
@@ -57,7 +55,7 @@ const opts: CreateOpts = {
 const run = (ctx: unknown, name: string) => (command.run as unknown as Handler<CreateOpts>)(opts, ctx, [name]);
 
 describe('wilson project create', () => {
-    it('sends POST /api/projects carrying the name and the four paths, and reports success', async () => {
+    it('sends POST /api/projects carrying the name and the three paths, and reports success', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({ name: 'acme' }));
         const { ctx, logger } = buildCtx();
 
@@ -70,7 +68,6 @@ describe('wilson project create', () => {
         const sent = JSON.parse(init.body as string);
         expect(sent).toEqual({
             name: 'acme',
-            boardRoot: opts.boardRoot,
             codeRoot: opts.codeRoot,
             worktreeRoot: opts.worktreeRoot,
             runRoot: opts.runRoot,

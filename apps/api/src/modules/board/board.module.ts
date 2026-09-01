@@ -52,8 +52,8 @@ const resolveProjectRow = async (config: AppConfig, name: string, fromEnv: Omit<
         const repo = new ProjectRepository(db);
         const existing = await repo.find(name);
         if (existing) {
-            const { boardRoot, codeRoot, worktreeRoot, runRoot } = existing;
-            return { boardRoot, codeRoot, worktreeRoot, runRoot };
+            const { codeRoot, worktreeRoot, runRoot } = existing;
+            return { codeRoot, worktreeRoot, runRoot };
         }
         await repo.create({ name, ...fromEnv });
         return fromEnv;
@@ -66,10 +66,8 @@ export const BoardModule: ServerKitModule = {
     name: 'Board',
     setup: async (registry: Registry, config: AppConfig) => {
         const codeRoot = resolve(requireConfigString(config, 'PROJECT_CODE_ROOT'));
-        const boardRoot = resolve(requireConfigString(config, 'PROJECT_BOARD_ROOT'));
         const projectName = optionalConfigString(config, 'PROJECT_NAME') ?? 'wilson';
         const paths = await resolveProjectRow(config, projectName, {
-            boardRoot,
             codeRoot,
             // Worktrees live beside the code repo rather than inside it, so a stray `git add .`
             // in a card's worktree cannot pick up a sibling card's tree.
@@ -85,15 +83,14 @@ export const BoardModule: ServerKitModule = {
         // they are not `runner.projects` columns (see `BoardConfig`'s own doc comment on why they are
         // not `readonly`).
         const boardConfig = new ProjectScopedBoardConfig(projectName);
-        boardConfig.register({ name: projectName, boardRoot: paths.boardRoot, codeRoot: paths.codeRoot, worktreeRoot: paths.worktreeRoot, runRoot: paths.runRoot });
+        boardConfig.register({ name: projectName, codeRoot: paths.codeRoot, worktreeRoot: paths.worktreeRoot, runRoot: paths.runRoot });
         // Card 0050: both optional, and off (no webhook attempted) when NOTIFY_WEBHOOK_URL is unset.
         boardConfig.notifyWebhookUrl = optionalConfigString(config, 'NOTIFY_WEBHOOK_URL');
         boardConfig.notifyBaseUrl = optionalConfigString(config, 'NOTIFY_BASE_URL');
         registry.register(BoardConfig).useInstance(boardConfig);
 
-        // The board lives in Postgres, stage config included (`StagesModule`). `boardRoot` is still
-        // resolved above only so `seedStageConfigFromBoardRepo` can carry an existing `stages.yaml`
-        // over once.
+        // The board lives in Postgres, stage config included (`StagesModule`); the sibling board
+        // repo, and the `boardRoot` that located it, are gone.
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
         registry.register(BoardBootstrapService).useClass(BoardBootstrapService).asTransient();
         registry.register(BoardService).useClass(BoardService).asTransient();

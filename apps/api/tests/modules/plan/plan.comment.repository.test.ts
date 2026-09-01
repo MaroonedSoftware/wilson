@@ -30,7 +30,7 @@ describe('PlanCommentRepository', () => {
     let board: PostgresBoardRepository;
 
     beforeEach(async () => {
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         repo = new PlanCommentRepository(config, db);
         board = new PostgresBoardRepository(config, db, fakeEvents);
         // The table's FK ties a comment to a real (project, card_id) — unlike `runner.plan_turns`,
@@ -107,7 +107,7 @@ describe('PlanCommentRepository', () => {
     it('scopes list and open by project as well as card id, never returning another project\'s comment', async () => {
         await repo.append('0001', 'q', 'p', 's', 't');
 
-        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const otherBoard = new PostgresBoardRepository(otherConfig, db, fakeEvents);
         await otherBoard.create(card('0001'), 'seed');
         const otherRepo = new PlanCommentRepository(otherConfig, db);

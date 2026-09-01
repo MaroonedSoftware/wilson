@@ -30,18 +30,17 @@ afterAll(async () => {
     await db.destroy();
 });
 
-const uniquePaths = async (): Promise<{ codeRoot: string; boardRoot: string; worktreeRoot: string; runRoot: string }> => {
+const uniquePaths = async (): Promise<{ codeRoot: string; worktreeRoot: string; runRoot: string }> => {
     const base = await mkdtemp(join(tmpdir(), 'wilson-0149-'));
     const codeRoot = resolve(base, 'code');
     return {
         codeRoot,
-        boardRoot: resolve(base, 'board'),
         worktreeRoot: resolve(codeRoot, '../.worktrees'),
         runRoot: resolve(codeRoot, '../.run'),
     };
 };
 
-const projectConfig = async (name: string, paths: { codeRoot: string; boardRoot: string }): Promise<AppConfig> => {
+const projectConfig = async (name: string, paths: { codeRoot: string }): Promise<AppConfig> => {
     const dir = await mkdtemp(join(tmpdir(), 'wilson-0149-config-'));
     const envFile = join(dir, '.env');
     await writeFile(
@@ -54,7 +53,6 @@ const projectConfig = async (name: string, paths: { codeRoot: string; boardRoot:
             `DATABASE_NAME=${process.env.TEST_DATABASE_NAME ?? 'wilson_test'}`,
             `PROJECT_NAME=${name}`,
             `PROJECT_CODE_ROOT=${paths.codeRoot}`,
-            `PROJECT_BOARD_ROOT=${paths.boardRoot}`,
         ].join('\n'),
         'utf8',
     );
@@ -103,7 +101,6 @@ describe('BoardModule.start (card 0149)', () => {
             .insertInto('runner.projects')
             .values({
                 name: handInsertedName,
-                boardRoot: handInsertedPaths.boardRoot,
                 codeRoot: handInsertedPaths.codeRoot,
                 worktreeRoot: handInsertedPaths.worktreeRoot,
                 runRoot: handInsertedPaths.runRoot,
@@ -121,7 +118,6 @@ describe('BoardModule.start (card 0149)', () => {
             expect(boardConfig.codeRoot).toBe(handInsertedPaths.codeRoot);
             expect(boardConfig.worktreeRoot).toBe(handInsertedPaths.worktreeRoot);
             expect(boardConfig.runRoot).toBe(handInsertedPaths.runRoot);
-            expect(boardConfig.boardRoot).toBe(handInsertedPaths.boardRoot);
         });
         // The originally booted project must still resolve correctly too — start() must not
         // disturb what setup() already registered for it.
@@ -139,7 +135,7 @@ describe('BoardModule.start (card 0149)', () => {
         const pathsB = await uniquePaths();
         await db
             .insertInto('runner.projects')
-            .values({ name: nameB, boardRoot: pathsB.boardRoot, codeRoot: pathsB.codeRoot, worktreeRoot: pathsB.worktreeRoot, runRoot: pathsB.runRoot })
+            .values({ name: nameB, codeRoot: pathsB.codeRoot, worktreeRoot: pathsB.worktreeRoot, runRoot: pathsB.runRoot })
             .execute();
 
         await BoardModule.start!(container);

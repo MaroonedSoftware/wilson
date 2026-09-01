@@ -90,11 +90,10 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
         dispatcher: { run: ReturnType<typeof vi.fn> };
     }> => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-scope-conflict-integration-'));
-        const boardRoot = join(base, 'board');
 
         const project = uniqueProject();
         await seedStageConfig(db, project, stagesYaml);
-        const board: BoardConfig = new StaticBoardConfig(project, boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const board: BoardConfig = new StaticBoardConfig(project, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = new EventLog(db, silentLogger);
         const boardRepo = new PostgresBoardRepository(board, db, events);
         const stageConfigs = new PostgresStageConfigStore(board, db);

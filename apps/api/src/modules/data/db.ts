@@ -134,13 +134,13 @@ export interface PlanComments {
 
 /**
  * A project's identity — the name every other `runner` table's `project` column already carries,
- * plus the four paths `BoardConfig` exposes. `BoardModule.setup` reads this row on boot and seeds
+ * plus the three paths `BoardConfig` exposes. `BoardModule.setup` reads this row on boot and seeds
  * it from the environment the first time; see the migration's header comment for what happens
- * when a row exists and the environment disagrees.
+ * when a row exists and the environment disagrees. `board_root` was dropped with the board repo
+ * (`20260901130000_drop_board_root.sql`).
  */
 export interface Projects {
     name: string;
-    boardRoot: string;
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;

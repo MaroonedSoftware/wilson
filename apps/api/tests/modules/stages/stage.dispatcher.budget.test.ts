@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -99,11 +99,8 @@ stages:
  */
 const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-budget-'));
-    const boardRoot = join(base, 'board');
-    await mkdir(join(boardRoot, 'cards'), { recursive: true });
     const config = new StaticBoardConfig(
         uniqueProject(),
-        boardRoot,
         join(base, 'code'),
         join(base, 'worktrees'),
         join(base, 'run'),
@@ -127,7 +124,7 @@ const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: strin
         silentLogger as never,
     );
 
-    return { dispatcher, board, boardRoot, events, worktrees, project: config.project };
+    return { dispatcher, board, events, worktrees, project: config.project };
 };
 
 /**

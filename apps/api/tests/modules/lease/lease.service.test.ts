@@ -50,7 +50,7 @@ beforeAll(async () => {
         if ((err as { code?: string }).code !== '42P07') throw err;
     }
     const boardRepo = new PostgresBoardRepository(
-        new StaticBoardConfig('lease-service-test', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run'),
+        new StaticBoardConfig('lease-service-test', '/tmp/code', '/tmp/wt', '/tmp/run'),
         db,
         new EventLog(db, silentLogger),
     );

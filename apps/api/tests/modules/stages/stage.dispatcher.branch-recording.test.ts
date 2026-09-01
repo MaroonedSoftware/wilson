@@ -79,15 +79,13 @@ const seedCard: Card = {
 describe("StageDispatcher records a card's branch on first dispatch and prefers it thereafter (card 0095)", () => {
     const setUp = async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-branch-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
 
         const worktreeDir = join(base, 'worktree');
         await mkdir(join(worktreeDir, 'src'), { recursive: true });
         await exec('git', ['init'], { cwd: worktreeDir });
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(seedCard, 'seed');

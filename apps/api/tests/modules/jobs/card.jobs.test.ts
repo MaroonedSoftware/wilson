@@ -41,7 +41,7 @@ describe('CardJobs', () => {
     let config: StaticBoardConfig;
 
     beforeEach(async () => {
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         // A card row has to exist: card_jobs is keyed to it, so a claim cannot outlive its card.
         const board = new PostgresBoardRepository(config, db, { append: async () => {} } as unknown as EventLog);
         await board.create(
@@ -128,7 +128,7 @@ describe('CardJobs.confirmInFlightAfterStop', () => {
     const cardId = '0001';
 
     beforeEach(async () => {
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const board = new PostgresBoardRepository(config, db, { append: async () => {} } as unknown as EventLog);
         await board.create(
             { frontmatter: { id: cardId, title: 'a card', stage: 'implementing', dependsOn: [], retries: {} }, sections: {}, body: 'x\n' },

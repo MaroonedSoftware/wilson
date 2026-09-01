@@ -53,7 +53,7 @@ describe('PostgresStageConfigStore', () => {
 
     beforeEach(async () => {
         project = uniqueProject();
-        store = new PostgresStageConfigStore(new StaticBoardConfig(project, '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run'), db);
+        store = new PostgresStageConfigStore(new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
         await seedStageConfig(db, project, VALID);
     });
 
@@ -98,7 +98,7 @@ describe('PostgresStageConfigStore', () => {
      */
     it('tags a project with no stage config as "config-invalid", naming the project and the fix', async () => {
         const empty = uniqueProject();
-        const emptyStore = new PostgresStageConfigStore(new StaticBoardConfig(empty, '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run'), db);
+        const emptyStore = new PostgresStageConfigStore(new StaticBoardConfig(empty, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
 
         const error = await emptyStore.load().catch((err: unknown) => err);
 
@@ -158,7 +158,7 @@ describe('PostgresStageConfigStore', () => {
         await seedStageConfig(db, alpha, VALID);
         await seedStageConfig(db, beta, OTHER_VALID);
         const config = new ProjectScopedBoardConfig(alpha);
-        for (const name of [alpha, beta]) config.register({ name, boardRoot: '/b', codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' });
+        for (const name of [alpha, beta]) config.register({ name, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' });
         const scoped = new PostgresStageConfigStore(config, db);
 
         const fromAlpha = await runAsProject(alpha, () => scoped.load());

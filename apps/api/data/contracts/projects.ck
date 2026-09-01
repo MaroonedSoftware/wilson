@@ -21,7 +21,7 @@ options {
 # lands here instead, as its own in-scope work, for 0154 to consume.
 
 # One registered project's identity, as far as an HTTP caller needs to know it. `ProjectRow`
-# (project.repository.ts) also carries `boardRoot`, `codeRoot`, `worktreeRoot` and `runRoot` —
+# (project.repository.ts) also carries `codeRoot`, `worktreeRoot` and `runRoot` —
 # filesystem layout of the machine the daemon runs on — which are withheld here: a switcher needs
 # names, and an unauthenticated surface (see `security: none` above) is a reason to return the
 # minimum that serves the consumer, not a licence to expose everything `ProjectRepository.list()`
@@ -30,10 +30,11 @@ contract Project: {
     name: string
 }
 
-# Card 0168. The four paths `runner.projects` carries beyond `name` — `BoardModule` seeds them from
+# Card 0168. The three paths `runner.projects` carries beyond `name` — `BoardModule` seeds them from
 # this same process's own environment on first boot (`resolveProjectRow`, board.module.ts), and
-# registering a second project needs the same four values from somewhere, since nothing else on this
-# machine knows them.
+# registering a second project needs the same three values from somewhere, since nothing else on this
+# machine knows them. (`boardRoot` was a fourth until the board repo went: stage config is a
+# `runner.stage_configs` row now, and a new project gets its first one from `wilson board init`.)
 #
 # Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
 # `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
@@ -52,7 +53,6 @@ contract Project: {
 # normalises with `resolve()`, as `BoardModule` already does for the seeded row.
 contract CreateProjectRequest: {
     name: string
-    boardRoot: string
     codeRoot: string
     worktreeRoot: string
     runRoot: string
@@ -66,7 +66,6 @@ contract CreateProjectRequest: {
 # orphan every card, event, version and setting rather than failing. The name lives in the path
 # (`/api/projects/{name}`) and nowhere in any request body on this contract.
 contract UpdateProjectRequest: {
-    boardRoot?: string
     codeRoot?: string
     worktreeRoot?: string
     runRoot?: string

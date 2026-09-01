@@ -51,7 +51,7 @@ export const uniqueProject = (): string => `test-${process.pid}-${randomUUID()}`
 
 /**
  * Give `project` a stage config — the row `PostgresStageConfigStore.load` reads — in place of the
- * `config/stages.yaml` a test used to write under a temp `boardRoot`. For a suite that already talks
+ * `config/stages.yaml` a test used to write under a temp board directory. For a suite that already talks
  * to the test database; one that only needs a parsed config can construct `StaticStageConfigStore`
  * (`#modules/stages/stage.config.store.js`) with the same string and skip the row.
  */

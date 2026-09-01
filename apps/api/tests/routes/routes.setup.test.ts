@@ -351,7 +351,7 @@ describe('ProjectsRouter writes (card 0168)', () => {
         return handler(ctx, async () => {}).then(() => ctx);
     };
 
-    const createBody = { name: 'wilson', boardRoot: '/board', codeRoot: '/code', worktreeRoot: '/wt', runRoot: '/run' };
+    const createBody = { name: 'wilson', codeRoot: '/code', worktreeRoot: '/wt', runRoot: '/run' };
 
     it('answers 201 with the Project ProjectsService.create() resolves, given a request matching CreateProjectRequest', async () => {
         const create = vi.fn(async () => ({ name: 'wilson' }));
@@ -366,9 +366,9 @@ describe('ProjectsRouter writes (card 0168)', () => {
 
     it('rejects a create body missing a required path field with a 400, and never calls the service', async () => {
         const create = vi.fn(async () => ({ name: 'wilson' }));
-        const withoutBoardRoot = { name: createBody.name, codeRoot: createBody.codeRoot, worktreeRoot: createBody.worktreeRoot, runRoot: createBody.runRoot };
+        const withoutCodeRoot = { name: createBody.name, worktreeRoot: createBody.worktreeRoot, runRoot: createBody.runRoot };
 
-        await expect(dispatchWrite('POST', '/api/projects', withoutBoardRoot, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(dispatchWrite('POST', '/api/projects', withoutCodeRoot, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
 
         expect(create).not.toHaveBeenCalled();
     });
@@ -392,9 +392,9 @@ describe('ProjectsRouter writes (card 0168)', () => {
     it('answers 200 with the Project ProjectsService.update() resolves, given a request matching UpdateProjectRequest', async () => {
         const update = vi.fn(async () => ({ name: 'wilson' }));
 
-        const ctx = await dispatchWrite('PATCH', '/api/projects/wilson', { boardRoot: '/new-board' }, { name: 'wilson' }, { update });
+        const ctx = await dispatchWrite('PATCH', '/api/projects/wilson', { codeRoot: '/new-code' }, { name: 'wilson' }, { update });
 
-        expect(update).toHaveBeenCalledWith('wilson', { boardRoot: '/new-board' });
+        expect(update).toHaveBeenCalledWith('wilson', { codeRoot: '/new-code' });
         expect(ctx.status).toBe(200);
         expect(ctx.type).toBe('application/json');
         expect(ctx.body).toEqual({ name: 'wilson' });
@@ -424,7 +424,7 @@ describe('ProjectsRouter writes (card 0168)', () => {
             throw Object.assign(new Error('missing'), { statusCode: 404, details: { reason: 'project "ghost" is not registered' } });
         });
 
-        await expect(dispatchWrite('PATCH', '/api/projects/ghost', { boardRoot: '/x' }, { name: 'ghost' }, { update })).rejects.toMatchObject({
+        await expect(dispatchWrite('PATCH', '/api/projects/ghost', { codeRoot: '/x' }, { name: 'ghost' }, { update })).rejects.toMatchObject({
             statusCode: 404,
         });
     });
@@ -440,7 +440,7 @@ describe('ProjectsRouter writes (card 0168)', () => {
  */
 describe('GET /api/projects end to end through ProjectContextRouter', () => {
     it('runs inside the daemon\'s own configured project and answers with the registered projects, given no project header at all', async () => {
-        const board = new StaticBoardConfig('configured-project', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         const list = vi.fn(async () => [{ name: 'configured-project' }]);
         const ctx: Record<string, unknown> = {
@@ -509,7 +509,7 @@ describe('ProjectContextRouter', () => {
     };
 
     it('runs the request inside the board\'s own configured project, and never queries ProjectRepository, when no project header is given', async () => {
-        const board = new StaticBoardConfig('configured-project', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         let observed: string | undefined;
 
@@ -528,23 +528,22 @@ describe('ProjectContextRouter', () => {
         const board = new ProjectScopedBoardConfig('configured-project');
         const row: ProjectRow = {
             name: 'other-project',
-            boardRoot: '/other/board',
             codeRoot: '/other/code',
             worktreeRoot: '/other/wt',
             runRoot: '/other/run',
         };
         const find = vi.fn(async (name: string) => (name === 'other-project' ? row : undefined));
         let observedProject: string | undefined;
-        let observedBoardRoot: string | undefined;
+        let observedCodeRoot: string | undefined;
 
         await dispatch('other-project', board, find, async () => {
             observedProject = currentProject();
-            observedBoardRoot = board.boardRoot;
+            observedCodeRoot = board.codeRoot;
         });
 
         expect(find).toHaveBeenCalledWith('other-project');
         expect(observedProject).toBe('other-project');
-        expect(observedBoardRoot).toBe('/other/board');
+        expect(observedCodeRoot).toBe('/other/code');
         expect(currentProject()).toBeUndefined();
     });
 
@@ -573,14 +572,13 @@ describe('ProjectContextRouter', () => {
         const board = new ProjectScopedBoardConfig('configured-project');
         const row: ProjectRow = {
             name: 'other-project',
-            boardRoot: '/other/board',
             codeRoot: '/other/code',
             worktreeRoot: '/other/wt',
             runRoot: '/other/run',
         };
         const find = vi.fn(async (name: string) => (name === 'other-project' ? row : undefined));
         let observedProject: string | undefined;
-        let observedBoardRoot: string | undefined;
+        let observedCodeRoot: string | undefined;
 
         await dispatch(
             undefined,
@@ -588,14 +586,14 @@ describe('ProjectContextRouter', () => {
             find,
             async () => {
                 observedProject = currentProject();
-                observedBoardRoot = board.boardRoot;
+                observedCodeRoot = board.codeRoot;
             },
             { project: 'other-project' },
         );
 
         expect(find).toHaveBeenCalledWith('other-project');
         expect(observedProject).toBe('other-project');
-        expect(observedBoardRoot).toBe('/other/board');
+        expect(observedCodeRoot).toBe('/other/code');
         expect(currentProject()).toBeUndefined();
     });
 
@@ -603,7 +601,6 @@ describe('ProjectContextRouter', () => {
         const board = new ProjectScopedBoardConfig('configured-project');
         const headerRow: ProjectRow = {
             name: 'header-project',
-            boardRoot: '/header/board',
             codeRoot: '/header/code',
             worktreeRoot: '/header/wt',
             runRoot: '/header/run',
@@ -641,7 +638,7 @@ describe('ProjectContextRouter', () => {
     });
 
     it('falls back to the board\'s own configured project when a ?project= query value is present but blank, the same as no query at all', async () => {
-        const board = new StaticBoardConfig('configured-project', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         let observed: string | undefined;
 
@@ -705,7 +702,7 @@ describe('FeedRouter project scoping', () => {
     it('only delivers the board\'s own project\'s cards over /api/feed, never another registered project\'s', async () => {
         const project = uniqueProject();
         const otherProject = uniqueProject();
-        const board = new StaticBoardConfig(project, '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run');
         cardFeed.status(project, 'mine', 'stage.dispatched', { stage: 'implementing' });
         cardFeed.status(otherProject, 'not-mine', 'stage.dispatched', { stage: 'implementing' });
 

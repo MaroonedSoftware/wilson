@@ -428,7 +428,7 @@ function Fact({ label, children, muted }: { label: string; children: ReactNode; 
 }
 
 /**
- * What this process is and where it runs. `boardRoot`, `codeRoot` and `worktreeRoot` are
+ * What this process is and where it runs. `codeRoot` and `worktreeRoot` are
  * deployment topology (card 0106's rule, extended to this endpoint by card 0114) — shown greyed,
  * with a line saying why, rather than left for an operator to go hunting for an edit control that
  * does not exist.
@@ -451,9 +451,6 @@ function DeploymentFacts() {
             <Fact label="Project">{health.data.project}</Fact>
             <Fact label="Commit">{health.data.head}</Fact>
             <Fact label="Started">{new Date(health.data.startedAt).toLocaleString()}</Fact>
-            <Fact label="Board root" muted>
-                {health.data.boardRoot}
-            </Fact>
             <Fact label="Code root" muted>
                 {health.data.codeRoot}
             </Fact>
@@ -461,7 +458,7 @@ function DeploymentFacts() {
                 {health.data.worktreeRoot}
             </Fact>
             <Text size="xs" c="dimmed">
-                Board, code and worktree roots are environment-only — set at deploy time, not editable here.
+                Code and worktree roots are environment-only — set at deploy time, not editable here.
                 Changing them out from under a running daemon is a redeploy, not a setting.
             </Text>
         </Stack>

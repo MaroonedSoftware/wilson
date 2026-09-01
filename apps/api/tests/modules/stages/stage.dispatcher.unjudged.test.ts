@@ -86,10 +86,9 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-unjudged-'));
-        const boardRoot = join(base, 'board');
 
         const events = { append: vi.fn(async () => {}) };
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 

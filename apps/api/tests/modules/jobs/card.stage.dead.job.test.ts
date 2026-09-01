@@ -32,7 +32,7 @@ describe('CardStageDeadJob', () => {
     let job: CardStageDeadJob;
 
     beforeEach(() => {
-        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run');
+        board = new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run');
         boardRepo = { read: vi.fn(async () => card('implementing')), write: vi.fn(async () => 'sha') };
         events = { append: vi.fn(async () => {}) };
         cardJobs = { clear: vi.fn(async () => {}) };
@@ -241,7 +241,7 @@ describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
     });
 
     it('posts a "poisoned" notification when a webhook is configured', async () => {
-        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
+        board = new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
         const job = new CardStageDeadJob(
             pgboss as unknown as PgBoss,
             context,
@@ -259,7 +259,7 @@ describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
     });
 
     it('makes no HTTP call when no webhook is configured', async () => {
-        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run');
+        board = new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run');
         const job = new CardStageDeadJob(
             pgboss as unknown as PgBoss,
             context,
@@ -275,7 +275,7 @@ describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
     });
 
     it('does not notify when the row was already resolved, since nothing is poisoned', async () => {
-        board = new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
+        board = new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run', 'https://hooks.example/notify');
         boardRepo.read.mockResolvedValue(card('merged'));
         const job = new CardStageDeadJob(
             pgboss as unknown as PgBoss,
@@ -317,8 +317,8 @@ describe('CardStageDeadJob resolves its project from the payload (card 0149)', (
         context = { id: 'dead-job-1', name: 'card.stage.dead', signal: new AbortController().signal };
 
         board = new ProjectScopedBoardConfig('alpha');
-        board.register({ name: 'alpha', boardRoot: '/tmp/alpha/board', codeRoot: '/tmp/alpha/code', worktreeRoot: '/tmp/alpha/wt', runRoot: '/tmp/alpha/run' });
-        board.register({ name: 'beta', boardRoot: '/tmp/beta/board', codeRoot: '/tmp/beta/code', worktreeRoot: '/tmp/beta/wt', runRoot: '/tmp/beta/run' });
+        board.register({ name: 'alpha', codeRoot: '/tmp/alpha/code', worktreeRoot: '/tmp/alpha/wt', runRoot: '/tmp/alpha/run' });
+        board.register({ name: 'beta', codeRoot: '/tmp/beta/code', worktreeRoot: '/tmp/beta/wt', runRoot: '/tmp/beta/run' });
 
         job = new CardStageDeadJob(
             pgboss as unknown as PgBoss,

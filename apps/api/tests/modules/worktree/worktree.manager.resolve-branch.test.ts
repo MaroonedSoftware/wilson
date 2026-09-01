@@ -19,7 +19,7 @@ const card = (overrides: Partial<Card['frontmatter']> = {}): Card => ({
  */
 describe('WorktreeManager.resolveBranch', () => {
     const manager = new WorktreeManager(
-        new StaticBoardConfig('test', '/tmp/wilson-test-board', '/tmp/wilson-test-code', '/tmp/wilson-test-worktrees', '/tmp/wilson-test-run'),
+        new StaticBoardConfig('test', '/tmp/wilson-test-code', '/tmp/wilson-test-worktrees', '/tmp/wilson-test-run'),
         silentLogger as never,
     );
 

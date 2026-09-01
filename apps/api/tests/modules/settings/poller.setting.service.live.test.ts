@@ -109,7 +109,7 @@ const fakeSettingsStore = (): SettingsStore => {
 };
 
 const buildRealPoller = (cards: Card[], settings: SettingsStore) => {
-    const config = new StaticBoardConfig('poller-setting-live-test', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig('poller-setting-live-test', '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = { list: vi.fn(async () => cards) };
     const claims = new Map<string, string>();
     const cardJobs = {
@@ -181,7 +181,7 @@ describe('PollerSettingService.set — turning the poller on with no restart', (
     it('turning it off waits out an enqueue already in flight rather than abandoning it', async () => {
         let releaseList: (() => void) | undefined;
         const cards = [card('0001', 'implementing')];
-        const config = new StaticBoardConfig('poller-setting-live-test', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-setting-live-test', '/tmp/code', '/tmp/wt', '/tmp/run');
         const board = {
             list: vi.fn(
                 () =>

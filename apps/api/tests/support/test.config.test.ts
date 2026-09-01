@@ -24,9 +24,8 @@ describe('buildTestServerConfig', () => {
         expect(requireConfigString(config, 'DATABASE_PASSWORD')).toBe('postgres');
         expect(requireConfigString(config, 'DATABASE_NAME')).toBe('wilson_test');
 
-        // BoardModule's codeRoot/boardRoot.
+        // BoardModule's codeRoot.
         expect(requireConfigString(config, 'PROJECT_CODE_ROOT')).toBe('/tmp/wilson-container-test/code');
-        expect(requireConfigString(config, 'PROJECT_BOARD_ROOT')).toBe('/tmp/wilson-container-test/board');
     });
 
     /**

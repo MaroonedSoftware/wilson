@@ -56,8 +56,6 @@ const makeCard = (id: string): Card => ({
 describe('StageDispatcher records installWaitedMs on a genuinely contended setupCommand', () => {
     it('carries installWaitedMs only for the stage that had to queue behind the other, not the one that ran uncontended', async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-install-wait-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
 
         const startedPath = join(base, 'started');
         const releasePath = join(base, 'release');
@@ -85,7 +83,7 @@ stages:
     setupCommand: node ${scriptPath}
 `;
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
 

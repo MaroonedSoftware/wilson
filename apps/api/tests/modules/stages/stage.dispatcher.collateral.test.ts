@@ -66,14 +66,11 @@ const card: Card = {
  * of it.
  */
 describe('StageDispatcher.run wires collateralPaths into the ScopeGuard it hands the agent', () => {
-    let boardRoot: string;
     let worktreeDir: string;
     let events: { append: ReturnType<typeof vi.fn> };
 
     const setUp = async (worktreeFiles: Record<string, string>) => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-collateral-'));
-        boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
 
         worktreeDir = join(base, 'worktree');
         await mkdir(worktreeDir, { recursive: true });
@@ -84,7 +81,7 @@ describe('StageDispatcher.run wires collateralPaths into the ScopeGuard it hands
             await writeFile(absolute, content, 'utf8');
         }
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(card, 'initial');

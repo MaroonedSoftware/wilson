@@ -78,7 +78,7 @@ const app = await createCliApp({
     ],
     checks: [
         nodeVersion({ min: 22 }),
-        envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT', 'PROJECT_BOARD_ROOT'] }),
+        envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT'] }),
         dockerServicesUp({ autoStart: true }),
         postgresReachable,
         queueReachable,

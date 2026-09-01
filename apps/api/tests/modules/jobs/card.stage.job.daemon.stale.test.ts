@@ -79,9 +79,8 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
         await commit(codeRoot, 'one\n', 'first');
 
-        const boardRoot = join(base, 'board');
 
-        const board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        const board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         const dispatcher = { run: vi.fn(async () => outcome()) };
         const broker = { send: vi.fn(async () => 'job-1') };
         const events = { append: vi.fn(async () => {}) };
@@ -166,9 +165,8 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-daemon-stale-board-'));
-        const boardRoot = join(base, 'board');
 
-        board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
@@ -228,7 +226,6 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
 
         const noGitBoard = new StaticBoardConfig(
             'test',
-            board.boardRoot,
             notGitCodeRoot,
             join(base, 'worktrees'),
             join(base, 'run'),
