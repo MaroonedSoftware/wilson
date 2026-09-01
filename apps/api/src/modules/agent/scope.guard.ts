@@ -71,6 +71,29 @@ const REPORT_RESULT_GRANT_REASON =
     'path is the runner’s own report channel, not the plan’s to request — it is already writable without a grant';
 
 /**
+ * Worktree-relative directory prefix a stage may write scratch output under — a throwaway report to
+ * read, a probe script's output, anything an acceptance criterion needs generated and inspected
+ * without becoming part of the card. The allow-side mirror of {@link REPORT_RESULT_PATH}, but a
+ * directory rather than a single fixed name, since a stage may need more than one scratch file.
+ *
+ * `check` allows any path under this prefix unconditionally, in every stage including a `readonly`
+ * one — `review` is the stage this exists for, since it can otherwise write nothing at all. `grant`
+ * refuses it the same way it refuses {@link REPORT_RESULT_PATH}: a `request_scope` round trip could
+ * only land on the same unconditional allow.
+ *
+ * The safety property is not the allow, it is the removal: `cli.stage.agent.ts` deletes everything
+ * under this prefix, recursively and unconditionally, in the same `finally` that unlinks
+ * {@link REPORT_RESULT_PATH}, before either verifier ever runs — so nothing written here can reach
+ * `uncommittedPaths`, `changedPaths`, or a diff. That is what keeps this from being a second,
+ * uncontrolled `alwaysAllowed` entry: it never survives long enough to ship anything.
+ */
+export const SCRATCH_PREFIX = '.wilson-scratch/';
+
+/** Refusal for a `request_scope` call naming a path under {@link SCRATCH_PREFIX}. */
+const SCRATCH_GRANT_REASON =
+    'path is under the runner’s scratch directory, not the plan’s to request — it is already writable without a grant';
+
+/**
  * Decides whether an agent may write a path.
  *
  * This is the single enforcement point for scope, for the write tools: `write`, `edit` and
@@ -115,6 +138,9 @@ export class ScopeGuard {
         if (!contained.allowed) return contained;
         if (contained.path === REPORT_RESULT_PATH) {
             return { allowed: false, path: contained.path, reason: REPORT_RESULT_GRANT_REASON };
+        }
+        if (contained.path.startsWith(SCRATCH_PREFIX)) {
+            return { allowed: false, path: contained.path, reason: SCRATCH_GRANT_REASON };
         }
         if (this.matchDeny(contained.path)) {
             return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
@@ -172,6 +198,12 @@ export class ScopeGuard {
         // Checked ahead of the deny list on purpose: it is not on ALWAYS_DENIED and never should be,
         // but this keeps the two lists' precedence obviously non-overlapping rather than incidental.
         if (key === REPORT_RESULT_PATH) {
+            return { allowed: true, path: key, via: 'scope' };
+        }
+
+        // Same unconditional allow, same precedence, for the scratch directory — see
+        // SCRATCH_PREFIX's own comment for why this has to run in every stage, `readonly` included.
+        if (key.startsWith(SCRATCH_PREFIX)) {
             return { allowed: true, path: key, via: 'scope' };
         }
 
