@@ -9,8 +9,11 @@ import type { SettingDefinition } from './setting.definition.js';
  * actually does instead.
  *
  * `CARD_STAGE_CONCURRENCY` was a hardcoded constant (`job.runner.config.ts`) until this card gave
- * it a database row — a fresh database and an unset environment still resolve to the exact 3 it
- * always has (`CARD_STAGE_CONCURRENCY_DEFAULT`).
+ * it a database row — a fresh database and an unset environment still resolve to
+ * `CARD_STAGE_CONCURRENCY_DEFAULT`, so this card changed no behaviour. What it preserved was the
+ * value in force when it landed, which is not one the constant has always held: 3 dates only from
+ * the raise on 2026-08-25, and it was 1 for most of the life before that. See the constant's own
+ * doc for that history.
  *
  * Parsed with the same fail-fast posture as `configNumber` (`shared/require.config.ts`): an
  * unparseable or non-integer environment value throws rather than silently falling back to the

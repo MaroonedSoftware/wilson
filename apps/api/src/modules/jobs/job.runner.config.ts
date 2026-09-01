@@ -12,8 +12,10 @@
  * options and every queue fell back to pg-boss's own default of one worker fetching one job at a
  * time (pg-boss `manager.js`, `Manager#work`: `localConcurrency = 1, batchSize = 1`; each spawned
  * worker's loop `await`s a fetched job to finish before fetching again, `worker.js`, `Worker#run`).
- * That default is where the value 1 came from and it is deliberately kept: making the number
- * settable does not answer what it should be.
+ * That default is where the value 1 originally came from. It is no longer the value: 1 was kept
+ * while the number was inherited, then raised to 2 and to 3 once it was declared, each raise on a
+ * measurement of this workstation rather than a preference. Being able to set the number still does
+ * not answer what it should be; see the paragraph below for what does.
  *
  * It was briefly and wrongly recorded as 2. A sweep over `stage.dispatched`/`stage.passed` pairs in
  * `runner.card_events` appeared to show two simultaneous stages, but that overlap was two *daemons*
@@ -24,8 +26,14 @@
  *
  * Raising it is a separate call from being able to raise it. Each concurrent stage is a git
  * worktree, a `pnpm install`, and an agent, so the number trades disk and memory headroom for
- * throughput — that needs measuring the host it runs on. What changed is only that the measurement
- * now has somewhere to land: edit this constant and the worker honours it.
+ * throughput — that needs measuring the host it runs on.
+ *
+ * That measurement has since been made twice, which is how this reached 3. At 2: load average 5.07
+ * across 18 CPUs, 5.7GB free plus 12.7GB reclaimable, the runner barely registering, because agents
+ * spend most of their time waiting on the model API and card 0081's lock already serialises the
+ * installs. The host is not what binds. Scope collisions, the merge gate and the testing stage's
+ * CPU cost bind first, so the next raise wants evidence that one of those has moved, not evidence
+ * of spare CPU.
  *
  * "On this daemon process" is also why `run.command.ts`'s `pnpmStoreLock` (card 0081, guarding
  * concurrent `pnpm install`s against pnpm's shared store) is a plain in-process lock rather than a
@@ -34,9 +42,9 @@
  * within one process is exactly as strong a guarantee as the concurrency this constant admits.
  * Raising this number stays bounded to one process too — a second daemon consuming the same queue
  * gets its own workers and its own copy of that lock, which is the case the lock would need to move
- * out of memory for. At 1 the lock cannot be contended by two stages at all; it stays because it
- * also covers the agent's own installs, and because it is exactly what is needed the moment this
- * number moves.
+ * out of memory for. At 1 the lock could not be contended by two stages at all and stayed for the
+ * agent's own installs alone; at 3 it is load-bearing for the case it was written for, which is
+ * what "exactly what is needed the moment this number moves" was anticipating.
  *
  * Card 0115 turns "edit this constant" into "write a `card-stage-concurrency` row" — this is now
  * the coded default at the bottom of `SettingsStore`'s resolution order, not the value in force.

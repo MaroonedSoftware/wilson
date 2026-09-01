@@ -151,14 +151,27 @@ the worktree and port when a job dies. On redelivery the runner discards any
 artifacts from the interrupted attempt and re-dispatches from a clean worktree;
 partial output is never verified.
 
-**Throughput is bounded, today by pg-boss's own default rather than a choice.**
-`CARD_STAGE_CONCURRENCY` (`apps/api/src/modules/jobs/job.runner.config.ts`) names how many
-`card.stage` jobs run at once on a daemon process: one. jobbroker gives `JobsModule`
-(`apps/api/src/modules/jobs/jobs.module.ts`) no hook to pass pg-boss's own concurrency options
-through, so this is what pg-boss falls back to unconfigured, not a limit anyone set. It matters
-because each concurrent stage is a git worktree, a `pnpm install`, and an agent — raising it is a
-call about the host's disk and memory, not the queue, and belongs to whoever is looking at that
-host.
+**Throughput is bounded, and the bound is a measured choice rather than an inherited default.**
+`CARD_STAGE_CONCURRENCY` names how many `card.stage` jobs run at once on a daemon process: three.
+It is declared, not inherited. jobbroker 1.12.0's `JobWorkerPolicy` is what `JobsModule`
+(`apps/api/src/modules/jobs/jobs.module.ts`) sets on the `card.stage` registration as
+`CARD_STAGE_WORKER`, so this is the number the queue actually runs on. Card 0115 then made it a
+`card-stage-concurrency` row bounded to 1..8, leaving the constant in
+`apps/api/src/modules/jobs/job.runner.config.ts` as the coded default at the bottom of
+`SettingsStore`'s resolution order.
+
+It matters because each concurrent stage is a git worktree, a `pnpm install`, and an agent, so the
+number trades the host's disk and memory for throughput. Three was reached by measuring this
+workstation at two: load average 5.07 across 18 CPUs, 5.7GB free plus 12.7GB reclaimable, the runner
+barely registering because agents spend most of their time waiting on the model API and card 0081's
+lock already serialises installs. The machine is not what binds. Scope collisions, the merge gate,
+and the testing stage's CPU cost all bind first, so raise this on evidence one of those has moved
+rather than on spare CPU.
+
+pg-boss fixes a queue's concurrency at `pgboss.work()` time, so a row written while the daemon is
+running cannot reach the live worker the way a poller-interval write reaches the next tick.
+`BoundedCardStageJobRunner` (`jobs.module.ts`) waits until the board is genuinely idle and swaps
+it then.
 
 ### Two adapters, chosen per stage
 
