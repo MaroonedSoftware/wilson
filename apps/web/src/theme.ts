@@ -1,4 +1,4 @@
-import { createTheme, type CSSVariablesResolver } from '@mantine/core';
+import { Anchor, createTheme, type CSSVariablesResolver } from '@mantine/core';
 
 /**
  * Wired into `MantineProvider` by `main.tsx`. `brand/README.md` is the source of truth this follows:
@@ -13,6 +13,9 @@ import { createTheme, type CSSVariablesResolver } from '@mantine/core';
  * - `defaultRadius: 'sm'` is a deliberate pick, not Mantine's own default (`'md'`) — the brand guide
  *   asks for no ornament beyond the mark itself, and a tighter radius reads plainer on `Paper`/
  *   `Badge`/`Button` throughout the app than the rounder default would.
+ * - `components.Anchor` defaults every `Anchor`/`AnchorLink` to `underline: 'always'` — card 0179,
+ *   documented in full beside `cssVariablesResolver` below, where the anchor colour it's compensating
+ *   for is chosen.
  */
 export const theme = createTheme({
     primaryColor: 'dark',
@@ -21,6 +24,9 @@ export const theme = createTheme({
     },
     fontFamilyMonospace: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
     defaultRadius: 'sm',
+    components: {
+        Anchor: Anchor.extend({ defaultProps: { underline: 'always' } }),
+    },
 });
 
 /**
@@ -34,12 +40,17 @@ export const theme = createTheme({
  * for body text (`--mantine-color-text`). That measures 9.37:1 against the body — comfortably past
  * AA — and matches what the header's project link already rendered before this card, once its own
  * `c="inherit"` workaround (`ProjectSwitcher.tsx`) is gone. Because that shade equals ordinary text
- * colour, colour alone no longer distinguishes a link from prose in the dark scheme; the underline
- * `Anchor` renders by default is what carries that affordance now, so no `Anchor`/`AnchorLink` in the
- * app may opt out of it with `underline="never"` without another way to signal "this is a link".
+ * colour, colour alone no longer distinguishes a link from prose in the dark scheme (the Constraints
+ * call this out) — and Mantine's own default underline (`underline: 'hover'`: no decoration at rest,
+ * only on hover/active) isn't a persistent affordance either. So `theme`'s `components.Anchor` above
+ * sets `underline: 'always'` as a theme-wide default: every text `Anchor`/`AnchorLink` in the app is
+ * now underlined at rest, and that underline — not colour, not Mantine's own hover-only default — is
+ * what marks it as a link. `ProjectSwitcher`'s single-project link opts back out with its own
+ * `underline="never"`, deliberately: it wraps an icon, not text, so there is no prose to be confused
+ * with, and the icon's `aria-label` is the affordance there instead.
  *
- * Light is untouched: the default resolves to `var(--mantine-color-dark-9)` there and already
- * measures 13.58:1.
+ * Light is untouched: the default resolves to `var(--mantine-color-dark-6)` there (Mantine's own
+ * `primaryShade.light` of 6, applied to `primaryColor: 'dark'`) and already measures 13.58:1.
  */
 export const cssVariablesResolver: CSSVariablesResolver = theme => ({
     variables: {},
