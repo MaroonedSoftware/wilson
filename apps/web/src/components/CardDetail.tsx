@@ -4,6 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
+import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
@@ -355,6 +356,7 @@ export function CardDetailView({
                         {card.id}
                     </Text>
                     <Title order={2}>{card.title}</Title>
+                    <RenameControl card={card} />
                 </Group>
                 <Group gap="xs">
                     <StageBadge stage={card.stage} />
@@ -405,10 +407,20 @@ export function CardDetailView({
                 <PlanningPanes card={card} project={project} />
             ) : (
                 <Stack gap={6}>
-                    <Title order={4}>Plan</Title>
+                    <Group justify="space-between" align="center">
+                        <Title order={4}>Plan</Title>
+                        <EditBodyControl card={card} />
+                    </Group>
                     <Markdown body={card.body} />
                 </Stack>
             )}
+
+            <Divider />
+
+            <Stack gap={6}>
+                <Title order={4}>Dependencies</Title>
+                <DependenciesSection card={card} />
+            </Stack>
 
             <Divider />
 

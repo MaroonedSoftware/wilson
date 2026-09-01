@@ -35,7 +35,7 @@ const columns: BoardColumns = {
     nonStages: ['parking-lot', 'merged'],
 };
 
-const card = (stage: string): CardDetail => ({
+const card = (stage: string, overrides: Partial<CardDetail> = {}): CardDetail => ({
     id: '0007',
     title: 'Do the thing',
     stage,
@@ -43,6 +43,7 @@ const card = (stage: string): CardDetail => ({
     needsHuman: false,
     sections: {},
     body: 'the plan',
+    ...overrides,
 });
 
 /** A flagged card, for the needs-human panel's own tests below. */
@@ -509,5 +510,218 @@ describe('the release control', () => {
 
         expect(releaseCard).toHaveBeenCalledWith('0007');
         expect(await screen.findByText('job job-42 is actively running card 0007')).toBeTruthy();
+    });
+});
+
+// Card 0177: renaming, editing the body, and setting/removing a dependency, all from the card page
+// — `CardEditControls.tsx`'s `RenameControl`/`EditBodyControl`/`DependenciesSection`, wired into
+// `CardDetail.tsx`.
+describe('the rename control', () => {
+    it('opens a modal seeded with the current title and renames on submit', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const renameCard = vi.spyOn(BoardClient.prototype, 'renameCard').mockResolvedValue(card('testing', { title: 'A better title' }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Rename card' }));
+        const title = (await screen.findByLabelText('Title')) as HTMLInputElement;
+        expect(title.value).toBe('Do the thing');
+
+        fireEvent.change(title, { target: { value: 'A better title' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+        });
+
+        expect(renameCard).toHaveBeenCalledWith('0007', { title: 'A better title' });
+        // The modal closed, and the new title reached the header from the mutation's own response.
+        await waitFor(() => expect(screen.queryByLabelText('Title')).toBeNull());
+        expect(await screen.findByText('A better title')).toBeTruthy();
+    });
+
+    it("shows the API's own refusal reason and keeps the typed title in the still-open modal", async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'renameCard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'title already in use' } }, new Headers()),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Rename card' }));
+        const title = (await screen.findByLabelText('Title')) as HTMLInputElement;
+        fireEvent.change(title, { target: { value: 'Duplicate title' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+        });
+
+        expect(await screen.findByText('title already in use')).toBeTruthy();
+        expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Duplicate title');
+        // Nothing was echoed onto the header — it still reads the untouched card.
+        expect(screen.getByText('Do the thing')).toBeTruthy();
+    });
+});
+
+// Card 0177: only rendered outside `planning`/`parking-lot` — those two stages get `DraftPane`'s
+// session editor instead, and this control must not offer a second door onto the same draft.
+describe('the edit body control', () => {
+    it('is not rendered while the card is in planning or parking-lot', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
+        vi.spyOn(BoardClient.prototype, 'openAPlanningSession').mockResolvedValue({
+            sessionId: '0007',
+            worktreePath: '/tmp/plan-0007',
+            draftPath: '/tmp/plan-0007/PLAN.md',
+            model: 'x',
+            instructions: 'x',
+        });
+        vi.spyOn(BoardClient.prototype, 'getAPlanDraft').mockResolvedValue({ body: 'the plan' });
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(screen.queryByRole('button', { name: 'Edit body' })).toBeNull();
+    });
+
+    it('is not rendered while the card is in parking-lot either — same DraftPane branch as planning', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('parking-lot'));
+        vi.spyOn(BoardClient.prototype, 'openAPlanningSession').mockResolvedValue({
+            sessionId: '0007',
+            worktreePath: '/tmp/plan-0007',
+            draftPath: '/tmp/plan-0007/PLAN.md',
+            model: 'x',
+            instructions: 'x',
+        });
+        vi.spyOn(BoardClient.prototype, 'getAPlanDraft').mockResolvedValue({ body: 'the plan' });
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('Conversation')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit body' })).toBeNull();
+    });
+
+    it('opens a modal seeded with the current body and saves on submit', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const editCardBody = vi.spyOn(BoardClient.prototype, 'editCardBody').mockResolvedValue(card('testing', { body: 'the rewritten plan' }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit body' }));
+        const body = (await screen.findByLabelText('Body')) as HTMLTextAreaElement;
+        expect(body.value).toBe('the plan');
+
+        fireEvent.change(body, { target: { value: 'the rewritten plan' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        });
+
+        expect(editCardBody).toHaveBeenCalledWith('0007', { body: 'the rewritten plan' });
+        await waitFor(() => expect(screen.queryByLabelText('Body')).toBeNull());
+        expect(await screen.findByText('the rewritten plan')).toBeTruthy();
+    });
+
+    it("shows the API's own refusal reason and keeps the typed body in the still-open modal", async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'editCardBody').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } }, new Headers()),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit body' }));
+        const body = (await screen.findByLabelText('Body')) as HTMLTextAreaElement;
+        fireEvent.change(body, { target: { value: 'a rewrite missing a required section' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        });
+
+        expect(await screen.findByText('plan is missing "Acceptance criteria"')).toBeTruthy();
+        expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('a rewrite missing a required section');
+        // Nothing was echoed into the read-only view below — it still reads the untouched card.
+        expect(screen.getByText('the plan')).toBeTruthy();
+    });
+});
+
+describe('the dependencies section', () => {
+    it('lists each dependsOn id with its own Remove button, and none when there are none', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('No dependencies.')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    });
+
+    it('adds a dependency by id and clears the field on success', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        const setCardDependency = vi.spyOn(BoardClient.prototype, 'setCardDependency').mockResolvedValue(card('testing', { dependsOn: ['0003'] }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const input = (await screen.findByLabelText('Card id to depend on')) as HTMLInputElement;
+        fireEvent.change(input, { target: { value: '0003' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Add dependency' }));
+        });
+
+        expect(setCardDependency).toHaveBeenCalledWith('0007', { dependsOnId: '0003' });
+        await waitFor(() => expect(input.value).toBe(''));
+    });
+
+    it('removes a listed dependency by sending remove: true for its id', async () => {
+        const getCard = vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing', { dependsOn: ['0003'] }));
+        let resolveDependency: ((card: CardDetail) => void) | undefined;
+        const setCardDependency = vi.spyOn(BoardClient.prototype, 'setCardDependency').mockImplementation(
+            () =>
+                new Promise<CardDetail>(resolve => {
+                    resolveDependency = resolve;
+                }),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+        expect(await screen.findByText('0003')).toBeTruthy();
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+        });
+
+        expect(setCardDependency).toHaveBeenCalledWith('0007', { dependsOnId: '0003', remove: true });
+        // In flight, no refetch has landed yet — the id is still shown, same "invalidate, don't
+        // write" rule useMoveCard's own test proves.
+        expect(screen.getByText('0003')).toBeTruthy();
+
+        // Point the mock at what a real re-fetch would return before resolving, so the id's
+        // disappearance can only have come from that re-fetch — never the mutation's own response.
+        getCard.mockResolvedValue(card('testing', { dependsOn: [] }));
+        await act(async () => {
+            resolveDependency?.(card('testing', { dependsOn: [] }));
+        });
+
+        await waitFor(() => expect(screen.queryByText('0003')).toBeNull());
+        expect(await screen.findByText('No dependencies.')).toBeTruthy();
+    });
+
+    it("shows the API's own refusal reason as a notification when adding an unknown id, and keeps it typed", async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'setCardDependency').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'no such card 0099' } }, new Headers()),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const input = (await screen.findByLabelText('Card id to depend on')) as HTMLInputElement;
+        fireEvent.change(input, { target: { value: '0099' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Add dependency' }));
+        });
+
+        expect(await screen.findByText('no such card 0099')).toBeTruthy();
+        expect(input.value).toBe('0099');
     });
 });
