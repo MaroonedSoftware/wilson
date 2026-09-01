@@ -10,8 +10,13 @@ import './styles.css';
 
 import { routeTree } from './routeTree.gen';
 import { theme } from './theme';
+import { NotFound } from './components/NotFound';
 
-export const router = createRouter({ routeTree, defaultPreload: 'intent' });
+// Card 0173: `defaultNotFoundComponent` catches any URL none of `routeTree`'s routes match, across
+// every route at once, rather than each route opting into its own `notFoundComponent`. Before this
+// card that gap fell through to TanStack Router's own built-in fallback — a bare "Not Found" with no
+// way back and none of this app's own chrome.
+export const router = createRouter({ routeTree, defaultPreload: 'intent', defaultNotFoundComponent: NotFound });
 
 declare module '@tanstack/react-router' {
     interface Register {

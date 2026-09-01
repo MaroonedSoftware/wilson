@@ -107,7 +107,11 @@ afterEach(() => {
 });
 
 describe('the project switcher in the header', () => {
-    it('renders nothing once the registered projects have loaded and there is only one', async () => {
+    // Card 0173: a single registered project used to render nothing here at all — there was
+    // nothing to *switch* between, but also no way to reach the one project's own board without
+    // already being there. Now it renders a direct link instead, and the ≥2 menu below it (with its
+    // own "Switch project" trigger) never mounts.
+    it('renders a direct link to the one registered project\'s board instead of the switcher menu', async () => {
         const listProjects = stubProjectsEndpoint(['demo']);
 
         renderApp('/projects/demo');
@@ -115,6 +119,8 @@ describe('the project switcher in the header', () => {
         await waitFor(() => expect(listProjects).toHaveBeenCalled());
 
         expect(screen.queryByLabelText('Switch project')).toBeNull();
+        const link = (await screen.findByLabelText('Go to the board')) as HTMLAnchorElement;
+        expect(link.getAttribute('href')).toBe('/projects/demo');
     });
 
     it('lists every registered project once two or more are registered', async () => {

@@ -85,7 +85,7 @@ describe('useCardFeed', () => {
 
         act(() => FakeEventSource.instances[0].onopen?.());
 
-        expect(first.result.current).toBe('live');
-        expect(second.result.current).toBe('disconnected');
+        expect(first.result.current.status).toBe('live');
+        expect(second.result.current.status).toBe('disconnected');
     });
 });
