@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
+import { REPORT_RESULT_PATH, SCRATCH_PREFIX, ScopeGuard } from '#modules/agent/scope.guard.js';
 
 /**
  * The guard is the single enforcement point for scope, and everything downstream trusts it
@@ -278,6 +278,49 @@ describe('ScopeGuard', () => {
                 allowed: true,
                 path: REPORT_RESULT_PATH,
             });
+        });
+    });
+
+    describe('the scratch directory (card 0181)', () => {
+        // A stage can generate throwaway output — a report to read, a probe script's output — that
+        // an acceptance criterion needs produced and inspected without shipping it. `implementing`
+        // can write but not delete; `review` is `readonly` and cannot write at all. SCRATCH_PREFIX is
+        // the allow-side mirror of REPORT_RESULT_PATH for that case: a directory, not a single fixed
+        // name, since a stage may need more than one scratch file.
+        const scratchPath = `${SCRATCH_PREFIX}probe.json`;
+        const nestedScratchPath = `${SCRATCH_PREFIX}sub/deeper.json`;
+
+        it('allows a write under the scratch prefix even though no scope glob covers it', async () => {
+            await expect(guard([]).check(scratchPath)).resolves.toMatchObject({ allowed: true, path: scratchPath, via: 'scope' });
+        });
+
+        it('allows a nested path several directories under the scratch prefix', async () => {
+            await expect(guard([]).check(nestedScratchPath)).resolves.toMatchObject({ allowed: true, path: nestedScratchPath });
+        });
+
+        it('allows the scratch prefix even where the deny list would otherwise be checked first', async () => {
+            await expect(guard(['**']).check(scratchPath)).resolves.toMatchObject({ allowed: true });
+        });
+
+        it('refuses to grant a scratch path to request_scope, since it is already writable without one', async () => {
+            const g = guard([]);
+            const decision = await g.grant(scratchPath);
+            expect(decision).toMatchObject({ allowed: false, path: scratchPath });
+            expect((decision as { reason: string }).reason).toContain('already writable without a grant');
+            expect(g.grants()).toEqual([]);
+        });
+
+        it('leaves check() unaffected by a refused grant of a scratch path — it was already allowed', async () => {
+            const g = guard([]);
+            await g.grant(scratchPath);
+            await expect(g.check(scratchPath)).resolves.toMatchObject({ allowed: true });
+        });
+
+        it('still denies a path that merely shares the scratch prefix’s leading characters, not the prefix itself', async () => {
+            // `.wilson-scratch-backup/file.json` must not slip through a bare string-prefix check
+            // that SCRATCH_PREFIX itself (with its trailing slash) does not actually perform.
+            const decoy = `${SCRATCH_PREFIX.replace(/\/$/, '')}-backup/file.json`;
+            await expect(guard([]).check(decoy)).resolves.toMatchObject({ allowed: false });
         });
     });
 
