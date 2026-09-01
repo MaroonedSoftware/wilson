@@ -714,7 +714,12 @@ executes. Treat it as data, always:
 
 - Context snapshots are delimited as quoted material in the prompt, never
   concatenated as instructions.
-- A plan is still gated by `plan-review` and human approval before anything runs.
+- A plan is still gated by explicit human approval before anything runs:
+  `wilson card approve`, or the app's own diff-and-confirm, pins the plan version
+  and moves the card from `planning` into `backlog`. Not by `plan-review`, which
+  the stage model above describes and which was never built (see Build order); the
+  gate here is a person reading the plan, which is the stronger of the two anyway
+  for input the operator did not write.
 - The write tool's scope enforcement is the actual backstop. A plan steered somewhere
   it should not go still cannot write outside its globs without `request_scope`, and
   that request is logged and visible.
