@@ -9,7 +9,7 @@
 // `theme.ts` exports an object shaped the right way.
 import { createElement } from 'react';
 import { cleanup, render } from '@testing-library/react';
-import { MantineProvider } from '@mantine/core';
+import { Anchor, MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { theme, cssVariablesResolver } from '#src/theme.js';
 
@@ -102,5 +102,33 @@ describe('cssVariablesResolver (card 0179 — links unreadable in dark mode)', (
         const withResolver = schemeBlock(renderedCssVariablesWithResolver(), 'light');
         expect(withResolver).toBe(withoutResolver);
         expect(withResolver).toMatch(/--mantine-color-anchor:\s*var\(--mantine-color-dark-6\);/);
+    });
+});
+
+/** Renders a bare `Anchor` under the given theme (or Mantine's own defaults, if `undefined`) and
+ * returns the underline state Mantine records on the rendered `<a>` — `Anchor.mjs` passes `underline`
+ * through `mod={{ underline }}`, which lands as a `data-underline` attribute (`Anchor.module.css`
+ * keys its `:hover`/`:active`/at-rest underline rules off exactly that attribute's value: `'hover'`,
+ * `'not-hover'`, or `'always'`). Reading the attribute is what proves which behaviour is actually
+ * wired up, rather than trusting that passing `defaultProps` did something. */
+function renderedAnchorUnderline(providerTheme?: typeof theme): string | null {
+    const { container } = render(createElement(MantineProvider, { theme: providerTheme }, createElement(Anchor, { href: '#' }, 'a link')));
+    return container.querySelector('a')?.getAttribute('data-underline') ?? null;
+}
+
+describe('components.Anchor default underline (card 0179 — links unreadable in dark mode)', () => {
+    // Baseline: Mantine's own default is `underline: 'hover'` — no decoration at rest, only on
+    // hover/active. That is not a persistent affordance, which matters once colour alone can't carry
+    // it either (the dark-scheme anchor colour above is set equal to body text).
+    it('is "hover" — no decoration at rest — under Mantine\'s own defaults, without this app\'s theme', () => {
+        expect(renderedAnchorUnderline(undefined)).toBe('hover');
+    });
+
+    // The fix: `theme.ts`'s `components.Anchor` overrides the default to `underline: 'always'`, so
+    // every text `Anchor`/`AnchorLink` in the app is underlined at rest, not just on hover — the
+    // affordance the doc comment beside `cssVariablesResolver` says carries "this is a link" now that
+    // colour no longer can.
+    it('is "always" — underlined at rest — once this app\'s theme is wired in', () => {
+        expect(renderedAnchorUnderline(theme)).toBe('always');
     });
 });
