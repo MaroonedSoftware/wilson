@@ -29,6 +29,10 @@ import { AnchorLink } from '#src/lib/router-link.js';
  * exactly where that pattern erases TanStack's typed `params` (`router-link.tsx`'s own doc comment).
  * No `Tooltip` around it, unlike the ≥2-project trigger below: `AnchorLink` isn't itself
  * ref-forwarding the way a bare `ActionIcon` is, and the icon inside carries its own `aria-label`.
+ * Card 0179 dropped this link's `c="inherit"` — a workaround for `--mantine-color-anchor` being
+ * unreadable in the dark scheme, now that `theme.ts`'s `cssVariablesResolver` fixes the token itself.
+ * The icon's own colour was never affected by it either way: `ActionIcon` derives `--ai-color` from
+ * its own `variant`/`color`, not from the wrapping `Anchor`'s `c`.
  */
 export function ProjectSwitcher() {
     const wilson = useWilsonSdk();
@@ -45,7 +49,7 @@ export function ProjectSwitcher() {
         const project = projects.data[0];
         if (!project) return null;
         return (
-            <AnchorLink to="/projects/$project" params={{ project: project.name }} aria-label="Go to the board" underline="never" c="inherit">
+            <AnchorLink to="/projects/$project" params={{ project: project.name }} aria-label="Go to the board" underline="never">
                 <ActionIcon component="span" variant="subtle">
                     <IconFolders size={18} />
                 </ActionIcon>

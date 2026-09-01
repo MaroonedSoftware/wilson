@@ -1,4 +1,4 @@
-import { createTheme } from '@mantine/core';
+import { createTheme, type CSSVariablesResolver } from '@mantine/core';
 
 /**
  * Wired into `MantineProvider` by `main.tsx`. `brand/README.md` is the source of truth this follows:
@@ -21,4 +21,30 @@ export const theme = createTheme({
     },
     fontFamilyMonospace: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
     defaultRadius: 'sm',
+});
+
+/**
+ * Card 0179. Mantine derives `--mantine-color-anchor` from `primaryColor` — `var(--mantine-color-
+ * dark-4)` (`#424242`) in the dark scheme, since `primaryColor: 'dark'` above is a monochrome scale
+ * rather than a hue with its own light/dark-friendly shades. Against this app's dark-scheme body
+ * (`--mantine-color-body`, `var(--mantine-color-dark-7)` = `#242424`) that's 1.54:1, far under WCAG
+ * AA's 4.5:1 — every `Anchor` in the app was unreadable in dark mode.
+ *
+ * Overridden here to `theme.colors.dark[0]` (`#c9c9c9`), the same shade the dark scheme already uses
+ * for body text (`--mantine-color-text`). That measures 9.37:1 against the body — comfortably past
+ * AA — and matches what the header's project link already rendered before this card, once its own
+ * `c="inherit"` workaround (`ProjectSwitcher.tsx`) is gone. Because that shade equals ordinary text
+ * colour, colour alone no longer distinguishes a link from prose in the dark scheme; the underline
+ * `Anchor` renders by default is what carries that affordance now, so no `Anchor`/`AnchorLink` in the
+ * app may opt out of it with `underline="never"` without another way to signal "this is a link".
+ *
+ * Light is untouched: the default resolves to `var(--mantine-color-dark-9)` there and already
+ * measures 13.58:1.
+ */
+export const cssVariablesResolver: CSSVariablesResolver = theme => ({
+    variables: {},
+    light: {},
+    dark: {
+        '--mantine-color-anchor': theme.colors.dark[0],
+    },
 });

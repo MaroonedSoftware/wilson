@@ -9,7 +9,7 @@ import '@mantine/notifications/styles.css';
 import './styles.css';
 
 import { routeTree } from './routeTree.gen';
-import { theme } from './theme';
+import { theme, cssVariablesResolver } from './theme';
 import { NotFound } from './components/NotFound';
 
 // Card 0173: `defaultNotFoundComponent` catches any URL none of `routeTree`'s routes match, across
@@ -39,7 +39,12 @@ if (!root) throw new Error('#root is missing from index.html');
 
 ReactDOM.createRoot(root).render(
     <StrictMode>
-        <MantineProvider theme={theme} defaultColorScheme="auto" colorSchemeManager={colorSchemeManager}>
+        <MantineProvider
+            theme={theme}
+            cssVariablesResolver={cssVariablesResolver}
+            defaultColorScheme="auto"
+            colorSchemeManager={colorSchemeManager}
+        >
             <QueryClientProvider client={queryClient}>
                 <RouterProvider router={router} />
             </QueryClientProvider>
