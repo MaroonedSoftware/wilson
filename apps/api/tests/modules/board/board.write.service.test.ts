@@ -13,6 +13,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { POSITION_GAP } from '#modules/board/card.position.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
@@ -40,43 +41,42 @@ const fakeLogger = (): Logger & { warn: ReturnType<typeof vi.fn> } =>
 const exec = promisify(execFile);
 
 let db: Kysely<DB>;
-let boardRoot: string;
+
+/**
+ * The stage config every `freshBoard` below reads. Stage config is a `StageConfigStore` now rather
+ * than `config/stages.yaml` under a board directory, so this is one in-memory store shared across the
+ * file.
+ */
+const stageConfigs = new StaticStageConfigStore(
+    [
+        'stages:',
+        // `onPass: testing` here, not `implementing` — `approve` reads this from config rather
+        // than hard-coding a target, and picking a value other than the more obvious
+        // `implementing` is what would catch a regression back to a literal.
+        '  - name: backlog',
+        '    mode: manual',
+        '    model: claude-opus',
+        '    instructions: read the plan',
+        '    onPass: testing',
+        '    onFail: backlog',
+        '  - name: implementing',
+        '    mode: agent',
+        '    model: claude-opus',
+        '    instructions: build it',
+        '    onPass: testing',
+        '    onFail: implementing',
+        '  - name: testing',
+        '    mode: agent',
+        '    model: claude-opus',
+        '    instructions: test the thing',
+        '    onPass: merged',
+        '    onFail: implementing',
+        '',
+    ].join('\n'),
+);
 
 beforeAll(async () => {
     db = testDb();
-
-    const base = await mkdtemp(join(tmpdir(), 'board-write-service-'));
-    boardRoot = join(base, 'board');
-    await mkdir(join(boardRoot, 'config'), { recursive: true });
-    await writeFile(
-        join(boardRoot, 'config', 'stages.yaml'),
-        [
-            'stages:',
-            // `onPass: testing` here, not `implementing` — `approve` reads this from config rather
-            // than hard-coding a target, and picking a value other than the more obvious
-            // `implementing` is what would catch a regression back to a literal.
-            '  - name: backlog',
-            '    mode: manual',
-            '    model: claude-opus',
-            '    instructions: read the plan',
-            '    onPass: testing',
-            '    onFail: backlog',
-            '  - name: implementing',
-            '    mode: agent',
-            '    model: claude-opus',
-            '    instructions: build it',
-            '    onPass: testing',
-            '    onFail: implementing',
-            '  - name: testing',
-            '    mode: agent',
-            '    model: claude-opus',
-            '    instructions: test the thing',
-            '    onPass: merged',
-            '    onFail: implementing',
-            '',
-        ].join('\n'),
-        'utf8',
-    );
 });
 
 afterAll(async () => {
@@ -125,7 +125,7 @@ const freshBoard = (
     runningCards: RunningCards = new RunningCards(),
 ) => {
     const events = { append: vi.fn(async () => {}) };
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     const logger = fakeLogger();
     // `broker` is faked, but `CardJobs` is the real thing wired to the test db — `start`/`release`
@@ -147,6 +147,8 @@ const freshBoard = (
         cardJobs,
         broker as unknown as JobBroker,
         runningCards,
+        undefined as unknown as SettingsStore,
+        stageConfigs,
     );
     return { board, config, events, worktrees, logger, cardJobs, broker, runningCards, service };
 };
@@ -159,7 +161,7 @@ const freshBoard = (
  * and `service.division` reads it back exactly as it would in production.
  */
 const freshBoardWithRealEvents = () => {
-    const config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const eventLog = new EventLog(db, fakeLogger());
     const board = new PostgresBoardRepository(config, db, eventLog);
     const logger = fakeLogger();
@@ -176,6 +178,8 @@ const freshBoardWithRealEvents = () => {
         cardJobs,
         broker as unknown as JobBroker,
         runningCards,
+        undefined as unknown as SettingsStore,
+        stageConfigs,
     );
     return { board, config, eventLog, service };
 };
@@ -1553,17 +1557,12 @@ describe('BoardWriteService', () => {
      */
     describe('merge', () => {
         /**
-         * A board root with its own `stages.yaml`, separate from the shared one `beforeAll` writes
-         * above (which has no `testCommand`, so `proveMerge` would always refuse with "no testCommand
-         * configured" against it) — one per call, so `loadStages`'s mtime/size cache can never answer
-         * a later call with an earlier one's config.
+         * A stage config of its own, separate from the shared `stageConfigs` above (which has no
+         * `testCommand`, so `proveMerge` would always refuse with "no testCommand configured" against
+         * it) — one per call, carrying the suite command that test wants proved.
          */
-        const mergeBoardRoot = async (testCommand: string): Promise<string> => {
-            const base = await mkdtemp(join(tmpdir(), 'board-write-service-merge-'));
-            const root = join(base, 'board');
-            await mkdir(join(root, 'config'), { recursive: true });
-            await writeFile(
-                join(root, 'config', 'stages.yaml'),
+        const mergeStageConfigs = (testCommand: string): StaticStageConfigStore =>
+            new StaticStageConfigStore(
                 [
                     'stages:',
                     '  - name: testing',
@@ -1575,10 +1574,7 @@ describe('BoardWriteService', () => {
                     '    onFail: testing',
                     '',
                 ].join('\n'),
-                'utf8',
             );
-            return root;
-        };
 
         const scriptExiting = async (code: number): Promise<string> => {
             const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-script-'));
@@ -1617,9 +1613,9 @@ describe('BoardWriteService', () => {
          */
         const fakeSettings = (dryRun: boolean): SettingsStore => ({ get: vi.fn(async () => dryRun) }) as unknown as SettingsStore;
 
-        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, root: string, dryRun = false) => {
+        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, stages: StaticStageConfigStore, dryRun = false) => {
             const events = { append: vi.fn(async () => {}) };
-            const config = new StaticBoardConfig(uniqueProject(), root, '/tmp/code', '/tmp/wt', '/tmp/run');
+            const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
             const logger = fakeLogger();
             const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
@@ -1635,13 +1631,14 @@ describe('BoardWriteService', () => {
                 broker as unknown as JobBroker,
                 runningCards,
                 fakeSettings(dryRun),
+                stages,
             );
             return { board, service };
         };
 
         it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
             const worktrees = mergeWorktrees();
-            const { board, service } = freshMergeBoard(worktrees, boardRoot);
+            const { board, service } = freshMergeBoard(worktrees, stageConfigs);
             await board.create(card('0090', { stage: 'implementing' }), 'seed');
 
             await expect(service.merge('0090')).rejects.toMatchObject({
@@ -1655,7 +1652,7 @@ describe('BoardWriteService', () => {
             const worktrees = mergeWorktrees({
                 computeMerge: vi.fn(async () => ({ ok: false, conflicts: ['src/index.ts', 'src/other.ts'], raw: 'CONFLICT (content): ...' })),
             });
-            const { board, service } = freshMergeBoard(worktrees, boardRoot);
+            const { board, service } = freshMergeBoard(worktrees, stageConfigs);
             await board.create(card('0091', { stage: 'ready', retries: { testing: 1 } }), 'seed');
 
             const result = await service.merge('0091');
@@ -1675,9 +1672,9 @@ describe('BoardWriteService', () => {
 
         it('does not land a merge whose suite fails, and leaves the card flagged in ready', async () => {
             const failing = await scriptExiting(1);
-            const root = await mergeBoardRoot(`node ${failing}`);
+            const mergeStages = mergeStageConfigs(`node ${failing}`);
             const worktrees = mergeWorktrees();
-            const { board, service } = freshMergeBoard(worktrees, root);
+            const { board, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0092', { stage: 'ready' }), 'seed');
 
             const result = await service.merge('0092');
@@ -1695,9 +1692,9 @@ describe('BoardWriteService', () => {
 
         it('lands a clean merge whose suite passes, and moves the card to merged', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
             const worktrees = mergeWorktrees();
-            const { board, service } = freshMergeBoard(worktrees, root);
+            const { board, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0093', { stage: 'ready' }), 'seed');
 
             const result = await service.merge('0093');
@@ -1717,11 +1714,11 @@ describe('BoardWriteService', () => {
 
         it('reports failure, not success, and leaves the card flagged, when the ref does not actually move', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
             const worktrees = mergeWorktrees({
                 landMerge: vi.fn(async () => ({ ok: false, reason: 'main did not move: update-ref refused the compare-and-swap' })),
             });
-            const { board, service } = freshMergeBoard(worktrees, root);
+            const { board, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0094', { stage: 'ready' }), 'seed');
 
             const result = await service.merge('0094');
@@ -1748,7 +1745,7 @@ describe('BoardWriteService', () => {
          */
         it("deletes proveMerge's own scratch branch from codeRoot once the merge is proved, leaving no leftover ref behind", async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
 
             const base = await mkdtemp(join(tmpdir(), 'board-write-service-merge-branch-'));
             const codeRoot = join(base, 'code');
@@ -1760,7 +1757,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             // The real thing, not a double: computeMerge/commitMerge/create/reclaim all run against
             // codeRoot's actual git state, the same idiom worktree.manager.test.ts uses, so the branch
             // `create` leaves behind is a real ref this test can check for afterward.
@@ -1784,6 +1781,7 @@ describe('BoardWriteService', () => {
                 broker as unknown as JobBroker,
                 new RunningCards(),
                 fakeSettings(false),
+                mergeStages,
             );
             await board.create(card('0095', { stage: 'ready', branch: 'card/0095-thing' }), 'seed');
 
@@ -1803,9 +1801,9 @@ describe('BoardWriteService', () => {
          */
         it('computes and lands against the integration branch when dry run is on, leaves main unread for anything but the before/after check, and says it was a rehearsal', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
             const worktrees = mergeWorktrees();
-            const { board, service } = freshMergeBoard(worktrees, root, true);
+            const { board, service } = freshMergeBoard(worktrees, mergeStages, true);
             await board.create(card('0099', { stage: 'ready' }), 'seed');
 
             const result = await service.merge('0099');
@@ -1828,10 +1826,10 @@ describe('BoardWriteService', () => {
 
         it('throws rather than silently reporting success when a dry-run merge somehow moves main, and never reaches move', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
             const headShas = ['main-before', 'main-moved-unexpectedly'];
             const worktrees = mergeWorktrees({ headSha: vi.fn(async () => headShas.shift()) });
-            const { board, service } = freshMergeBoard(worktrees, root, true);
+            const { board, service } = freshMergeBoard(worktrees, mergeStages, true);
             await board.create(card('0100', { stage: 'ready' }), 'seed');
 
             await expect(service.merge('0100')).rejects.toThrow(/main moved/);
@@ -1849,7 +1847,7 @@ describe('BoardWriteService', () => {
          */
         it('rehearses a merge end to end: main is untouched, the integration branch carries the work, and the card still reaches merged', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
 
             const base = await mkdtemp(join(tmpdir(), 'board-write-service-dry-run-'));
             const codeRoot = join(base, 'code');
@@ -1861,7 +1859,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             const worktrees = new WorktreeManager(config, fakeLogger());
 
             const cardWorktree = await worktrees.create('0096', 'card/0096-thing');
@@ -1882,6 +1880,7 @@ describe('BoardWriteService', () => {
                 broker as unknown as JobBroker,
                 new RunningCards(),
                 fakeSettings(true),
+                mergeStages,
             );
             await board.create(card('0096', { stage: 'ready', branch: 'card/0096-thing' }), 'seed');
 
@@ -1910,7 +1909,7 @@ describe('BoardWriteService', () => {
          */
         it('composes two dry-run merges on the integration branch, and lets a dependent card become dispatchable', async () => {
             const passing = await scriptExiting(0);
-            const root = await mergeBoardRoot(`node ${passing}`);
+            const mergeStages = mergeStageConfigs(`node ${passing}`);
 
             const base = await mkdtemp(join(tmpdir(), 'board-write-service-dry-run-compose-'));
             const codeRoot = join(base, 'code');
@@ -1922,7 +1921,7 @@ describe('BoardWriteService', () => {
             await exec('git', ['add', '-A'], { cwd: codeRoot });
             await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
 
-            const config = new StaticBoardConfig(uniqueProject(), root, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+            const config = new StaticBoardConfig(uniqueProject(), codeRoot, join(base, 'worktrees'), join(base, 'run'));
             const worktrees = new WorktreeManager(config, fakeLogger());
             const events = { append: vi.fn(async () => {}) };
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
@@ -1938,6 +1937,7 @@ describe('BoardWriteService', () => {
                 broker as unknown as JobBroker,
                 new RunningCards(),
                 fakeSettings(true),
+                mergeStages,
             );
 
             // Card 0097 is cut from main before anything has landed on the integration branch.

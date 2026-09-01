@@ -110,7 +110,7 @@ const containerFor = (config: BoardConfig): { get: (token: unknown) => unknown }
 
 describe('PlanStreamRouter', () => {
     it('replays every stored turn, in order, for a fresh client (no Last-Event-ID)', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();
         await repo.append(id, 'user', 'first');
@@ -127,7 +127,7 @@ describe('PlanStreamRouter', () => {
     });
 
     it('sends nothing to replay for a card with no stored turns', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
 
         const router = PlanStreamRouter();
@@ -141,7 +141,7 @@ describe('PlanStreamRouter', () => {
      * after `<seq>` and no turn at or before it."
      */
     it('replays only the turns after the given Last-Event-ID header, excluding the turn at that seq', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();
         await repo.append(id, 'user', 'one');
@@ -169,7 +169,7 @@ describe('PlanStreamRouter', () => {
      * field a real client would still receive.
      */
     it('never leaks a stored turn\'s engineSessionId over the wire when replaying', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();
         await repo.append(id, 'user', 'hello');
@@ -190,7 +190,7 @@ describe('PlanStreamRouter', () => {
     });
 
     it('falls back to a ?lastEventId= query parameter when no header is given', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();
         await repo.append(id, 'user', 'one');
@@ -212,7 +212,7 @@ describe('PlanStreamRouter', () => {
      * immediately, on top of whatever was replayed.
      */
     it('forwards a live assistant delta published after connecting, on top of the replayed turns', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();
         await repo.append(id, 'user', 'hello');
@@ -229,7 +229,7 @@ describe('PlanStreamRouter', () => {
     });
 
     it('never forwards a delta published for a different card', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
         const otherId = randomUUID();
 
@@ -248,8 +248,8 @@ describe('PlanStreamRouter', () => {
      * also filters `planFeed.onEvent` by `source: board.project` (`routes.setup.ts`).
      */
     it('never forwards a delta published for the same card id but a different, registered project', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
-        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
 
         const router = PlanStreamRouter();
@@ -266,7 +266,7 @@ describe('PlanStreamRouter', () => {
      * force-close grace period."
      */
     it('ends the underlying response when the given signal aborts, instead of waiting to be force-closed', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
         const controller = new AbortController();
 
@@ -284,7 +284,7 @@ describe('PlanStreamRouter', () => {
      * subscription too, or a shutdown stream leaks a listener the bus holds onto forever.
      */
     it('releases the planFeed subscription when the given signal aborts', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
         const controller = new AbortController();
 
@@ -298,7 +298,7 @@ describe('PlanStreamRouter', () => {
     });
 
     it('leaves the stream open with no end-of-life effect when no signal is given at all', async () => {
-        const config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const id = randomUUID();
 
         const router = PlanStreamRouter();

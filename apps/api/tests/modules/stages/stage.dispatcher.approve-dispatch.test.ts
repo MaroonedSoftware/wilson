@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
@@ -20,6 +21,7 @@ import type { ScopeDecision } from '#modules/agent/scope.guard.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
@@ -95,10 +97,6 @@ const seedCard: Card = {
 describe('approving a card and then dispatching it (card 0109)', () => {
     const setUp = async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-approve-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const worktreeDir = join(base, 'worktree');
         await mkdir(worktreeDir, { recursive: true });
@@ -107,12 +105,12 @@ describe('approving a card and then dispatching it (card 0109)', () => {
         await writeFile(join(worktreeDir, 'src', 'a.ts'), 'export const a = 1;\n', 'utf8');
         await writeFile(join(worktreeDir, 'src', 'b.ts'), 'export const b = 2;\n', 'utf8');
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(seedCard, 'seed');
 
-        // `approve`'s other collaborators (worktrees, cardJobs, broker, runningCards) are never
+        // `approve`'s other collaborators (worktrees, cardJobs, broker, runningCards, settings) are never
         // touched by `approve()` itself — it only reads/writes the board and stage config — so they
         // are stand-ins here, the same way board.write.service.test.ts's own `approve` suite treats
         // them.
@@ -126,6 +124,8 @@ describe('approving a card and then dispatching it (card 0109)', () => {
             new CardJobs(config, db, broker as unknown as JobBroker),
             broker as unknown as JobBroker,
             new RunningCards(),
+            {} as SettingsStore,
+            new StaticStageConfigStore(stagesYaml),
         );
 
         const worktrees = {
@@ -173,6 +173,7 @@ describe('approving a card and then dispatching it (card 0109)', () => {
 
         return new StageDispatcher(
             config as BoardConfig,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

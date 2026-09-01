@@ -24,7 +24,7 @@ These are settled. Challenge them only if you find a concrete blocker.
 
 1. **Postgres is the system of record for the board; git is the system of record
    for code.** Cards, card versions, transitions, events, planning sessions, comment
-   anchors and budget accounting are rows. The code repo holds code and nothing else.
+   anchors, budget accounting and the stage config itself are rows. The code repo holds code and nothing else.
    Durability is the database's problem — backups and point-in-time recovery — not a
    property the architecture provides by keeping a second copy in another store.
    Previously the board was markdown in a sibling git repo, which made every
@@ -51,7 +51,10 @@ These are settled. Challenge them only if you find a concrete blocker.
    readable state for an agent, and the plan is its only input. The write tool's deny
    list still covers `.runner/` for decision 8.
 7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
-   a provider is a config edit.
+   a provider is a config edit. The config is a versioned `runner.stage_configs` row —
+   one YAML document per project, comments and all — read through `StageConfigStore` and
+   edited with `wilson stages edit` (or `wilson stages set <file>`); every save is a new
+   version, and the next dispatch reads it, no restart involved.
 8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
    everything under `.runner/` are human-write-only. What actually enforces that differs by
    path. The board is unreachable from a worktree by construction (decision 6) — there is no
@@ -513,9 +516,14 @@ file, because that is what the agent reads.
 constraint retired there is nothing clever to do here — no fractional ranks, no merge
 semantics. A reorder is one `UPDATE` per moved card in one transaction.
 
-**Stage config is still a file**, at `config/stages.yaml` under the project's board
-directory. It is machinery, not board state: human-write-only (decision 8), reviewed like
-code, and deliberately not reachable through any API an agent could call.
+**Stage config is a row too**, `runner.stage_configs`: the whole YAML document, stored
+verbatim so its commentary survives, validated on every write and read, and versioned the
+way cards are (the newest row per project is current; the rest are what `git log` on
+`config/stages.yaml` used to be). It is machinery, not board state: human-write-only
+(decision 8), edited with `wilson stages edit`, and reachable only through
+`/api/stages/config` — which no agent runs with, since the bash tool is an argv allowlist
+and the board is unreachable from a worktree by construction. The sibling board repo that
+held the file is gone, and `boardRoot` with it.
 
 ## Scope enforcement
 

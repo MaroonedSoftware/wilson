@@ -1,12 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
 import { PostgresBoardRepository, CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { loadStages, type ProjectStages } from '#modules/stages/stage.config.js';
+import { parseStages, type ProjectStages } from '#modules/stages/stage.config.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
@@ -40,7 +37,7 @@ describe('PostgresBoardRepository', () => {
 
     beforeEach(() => {
         const events = { append: async () => {} };
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     });
 
@@ -255,7 +252,7 @@ describe('PostgresBoardRepository', () => {
         });
 
         it('scopes by project, leaving a same-id card in a different project alone', async () => {
-            const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+            const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const otherBoard = new PostgresBoardRepository(otherConfig, db, { append: async () => {} } as unknown as EventLog);
             await board.create(card('0001'), 'create');
             await otherBoard.create(card('0001'), 'create');
@@ -310,11 +307,7 @@ describe('PostgresBoardRepository.scopeConflict (card 0104)', () => {
     beforeEach(async () => {
         events = new EventLog(db, silentLogger);
 
-        const boardRoot = await mkdtemp(join(tmpdir(), 'board-repository-scope-'));
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(
-            join(boardRoot, 'config', 'stages.yaml'),
-            `
+        stages = parseStages(`
 stages:
   - name: implementing
     mode: agent
@@ -334,12 +327,9 @@ stages:
     instructions: review it
     onPass: merged
     onFail: implementing
-`,
-            'utf8',
-        );
-        stages = await loadStages(boardRoot);
+`);
 
-        config = new StaticBoardConfig(uniqueProject(), boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         board = new PostgresBoardRepository(config, db, events);
     });
 
@@ -451,7 +441,7 @@ stages:
     });
 
     // Acceptance criteria (card 0104): "Overlap with a card in ready, backlog or a terminal stage
-    // does not defer." Neither `ready` nor `backlog` appears in this describe's own `stages.yaml`
+    // does not defer." Neither `ready` nor `backlog` appears in this describe's own stage config
     // (they precede the agent stages entirely), so `isRunningStage` reaches `findStage`'s `catch` —
     // an unrecognised stage counts as holding nothing, the same conclusion `parking-lot` reaches
     // through its own explicit branch.

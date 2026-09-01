@@ -14,7 +14,7 @@ options {
 # for a process, so a stale API is detectable by anyone who can reach it, not just by shelling into
 # the host it runs on.
 #
-# `boardRoot`, `codeRoot` and `worktreeRoot` are deployment topology (card 0106) — read-only
+# `codeRoot` and `worktreeRoot` are deployment topology (card 0106) — read-only
 # wherever they are shown, since changing them out from under a running daemon is not a setting,
 # it is a redeploy. They live here rather than in `settings.ck` for exactly that reason.
 contract Health: {
@@ -22,7 +22,6 @@ contract Health: {
     project: string
     head: string
     startedAt: datetime
-    boardRoot: string
     codeRoot: string
     worktreeRoot: string
 }

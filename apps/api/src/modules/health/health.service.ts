@@ -33,7 +33,6 @@ export class HealthService {
             project: this.config.project,
             head: buildHead(),
             startedAt,
-            boardRoot: this.config.boardRoot,
             codeRoot: this.config.codeRoot,
             worktreeRoot: this.config.worktreeRoot,
         };

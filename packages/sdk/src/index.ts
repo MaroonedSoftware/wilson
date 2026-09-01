@@ -4,5 +4,6 @@ export * from './health.client.js';
 export * from './projects.client.js';
 export * from './sdk-options.js';
 export * from './settings.client.js';
+export * from './stages.client.js';
 export * from './types/index.js';
 export * from './wilson.sdk.js';

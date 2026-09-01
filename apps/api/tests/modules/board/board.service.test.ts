@@ -9,7 +9,7 @@ import type { BoardRepository, CardVersionSummary } from '#modules/board/board.r
 import type { EventLog, CardEventRow } from '#modules/events/event.log.js';
 import type { Card } from '#modules/board/card.js';
 
-const config = new StaticBoardConfig('proj', '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+const config = new StaticBoardConfig('proj', '/tmp/code', '/tmp/wt', '/tmp/run');
 
 // Card 0160: `BoardService` now resolves `CardSummary.resolvedBranch` through
 // `WorktreeManager.resolveBranch` — the one place that derivation lives — rather than

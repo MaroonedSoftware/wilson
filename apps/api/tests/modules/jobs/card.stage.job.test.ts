@@ -1,11 +1,13 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
+import { PostgresStageConfigStore, StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
+import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.js';
 import { NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -13,6 +15,8 @@ import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
+import type { DB } from '#modules/data/db.js';
+import type { Kysely } from 'kysely';
 
 const stagesYaml = `
 stages:
@@ -36,6 +40,8 @@ stages:
     onFail: implementing
 `;
 
+const stageConfigs = new StaticStageConfigStore(stagesYaml);
+
 const outcome = (overrides: Partial<StageOutcome> = {}): StageOutcome => ({
     passed: true,
     failures: [],
@@ -55,11 +61,8 @@ describe('CardStageJob', () => {
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
-        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
@@ -79,6 +82,7 @@ describe('CardStageJob', () => {
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
     });
 
@@ -430,7 +434,7 @@ describe('CardStageJob', () => {
     });
 
     /**
-     * Card 0031. `StageDispatcher.run` calls `loadStages` and `findStage` before `assertDispatchable`
+     * Card 0031. `StageDispatcher.run` calls `stageConfigs.load()` and `findStage` before `assertDispatchable`
      * ever gets a chance to throw a typed `NotDispatchableError`, so a `StageConfigError` used to fall
      * through to `isPermanentFailure`'s message matching, match no pattern, and retry twice under
      * `CARD_STAGE_POLICY` before dead-lettering silently — no `stage.poisoned` event, no transition,
@@ -615,10 +619,27 @@ describe('CardStageJob', () => {
  * `project` field is fixed at construction), so it cannot tell "resolution happened correctly" apart
  * from "resolution never ran at all". These use the real `ProjectScopedBoardConfig` instead, with two
  * projects registered, so a wrong resolution would actually be observable — a `broker.send`/
- * `events.append` carrying the wrong project's name, or `loadStages` reading the wrong project's
- * `stages.yaml` off disk entirely.
+ * `events.append` carrying the wrong project's name, or the stage config store reading the wrong
+ * project's config entirely. That last one needs the real `PostgresStageConfigStore`, keyed by
+ * `BoardConfig.project` — a `StaticStageConfigStore` answers the same for every project — with a row
+ * seeded per project, so a project this daemon never registered has no config to find.
  */
 describe('CardStageJob resolves its project from the payload (card 0149)', () => {
+    let db: Kysely<DB>;
+    // Unique per run, the way every suite that touches the test database names its projects (see
+    // `uniqueProject`): the stage config rows seeded below would otherwise pile up under one name.
+    const alpha = uniqueProject();
+    const beta = uniqueProject();
+
+    beforeAll(async () => {
+        db = testDb();
+        await seedStageConfig(db, alpha, stagesYaml);
+        await seedStageConfig(db, beta, stagesYaml);
+    });
+    afterAll(async () => {
+        await db.destroy();
+    });
+
     let dispatcher: { run: ReturnType<typeof vi.fn> };
     let broker: { send: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn> };
@@ -629,18 +650,11 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
 
     beforeEach(async () => {
         const alphaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-alpha-'));
-        const alphaBoardRoot = join(alphaBase, 'board');
-        await mkdir(join(alphaBoardRoot, 'config'), { recursive: true });
-        await writeFile(join(alphaBoardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
-
         const betaBase = await mkdtemp(join(tmpdir(), 'card-stage-job-beta-'));
-        const betaBoardRoot = join(betaBase, 'board');
-        await mkdir(join(betaBoardRoot, 'config'), { recursive: true });
-        await writeFile(join(betaBoardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
-        board = new ProjectScopedBoardConfig('alpha');
-        board.register({ name: 'alpha', boardRoot: alphaBoardRoot, codeRoot: join(alphaBase, 'code'), worktreeRoot: join(alphaBase, 'wt'), runRoot: join(alphaBase, 'run') });
-        board.register({ name: 'beta', boardRoot: betaBoardRoot, codeRoot: join(betaBase, 'code'), worktreeRoot: join(betaBase, 'wt'), runRoot: join(betaBase, 'run') });
+        board = new ProjectScopedBoardConfig(alpha);
+        board.register({ name: alpha, codeRoot: join(alphaBase, 'code'), worktreeRoot: join(alphaBase, 'wt'), runRoot: join(alphaBase, 'run') });
+        board.register({ name: beta, codeRoot: join(betaBase, 'code'), worktreeRoot: join(betaBase, 'wt'), runRoot: join(betaBase, 'run') });
 
         dispatcher = { run: vi.fn(async () => outcome({ transitionedTo: 'testing' })) };
         broker = { send: vi.fn(async () => 'job-1') };
@@ -655,30 +669,31 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            new PostgresStageConfigStore(board, db),
         );
     });
 
     it('falls back to the daemon\'s own configured project when the payload carries no project', async () => {
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'alpha' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: alpha });
     });
 
     it('uses the project named in the payload instead of the daemon\'s configured default', async () => {
-        await job.run({ cardId: '0001', stageName: 'implementing', project: 'beta' });
+        await job.run({ cardId: '0001', stageName: 'implementing', project: beta });
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: 'beta' });
-        expect(broker.send).not.toHaveBeenCalledWith('card.stage', expect.objectContaining({ project: 'alpha' }));
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: beta });
+        expect(broker.send).not.toHaveBeenCalledWith('card.stage', expect.objectContaining({ project: alpha }));
     });
 
     it('records a chain-stop event under the payload\'s named project, not the daemon\'s default', async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'review' })); // review is a manual stage — chain stops here
 
-        await job.run({ cardId: '0001', stageName: 'testing', project: 'beta' });
+        await job.run({ cardId: '0001', stageName: 'testing', project: beta });
 
         expect(broker.send).not.toHaveBeenCalled();
         expect(events.append).toHaveBeenCalledWith(
-            expect.objectContaining({ project: 'beta', cardId: '0001', stage: 'testing', type: 'chain.stopped' }),
+            expect.objectContaining({ project: beta, cardId: '0001', stage: 'testing', type: 'chain.stopped' }),
         );
     });
 
@@ -708,13 +723,9 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
 
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-notify-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const board = new StaticBoardConfig(
             'test',
-            boardRoot,
             join(base, 'code'),
             join(base, 'worktrees'),
             join(base, 'run'),
@@ -729,6 +740,7 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
     };
 
@@ -852,11 +864,8 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-scope-conflict-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
-        board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
@@ -876,6 +885,7 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
 
     it('defers, naming the other card and the overlapping paths, without ever calling the dispatcher', async () => {

@@ -18,7 +18,7 @@ describe('PlanTurnRepository', () => {
     let config: StaticBoardConfig;
 
     beforeEach(() => {
-        config = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         repo = new PlanTurnRepository(config, db);
     });
 
@@ -48,7 +48,7 @@ describe('PlanTurnRepository', () => {
         await repo.append('0001', 'user', 'hello');
         await repo.append('0001', 'user', 'hello again');
 
-        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const otherRepo = new PlanTurnRepository(otherConfig, db);
 
         const turn = await otherRepo.append('0001', 'user', 'hello from elsewhere');
@@ -89,7 +89,7 @@ describe('PlanTurnRepository', () => {
         await repo.append('0001', 'user', 'mine');
         await repo.append('0002', 'user', 'a different card, same project');
 
-        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/board', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const otherRepo = new PlanTurnRepository(otherConfig, db);
         await otherRepo.append('0001', 'user', 'same id, different project');
 

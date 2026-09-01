@@ -23,7 +23,8 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
-import { findStage, loadStages, type ProjectStages, type StageConfig } from './stage.config.js';
+import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
+import { StageConfigStore } from './stage.config.store.js';
 import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
@@ -224,6 +225,7 @@ export class StageDispatcher {
     // gets. Production wiring (`stages.module.ts`'s `useClass`) always supplies both via DI.
     constructor(
         private readonly config: BoardConfig,
+        private readonly stageConfigs: StageConfigStore,
         private readonly board: BoardRepository,
         private readonly worktrees: WorktreeManager,
         private readonly agents: StageAgentMap,
@@ -236,7 +238,7 @@ export class StageDispatcher {
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
-        const stages = await loadStages(this.config.boardRoot);
+        const stages = await this.stageConfigs.load();
         const stage = findStage(stages, stageName);
 
         // Two reads answer two different questions about this card, and conflating them was card
@@ -802,7 +804,7 @@ export class StageDispatcher {
         worktree: Awaited<ReturnType<WorktreeManager['create']>>;
         scope: ScopeGuard;
         planPath: string;
-        stages: Awaited<ReturnType<typeof loadStages>>;
+        stages: ProjectStages;
         /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
         port?: number;
     }): Promise<StageOutcome> {

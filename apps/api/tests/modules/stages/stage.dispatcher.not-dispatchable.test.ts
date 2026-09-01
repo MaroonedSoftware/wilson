@@ -9,6 +9,7 @@ import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
@@ -59,6 +60,7 @@ describe('StageDispatcher assertDispatchable — NotDispatchableError discrimina
     const buildDispatcher = () =>
         new StageDispatcher(
             { project: 'test' } as BoardConfig,
+            {} as StageConfigStore,
             {} as BoardRepository,
             {} as WorktreeManager,
             new StageAgentMap(),

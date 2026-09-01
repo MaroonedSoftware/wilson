@@ -4,6 +4,8 @@ import { ServerKitModule } from '@maroonedsoftware/koa';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { ScopeCheckVerifier } from './scope.check.verifier.js';
+import { StageConfigService } from './stage.config.service.js';
+import { PostgresStageConfigStore, StageConfigStore } from './stage.config.store.js';
 import { StageDispatcher } from './stage.dispatcher.js';
 import { StagesService } from './stages.service.js';
 import { ImplementingResultSchema, ReviewResultSchema, ScopeCheckResultSchema, StageResultSchemaMap } from './stage.result.js';
@@ -39,7 +41,12 @@ export const StagesModule: ServerKitModule = {
                 return map;
             })
             .asSingleton();
+        // Stage config is a `runner.stage_configs` row, read through this token everywhere
+        // `loadStages(boardRoot)` used to read the file — see `StageConfigStore`'s own doc comment.
+        registry.register(StageConfigStore).useClass(PostgresStageConfigStore).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
         registry.register(StagesService).useClass(StagesService).asTransient();
+        // The document's own surface (`stages.ck`): `wilson stages show|edit|set|versions`.
+        registry.register(StageConfigService).useClass(StageConfigService).asTransient();
     },
 };

@@ -32,7 +32,6 @@ export const buildTestServerConfig = async (): Promise<AppConfig> => {
             'DATABASE_NAME=wilson_test',
             'PROJECT_NAME=wilson-test',
             'PROJECT_CODE_ROOT=/tmp/wilson-container-test/code',
-            'PROJECT_BOARD_ROOT=/tmp/wilson-container-test/board',
         ].join('\n'),
         'utf8',
     );

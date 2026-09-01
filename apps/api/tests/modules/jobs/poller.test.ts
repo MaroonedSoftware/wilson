@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectScopedBoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 import type { ProjectRepository, ProjectRow } from '#modules/board/project.repository.js';
@@ -57,13 +58,13 @@ const { POLLER_INTERVAL_MS_DEFAULT } = await import('#modules/jobs/job.runner.co
 /** Release the oldest outstanding interval wait, letting the loop run one more tick. */
 const releaseTick = () => pending.shift()?.resolve();
 
-// A minimal but valid stages.yaml: `implementing` is an agent stage (dispatchable), `review` and
+// A minimal but valid stage config: `implementing` is an agent stage (dispatchable), `review` and
 // `ready` are manual (never dispatched), `triage` is a `command` stage (also never dispatched —
 // card 0117's poller treats any non-`agent` mode the same way, `ready` included). `backlog` and
 // `scope-check` exist for card 0127: `backlog` is manual with `onPass: scope-check` — deliberately
 // not the more obvious `implementing`, so a poller that hard-coded a target instead of reading
 // `onPass` from config would still pass every other test here but fail the ones that check it lands
-// on `scope-check`. `loadStages` reads this from disk for real — it is not mocked — so
+// on `scope-check`. A `StaticStageConfigStore` parses this for real — the config is not mocked — so
 // `whyNotDispatchable`'s stage lookup and `findStage(stages, 'backlog').onPass` inside `Poller.tick`
 // are both exercised exactly as they run in production.
 const stagesYaml = `
@@ -106,11 +107,11 @@ stages:
     onFail: triage
 `;
 
+const stageConfigs = new StaticStageConfigStore(stagesYaml);
+
 let boardRoot: string;
 beforeEach(async () => {
     boardRoot = await mkdtemp(join(tmpdir(), 'poller-test-'));
-    await mkdir(join(boardRoot, 'config'), { recursive: true });
-    await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml);
     pending = [];
     delayMock.mockClear();
 });
@@ -172,7 +173,7 @@ const buildPoller = (
         scopeConflict: ReturnType<typeof vi.fn>;
     }> = {},
 ) => {
-    const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
     const scopeConflict = deps.scopeConflict ?? noConflict;
     const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1'), scopeConflict };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
@@ -182,6 +183,7 @@ const buildPoller = (
     const poller = new Poller(
         board as unknown as BoardRepository,
         config,
+        stageConfigs,
         broker as unknown as JobBroker,
         cardJobs as unknown as CardJobs,
         logger as unknown as Logger,
@@ -456,13 +458,14 @@ describe('Poller tick — what it will and will not enqueue', () => {
     });
 
     it('logs and swallows a failure instead of throwing, so one bad tick does not kill the loop', async () => {
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const boom = new Error('database is on fire');
         const board = { list: vi.fn(async () => Promise.reject(boom)) };
         const logger = fakeLogger();
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,
+            stageConfigs,
             fakeBroker() as unknown as JobBroker,
             statefulCardJobs() as unknown as CardJobs,
             logger as unknown as Logger,
@@ -484,21 +487,17 @@ describe('Poller tick — what it will and will not enqueue', () => {
  * real `ProjectRepository`, ticking every registered project in turn.
  */
 describe('Poller tick — multiple registered projects (card 0149)', () => {
-    const projectRow = (name: string, boardRootDir: string): ProjectRow => ({
+    /**
+     * One registered project's row. Both projects read the shared `stageConfigs`
+     * above: which project's stage config a store answers for is `PostgresStageConfigStore`'s
+     * concern, keyed by `BoardConfig.project` the same way the fakes here are, not this block's.
+     */
+    const projectRow = (name: string): ProjectRow => ({
         name,
-        boardRoot: boardRootDir,
         codeRoot: `/tmp/${name}/code`,
         worktreeRoot: `/tmp/${name}/worktrees`,
         runRoot: `/tmp/${name}/run`,
     });
-
-    /** A fresh boardRoot directory with a valid stages.yaml, for one project's own stage config. */
-    const projectBoardRoot = async (): Promise<string> => {
-        const dir = await mkdtemp(join(tmpdir(), 'poller-multi-project-'));
-        await mkdir(join(dir, 'config'), { recursive: true });
-        await writeFile(join(dir, 'config', 'stages.yaml'), stagesYaml);
-        return dir;
-    };
 
     /**
      * A `CardJobs` fake keyed by `(project, cardId)`, the same pair the real, Postgres-backed
@@ -521,9 +520,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
     };
 
     it('ticks every registered project, enqueuing each against its own project — even when both boards use the same card id', async () => {
-        const alphaBoardRoot = await projectBoardRoot();
-        const betaBoardRoot = await projectBoardRoot();
-        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+        const rows = [projectRow('alpha'), projectRow('beta')];
 
         const config = new ProjectScopedBoardConfig('alpha');
         // Deliberately left unregistered here: `tick` must register every row itself
@@ -548,6 +545,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,
+            stageConfigs,
             broker as unknown as JobBroker,
             cardJobs as unknown as CardJobs,
             logger as unknown as Logger,
@@ -570,9 +568,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
      * registered projects in the same tick.
      */
     it('logs and skips a project whose own tick throws, without stopping the walk over the other registered projects', async () => {
-        const alphaBoardRoot = await projectBoardRoot();
-        const betaBoardRoot = await projectBoardRoot();
-        const rows = [projectRow('alpha', alphaBoardRoot), projectRow('beta', betaBoardRoot)];
+        const rows = [projectRow('alpha'), projectRow('beta')];
 
         const config = new ProjectScopedBoardConfig('alpha');
         const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
@@ -592,6 +588,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,
+            stageConfigs,
             broker as unknown as JobBroker,
             projectScopedCardJobs(config) as unknown as CardJobs,
             logger as unknown as Logger,
@@ -613,7 +610,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
      * Nothing can be dispatched at all when the daemon cannot learn which projects exist.
      */
     it('logs and dispatches nothing when listing the registered projects itself fails', async () => {
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const boom = new Error('database is on fire');
         const projects = { list: vi.fn(async () => Promise.reject(boom)) } as unknown as ProjectRepository;
         const board = { list: vi.fn(async () => [card('0001', 'implementing')]) };
@@ -623,6 +620,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,
+            stageConfigs,
             broker as unknown as JobBroker,
             statefulCardJobs() as unknown as CardJobs,
             logger as unknown as Logger,
@@ -831,10 +829,11 @@ describe('Poller start/stop', () => {
         };
         const cardJobs = statefulCardJobs();
         const broker = fakeBroker();
-        const config = new StaticBoardConfig('poller-test-project', boardRoot, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const poller = new Poller(
             board as unknown as BoardRepository,
             config,
+            stageConfigs,
             broker as unknown as JobBroker,
             cardJobs as unknown as CardJobs,
             fakeLogger() as unknown as Logger,

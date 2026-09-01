@@ -13,6 +13,7 @@ import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
@@ -81,21 +82,20 @@ const outcome = (overrides: Partial<StageOutcome> = {}): StageOutcome => ({
  */
 describe('StageDispatcher writeTransition (via private access — run() drags in the whole agent loop)', () => {
     let board: BoardRepository;
-    let boardRoot: string;
     let events: { append: ReturnType<typeof vi.fn> };
     let dispatcher: StageDispatcher;
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-'));
-        boardRoot = join(base, 'board');
 
         events = { append: vi.fn(async () => {}) };
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
+            {} as StageConfigStore,
             board,
             {} as WorktreeManager,
             {} as ModelRegistry,
@@ -299,12 +299,10 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
 
     const buildDispatcher = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-notify-'));
-        const boardRoot = join(base, 'board');
 
         events = { append: vi.fn(async () => {}) };
         const config = new StaticBoardConfig(
             uniqueProject(),
-            boardRoot,
             join(base, 'code'),
             join(base, 'worktrees'),
             join(base, 'run'),
@@ -316,6 +314,7 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
 
         const dispatcher = new StageDispatcher(
             config as BoardConfig,
+            {} as StageConfigStore,
             boardRepo,
             {} as WorktreeManager,
             {} as ModelRegistry,
@@ -462,23 +461,22 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
  */
 describe('StageDispatcher writeTransition reclaims the worktree on a terminal transition', () => {
     let board: BoardRepository;
-    let boardRoot: string;
     let events: { append: ReturnType<typeof vi.fn> };
     let worktrees: { reclaim: ReturnType<typeof vi.fn> };
     let dispatcher: StageDispatcher;
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-terminal-'));
-        boardRoot = join(base, 'board');
 
         events = { append: vi.fn(async () => {}) };
         worktrees = { reclaim: vi.fn(async () => {}) };
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
+            {} as StageConfigStore,
             board,
             worktrees as unknown as WorktreeManager,
             {} as ModelRegistry,
@@ -593,6 +591,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
 
         return new StageDispatcher(
             { project: 'test' } as BoardConfig,
+            {} as StageConfigStore,
             {} as BoardRepository,
             {} as WorktreeManager,
             agents,
@@ -704,6 +703,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
 
         const dispatcher = new StageDispatcher(
             { project: 'test' } as BoardConfig,
+            {} as StageConfigStore,
             {} as BoardRepository,
             {} as WorktreeManager,
             agents,
@@ -743,6 +743,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
 
             const dispatcher = new StageDispatcher(
                 { project: 'test' } as BoardConfig,
+                {} as StageConfigStore,
                 {} as BoardRepository,
                 {} as WorktreeManager,
                 agents,

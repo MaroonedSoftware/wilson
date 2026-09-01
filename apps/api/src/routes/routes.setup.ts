@@ -13,6 +13,7 @@ import { BoardRouter } from './board.router.js';
 import { HealthRouter } from './health.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { SettingsRouter } from './settings.router.js';
+import { StagesRouter } from './stages.router.js';
 
 /**
  * Card 0150. The request header a caller names a project with — see this file's own
@@ -251,6 +252,7 @@ export const routers = (signal?: AbortSignal) => [
     BoardRouter,
     SettingsRouter,
     ProjectsRouter,
+    StagesRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
 ];

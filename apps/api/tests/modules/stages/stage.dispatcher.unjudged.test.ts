@@ -14,6 +14,7 @@ import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
@@ -85,15 +86,15 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-unjudged-'));
-        const boardRoot = join(base, 'board');
 
         const events = { append: vi.fn(async () => {}) };
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
+            {} as StageConfigStore,
             board,
             {} as WorktreeManager,
             {} as StageAgentMap,
@@ -194,6 +195,7 @@ describe('StageDispatcher runAgent (via private access) computes unjudged from t
 
         return new StageDispatcher(
             { project: 'test' } as BoardConfig,
+            {} as StageConfigStore,
             {} as BoardRepository,
             {} as WorktreeManager,
             agents,

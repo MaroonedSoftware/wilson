@@ -2,7 +2,6 @@ import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
 
 interface CreateOpts {
-    boardRoot: string;
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
@@ -14,10 +13,12 @@ interface CreateOpts {
  * back (see `resolveProjectRow`, board.module.ts). `POST /api/projects` does the write; this is the
  * operator's way in.
  *
- * All four paths are required and passed through unchanged — no `--code-root`-style default the
+ * All three paths are required and passed through unchanged — no `--code-root`-style default the
  * way `BoardModule` derives `worktreeRoot`/`runRoot` from `codeRoot` for the daemon's own seeded
  * project, since a second default site here would only drift from that one silently. No `$EDITOR`,
- * unlike `card create`: there is no prose to write, only four paths and a name.
+ * unlike `card create`: there is no prose to write, only three paths and a name. There is no board
+ * root any more: the board, stage config included, is Postgres, and a new project's first stage
+ * config comes from `wilson board init` (with `WILSON_PROJECT` naming it).
  *
  * Usable immediately, with no daemon restart: `Poller.tick` re-registers every project on every
  * tick, and `ProjectContextRouter` resolves `X-Wilson-Project` against Postgres directly.
@@ -26,7 +27,6 @@ const command: CommandModule<CreateOpts> = {
     description: 'Register a project',
     args: [{ name: 'name', description: 'The project name', required: true }],
     options: [
-        { flags: '--board-root <path>', description: 'Absolute path to the board repo', type: 'string', required: true },
         { flags: '--code-root <path>', description: 'Absolute path to the code repo', type: 'string', required: true },
         { flags: '--worktree-root <path>', description: 'Absolute path where card worktrees are cut', type: 'string', required: true },
         { flags: '--run-root <path>', description: 'Absolute path for card run state', type: 'string', required: true },
@@ -36,7 +36,6 @@ const command: CommandModule<CreateOpts> = {
 
         await api.projects.registerProject({
             name,
-            boardRoot: opts.boardRoot,
             codeRoot: opts.codeRoot,
             worktreeRoot: opts.worktreeRoot,
             runRoot: opts.runRoot,

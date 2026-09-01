@@ -12,7 +12,6 @@ import type { ProjectRow } from '#modules/board/project.repository.js';
  */
 const row = (name: string, overrides: Partial<Omit<ProjectRow, 'name'>> = {}): ProjectRow => ({
     name,
-    boardRoot: `/tmp/${name}/board`,
     codeRoot: `/tmp/${name}/code`,
     worktreeRoot: `/tmp/${name}/worktrees`,
     runRoot: `/tmp/${name}/run`,
@@ -25,7 +24,6 @@ describe('ProjectScopedBoardConfig', () => {
         config.register(row('alpha'));
 
         expect(config.project).toBe('alpha');
-        expect(config.boardRoot).toBe('/tmp/alpha/board');
         expect(config.codeRoot).toBe('/tmp/alpha/code');
         expect(config.worktreeRoot).toBe('/tmp/alpha/worktrees');
         expect(config.runRoot).toBe('/tmp/alpha/run');
@@ -34,7 +32,7 @@ describe('ProjectScopedBoardConfig', () => {
     it('throws reading a project that was never registered, rather than falling back silently', () => {
         const config = new ProjectScopedBoardConfig('alpha');
 
-        expect(() => config.boardRoot).toThrow(/alpha.*not registered/i);
+        expect(() => config.codeRoot).toThrow(/alpha.*not registered/i);
     });
 
     it('throws reading the default project itself before it has ever been registered', () => {
@@ -57,14 +55,12 @@ describe('ProjectScopedBoardConfig', () => {
         config.register(row('beta'));
 
         await runAsProject('alpha', async () => {
-            expect(config.boardRoot).toBe('/tmp/alpha/board');
             expect(config.codeRoot).toBe('/tmp/alpha/code');
             expect(config.worktreeRoot).toBe('/tmp/alpha/worktrees');
             expect(config.runRoot).toBe('/tmp/alpha/run');
         });
 
         await runAsProject('beta', async () => {
-            expect(config.boardRoot).toBe('/tmp/beta/board');
             expect(config.codeRoot).toBe('/tmp/beta/code');
             expect(config.worktreeRoot).toBe('/tmp/beta/worktrees');
             expect(config.runRoot).toBe('/tmp/beta/run');
@@ -78,7 +74,7 @@ describe('ProjectScopedBoardConfig', () => {
         // `currentProject()` answers 'ghost' here, but nothing ever registered it — this must throw
         // (a genuine bug: a job or tick named a project this process never heard of), not silently
         // fall back to 'alpha' and run against the wrong project's paths.
-        await expect(runAsProject('ghost', async () => config.boardRoot)).rejects.toThrow(/ghost.*not registered/i);
+        await expect(runAsProject('ghost', async () => config.codeRoot)).rejects.toThrow(/ghost.*not registered/i);
     });
 
     it('re-registering the same project overwrites its path fields, picking up an operator edit without a restart', () => {
@@ -92,7 +88,7 @@ describe('ProjectScopedBoardConfig', () => {
     });
 
     /**
-     * `register` only carries the four `runner.projects` columns — `notifyWebhookUrl`/`notifyBaseUrl`
+     * `register` only carries the three `runner.projects` columns — `notifyWebhookUrl`/`notifyBaseUrl`
      * are settings-store-backed (card 0107) and live nowhere in that table, so a re-register (every
      * `Poller` tick, per its own doc comment) must never clobber a value a settings write already
      * recorded for that project.

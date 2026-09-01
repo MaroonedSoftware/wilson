@@ -2,16 +2,17 @@ import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
 
 /**
- * Scaffold the board repo.
+ * Give the project its first stage config.
  *
- * The board is its own git repo beside the code repo, not a directory inside it (PROJECT.md, Board
- * format). Scaffolding it — `cards/`, `config/`, `context/`, a `stages.yaml`, and the git repo
- * itself — now happens behind `POST /api/board/init` (`BoardBootstrapService.init`, card 0076),
- * against whatever `PROJECT_BOARD_ROOT` the API itself is configured with; this command has no path
- * of its own to scaffold any more.
+ * This used to scaffold the sibling board repo — `cards/`, `config/`, `context/`, a `stages.yaml`,
+ * and the git repo itself. The board is Postgres now, stage config included, so all that is left
+ * to initialise is the `runner.stage_configs` row holding a default document an operator can start
+ * a card against immediately (`BoardBootstrapService.init`, behind `POST /api/board/init`). It is
+ * keyed by the project the request is for (`WILSON_PROJECT`, or the daemon's own), and refuses a
+ * project that already has one — `wilson stages edit` is how a config changes from here.
  */
 const command: CommandModule = {
-    description: 'Create the sibling board repo with its cards, config and context directories',
+    description: 'Give the project its first stage config',
     run: withApi(async (_opts, ctx, _args, api) => {
         const columns = await api.board.initialiseBoard();
 

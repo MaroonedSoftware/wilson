@@ -6,7 +6,8 @@ import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
-import { findStage, loadStages, validTargets } from '#modules/stages/stage.config.js';
+import { findStage, validTargets } from '#modules/stages/stage.config.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
@@ -63,6 +64,7 @@ export class BoardWriteService {
         private readonly broker: JobBroker,
         private readonly runningCards: RunningCards,
         private readonly settings: SettingsStore,
+        private readonly stageConfigs: StageConfigStore,
     ) {}
 
     /**
@@ -106,7 +108,7 @@ export class BoardWriteService {
         // Refuse a state the stage graph does not name, with the same reason `wilson card move`
         // gives — carried in `details` since `httpError`'s `message` is pinned to the status code's
         // default text (see the contract's `400:` comment on this operation).
-        const targets = validTargets(await loadStages(this.boardConfig.boardRoot));
+        const targets = validTargets(await this.stageConfigs.load());
         if (!targets.includes(target)) {
             throw httpError(400).withDetails({ reason: `"${target}" is not a state this board defines. Valid: ${targets.join(', ')}` });
         }
@@ -441,7 +443,7 @@ export class BoardWriteService {
     async start(id: string): Promise<CardDetail> {
         const card = await this.readOrThrow(id);
 
-        const stages = await loadStages(this.boardConfig.boardRoot);
+        const stages = await this.stageConfigs.load();
         const notDispatchable = whyNotDispatchable(card, stages);
         if (notDispatchable) {
             throw httpError(400).withDetails({ reason: notDispatchable.reason });
@@ -644,7 +646,7 @@ export class BoardWriteService {
      * its own throwaway branch the same way after reclaiming that session's worktree.
      */
     private async proveMerge(id: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
-        const stages = await loadStages(this.boardConfig.boardRoot);
+        const stages = await this.stageConfigs.load();
         const stage = findStage(stages, 'testing');
 
         const scratchId = `${id}-merge-check`;

@@ -25,7 +25,7 @@ describe('poisonCard notifies (card 0050)', () => {
     });
 
     const boardWith = (notifyWebhookUrl?: string, notifyBaseUrl?: string): BoardConfig =>
-        new StaticBoardConfig('test', '/tmp/board', '/tmp/code', '/tmp/worktrees', '/tmp/run', notifyWebhookUrl, notifyBaseUrl);
+        new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run', notifyWebhookUrl, notifyBaseUrl);
 
     // `write`'s mock invokes the real mutate callback, the way `PostgresBoardRepository.write` does,
     // so `poisonCard`'s title-capture and already-poisoned guard (both read off the card the mutate

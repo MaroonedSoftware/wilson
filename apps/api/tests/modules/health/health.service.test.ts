@@ -16,7 +16,7 @@ const exec = promisify(execFile);
 // captured once, when the process boots, not computed per request — a live clock read would report
 // "now" for a daemon that started hours ago, which is exactly the daemon a staleness check needs to
 // catch.
-const buildConfig = (project = 'wilson') => new StaticBoardConfig(project, '/board', '/code', '/worktrees', '/run');
+const buildConfig = (project = 'wilson') => new StaticBoardConfig(project, '/code', '/worktrees', '/run');
 
 describe('HealthService', () => {
     it('reports a valid startedAt alongside ok, project, and head', () => {
@@ -44,13 +44,12 @@ describe('HealthService', () => {
 
     it('reports the deployment roots from BoardConfig, not just the process facts', () => {
         // Card 0114: the settings page renders these as read-only deployment facts, sourced
-        // straight from `/api/health`. Distinct values per root, rather than three copies of the
+        // straight from `/api/health`. Distinct values per root, rather than two copies of the
         // same string, catches a service that accidentally wires two of them to the same field.
-        const config = new StaticBoardConfig('wilson', '/deploy/board', '/deploy/code', '/deploy/worktrees', '/run');
+        const config = new StaticBoardConfig('wilson', '/deploy/code', '/deploy/worktrees', '/run');
 
         const result = new HealthService(config).get();
 
-        expect(result.boardRoot).toBe('/deploy/board');
         expect(result.codeRoot).toBe('/deploy/code');
         expect(result.worktreeRoot).toBe('/deploy/worktrees');
     });

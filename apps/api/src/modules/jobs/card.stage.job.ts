@@ -6,7 +6,7 @@ import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
-import { loadStages } from '#modules/stages/stage.config.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
 import { recordDeferral } from './dispatch.deferred.js';
@@ -51,6 +51,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         private readonly boardRepo: BoardRepository,
         private readonly events: EventLog,
         private readonly cardJobs: CardJobs,
+        private readonly stageConfigs: StageConfigStore,
         // Defaulted, not just typed optional: DI (jobs.module.ts) always supplies the shared
         // singleton, so this only matters for a test constructing a job by hand with the six
         // dependencies it cares about — it still gets a valid (if unshared) tracker rather than a
@@ -100,7 +101,7 @@ export class CardStageJob extends Job<CardStagePayload> {
             return;
         }
 
-        const stages = await loadStages(this.board.boardRoot);
+        const stages = await this.stageConfigs.load();
         const decision = decideChain(outcome.transitionedTo, stages, { needsHuman: outcome.needsHuman });
 
         if (decision.continue) {
@@ -248,10 +249,10 @@ export class CardStageJob extends Job<CardStagePayload> {
      * This job's dependencies as a plain object, for the collaborators that take them as an argument
      * rather than being injected with them — the pre-dispatch checks, and the three shared writes
      * `settle` routes to. Built per call rather than stored: a field holding a second reference to
-     * the same four things would be one more thing to keep in step with the constructor.
+     * the same five things would be one more thing to keep in step with the constructor.
      */
     private deps() {
-        return { board: this.board, boardRepo: this.boardRepo, events: this.events, cardJobs: this.cardJobs };
+        return { board: this.board, boardRepo: this.boardRepo, events: this.events, cardJobs: this.cardJobs, stageConfigs: this.stageConfigs };
     }
 
     /**

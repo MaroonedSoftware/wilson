@@ -48,3 +48,13 @@ export const testDb = (): Kysely<DB> =>
  * bearing for uniqueness; it stays so a failing project name is traceable back to its worker.
  */
 export const uniqueProject = (): string => `test-${process.pid}-${randomUUID()}`;
+
+/**
+ * Give `project` a stage config — the row `PostgresStageConfigStore.load` reads — in place of the
+ * `config/stages.yaml` a test used to write under a temp board directory. For a suite that already talks
+ * to the test database; one that only needs a parsed config can construct `StaticStageConfigStore`
+ * (`#modules/stages/stage.config.store.js`) with the same string and skip the row.
+ */
+export const seedStageConfig = async (db: Kysely<DB>, project: string, yaml: string, message = 'test'): Promise<void> => {
+    await db.insertInto('runner.stageConfigs').values({ project, yaml, message }).execute();
+};

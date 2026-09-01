@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore, type StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -100,11 +101,12 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
 
     const setUp = async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-plan-pin-'));
-        const config = new StaticBoardConfig(uniqueProject(), join(base, 'board'), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         dispatcher = new StageDispatcher(
             config as BoardConfig,
+            {} as StageConfigStore,
             board,
             {} as WorktreeManager,
             {} as StageAgentMap,
@@ -262,17 +264,13 @@ stages:
 
     const setUp = async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-plan-pin-e2e-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const worktreeDir = join(base, 'worktree');
         await mkdir(join(worktreeDir, 'src'), { recursive: true });
         await exec('git', ['init'], { cwd: worktreeDir });
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
 
@@ -334,6 +332,7 @@ stages:
 
         return new StageDispatcher(
             config,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

@@ -11,7 +11,6 @@ import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
 // no `config`/`modules` wiring and this file has no `@wilson/api` import left — `ctx.config` comes
 // from johnny5's own default (`buildContext`'s default `envFiles` already includes `apps/api/.env`).
 import boardInitCommand from './commands/board/init.command.js';
-import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
@@ -29,6 +28,10 @@ import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
+import stagesShowCommand from './commands/stages/show.command.js';
+import stagesEditCommand from './commands/stages/edit.command.js';
+import stagesSetCommand from './commands/stages/set.command.js';
+import stagesVersionsCommand from './commands/stages/versions.command.js';
 
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
@@ -51,7 +54,6 @@ const app = await createCliApp({
     version: '0.0.1',
     commands: [
         reg(['board', 'init'], boardInitCommand),
-        reg(['board', 'import'], boardImportCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),
         reg(['card', 'approve'], cardApproveCommand),
@@ -69,10 +71,14 @@ const app = await createCliApp({
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
         reg(['project', 'create'], projectCreateCommand),
+        reg(['stages', 'show'], stagesShowCommand),
+        reg(['stages', 'edit'], stagesEditCommand),
+        reg(['stages', 'set'], stagesSetCommand),
+        reg(['stages', 'versions'], stagesVersionsCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),
-        envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT', 'PROJECT_BOARD_ROOT'] }),
+        envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT'] }),
         dockerServicesUp({ autoStart: true }),
         postgresReachable,
         queueReachable,

@@ -13,7 +13,7 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
  * Card 0148. Before this card, `BoardModule.setup` assembled `BoardConfig` fresh from
- * `PROJECT_CODE_ROOT`/`PROJECT_BOARD_ROOT`/friends on every boot — nothing else. Now it reads (or,
+ * `PROJECT_CODE_ROOT`/friends on every boot — nothing else. Now it reads (or,
  * the first time, creates) a `runner.projects` row and boots `BoardConfig` from that row instead,
  * with the row winning outright once it exists. These tests boot the app's own module list against
  * a real database, the same way `container.setup.test.ts` does, because the whole point is what
@@ -32,14 +32,13 @@ afterAll(async () => {
  * A fresh pair of paths under their own temp directory, so a project's default `worktreeRoot`/
  * `runRoot` (derived from `codeRoot`, unchanged by this card) differ between two calls the same way
  * two different checkouts would — letting a test tell "the row's paths" apart from "whatever the
- * environment says right now" on every field, not just `codeRoot`/`boardRoot`.
+ * environment says right now" on every field, not just `codeRoot`.
  */
-const uniquePaths = async (): Promise<{ codeRoot: string; boardRoot: string; worktreeRoot: string; runRoot: string }> => {
+const uniquePaths = async (): Promise<{ codeRoot: string; worktreeRoot: string; runRoot: string }> => {
     const base = await mkdtemp(join(tmpdir(), 'wilson-0148-'));
     const codeRoot = resolve(base, 'code');
     return {
         codeRoot,
-        boardRoot: resolve(base, 'board'),
         worktreeRoot: resolve(codeRoot, '../.worktrees'),
         runRoot: resolve(codeRoot, '../.run'),
     };
@@ -51,7 +50,7 @@ const uniquePaths = async (): Promise<{ codeRoot: string; boardRoot: string; wor
  * is required: neither `AppConfigSourceDotenv` nor `AppConfigResolverEnv` reads `process.env`
  * directly.
  */
-const projectConfig = async (name: string, paths: { codeRoot: string; boardRoot: string }): Promise<AppConfig> => {
+const projectConfig = async (name: string, paths: { codeRoot: string }): Promise<AppConfig> => {
     const dir = await mkdtemp(join(tmpdir(), 'wilson-0148-config-'));
     const envFile = join(dir, '.env');
     await writeFile(
@@ -64,7 +63,6 @@ const projectConfig = async (name: string, paths: { codeRoot: string; boardRoot:
             `DATABASE_NAME=${process.env.TEST_DATABASE_NAME ?? 'wilson_test'}`,
             `PROJECT_NAME=${name}`,
             `PROJECT_CODE_ROOT=${paths.codeRoot}`,
-            `PROJECT_BOARD_ROOT=${paths.boardRoot}`,
         ].join('\n'),
         'utf8',
     );
@@ -90,12 +88,10 @@ describe('BoardModule (card 0148)', () => {
 
         expect(boardConfig.project).toBe(name);
         expect(boardConfig.codeRoot).toBe(paths.codeRoot);
-        expect(boardConfig.boardRoot).toBe(paths.boardRoot);
         expect(boardConfig.worktreeRoot).toBe(paths.worktreeRoot);
         expect(boardConfig.runRoot).toBe(paths.runRoot);
 
         const row = await db.selectFrom('runner.projects').selectAll().where('name', '=', name).executeTakeFirst();
-        expect(row?.boardRoot).toBe(paths.boardRoot);
         expect(row?.codeRoot).toBe(paths.codeRoot);
         expect(row?.worktreeRoot).toBe(paths.worktreeRoot);
         expect(row?.runRoot).toBe(paths.runRoot);
@@ -127,7 +123,6 @@ describe('BoardModule (card 0148)', () => {
         const boardConfig = await bootBoardConfig(await projectConfig(name, secondPaths));
 
         expect(boardConfig.codeRoot).toBe(firstPaths.codeRoot);
-        expect(boardConfig.boardRoot).toBe(firstPaths.boardRoot);
         expect(boardConfig.worktreeRoot).toBe(firstPaths.worktreeRoot);
         expect(boardConfig.runRoot).toBe(firstPaths.runRoot);
         expect(boardConfig.codeRoot).not.toBe(secondPaths.codeRoot);
@@ -141,14 +136,14 @@ describe('BoardModule (card 0148)', () => {
         const config = await projectConfig(name, await uniquePaths());
         await bootBoardConfig(config);
 
-        const editedBoardRoot = '/tmp/wilson-0148/operator-edited-board';
-        await db.updateTable('runner.projects').set({ boardRoot: editedBoardRoot }).where('name', '=', name).execute();
+        const editedCodeRoot = '/tmp/wilson-0148/operator-edited-code';
+        await db.updateTable('runner.projects').set({ codeRoot: editedCodeRoot }).where('name', '=', name).execute();
 
         // Same config as the first boot — an operator who edited the row and restarted with the
         // very environment that first created it still gets the edited row back, not a value the
         // environment happens to agree with.
         const boardConfig = await bootBoardConfig(config);
 
-        expect(boardConfig.boardRoot).toBe(editedBoardRoot);
+        expect(boardConfig.codeRoot).toBe(editedCodeRoot);
     });
 });

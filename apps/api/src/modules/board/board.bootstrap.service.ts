@@ -1,94 +1,53 @@
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
-import { loadStages, NON_STAGE_STATES } from '#modules/stages/stage.config.js';
-import type { BoardColumns, ImportBoardRequest, ImportReport } from '../../generated/board.js';
+import { NON_STAGE_STATES } from '#modules/stages/stage.config.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
+import type { BoardColumns } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
-import { BoardImporter } from './board.importer.js';
-
-const exec = promisify(execFile);
 
 /**
- * Board bootstrap: scaffolding and importing the board itself, not a card.
+ * Board bootstrap: initialising the board itself, not a card.
  *
- * The API already knows where the board is (`BoardConfig.boardRoot`); neither operation here takes
- * a path from the caller. That circularity is real and acceptable — the API must be running, with
- * `PROJECT_BOARD_ROOT` already pointing at the intended path, before it can scaffold a board there —
- * but the root is configuration, not something `init` discovers, and a request that could name an
- * arbitrary filesystem path would be a remote write primitive, which this is not.
- *
- * Previously `wilson board init` and `wilson board import` ran against the filesystem and the
- * database directly from the CLI process. With every card mutation on the API (card 0075), this
- * closes the last board writes that were not.
+ * `wilson board init` used to scaffold the sibling board repo from the CLI process, and later
+ * (card 0076) behind this service; `wilson board import` carried a markdown board into Postgres the
+ * same way, once, on 2026-08-24. The board is Postgres now, stage config included, so the importer
+ * is gone and all that is left to initialise is the project's first stage config.
  */
 @Injectable()
 export class BoardBootstrapService {
     constructor(
         private readonly boardConfig: BoardConfig,
-        private readonly importer: BoardImporter,
+        private readonly stageConfigs: StageConfigStore,
     ) {}
 
     /**
-     * Scaffold `boardRoot`: `cards/`, `config/`, `context/`, a `stages.yaml` an operator can start a
-     * card against immediately, and a git repo to commit it into.
+     * Give the project a stage config an operator can start a card against immediately — the
+     * `runner.stage_configs` row holding the default document below. No path is involved: the row
+     * is keyed by the project the request is for.
      *
-     * Refuses rather than resets: a `stages.yaml` already at `boardRoot` means this board exists,
-     * and init scaffolds a board, it does not reset one.
+     * Refuses rather than resets: a project that already has a stage config exists, and init
+     * scaffolds a board, it does not reset one — `wilson stages edit` is how a config changes.
      *
-     * The scaffolded config is read back through `loadStages` before this reports success — card
-     * 0060 fixed a scaffolded config that `loadStages` rejected (it routed to stages that did not
-     * exist and nothing caught it), and this is what keeps that class of bug from coming back.
+     * The scaffolded config is read back through `StageConfigStore.load` before this reports success
+     * (`save` validates it, and `load` is what every dispatch reads) — card 0060 fixed a scaffolded
+     * config that `loadStages` rejected (it routed to stages that did not exist and nothing caught
+     * it), and this is what keeps that class of bug from coming back.
      */
     async init(): Promise<BoardColumns> {
-        const root = this.boardConfig.boardRoot;
-        if (existsSync(join(root, 'config', 'stages.yaml'))) {
-            throw httpError(409).withDetails({ reason: `board already initialised at ${root}` });
+        if (await this.stageConfigs.read()) {
+            throw httpError(409).withDetails({ reason: `project "${this.boardConfig.project}" already has a stage config` });
         }
 
-        for (const dir of ['cards', 'config', 'context']) {
-            await mkdir(join(root, dir), { recursive: true });
-        }
+        await this.stageConfigs.save(STAGES_YAML, 'Initialise board');
 
-        await writeFile(join(root, 'config', 'stages.yaml'), STAGES_YAML, 'utf8');
-        await writeFile(join(root, '.gitignore'), 'context/**/raw/\n', 'utf8');
-        await writeFile(join(root, 'README.md'), README, 'utf8');
-
-        if (!existsSync(join(root, '.git'))) {
-            await exec('git', ['init', '-q'], { cwd: root });
-        }
-        await exec('git', ['add', '-A'], { cwd: root });
-        await exec('git', ['commit', '-q', '-m', 'Initialise board'], { cwd: root }).catch(() => undefined);
-
-        const stages = await loadStages(root);
+        const stages = await this.stageConfigs.load();
         return { stages: stages.stages.map(stage => stage.name), nonStages: [...NON_STAGE_STATES] };
-    }
-
-    /**
-     * Import the legacy markdown board (`cards/*.md`) into Postgres. Mirrors `wilson board import`:
-     * a dry run reports what would happen without writing, and `BoardImporter` still refuses a board
-     * that already has cards — that guard does not become optional over HTTP.
-     */
-    async import(request: ImportBoardRequest): Promise<ImportReport> {
-        const cards = await this.importer.readLegacyBoard();
-        if (cards.length === 0) {
-            throw httpError(400).withDetails({ reason: `no cards found under ${this.boardConfig.boardRoot}/cards` });
-        }
-
-        try {
-            return await this.importer.import(cards, { dryRun: request.dryRun ?? false });
-        } catch (err) {
-            throw httpError(400).withDetails({ reason: (err as Error).message });
-        }
     }
 }
 
 // Moved from `packages/cli/src/commands/board/init.command.ts` unchanged apart from where it lives —
-// card 0060 fixed this template's routing and that fix must survive the move intact. The CLI command
-// still carries its own copy for now (card 0074 points it at this endpoint instead).
+// card 0060 fixed this template's routing and that fix must survive the move intact. The first
+// stage config a project gets; `wilson stages edit` takes it from here.
 const STAGES_YAML = `# Stages are config, not code. Step 0 configures exactly one.
 scopeViolation: widen
 
@@ -125,14 +84,4 @@ stages:
 
           Prefer editing existing code over adding new code, and match the conventions of the file
           you are in. Run the build before you finish. Return the structured result when done.
-`;
-
-const README = `# board
-
-The board for this project: one markdown file per card under \`cards/\`, stage config under
-\`config/\`, and planning context snapshots under \`context/\`.
-
-This is a separate git repo from the code on purpose. Card worktrees are cut from the code repo,
-which contains none of these files, so a card branch cannot carry stale board state or resurrect it
-in a merge.
 `;

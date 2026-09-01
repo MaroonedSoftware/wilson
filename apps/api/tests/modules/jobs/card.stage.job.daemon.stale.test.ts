@@ -7,6 +7,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { captureBuildHead } from '#src/server/build.info.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -38,6 +39,8 @@ stages:
     onPass: merged
     onFail: implementing
 `;
+
+const stageConfigs = new StaticStageConfigStore(stagesYaml);
 
 const outcome = (overrides: Partial<StageOutcome> = {}): StageOutcome => ({
     passed: true,
@@ -76,11 +79,8 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
         await commit(codeRoot, 'one\n', 'first');
 
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
-        const board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        const board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         const dispatcher = { run: vi.fn(async () => outcome()) };
         const broker = { send: vi.fn(async () => 'job-1') };
         const events = { append: vi.fn(async () => {}) };
@@ -97,6 +97,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
@@ -157,17 +158,15 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
 
     const daemonStaleEvents = (): unknown[] => events.append.mock.calls.map(c => c[0]).filter((e: { type: string }) => e.type === 'daemon.stale');
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-daemon-stale-board-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
-        board = new StaticBoardConfig('test', boardRoot, codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
@@ -227,7 +226,6 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
 
         const noGitBoard = new StaticBoardConfig(
             'test',
-            board.boardRoot,
             notGitCodeRoot,
             join(base, 'worktrees'),
             join(base, 'run'),

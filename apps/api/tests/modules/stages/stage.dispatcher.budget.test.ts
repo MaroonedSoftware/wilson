@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -18,8 +19,8 @@ import type { DB } from '#modules/data/db.js';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
-// A real board in the test database; isolation is a unique project per set-up. `boardRoot` survives
-// because stage config is still a file — `loadStages` reads `config/stages.yaml` from there.
+// A real board in the test database; isolation is a unique project per set-up. Stage config comes
+// from a `StaticStageConfigStore` built from each test's YAML rather than a file under `boardRoot`.
 let db: Kysely<DB>;
 beforeAll(() => {
     db = testDb();
@@ -93,18 +94,13 @@ stages:
 
 /**
  * Sets up a real board in the test database (as `stage.dispatcher.test.ts` already does for
- * `writeTransition`) with the given `stages.yaml`, and a `StageDispatcher` wired to an
+ * `writeTransition`) with the given stage config YAML, and a `StageDispatcher` wired to an
  * `EventLog.totalInputTokens` stubbed to `spend` and a worktree layer that throws on first touch.
  */
 const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-budget-'));
-    const boardRoot = join(base, 'board');
-    await mkdir(join(boardRoot, 'cards'), { recursive: true });
-    await mkdir(join(boardRoot, 'config'), { recursive: true });
-    await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
     const config = new StaticBoardConfig(
         uniqueProject(),
-        boardRoot,
         join(base, 'code'),
         join(base, 'worktrees'),
         join(base, 'run'),
@@ -118,6 +114,7 @@ const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: strin
 
     const dispatcher = new StageDispatcher(
         config,
+        new StaticStageConfigStore(stagesYaml),
         board,
         worktrees as unknown as WorktreeManager,
         new StageAgentMap(),
@@ -127,7 +124,7 @@ const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: strin
         silentLogger as never,
     );
 
-    return { dispatcher, board, boardRoot, events, worktrees, project: config.project };
+    return { dispatcher, board, events, worktrees, project: config.project };
 };
 
 /**

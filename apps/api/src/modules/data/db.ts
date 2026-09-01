@@ -134,13 +134,13 @@ export interface PlanComments {
 
 /**
  * A project's identity — the name every other `runner` table's `project` column already carries,
- * plus the four paths `BoardConfig` exposes. `BoardModule.setup` reads this row on boot and seeds
+ * plus the three paths `BoardConfig` exposes. `BoardModule.setup` reads this row on boot and seeds
  * it from the environment the first time; see the migration's header comment for what happens
- * when a row exists and the environment disagrees.
+ * when a row exists and the environment disagrees. `board_root` was dropped with the board repo
+ * (`20260901130000_drop_board_root.sql`).
  */
 export interface Projects {
     name: string;
-    boardRoot: string;
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
@@ -159,6 +159,21 @@ export interface Leases {
     acquiredAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A project's stage config — the document that used to be `config/stages.yaml` in the board repo.
+ * Append-only; the newest row per project is its current config, and the rest are its history (what
+ * `git log` on the file used to be). `StageConfigStore` (modules/stages) reads and writes it.
+ */
+export interface StageConfigs {
+    id: Generated<string>;
+    project: string;
+    /** The document verbatim, comments included; validated by `parseStages` on every read and write. */
+    yaml: string;
+    /** What the git commit message on `stages.yaml` used to be. */
+    message: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -170,4 +185,5 @@ export interface DB {
     'runner.planComments': PlanComments;
     'runner.projects': Projects;
     'runner.leases': Leases;
+    'runner.stageConfigs': StageConfigs;
 }

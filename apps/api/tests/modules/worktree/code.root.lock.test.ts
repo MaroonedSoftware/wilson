@@ -44,7 +44,7 @@ describe('WorktreeManager serializes the code repo through codeRootLock', () => 
 
         logMessages = [];
         const logger = { info: (m: string) => logMessages.push(m), warn: () => {}, error: () => {}, debug: () => {} };
-        const config = new StaticBoardConfig('test', join(base, 'board'), codeRoot, worktreeRoot, join(base, 'run'));
+        const config = new StaticBoardConfig('test', codeRoot, worktreeRoot, join(base, 'run'));
         manager = new WorktreeManager(config, logger as never);
     });
 

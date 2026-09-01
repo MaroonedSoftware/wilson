@@ -16,9 +16,10 @@ options {
 # — needs a real answer to "who is allowed to do this", and this comment is the marker to come back
 # and add it.
 
-# The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
-# read — and a board that hard-codes its columns lies the first time a stage is added, which is
-# cheap to do precisely because stages are config.
+# The board's columns. They come from the project's stage config (a `runner.stage_configs` row,
+# `StageConfigStore`), which a browser has no business reading whole — and a board that hard-codes
+# its columns lies the first time a stage is added, which is cheap to do precisely because stages
+# are config.
 contract BoardColumns: {
     stages: array(string)      # configured stages, in the order they run
     nonStages: array(string)   # parking-lot and the terminal states
@@ -163,25 +164,6 @@ contract CardVersion: {
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
     limit?: int
-}
-
-# Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
-# `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
-# here is not a remote write-anywhere-on-disk primitive (card 0076).
-contract ImportBoardRequest: {
-    # Report what would happen without writing anything — the one affordance that makes a one-shot,
-    # irreversible import safe to attempt. Absent (the default) writes.
-    dryRun?: boolean
-}
-
-contract ImportReport: {
-    cards: int
-    dependencies: int
-    # Ids whose legacy `planSha` could not map to a version in the imported history, and were
-    # re-pinned to the version this import created instead.
-    unpinned: array(string)
-    # True for a dry run: nothing above was written, this is a preview.
-    skipped: boolean
 }
 
 # Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
@@ -855,45 +837,23 @@ operation /api/stages: {
     }
 }
 
-# Scaffolds `BoardConfig.boardRoot`: cards/, config/, context/, a stages.yaml an operator can start a
-# card against immediately, and a git repo to commit it into. The API has to be running, with
-# PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
-# that circularity is real, and the 409 below is what makes it legible instead of a connection
-# refused with no explanation.
+# Gives the project a stage config an operator can start a card against immediately — a
+# `runner.stage_configs` row holding the default document. This used to scaffold the sibling board
+# repo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config
+# included, so the row is all there is to initialise, and no path is involved.
 operation /api/board/init: {
     post: {
         name: Initialise board
         service: BoardBootstrapService.init
         response: {
-            # The scaffolded stages, returned as proof the config just written is one `loadStages`
-            # actually accepts — not merely yaml that parses (card 0060).
+            # The scaffolded stages, returned as proof the config just written is one
+            # `StageConfigStore.load` actually accepts — not merely yaml that parses (card 0060).
             201: {
                 application/json: BoardColumns
             }
-            # A `stages.yaml` already exists at boardRoot. init scaffolds; it does not reset, so
-            # this writes nothing.
+            # The project already has a stage config. init scaffolds; it does not reset, so this
+            # writes nothing — `wilson stages edit` is how a config changes.
             409:
-        }
-    }
-}
-
-# One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
-# already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
-# from the CLI.
-operation /api/board/import: {
-    post: {
-        name: Import legacy board
-        service: BoardBootstrapService.import
-        request: {
-            application/json: ImportBoardRequest
-        }
-        response: {
-            200: {
-                application/json: ImportReport
-            }
-            # No cards under boardRoot/cards, dangling dependencies in the legacy board, or a board
-            # that already has cards — carried via `details` as the card mutations above do.
-            400:
         }
     }
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -100,7 +101,7 @@ const cardFor = (stage: string): Card => ({
  * Card 0139: review was reading a card's plan.md and finding test files the testing stage added
  * under its own `extraScope` (`stage.config.ts`) undeclared, because nothing materialized for any
  * stage's agent ever said another stage might legitimately add them. `materializePlan` now folds an
- * "Also in scope" note onto the plan, generated from the loaded `stages.yaml` — not a second,
+ * "Also in scope" note onto the plan, generated from the loaded stage config — not a second,
  * hand-maintained copy of it — naming every *other* stage's configured `extraScope`. This drives the
  * dispatcher through a full `run()` against a real board and a stubbed worktree/agent/verifier, the
  * same shape `stage.dispatcher.collateral.test.ts` uses, and reads the materialized `plan.md` off
@@ -109,10 +110,6 @@ const cardFor = (stage: string): Card => ({
 describe('materializePlan folds other stages\' extraScope into an "Also in scope" note (card 0139)', () => {
     const setUp = async (yaml: string, dispatchStage: string) => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-scope-note-'));
-        const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), yaml, 'utf8');
 
         const worktreeDir = join(base, 'worktree');
         await mkdir(worktreeDir, { recursive: true });
@@ -120,7 +117,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         await mkdir(join(worktreeDir, 'src'), { recursive: true });
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
-        const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
+        const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(cardFor(dispatchStage), 'initial');
@@ -160,6 +157,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
 
         const dispatcher = new StageDispatcher(
             config,
+            new StaticStageConfigStore(yaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

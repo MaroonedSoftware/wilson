@@ -20,8 +20,6 @@ import type { ProjectRow } from './project.repository.js';
 export abstract class BoardConfig {
     /** The project's name, as it appears in the event log. */
     abstract readonly project: string;
-    /** Absolute path to the board repo clone (the sibling `*.board` repo). */
-    abstract readonly boardRoot: string;
     /** Absolute path to the code repo worktrees are cut from. */
     abstract readonly codeRoot: string;
     /** Absolute path under which per-card worktrees are created. */
@@ -68,7 +66,6 @@ export abstract class BoardConfig {
 export class StaticBoardConfig extends BoardConfig {
     constructor(
         readonly project: string,
-        readonly boardRoot: string,
         readonly codeRoot: string,
         readonly worktreeRoot: string,
         readonly runRoot: string,
@@ -81,7 +78,6 @@ export class StaticBoardConfig extends BoardConfig {
 
 /** One project's paths and notification settings, as `ProjectScopedBoardConfig` holds them. */
 interface ProjectEntry {
-    boardRoot: string;
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
@@ -104,7 +100,7 @@ interface ProjectEntry {
  * `BoardConfig`; and `Poller.tick` re-registers every registered project on every tick, which is also
  * how a project added by hand while the daemon is already running is picked up — see that method's
  * own doc for why re-registering (rather than registering once) is deliberate. Idempotent and cheap:
- * it only overwrites the four path fields, preserving whatever `notifyWebhookUrl`/`notifyBaseUrl` a
+ * it only overwrites the three path fields, preserving whatever `notifyWebhookUrl`/`notifyBaseUrl` a
  * settings write already recorded for that project, since neither of those lives in `runner.projects`.
  *
  * Reading a project this class has never seen registered throws — a job or a tick that names an
@@ -122,7 +118,6 @@ export class ProjectScopedBoardConfig extends BoardConfig {
     register(row: ProjectRow): void {
         const existing = this.projects.get(row.name);
         this.projects.set(row.name, {
-            boardRoot: row.boardRoot,
             codeRoot: row.codeRoot,
             worktreeRoot: row.worktreeRoot,
             runRoot: row.runRoot,
@@ -133,10 +128,6 @@ export class ProjectScopedBoardConfig extends BoardConfig {
 
     get project(): string {
         return currentProject() ?? this.defaultProject;
-    }
-
-    get boardRoot(): string {
-        return this.current().boardRoot;
     }
 
     get codeRoot(): string {

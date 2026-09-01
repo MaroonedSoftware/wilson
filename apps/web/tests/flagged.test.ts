@@ -48,7 +48,6 @@ const baseHealth: Health = {
     project: 'demo',
     head: 'abc1234',
     startedAt: '2026-01-01T00:00:00.000Z',
-    boardRoot: '/deploy/board',
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
