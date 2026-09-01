@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Badge, Box, Group, Loader, Paper, ScrollArea, Stack, Text, Title } from '@mantine/core';
+import { ActionIcon, Badge, Box, Group, Loader, Paper, ScrollArea, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
 import { Link } from '@tanstack/react-router';
 import {
     DndContext,
@@ -14,10 +15,28 @@ import {
     type DragStartEvent,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { PARKING_LOT, ageInStage, cardState, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
+import {
+    PARKING_LOT,
+    ageInStage,
+    cardState,
+    collapsedColumnsKey,
+    columnOrder,
+    groupByStage,
+    stagesById,
+    toggleCollapsed,
+    unfinishedDeps,
+} from '#src/lib/board.js';
 import { useMoveCard, useRepositionCard } from '#src/lib/mutations.js';
 import { StateIcon } from '#src/components/brand/StateIcon.js';
+
+/**
+ * Card 0183: a fresh `[]` literal passed inline as `useLocalStorage`'s `defaultValue` would change
+ * identity every render, which re-fires the hook's internal effects needlessly — a stable
+ * module-level empty array instead.
+ */
+const NO_COLLAPSED: string[] = [];
 
 /**
  * Terminal states and the parking lot read as quieter than the stages a card is moving through.
@@ -174,6 +193,14 @@ function SortableCard({
  * Card 0174: the plain count becomes a subtle badge, joined by a red "n flagged" badge whenever
  * any card in the column has `needsHuman` — an upgrade of the existing count, not a second one
  * next to it.
+ *
+ * Card 0183: a column collapses to a narrow rail without ceasing to be the same droppable — the
+ * outer `Stack` keeps its `ref`, `data-testid` and `isOver` highlight in both states, only `w`
+ * (and, collapsed, `mih`) changes, so a drag can still resolve onto a collapsed column exactly as
+ * it does an expanded one. What a collapsed column deliberately stops being is a *reorder* target:
+ * its `SortableContext` isn't rendered while collapsed, so the parking lot's cards can't be dragged
+ * against each other until it's expanded again — there is nothing to drop onto that would resolve
+ * to a specific position.
  */
 function Column({
     stage,
@@ -181,12 +208,16 @@ function Column({
     stageById,
     pendingId,
     project,
+    collapsed,
+    onToggleCollapsed,
 }: {
     stage: string;
     cards: CardSummary[];
     stageById: Map<string, string>;
     pendingId: string | null;
     project: string;
+    collapsed: boolean;
+    onToggleCollapsed: () => void;
 }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
     const isParkingLot = stage === PARKING_LOT;
@@ -196,54 +227,89 @@ function Column({
             ref={setNodeRef}
             data-testid={`column-${stage}`}
             gap="xs"
-            w={260}
+            w={collapsed ? 40 : 260}
             p={4}
+            mih={collapsed ? 160 : undefined}
             style={{
                 flex: '0 0 auto',
                 borderRadius: 'var(--mantine-radius-sm)',
                 backgroundColor: isOver ? 'var(--mantine-color-blue-light)' : undefined,
             }}
         >
-            <Group gap="xs" justify="space-between">
-                <Badge color={TONE[stage] ?? 'gray'} variant="light" radius="sm">
-                    {stage}
-                </Badge>
-                <Group gap={4} wrap="nowrap">
+            {collapsed ? (
+                <UnstyledButton
+                    onClick={onToggleCollapsed}
+                    aria-label={`Expand ${stage} column`}
+                    aria-expanded={false}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: '100%' }}
+                >
+                    <Badge size="xs" color="gray" variant="light" radius="sm">
+                        {cards.length}
+                    </Badge>
                     {flaggedCount > 0 && (
                         <Badge size="xs" color="red" variant="light" radius="sm">
                             {flaggedCount} flagged
                         </Badge>
                     )}
-                    <Badge size="xs" color="gray" variant="light" radius="sm">
-                        {cards.length}
-                    </Badge>
-                </Group>
-            </Group>
-            <Stack gap={6} mih={24}>
-                {isParkingLot ? (
-                    <SortableContext items={cards.map(card => card.id)} strategy={verticalListSortingStrategy}>
-                        {cards.map(card => (
-                            <SortableCard
-                                key={card.id}
-                                card={card}
-                                blockedBy={unfinishedDeps(card, stageById)}
-                                pending={card.id === pendingId}
-                                project={project}
-                            />
-                        ))}
-                    </SortableContext>
-                ) : (
-                    cards.map(card => (
-                        <Card
-                            key={card.id}
-                            card={card}
-                            blockedBy={unfinishedDeps(card, stageById)}
-                            pending={card.id === pendingId}
-                            project={project}
-                        />
-                    ))
-                )}
-            </Stack>
+                    <Text size="xs" c={TONE[stage] ?? 'gray'} style={{ writingMode: 'vertical-rl' }}>
+                        {stage}
+                    </Text>
+                    <IconChevronRight size={14} />
+                </UnstyledButton>
+            ) : (
+                <>
+                    <Group gap="xs" justify="space-between">
+                        <Badge color={TONE[stage] ?? 'gray'} variant="light" radius="sm">
+                            {stage}
+                        </Badge>
+                        <Group gap={4} wrap="nowrap">
+                            {flaggedCount > 0 && (
+                                <Badge size="xs" color="red" variant="light" radius="sm">
+                                    {flaggedCount} flagged
+                                </Badge>
+                            )}
+                            <Badge size="xs" color="gray" variant="light" radius="sm">
+                                {cards.length}
+                            </Badge>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={onToggleCollapsed}
+                                aria-label={`Collapse ${stage} column`}
+                                aria-expanded={true}
+                            >
+                                <IconChevronLeft size={14} />
+                            </ActionIcon>
+                        </Group>
+                    </Group>
+                    <Stack gap={6} mih={24}>
+                        {isParkingLot ? (
+                            <SortableContext items={cards.map(card => card.id)} strategy={verticalListSortingStrategy}>
+                                {cards.map(card => (
+                                    <SortableCard
+                                        key={card.id}
+                                        card={card}
+                                        blockedBy={unfinishedDeps(card, stageById)}
+                                        pending={card.id === pendingId}
+                                        project={project}
+                                    />
+                                ))}
+                            </SortableContext>
+                        ) : (
+                            cards.map(card => (
+                                <Card
+                                    key={card.id}
+                                    card={card}
+                                    blockedBy={unfinishedDeps(card, stageById)}
+                                    pending={card.id === pendingId}
+                                    project={project}
+                                />
+                            ))
+                        )}
+                    </Stack>
+                </>
+            )}
         </Stack>
     );
 }
@@ -270,6 +336,13 @@ function Column({
  * writes the new order into the `['cards']` query cache immediately rather than waiting on a
  * refetch. Landing on the parking lot from another column, or on a parking-lot card from another
  * column, is still a stage move — `useMoveCard`, unchanged — never a reorder.
+ *
+ * Card 0183: which columns are collapsed is per-project, client-side state — `localStorage` under
+ * `collapsedColumnsKey(project)`, read and written with `useLocalStorage` — rather than a server
+ * setting or a URL param. It is a view preference over a board every browser already fetches the
+ * same data for, not something worth round-tripping through the API (out of scope, this card's
+ * Constraints) or worth polluting `routeTree.gen.ts` with (card 0175 kept `BoardFilter`'s state out
+ * of the URL for the same reason).
  */
 export function Board({
     columns,
@@ -293,6 +366,16 @@ export function Board({
     const order = columnOrder(columns, cards);
     const grouped = groupByStage(cards);
     const stageById = stagesById(allCards ?? cards);
+
+    // Card 0183: which stages are collapsed, per project. `getInitialValueInEffect: false` because
+    // this is a client-only Vite SPA with no SSR to hydrate against — the default (`true`) would
+    // render every column expanded first and collapse them in an effect, flashing on every load.
+    const [collapsed, setCollapsed] = useLocalStorage<string[]>({
+        key: collapsedColumnsKey(project),
+        defaultValue: NO_COLLAPSED,
+        getInitialValueInEffect: false,
+    });
+    const collapsedSet = new Set(collapsed);
 
     // The card currently picked up, for the `DragOverlay`, and the card whose move is in flight —
     // two different things, since the drag itself ends (and the overlay disappears) well before the
@@ -391,6 +474,8 @@ export function Board({
                                 stageById={stageById}
                                 pendingId={pendingId}
                                 project={project}
+                                collapsed={collapsedSet.has(stage)}
+                                onToggleCollapsed={() => setCollapsed(current => toggleCollapsed(current, stage))}
                             />
                         ))}
                     </Group>
