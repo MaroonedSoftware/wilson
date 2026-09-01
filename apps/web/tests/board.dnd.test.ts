@@ -295,6 +295,35 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
         expect(within(implementingColumn).getByText('card 0007')).toBeTruthy();
         expect(within(testingColumn).queryByText('card 0007')).toBeNull();
     });
+
+    it('resolves a keyboard drag onto a column that is currently collapsed', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
+        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            { id: '0007', title: 'card 0007', stage: 'testing', dependsOn: [], needsHuman: false, sections: {}, body: '' } as any,
+        );
+
+        renderApp(BOARD_PATH);
+        await screen.findByText('card 0007');
+        fireEvent.click(screen.getByLabelText('Collapse testing column'));
+        const anchor = screen.getByText('0007').closest('a')!;
+
+        // Card 0183, constraint 5: a collapsed column stays the same `useDroppable`, keyed by its
+        // stage, with the same `isOver` highlight and `data-testid`. This isn't an assertion about
+        // pixel widths — the harness's synthetic rects (`rectRules`, `columnStack`) would fake a
+        // collapsed column's real ≤48px width either way — it's proof that dropping actually
+        // resolves onto the collapsed rail's droppable ref, which only survives if `Column` keeps
+        // rendering the outer `Stack`'s `setNodeRef` unconditionally in both branches.
+        await withStubbedRects(rectRules('0007', 'implementing'), async () => {
+            await pickUp(anchor);
+            await moveRight(anchor);
+            await waitFor(() => expect(isHighlighted('testing')).toBe(true));
+            await drop(anchor);
+        });
+
+        await waitFor(() => expect(moveCard).toHaveBeenCalledWith('0007', { stage: 'testing' }));
+    });
 });
 
 describe('clicking a card that is also draggable', () => {

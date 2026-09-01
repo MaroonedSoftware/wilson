@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { ageInStage, cardState, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
+import {
+    ageInStage,
+    cardState,
+    collapsedColumnsKey,
+    columnOrder,
+    groupByStage,
+    stagesById,
+    toggleCollapsed,
+    unfinishedDeps,
+} from '#src/lib/board.js';
 
 const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = false): CardSummary => ({
     id,
@@ -146,6 +155,32 @@ describe('cardState', () => {
 
     it('claims no state face for a plain in-flight stage', () => {
         expect(cardState(card('0001', 'implementing'))).toBeUndefined();
+    });
+});
+
+describe('collapsedColumnsKey', () => {
+    it('produces a different key for two different projects', () => {
+        expect(collapsedColumnsKey('demo')).not.toBe(collapsedColumnsKey('other'));
+    });
+
+    it('names the localStorage key by project', () => {
+        expect(collapsedColumnsKey('demo')).toBe('wilson:collapsed-columns:demo');
+    });
+});
+
+describe('toggleCollapsed', () => {
+    it('adds a stage that is not yet in the set', () => {
+        expect(toggleCollapsed(['implementing'], 'merged')).toEqual(['implementing', 'merged']);
+    });
+
+    it('removes a stage that is already in the set', () => {
+        expect(toggleCollapsed(['implementing', 'merged'], 'merged')).toEqual(['implementing']);
+    });
+
+    it('does not mutate the input array', () => {
+        const collapsed = ['merged'];
+        toggleCollapsed(collapsed, 'implementing');
+        expect(collapsed).toEqual(['merged']);
     });
 });
 

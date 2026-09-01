@@ -86,6 +86,25 @@ export const cardState = (card: CardSummary): CardState | undefined => {
     return undefined;
 };
 
+/**
+ * The `localStorage` key a project's collapsed-column set lives under (Card 0183). One place that
+ * spells it out, so `Board.tsx` and its tests read the same key rather than each hard-coding their
+ * own copy that could drift apart.
+ */
+export const collapsedColumnsKey = (project: string): string => `wilson:collapsed-columns:${project}`;
+
+/**
+ * Card 0183: flips `stage`'s membership in `collapsed` — added if absent, removed if present —
+ * without mutating the input array, matching `useLocalStorage`'s updater-function form
+ * (`setCollapsed(current => toggleCollapsed(current, stage))`).
+ *
+ * Deliberately does not prune a stage the config no longer names: a stored entry that matches no
+ * rendered column is simply inert, whereas pruning would silently forget a collapse the moment a
+ * `stages.yaml` reload dropped and re-added the same stage.
+ */
+export const toggleCollapsed = (collapsed: readonly string[], stage: string): string[] =>
+    collapsed.includes(stage) ? collapsed.filter(entry => entry !== stage) : [...collapsed, stage];
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
