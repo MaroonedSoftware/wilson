@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -76,7 +77,6 @@ describe('StageDispatcher dev server port allocation', () => {
         const { base, cardId, stageWorktree, settingsGet, acquire, outPath } = opts;
         const boardRoot = join(base, 'board');
         await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
 
         const scriptPath = join(base, `setup-${cardId}.js`);
         await writeSetupScript(scriptPath, outPath);
@@ -91,7 +91,6 @@ stages:
     onFail: testing
 ${stageWorktree ? `    worktree: ${stageWorktree}\n` : ''}    setupCommand: node ${scriptPath}
 `;
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
@@ -122,6 +121,7 @@ ${stageWorktree ? `    worktree: ${stageWorktree}\n` : ''}    setupCommand: node
 
         const dispatcher = new StageDispatcher(
             config,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,
@@ -229,10 +229,9 @@ ${stageWorktree ? `    worktree: ${stageWorktree}\n` : ''}    setupCommand: node
      * bleeds across two running at once.
      */
     it('gives two cards dispatched at once different ports, each seen consistently by its own setupCommand and agent', async () => {
-        // Each harness gets its own base directory (and so its own boardRoot/stages.yaml) — two
-        // dispatchers sharing one boardRoot would race to write the same stages.yaml, which is not
-        // what this test is about; it is the shared `portFor` allocator mock below that models two
-        // cards genuinely contending for one range.
+        // Each harness gets its own base directory and its own `StaticStageConfigStore` — two
+        // dispatchers sharing one config store is not what this test is about; it is the shared
+        // `portFor` allocator mock below that models two cards genuinely contending for one range.
         const baseA = await mkdtemp(join(tmpdir(), 'stage-dispatcher-port-a-'));
         const baseB = await mkdtemp(join(tmpdir(), 'stage-dispatcher-port-b-'));
         const range = { start: 49300, end: 49399 };

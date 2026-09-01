@@ -1,9 +1,14 @@
-import { Registry } from 'injectkit';
+import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
+import { Logger } from '@maroonedsoftware/logger';
+import { runAsProject } from '#modules/board/project.context.js';
+import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { ScopeCheckVerifier } from './scope.check.verifier.js';
+import { seedStageConfigFromBoardRepo } from './stage.config.seed.js';
+import { PostgresStageConfigStore, StageConfigStore } from './stage.config.store.js';
 import { StageDispatcher } from './stage.dispatcher.js';
 import { StagesService } from './stages.service.js';
 import { ImplementingResultSchema, ReviewResultSchema, ScopeCheckResultSchema, StageResultSchemaMap } from './stage.result.js';
@@ -39,7 +44,22 @@ export const StagesModule: ServerKitModule = {
                 return map;
             })
             .asSingleton();
+        // Stage config is a `runner.stage_configs` row, read through this token everywhere
+        // `loadStages(boardRoot)` used to read the file — see `StageConfigStore`'s own doc comment.
+        registry.register(StageConfigStore).useClass(PostgresStageConfigStore).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
         registry.register(StagesService).useClass(StagesService).asTransient();
+    },
+    /**
+     * Carry each registered project's `config/stages.yaml` into `runner.stage_configs` if it has no
+     * row yet — see `seedStageConfigFromBoardRepo`. After `Board` has registered every project's
+     * paths (module order in `modules.ts`) and before `Jobs` starts dispatching against the config.
+     */
+    start: async (container: Container) => {
+        const store = container.get(StageConfigStore);
+        const logger = container.get(Logger);
+        for (const row of await container.get(ProjectRepository).list()) {
+            await runAsProject(row.name, () => seedStageConfigFromBoardRepo(store, row, logger));
+        }
     },
 };

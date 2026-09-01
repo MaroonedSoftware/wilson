@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -57,7 +58,6 @@ describe('StageDispatcher records installWaitedMs on a genuinely contended setup
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-install-wait-'));
         const boardRoot = join(base, 'board');
         await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
 
         const startedPath = join(base, 'started');
         const releasePath = join(base, 'release');
@@ -84,7 +84,6 @@ stages:
     onFail: testing
     setupCommand: node ${scriptPath}
 `;
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const config = new StaticBoardConfig(uniqueProject(), boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
@@ -145,6 +144,7 @@ stages:
 
         const dispatcher = new StageDispatcher(
             config,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

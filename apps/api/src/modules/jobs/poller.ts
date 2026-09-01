@@ -8,7 +8,8 @@ import { nextCard } from '#modules/board/next.card.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { loadStages, findStage, type ProjectStages } from '#modules/stages/stage.config.js';
+import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { whyNotDispatchable } from './dispatchable.js';
@@ -82,7 +83,7 @@ import { CardJobs } from './card.jobs.js';
 // comment explains), and TypeScript's `emitDecoratorMetadata` cannot represent a union in
 // `design:paramtypes`; it would degrade to `Object`, which injectkit cannot resolve against a
 // registered class token. Explicit `deps` (injectkit's "Option A") sidesteps that entirely.
-@Injectable({ deps: [BoardRepository, BoardConfig, JobBroker, CardJobs, Logger, SettingsStore, EventLog, ProjectRepository] })
+@Injectable({ deps: [BoardRepository, BoardConfig, StageConfigStore, JobBroker, CardJobs, Logger, SettingsStore, EventLog, ProjectRepository] })
 export class Poller {
     private abort: AbortController | undefined;
     private loopPromise: Promise<void> | undefined;
@@ -90,6 +91,7 @@ export class Poller {
     constructor(
         private readonly board: BoardRepository,
         private readonly boardConfig: BoardConfig,
+        private readonly stageConfigs: StageConfigStore,
         private readonly broker: JobBroker,
         private readonly cardJobs: CardJobs,
         private readonly logger: Logger,
@@ -204,7 +206,7 @@ export class Poller {
             const { candidates } = nextCard(cards);
             if (candidates.length === 0) return;
 
-            const stages = await loadStages(this.boardConfig.boardRoot);
+            const stages = await this.stageConfigs.load();
 
             // Bounds the walk so a board with nothing dispatchable — every remaining candidate sitting
             // in a manual stage — cannot turn into a scan of the whole backlog every `POLLER_INTERVAL_MS`,

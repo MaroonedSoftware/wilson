@@ -1,4 +1,3 @@
-import { loadStages } from '#modules/stages/stage.config.js';
 import { recordDeferral } from '../dispatch.deferred.js';
 import type { PreDispatchCheck } from './predispatch.check.js';
 
@@ -13,7 +12,7 @@ import type { PreDispatchCheck } from './predispatch.check.js';
  * `card.stage` job (see the note on `whyNotDispatchable` in `dispatchable.ts`, which is the
  * CLI/poller-facing half of this same question).
  *
- * Best-effort, the same as `checkDaemonCurrent`: `boardRepo.read`, `loadStages` or
+ * Best-effort, the same as `checkDaemonCurrent`: `boardRepo.read`, `stageConfigs.load` or
  * `boardRepo.scopeConflict` failing is treated the same as "no conflict found" rather than thrown —
  * see `PreDispatchCheck` for why every check in this directory works that way. Also skipped entirely
  * when the card has already moved off `stageName` — a stale dispatch is `stage.stale`'s problem, not
@@ -23,7 +22,7 @@ export const deferOnScopeConflict: PreDispatchCheck = async (deps, cardId, stage
     const card = await deps.boardRepo.read(cardId).catch(() => undefined);
     if (!card || card.frontmatter.stage !== stageName) return false;
 
-    const stages = await loadStages(deps.board.boardRoot).catch(() => undefined);
+    const stages = await deps.stageConfigs.load().catch(() => undefined);
     if (!stages) return false;
 
     const conflict = await deps.boardRepo.scopeConflict(deps.events, deps.board.project, card, stages).catch(() => undefined);

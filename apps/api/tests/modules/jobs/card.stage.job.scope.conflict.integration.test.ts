@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -8,8 +8,9 @@ import type { Kysely } from 'kysely';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
+import { PostgresStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { testDb, uniqueProject } from '#tests/support/test.db.js';
+import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
@@ -22,8 +23,8 @@ import type { DB } from '#modules/data/db.js';
  * `boardRepo.scopeConflict` directly, and every test of `BoardRepository.scopeConflict`
  * (postgres.board.repository.test.ts) calls it directly, never through a dispatch. Neither proves
  * the two are actually wired together correctly — the argument order `CardStageJob` passes, the
- * project name, the stage config it loads. This file is the seam: a real `PostgresBoardRepository`
- * and a real `EventLog` against the test database, driven by `CardStageJob.run` exactly as a poller
+ * project name, the stage config it loads. This file is the seam: a real `PostgresBoardRepository`,
+ * a real `PostgresStageConfigStore` and a real `EventLog` against the test database, driven by `CardStageJob.run` exactly as a poller
  * or `wilson card start` enqueue would, with only the dispatcher, broker and card-claim tracker left
  * as stand-ins (what actually runs a stage is not what this card changed).
  */
@@ -90,13 +91,13 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
     }> => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-scope-conflict-integration-'));
         const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const project = uniqueProject();
+        await seedStageConfig(db, project, stagesYaml);
         const board: BoardConfig = new StaticBoardConfig(project, boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = new EventLog(db, silentLogger);
         const boardRepo = new PostgresBoardRepository(board, db, events);
+        const stageConfigs = new PostgresStageConfigStore(board, db);
 
         const dispatcher = { run: vi.fn(async () => outcome()) };
         const broker = { send: vi.fn(async () => 'job-1') };
@@ -109,6 +110,7 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
             boardRepo,
             events,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
 
         return { job, project, events, boardRepo, dispatcher };

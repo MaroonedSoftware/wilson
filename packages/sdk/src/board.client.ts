@@ -352,11 +352,10 @@ export class BoardClient {
 
     /**
      * @name Initialise board
-     * @description Scaffolds `BoardConfig.boardRoot`: cards/, config/, context/, a stages.yaml an operator can start a
-     * card against immediately, and a git repo to commit it into. The API has to be running, with
-     * PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
-     * that circularity is real, and the 409 below is what makes it legible instead of a connection
-     * refused with no explanation.
+     * @description Gives the project a stage config an operator can start a card against immediately — a
+     * `runner.stage_configs` row holding the default document. This used to scaffold the sibling board
+     * repo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config
+     * included, so the row is all there is to initialise, and no path is involved.
      */
     async initialiseBoard(): Promise<BoardColumns> {
         const result = await this.fetch(`/api/board/init`, { method: 'POST' });

@@ -1,6 +1,7 @@
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { CardJobs } from '../card.jobs.js';
 
 /** What a pre-dispatch check is allowed to reach. The job's own dependencies, minus the dispatcher. */
@@ -9,6 +10,7 @@ export interface PreDispatchDeps {
     boardRepo: BoardRepository;
     events: EventLog;
     cardJobs: CardJobs;
+    stageConfigs: StageConfigStore;
 }
 
 /**

@@ -92,8 +92,9 @@ export const BoardModule: ServerKitModule = {
         boardConfig.notifyBaseUrl = optionalConfigString(config, 'NOTIFY_BASE_URL');
         registry.register(BoardConfig).useInstance(boardConfig);
 
-        // The board lives in Postgres. `boardRoot` is still resolved above because stage config is
-        // still a file (`config/stages.yaml`) and `loadStages` reads it from there.
+        // The board lives in Postgres, stage config included (`StagesModule`). `boardRoot` is still
+        // resolved above only so `seedStageConfigFromBoardRepo` can carry an existing `stages.yaml`
+        // over once, and so the legacy importer can still find `cards/*.md`.
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
         registry.register(BoardImporter).useClass(BoardImporter).asTransient();
         registry.register(BoardBootstrapService).useClass(BoardBootstrapService).asTransient();

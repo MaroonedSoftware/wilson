@@ -12,6 +12,7 @@ import { PlanService } from '#modules/plan/plan.service.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { PLAN_SECTIONS, type Card } from '#modules/board/card.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -110,38 +111,37 @@ const EMPTY_SCOPE_BODY = FULL_BODY.replace('- src/thing.ts', '<!-- none yet -->'
 let db: Kysely<DB>;
 let boardRoot: string;
 
+/** The stage config every `freshEnv` reads — a store, not a `stages.yaml` under `boardRoot`. */
+const stageConfigs = new StaticStageConfigStore(
+    [
+        'stages:',
+        '  - name: planning',
+        '    mode: manual',
+        '    model: claude-opus-planning',
+        "    instructions: 'Write a plan for this card, covering the six standard headings.'",
+        '    onPass: implementing',
+        '    onFail: planning',
+        '  - name: implementing',
+        '    mode: agent',
+        '    model: claude-opus',
+        '    instructions: build it',
+        '    onPass: testing',
+        '    onFail: implementing',
+        '  - name: testing',
+        '    mode: agent',
+        '    model: claude-opus',
+        '    instructions: test it',
+        '    onPass: merged',
+        '    onFail: implementing',
+        '',
+    ].join('\n'),
+);
+
 beforeAll(async () => {
     db = testDb();
 
     const base = await mkdtemp(join(tmpdir(), 'plan-service-'));
     boardRoot = join(base, 'board');
-    await mkdir(join(boardRoot, 'config'), { recursive: true });
-    await writeFile(
-        join(boardRoot, 'config', 'stages.yaml'),
-        [
-            'stages:',
-            '  - name: planning',
-            '    mode: manual',
-            '    model: claude-opus-planning',
-            "    instructions: 'Write a plan for this card, covering the six standard headings.'",
-            '    onPass: implementing',
-            '    onFail: planning',
-            '  - name: implementing',
-            '    mode: agent',
-            '    model: claude-opus',
-            '    instructions: build it',
-            '    onPass: testing',
-            '    onFail: implementing',
-            '  - name: testing',
-            '    mode: agent',
-            '    model: claude-opus',
-            '    instructions: test it',
-            '    onPass: merged',
-            '    onFail: implementing',
-            '',
-        ].join('\n'),
-        'utf8',
-    );
 });
 
 afterAll(async () => {
@@ -173,7 +173,7 @@ const freshEnv = async () => {
     const config = new StaticBoardConfig(uniqueProject(), boardRoot, codeRoot, worktreeRoot, runRoot);
     const board = new PostgresBoardRepository(config, db, fakeEvents);
     const worktrees = new WorktreeManager(config, silentLogger);
-    const service = new PlanService(board, config, worktrees, db);
+    const service = new PlanService(board, config, worktrees, db, stageConfigs);
 
     return { config, board, worktrees, service, codeRoot, worktreeRoot, runRoot };
 };
@@ -746,13 +746,13 @@ describe('PlanService', () => {
          * `planSessions.session` miss, and hands the result to `PlanSessionAgent` as `configDir`.
          * The default `freshEnv()` service (used by every other test in this file) is constructed
          * with no `settings` at all, which resolves to `undefined` — this test constructs its own
-         * `PlanService` with a real fifth argument to prove the resolved value actually reaches the
+         * `PlanService` with a real sixth argument to prove the resolved value actually reaches the
          * new engine session, not just that the plumbing compiles.
          */
         it('resolves the claude-config-dir setting on a session miss and passes it to the new PlanSessionAgent', async () => {
             const { board, config, worktrees } = await freshEnv();
             const settings = { get: vi.fn(async () => '/home/operator/.claude-wilson') } as unknown as SettingsStore;
-            const service = new PlanService(board, config, worktrees, db, settings);
+            const service = new PlanService(board, config, worktrees, db, stageConfigs, settings);
             const id = randomUUID();
             try {
                 await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');

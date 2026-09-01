@@ -9,7 +9,8 @@ import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
 import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
-import { findStage, loadStages, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, type StageConfig } from '#modules/stages/stage.config.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
@@ -75,6 +76,7 @@ export class PlanService {
         private readonly boardConfig: BoardConfig,
         private readonly worktrees: WorktreeManager,
         private readonly db: Kysely<DB>,
+        private readonly stageConfigs: StageConfigStore,
         private readonly settings?: SettingsStore,
     ) {
         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
@@ -333,8 +335,8 @@ export class PlanService {
      * actually writes, `draftPath`, lives outside that worktree entirely.
      */
     private async cutSession(id: string, card: Card): Promise<PlanSession> {
-        // Config, not a string here: the stage's model and its planning instructions live in
-        // stages.yaml like every other stage's do.
+        // Config, not a string here: the stage's model and its planning instructions live in the
+        // stage config like every other stage's do.
         const stage = await this.loadPlanningStage();
 
         // Seeded beside where a running stage's plan.md lands, per `materializePlan` — this is that
@@ -388,9 +390,9 @@ export class PlanService {
     }
 
     /** The `planning` stage's own config — shared by `cutSession` and `existingSession` so neither
-     * inlines its own `loadStages`/`findStage` call. */
+     * inlines its own `stageConfigs.load`/`findStage` call. */
     private async loadPlanningStage(): Promise<StageConfig> {
-        const stages = await loadStages(this.boardConfig.boardRoot);
+        const stages = await this.stageConfigs.load();
         return findStage(stages, 'planning');
     }
 }

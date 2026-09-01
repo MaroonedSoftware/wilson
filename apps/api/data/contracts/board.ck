@@ -16,9 +16,10 @@ options {
 # — needs a real answer to "who is allowed to do this", and this comment is the marker to come back
 # and add it.
 
-# The board's columns. They live in `config/stages.yaml` on the board repo, which a browser cannot
-# read — and a board that hard-codes its columns lies the first time a stage is added, which is
-# cheap to do precisely because stages are config.
+# The board's columns. They come from the project's stage config (a `runner.stage_configs` row,
+# `StageConfigStore`), which a browser has no business reading whole — and a board that hard-codes
+# its columns lies the first time a stage is added, which is cheap to do precisely because stages
+# are config.
 contract BoardColumns: {
     stages: array(string)      # configured stages, in the order they run
     nonStages: array(string)   # parking-lot and the terminal states
@@ -855,23 +856,22 @@ operation /api/stages: {
     }
 }
 
-# Scaffolds `BoardConfig.boardRoot`: cards/, config/, context/, a stages.yaml an operator can start a
-# card against immediately, and a git repo to commit it into. The API has to be running, with
-# PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
-# that circularity is real, and the 409 below is what makes it legible instead of a connection
-# refused with no explanation.
+# Gives the project a stage config an operator can start a card against immediately — a
+# `runner.stage_configs` row holding the default document. This used to scaffold the sibling board
+# repo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config
+# included, so the row is all there is to initialise, and no path is involved.
 operation /api/board/init: {
     post: {
         name: Initialise board
         service: BoardBootstrapService.init
         response: {
-            # The scaffolded stages, returned as proof the config just written is one `loadStages`
-            # actually accepts — not merely yaml that parses (card 0060).
+            # The scaffolded stages, returned as proof the config just written is one
+            # `StageConfigStore.load` actually accepts — not merely yaml that parses (card 0060).
             201: {
                 application/json: BoardColumns
             }
-            # A `stages.yaml` already exists at boardRoot. init scaffolds; it does not reset, so
-            # this writes nothing.
+            # The project already has a stage config. init scaffolds; it does not reset, so this
+            # writes nothing — `wilson stages edit` is how a config changes.
             409:
         }
     }

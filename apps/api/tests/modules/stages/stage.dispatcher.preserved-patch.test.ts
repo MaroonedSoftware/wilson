@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -72,8 +73,6 @@ describe('StageDispatcher.run grants read access to every board card\'s preserve
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-preserved-patch-'));
         const boardRoot = join(base, 'board');
         await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         const worktreeDir = join(base, 'worktree');
         await mkdir(worktreeDir, { recursive: true });
@@ -133,6 +132,7 @@ describe('StageDispatcher.run grants read access to every board card\'s preserve
 
         return new StageDispatcher(
             config,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

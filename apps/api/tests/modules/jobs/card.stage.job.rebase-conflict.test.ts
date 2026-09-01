@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -64,10 +65,7 @@ describe('CardStageJob routes RebaseConflictError to a flag, not a retry (card 0
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string, card: Card = baseCard) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-rebase-conflict-'));
         const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(
-            join(boardRoot, 'config', 'stages.yaml'),
-            `
+        const stageConfigs = new StaticStageConfigStore(`
 stages:
   - name: testing
     mode: agent
@@ -75,9 +73,7 @@ stages:
     instructions: test it
     onPass: review
     onFail: implementing
-`,
-            'utf8',
-        );
+`);
 
         const config = new StaticBoardConfig(
             uniqueProject(),
@@ -104,6 +100,7 @@ stages:
             board as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
         );
 
         return { job, board, config };

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -73,8 +74,6 @@ describe('StageDispatcher.run wires collateralPaths into the ScopeGuard it hands
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-collateral-'));
         boardRoot = join(base, 'board');
         await mkdir(join(boardRoot, 'cards'), { recursive: true });
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         worktreeDir = join(base, 'worktree');
         await mkdir(worktreeDir, { recursive: true });
@@ -134,6 +133,7 @@ describe('StageDispatcher.run wires collateralPaths into the ScopeGuard it hands
 
         return new StageDispatcher(
             config,
+            new StaticStageConfigStore(stagesYaml),
             board,
             worktrees as unknown as WorktreeManager,
             agents,

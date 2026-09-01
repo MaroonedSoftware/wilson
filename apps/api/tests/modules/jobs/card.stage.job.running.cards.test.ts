@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { RunningCards, type RunningCard } from '#modules/jobs/running.cards.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
@@ -35,6 +36,8 @@ stages:
     onFail: implementing
 `;
 
+const stageConfigs = new StaticStageConfigStore(stagesYaml);
+
 const outcome = (overrides: Partial<StageOutcome> = {}): StageOutcome => ({
     passed: true,
     failures: [],
@@ -63,8 +66,6 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-running-'));
         const boardRoot = join(base, 'board');
-        await mkdir(join(boardRoot, 'config'), { recursive: true });
-        await writeFile(join(boardRoot, 'config', 'stages.yaml'), stagesYaml, 'utf8');
 
         board = new StaticBoardConfig('test', boardRoot, join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
@@ -86,6 +87,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
             boardRepo as unknown as BoardRepository,
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
+            stageConfigs,
             running,
         );
 

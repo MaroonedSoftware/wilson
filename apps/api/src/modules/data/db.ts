@@ -159,6 +159,21 @@ export interface Leases {
     acquiredAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A project's stage config — the document that used to be `config/stages.yaml` in the board repo.
+ * Append-only; the newest row per project is its current config, and the rest are its history (what
+ * `git log` on the file used to be). `StageConfigStore` (modules/stages) reads and writes it.
+ */
+export interface StageConfigs {
+    id: Generated<string>;
+    project: string;
+    /** The document verbatim, comments included; validated by `parseStages` on every read and write. */
+    yaml: string;
+    /** What the git commit message on `stages.yaml` used to be. */
+    message: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -170,4 +185,5 @@ export interface DB {
     'runner.planComments': PlanComments;
     'runner.projects': Projects;
     'runner.leases': Leases;
+    'runner.stageConfigs': StageConfigs;
 }
