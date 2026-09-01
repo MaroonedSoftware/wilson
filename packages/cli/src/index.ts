@@ -11,7 +11,6 @@ import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
 // no `config`/`modules` wiring and this file has no `@wilson/api` import left — `ctx.config` comes
 // from johnny5's own default (`buildContext`'s default `envFiles` already includes `apps/api/.env`).
 import boardInitCommand from './commands/board/init.command.js';
-import boardImportCommand from './commands/board/import.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
@@ -55,7 +54,6 @@ const app = await createCliApp({
     version: '0.0.1',
     commands: [
         reg(['board', 'init'], boardInitCommand),
-        reg(['board', 'import'], boardImportCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),
         reg(['card', 'approve'], cardApproveCommand),

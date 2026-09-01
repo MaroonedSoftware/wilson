@@ -1,65 +1,17 @@
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
-
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
-export class CardParseError extends Error {}
+import { stringify as stringifyYaml } from 'yaml';
+import type { Card } from './card.js';
 
 /**
- * Parse a card file.
+ * Serialize a card as a markdown document with YAML frontmatter.
  *
- * Throws rather than repairing. A card the parser cannot read is a card the runner must not act on:
- * silently defaulting a missing `stage` would dispatch the wrong work, and silently defaulting
- * `dependsOn` would dispatch work that should have been blocked.
- */
-export const parseCard = (raw: string): Card => {
-    const match = FRONTMATTER.exec(raw);
-    if (!match?.[1]) {
-        throw new CardParseError('card file has no YAML frontmatter block');
-    }
-
-    let parsed: unknown;
-    try {
-        parsed = parseYaml(match[1]);
-    } catch (err) {
-        throw new CardParseError(`card frontmatter is not valid YAML: ${(err as Error).message}`);
-    }
-    if (typeof parsed !== 'object' || parsed === null) {
-        throw new CardParseError('card frontmatter must be a YAML mapping');
-    }
-
-    const fm = parsed as Record<string, unknown>;
-    for (const key of ['id', 'title', 'stage'] as const) {
-        if (typeof fm[key] !== 'string' || (fm[key] as string).length === 0) {
-            throw new CardParseError(`card frontmatter is missing required string field: ${key}`);
-        }
-    }
-
-    const frontmatter: CardFrontmatter = {
-        id: fm.id as string,
-        title: fm.title as string,
-        stage: fm.stage as string,
-        branch: typeof fm.branch === 'string' ? fm.branch : undefined,
-        dependsOn: Array.isArray(fm.dependsOn) ? fm.dependsOn.map(String) : [],
-        retries: isRecordOfNumbers(fm.retries) ? fm.retries : {},
-        // `planSha` is the legacy on-disk key; in memory it is a version id.
-        planVersionId: typeof fm.planSha === 'string' ? fm.planSha : undefined,
-        external: isRecordOfStrings(fm.external) ? fm.external : undefined,
-        sourceClosed: typeof fm.sourceClosed === 'boolean' ? fm.sourceClosed : undefined,
-        needsHuman: typeof fm.needsHuman === 'boolean' ? fm.needsHuman : undefined,
-        needsHumanReason: typeof fm.needsHumanReason === 'string' ? fm.needsHumanReason : undefined,
-    };
-
-    const body = raw.slice(match[0].length);
-    return { frontmatter, sections: sectionsOf(body), body };
-};
-
-/**
- * Serialize a card back to a file.
+ * This was the on-disk format when the board was a directory of files; the board is Postgres now
+ * and nothing parses this format any more. What still needs it is the agent: `materializePlan`
+ * (stage.dispatcher.ts) writes the card this way to `runRoot` so a stage reads title, stage,
+ * dependencies and body together as one plan file (PROJECT.md decision 4).
  *
- * The body is written back verbatim, never re-rendered from `sections`. A transition changes
- * frontmatter only, and rewriting prose the human (or the planning agent) wrote — reflowing it,
- * normalising its lists — would make every state change show up as a content diff.
+ * The body is written verbatim, never re-rendered from `sections`: reflowing prose the human (or
+ * the planning agent) wrote would make the plan the agent reads differ from the one the human
+ * approved.
  */
 export const serializeCard = (card: Card): string => {
     const fm: Record<string, unknown> = {
@@ -70,6 +22,7 @@ export const serializeCard = (card: Card): string => {
     if (card.frontmatter.branch) fm.branch = card.frontmatter.branch;
     fm.dependsOn = card.frontmatter.dependsOn;
     fm.retries = card.frontmatter.retries;
+    // `planSha` is the historical key: it named a board-repo commit, and now names a version id.
     if (card.frontmatter.planVersionId) fm.planSha = card.frontmatter.planVersionId;
     if (card.frontmatter.external) fm.external = card.frontmatter.external;
     if (card.frontmatter.sourceClosed !== undefined) fm.sourceClosed = card.frontmatter.sourceClosed;
@@ -78,9 +31,3 @@ export const serializeCard = (card: Card): string => {
 
     return `---\n${stringifyYaml(fm).trimEnd()}\n---\n${card.body}`;
 };
-
-const isRecordOfNumbers = (value: unknown): value is Record<string, number> =>
-    typeof value === 'object' && value !== null && Object.values(value).every(v => typeof v === 'number');
-
-const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
-    typeof value === 'object' && value !== null && Object.values(value).every(v => typeof v === 'string');

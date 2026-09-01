@@ -1,19 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseCard, serializeCard, CardParseError } from '#modules/board/card.parser.js';
-import { filesInScope } from '#modules/board/card.js';
+import { parse as parseYaml } from 'yaml';
+import { serializeCard } from '#modules/board/card.parser.js';
+import { sectionsOf, type Card } from '#modules/board/card.js';
 
-const CARD = `---
-id: '0042'
-title: Port allocator
-stage: implementing
-branch: card/0042-port-allocator
-dependsOn:
-    - '0039'
-retries:
-    review: 1
-planSha: 8f2c1ab
----
-
+const BODY = `
 ## Goal
 
 Allocate a unique port per worktree.
@@ -28,114 +18,75 @@ Allocate a unique port per worktree.
 Anything to do with the queue.
 `;
 
-describe('parseCard', () => {
-    it('reads the frontmatter', () => {
-        const card = parseCard(CARD);
-        expect(card.frontmatter).toMatchObject({
+const card = (frontmatter: Partial<Card['frontmatter']> = {}, body = BODY): Card => ({
+    frontmatter: { id: '0042', title: 'Port allocator', stage: 'implementing', dependsOn: [], retries: {}, ...frontmatter },
+    sections: sectionsOf(body),
+    body,
+});
+
+/** Split a serialized card back into its frontmatter mapping and its body, for assertions. */
+const split = (raw: string): { frontmatter: Record<string, unknown>; body: string } => {
+    const match = /^---\n([\s\S]*?)\n---\n/.exec(raw);
+    if (!match) throw new Error('no frontmatter block');
+    return { frontmatter: parseYaml(match[1]!) as Record<string, unknown>, body: raw.slice(match[0].length) };
+};
+
+/**
+ * `serializeCard` is what the agent reads: `materializePlan` writes the pinned card this way for a
+ * stage. Nothing parses the format back any more (the board is Postgres), so what matters is that
+ * the frontmatter names the runner state a stage's agent is told about and the body is the human's
+ * text untouched.
+ */
+describe('serializeCard', () => {
+    it('writes the frontmatter as YAML and the body verbatim after it', () => {
+        const serialized = serializeCard(
+            card({ branch: 'card/0042-port-allocator', dependsOn: ['0039'], retries: { review: 1 }, planVersionId: '17' }),
+        );
+
+        const { frontmatter, body } = split(serialized);
+        expect(frontmatter).toEqual({
             id: '0042',
             title: 'Port allocator',
             stage: 'implementing',
             branch: 'card/0042-port-allocator',
             dependsOn: ['0039'],
             retries: { review: 1 },
-            planVersionId: '8f2c1ab',
+            planSha: '17',
         });
-    });
-
-    it('splits the body on the plan-contract headings', () => {
-        const card = parseCard(CARD);
-        expect(card.sections['Goal']).toBe('Allocate a unique port per worktree.');
-        expect(card.sections['Out of scope']).toBe('Anything to do with the queue.');
-    });
-
-    it('defaults the optional state fields rather than leaving them undefined', () => {
-        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n');
-        expect(card.frontmatter.dependsOn).toEqual([]);
-        expect(card.frontmatter.retries).toEqual({});
-    });
-
-    it('reads needsHuman and its reason when present', () => {
-        const card = parseCard(
-            '---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: true\nneedsHumanReason: waiting on a design decision\n---\n\n## Goal\n\nx\n',
-        );
-        expect(card.frontmatter.needsHuman).toBe(true);
-        expect(card.frontmatter.needsHumanReason).toBe('waiting on a design decision');
-    });
-
-    it('leaves needsHuman and its reason undefined when the card has neither, rather than defaulting them', () => {
-        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n');
-        expect(card.frontmatter.needsHuman).toBeUndefined();
-        expect(card.frontmatter.needsHumanReason).toBeUndefined();
-    });
-
-    it('ignores needsHuman and its reason when they are the wrong type, rather than trusting them', () => {
-        // Same idiom as sourceClosed: a malformed value becomes undefined, not a thrown error and
-        // not a coerced true/false — a card the runner cannot trust should not silently route.
-        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: "yes"\nneedsHumanReason: 42\n---\n\n## Goal\n\nx\n');
-        expect(card.frontmatter.needsHuman).toBeUndefined();
-        expect(card.frontmatter.needsHumanReason).toBeUndefined();
-    });
-
-    it.each([
-        ['no frontmatter', '## Goal\n\nx\n'],
-        ['a missing stage', '---\nid: "1"\ntitle: t\n---\n\n## Goal\n'],
-        ['a missing id', '---\ntitle: t\nstage: planning\n---\n'],
-        ['frontmatter that is not a mapping', '---\n- a\n- b\n---\n'],
-    ])('throws on %s rather than repairing it', (_label, raw) => {
-        // A card the parser cannot read is a card the runner must not act on: a defaulted `stage`
-        // dispatches the wrong work, a defaulted `dependsOn` dispatches blocked work.
-        expect(() => parseCard(raw)).toThrow(CardParseError);
-    });
-});
-
-describe('filesInScope', () => {
-    it('strips bullets and backticks', () => {
-        expect(filesInScope(parseCard(CARD))).toEqual(['src/runner/**', 'src/config/ports.ts']);
-    });
-
-    it('is empty when the section is absent', () => {
-        expect(filesInScope(parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n'))).toEqual([]);
-    });
-});
-
-describe('serializeCard', () => {
-    it('round-trips without changing the body', () => {
-        const card = parseCard(CARD);
-        expect(parseCard(serializeCard(card)).body).toBe(card.body);
+        expect(body).toBe(BODY);
     });
 
     it('preserves prose verbatim when only state changes', () => {
-        const card = parseCard(CARD);
-        const moved = { ...card, frontmatter: { ...card.frontmatter, stage: 'testing' } };
-        const reparsed = parseCard(serializeCard(moved));
+        const before = serializeCard(card());
+        const after = serializeCard(card({ stage: 'testing' }));
+
         // A transition must not show up as a content diff — the body is written back, never
         // re-rendered from the parsed sections.
-        expect(reparsed.body).toBe(card.body);
-        expect(reparsed.frontmatter.stage).toBe('testing');
+        expect(split(after).body).toBe(split(before).body);
+        expect(split(after).frontmatter.stage).toBe('testing');
     });
 
     it('omits optional fields that are unset', () => {
-        const card = parseCard('---\nid: "1"\ntitle: t\nstage: planning\n---\n\n## Goal\n\nx\n');
-        expect(serializeCard(card)).not.toContain('planSha');
-        expect(serializeCard(card)).not.toContain('branch');
-        expect(serializeCard(card)).not.toContain('needsHuman');
-    });
+        const serialized = serializeCard(card());
 
-    it('keeps a card with no flag deep-equal after a round trip, with no needsHuman key written', () => {
-        const card = parseCard(CARD);
-        const serialized = serializeCard(card);
+        expect(serialized).not.toContain('planSha');
+        expect(serialized).not.toContain('branch');
         expect(serialized).not.toContain('needsHuman');
-        expect(parseCard(serialized).frontmatter).toEqual(card.frontmatter);
+        expect(serialized).not.toContain('external');
+        expect(serialized).not.toContain('sourceClosed');
     });
 
-    it('round-trips needsHuman and its reason', () => {
-        const raw = '---\nid: "1"\ntitle: t\nstage: planning\nneedsHuman: true\nneedsHumanReason: blocked on legal\n---\n\n## Goal\n\nx\n';
-        const card = parseCard(raw);
+    it('writes needsHuman and its reason when the card carries them', () => {
+        const { frontmatter } = split(serializeCard(card({ needsHuman: true, needsHumanReason: 'blocked on legal' })));
 
-        const reparsed = parseCard(serializeCard(card));
+        expect(frontmatter.needsHuman).toBe(true);
+        expect(frontmatter.needsHumanReason).toBe('blocked on legal');
+    });
 
-        expect(reparsed.frontmatter).toEqual(card.frontmatter);
-        expect(reparsed.frontmatter.needsHuman).toBe(true);
-        expect(reparsed.frontmatter.needsHumanReason).toBe('blocked on legal');
+    it('writes external refs and sourceClosed when set, including an explicit false', () => {
+        const { frontmatter } = split(serializeCard(card({ external: { linear: 'ENG-123' }, sourceClosed: false })));
+
+        expect(frontmatter.external).toEqual({ linear: 'ENG-123' });
+        expect(frontmatter.sourceClosed).toBe(false);
     });
 });

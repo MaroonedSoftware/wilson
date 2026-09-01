@@ -10,7 +10,6 @@ import { BoardConfig, ProjectScopedBoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { PostgresBoardRepository } from './postgres.board.repository.js';
 import { ProjectRepository, type ProjectRow } from './project.repository.js';
-import { BoardImporter } from './board.importer.js';
 import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
 import { BoardWriteService } from './board.write.service.js';
@@ -94,9 +93,8 @@ export const BoardModule: ServerKitModule = {
 
         // The board lives in Postgres, stage config included (`StagesModule`). `boardRoot` is still
         // resolved above only so `seedStageConfigFromBoardRepo` can carry an existing `stages.yaml`
-        // over once, and so the legacy importer can still find `cards/*.md`.
+        // over once.
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
-        registry.register(BoardImporter).useClass(BoardImporter).asTransient();
         registry.register(BoardBootstrapService).useClass(BoardBootstrapService).asTransient();
         registry.register(BoardService).useClass(BoardService).asTransient();
         registry.register(BoardWriteService).useClass(BoardWriteService).asTransient();

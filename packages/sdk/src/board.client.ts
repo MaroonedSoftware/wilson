@@ -9,8 +9,6 @@ import type {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
-    ImportBoardRequest,
-    ImportReport,
     ListQuery,
     MergeResult,
     MoveCardRequest,
@@ -360,20 +358,5 @@ export class BoardClient {
     async initialiseBoard(): Promise<BoardColumns> {
         const result = await this.fetch(`/api/board/init`, { method: 'POST' });
         return await parseJson<BoardColumns>(result);
-    }
-
-    /**
-     * @name Import legacy board
-     * @description One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
-     * already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
-     * from the CLI.
-     */
-    async importLegacyBoard(body: ImportBoardRequest): Promise<ImportReport> {
-        const result = await this.fetch(`/api/board/import`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body, bigIntReplacer),
-        });
-        return await parseJson<ImportReport>(result);
     }
 }

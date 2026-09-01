@@ -166,25 +166,6 @@ contract ListQuery: {
     limit?: int
 }
 
-# Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
-# `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
-# here is not a remote write-anywhere-on-disk primitive (card 0076).
-contract ImportBoardRequest: {
-    # Report what would happen without writing anything — the one affordance that makes a one-shot,
-    # irreversible import safe to attempt. Absent (the default) writes.
-    dryRun?: boolean
-}
-
-contract ImportReport: {
-    cards: int
-    dependencies: int
-    # Ids whose legacy `planSha` could not map to a version in the imported history, and were
-    # re-pinned to the version this import created instead.
-    unpinned: array(string)
-    # True for a dry run: nothing above was written, this is a preview.
-    skipped: boolean
-}
-
 # Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
 # conversation itself, which needs the operator's own terminal — and the half that does not: cutting
 # the throwaway worktree, loading the `planning` stage's model and instructions, validating the
@@ -873,27 +854,6 @@ operation /api/board/init: {
             # The project already has a stage config. init scaffolds; it does not reset, so this
             # writes nothing — `wilson stages edit` is how a config changes.
             409:
-        }
-    }
-}
-
-# One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
-# already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
-# from the CLI.
-operation /api/board/import: {
-    post: {
-        name: Import legacy board
-        service: BoardBootstrapService.import
-        request: {
-            application/json: ImportBoardRequest
-        }
-        response: {
-            200: {
-                application/json: ImportReport
-            }
-            # No cards under boardRoot/cards, dangling dependencies in the legacy board, or a board
-            # that already has cards — carried via `details` as the card mutations above do.
-            400:
         }
     }
 }

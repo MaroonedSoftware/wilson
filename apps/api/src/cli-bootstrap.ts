@@ -27,8 +27,6 @@ export { JobBroker, JobRunner } from '@maroonedsoftware/jobbroker';
 export { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 export { BoardRepository } from '#modules/board/board.repository.js';
 export { BoardConfig } from '#modules/board/board.config.js';
-export { BoardImporter } from '#modules/board/board.importer.js';
-export type { ImportReport } from '#modules/board/board.importer.js';
 export { EventLog } from '#modules/events/event.log.js';
 export { timeInCurrentStage } from '#modules/events/time.in.stage.js';
 export { parseStages, findStage, validTargets, NON_STAGE_STATES } from '#modules/stages/stage.config.js';
