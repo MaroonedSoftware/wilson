@@ -1,4 +1,4 @@
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
-import { REPORT_RESULT_PATH } from './scope.guard.js';
+import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { deleteFile } from './tools/delete.tool.js';
@@ -391,6 +391,12 @@ export class CliStageAgent extends StageAgent {
                 `only that file, is how the result is delivered. It must satisfy this schema:`,
                 JSON.stringify(z.toJSONSchema(resultSchema as z.ZodTypeAny)),
                 '',
+                `Anything you need to generate and inspect but that should not ship — a report to read,`,
+                `a probe script's output, whatever an acceptance criterion needs produced and checked —`,
+                `goes under ${SCRATCH_PREFIX} in the worktree. That path is writable in every stage,`,
+                `including this one if it is read-only, and everything under it is wiped once the run`,
+                `ends, so nothing written there is ever delivered, committed, or reviewed.`,
+                '',
                 `When the work is done and the build passes, call ${qualifiedReportTool()}; it defaults to`,
                 'that path, so no argument is needed unless you wrote the result somewhere else.',
                 'Work first, report last: that call ends the stage, and a result describing work you did',
@@ -680,8 +686,12 @@ export class CliStageAgent extends StageAgent {
             // file legitimately in scope and none of this adapter's business to delete. Unconditional
             // and swallowed: absent is the common case (the file was never written, or report_result
             // already read it), and this must run whether the stage passed, failed, was truncated, or
-            // aborted, so this file never reaches a diff.
+            // aborted, so this file never reaches a diff. The scratch directory gets the same
+            // treatment, recursively — it may hold anything the stage wrote for its own inspection,
+            // and letting any of it survive would turn SCRATCH_PREFIX into a second, uncontrolled
+            // `alwaysAllowed` entry instead of the throwaway path it is meant to be.
             await unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
+            await rm(join(context.worktreeRoot, SCRATCH_PREFIX), { recursive: true, force: true }).catch(() => {});
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher
@@ -830,7 +840,10 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
             // scope.guard.ts). report_result's contract requires the stage to have written this file
             // before calling the tool, and a readonly or none stage — review chief among them, the
             // stage this card names as least able to afford a lost result — still has to deliver one.
-            if (writable !== 'rw' && decision.path !== REPORT_RESULT_PATH) {
+            // The scratch prefix gets the same bypass for the same reason: `check` already allows it
+            // unconditionally, and gating on `writable` here as well would silently take that back
+            // for exactly the readonly stage — review — this exists to serve.
+            if (writable !== 'rw' && decision.path !== REPORT_RESULT_PATH && !decision.path.startsWith(SCRATCH_PREFIX)) {
                 return deny(`this stage is ${writable}: it may not write`, { tool: toolName });
             }
             if (!decision.allowed) return deny(decision.reason, { path });

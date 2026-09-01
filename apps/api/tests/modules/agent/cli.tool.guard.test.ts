@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createToolGuard } from '#modules/agent/cli.stage.agent.js';
-import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
+import { REPORT_RESULT_PATH, SCRATCH_PREFIX, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
 
@@ -104,6 +104,25 @@ describe('createToolGuard', () => {
         it('extends the same report_result exception to Edit, since WRITE_TOOLS treats it the same as Write', async () => {
             const { guard } = build('readonly');
             await expect(guard('Edit', { file_path: `/tmp/${REPORT_RESULT_PATH}` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+        });
+
+        it('lets a readonly stage write under the scratch prefix too, since review — readonly — is the stage this exists for', async () => {
+            // Card 0181: without this, `review` could generate an acceptance-criterion artifact but
+            // never write it anywhere, since the writable check used to fire before scope was even
+            // consulted — exactly the gap REPORT_RESULT_PATH's own exception above closed for the
+            // report file.
+            const { guard } = build('readonly');
+            await expect(guard('Write', { file_path: `/tmp/${SCRATCH_PREFIX}probe.json` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+        });
+
+        it('extends the scratch exception to Edit as well', async () => {
+            const { guard } = build('readonly');
+            await expect(guard('Edit', { file_path: `/tmp/${SCRATCH_PREFIX}probe.json` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+        });
+
+        it('allows a scratch write on an rw stage even when no scope glob covers it', async () => {
+            const { guard } = build('rw', ['src/runner/**']);
+            await expect(guard('Write', { file_path: `/tmp/${SCRATCH_PREFIX}probe.json` }, opts)).resolves.toMatchObject({ behavior: 'allow' });
         });
     });
 
