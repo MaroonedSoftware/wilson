@@ -123,6 +123,22 @@ describe('the project switcher in the header', () => {
         expect(link.getAttribute('href')).toBe('/projects/demo');
     });
 
+    // Card 0179: this link used to pass `c="inherit"` to work around `--mantine-color-anchor` being
+    // unreadable in the dark scheme — Mantine's `c` style prop lands as an inline `color` style on the
+    // rendered element (`Box`'s `getBoxStyle`), so that workaround was directly observable as
+    // `style="color: inherit"` on the anchor. Now that `theme.ts`'s `cssVariablesResolver` fixes the
+    // token itself, the prop is gone and the link takes its colour from the CSS variable like every
+    // other `Anchor`, with no inline colour override at all.
+    it('no longer forces its colour to inherit — it takes the same token every other Anchor does', async () => {
+        stubProjectsEndpoint(['demo']);
+
+        renderApp('/projects/demo');
+        await screen.findByText('0 cards');
+
+        const link = (await screen.findByLabelText('Go to the board')) as HTMLAnchorElement;
+        expect(link.style.color).toBe('');
+    });
+
     it('lists every registered project once two or more are registered', async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
