@@ -10,7 +10,8 @@
     "scripts": {
         "build": "tsc --noEmit",
         "wilson": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
-        "lint": "eslint --fix"
+        "lint": "eslint --fix",
+        "test": "vitest run"
     },
     "dependencies": {
         "@maroonedsoftware/johnny5": "^8.0.10",
