@@ -15,8 +15,9 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { PARKING_LOT, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
+import { PARKING_LOT, ageInStage, cardState, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
 import { useMoveCard, useRepositionCard } from '#src/lib/mutations.js';
+import { StateIcon } from '#src/components/brand/StateIcon.js';
 
 /**
  * Terminal states and the parking lot read as quieter than the stages a card is moving through.
@@ -43,11 +44,21 @@ export const TONE: Record<string, string> = {
  * `pending` covers the request-in-flight look card 0046 adds: the card is still in its old column
  * (the drag is animation, not state — PROJECT.md, Architecture; card 0037), so without this a slow
  * API reads as nothing having happened.
+ *
+ * Card 0174: a leading `StateIcon` (`cardState`, `lib/board.ts`) gives the tile a state at a
+ * glance, absent entirely for a plain in-flight stage rather than guessing one. A satisfied
+ * dependency gets a dimmed "n deps" marker beside the existing orange "blocked on …" badge —
+ * the two never show together, since a dependency counts as satisfied only once none of
+ * `dependsOn` remain in `blockedBy`. A dimmed relative age line ("3d in stage") renders only when
+ * `stageEnteredAt` is present (`ageInStage`) — omitted otherwise, the same "don't guess" rule.
  */
 function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
+    const state = cardState(card);
+    const satisfiedDeps = card.dependsOn.length > 0 && blockedBy.length === 0;
     return (
         <Paper withBorder p="xs" radius="sm" style={card.needsHuman ? { borderColor: 'var(--mantine-color-red-6)' } : undefined}>
             <Group gap={6} wrap="nowrap" align="baseline">
+                {state && <StateIcon state={state} size={16} />}
                 <Text size="xs" c="dimmed" ff="monospace">
                     {card.id}
                 </Text>
@@ -56,7 +67,7 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
                 </Text>
                 {pending && <Loader size={12} />}
             </Group>
-            {(card.needsHuman || blockedBy.length > 0) && (
+            {(card.needsHuman || blockedBy.length > 0 || satisfiedDeps) && (
                 <Group gap={6} mt={6}>
                     {card.needsHuman && (
                         <Badge size="xs" color="red" variant="light">
@@ -68,7 +79,17 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
                             blocked on {blockedBy.join(', ')}
                         </Badge>
                     )}
+                    {satisfiedDeps && (
+                        <Text size="xs" c="dimmed">
+                            {card.dependsOn.length} deps
+                        </Text>
+                    )}
                 </Group>
+            )}
+            {card.stageEnteredAt && (
+                <Text size="xs" c="dimmed" mt={4}>
+                    {ageInStage(card.stageEnteredAt, new Date())}
+                </Text>
             )}
         </Paper>
     );
@@ -149,6 +170,10 @@ function SortableCard({
  * Only the parking lot's cards sit in a `SortableContext` (card 0047: ordering applies there and
  * nowhere else) — every other column keeps rendering plain, non-sortable `Card`s, so a card outside
  * the parking lot is never itself a drop target and can't be reordered.
+ *
+ * Card 0174: the plain count becomes a subtle badge, joined by a red "n flagged" badge whenever
+ * any card in the column has `needsHuman` — an upgrade of the existing count, not a second one
+ * next to it.
  */
 function Column({
     stage,
@@ -165,9 +190,11 @@ function Column({
 }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
     const isParkingLot = stage === PARKING_LOT;
+    const flaggedCount = cards.filter(card => card.needsHuman).length;
     return (
         <Stack
             ref={setNodeRef}
+            data-testid={`column-${stage}`}
             gap="xs"
             w={260}
             p={4}
@@ -181,9 +208,16 @@ function Column({
                 <Badge color={TONE[stage] ?? 'gray'} variant="light" radius="sm">
                     {stage}
                 </Badge>
-                <Text size="xs" c="dimmed">
-                    {cards.length}
-                </Text>
+                <Group gap={4} wrap="nowrap">
+                    {flaggedCount > 0 && (
+                        <Badge size="xs" color="red" variant="light" radius="sm">
+                            {flaggedCount} flagged
+                        </Badge>
+                    )}
+                    <Badge size="xs" color="gray" variant="light" radius="sm">
+                        {cards.length}
+                    </Badge>
+                </Group>
             </Group>
             <Stack gap={6} mih={24}>
                 {isParkingLot ? (

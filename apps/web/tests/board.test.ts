@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
+import { ageInStage, cardState, columnOrder, groupByStage, stagesById, unfinishedDeps } from '#src/lib/board.js';
 
 const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = false): CardSummary => ({
     id,
@@ -120,5 +120,47 @@ describe('unfinishedDeps', () => {
 
     it('treats a dependency missing from the board as unfinished', () => {
         expect(unfinishedDeps(card('0099', 'implementing', ['9999']), stagesById(board))).toEqual(['9999']);
+    });
+});
+
+describe('cardState', () => {
+    it('maps a flagged card to needs-human, regardless of stage', () => {
+        expect(cardState(card('0001', 'implementing', [], true))).toBe('needs-human');
+    });
+
+    it('overrides a would-be state face with needs-human when the card is also flagged', () => {
+        expect(cardState(card('0001', 'merged', [], true))).toBe('needs-human');
+    });
+
+    it('maps the parking lot to parked', () => {
+        expect(cardState(card('0001', 'parking-lot'))).toBe('parked');
+    });
+
+    it('maps poisoned to poisoned', () => {
+        expect(cardState(card('0001', 'poisoned'))).toBe('poisoned');
+    });
+
+    it('maps merged to passed', () => {
+        expect(cardState(card('0001', 'merged'))).toBe('passed');
+    });
+
+    it('claims no state face for a plain in-flight stage', () => {
+        expect(cardState(card('0001', 'implementing'))).toBeUndefined();
+    });
+});
+
+describe('ageInStage', () => {
+    const now = new Date('2026-01-10T12:00:00.000Z');
+
+    it('renders minutes for under an hour', () => {
+        expect(ageInStage('2026-01-10T11:45:00.000Z', now)).toBe('15m in stage');
+    });
+
+    it('renders hours for under a day', () => {
+        expect(ageInStage('2026-01-10T06:00:00.000Z', now)).toBe('6h in stage');
+    });
+
+    it('renders days at a day or more', () => {
+        expect(ageInStage('2026-01-07T12:00:00.000Z', now)).toBe('3d in stage');
     });
 });

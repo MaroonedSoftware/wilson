@@ -1,4 +1,5 @@
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { CardState } from '#src/components/brand/StateIcon.js';
 
 /** The column cards wait in before anyone promotes them. Not a stage — dispatch excludes it. */
 export const PARKING_LOT = 'parking-lot';
@@ -67,3 +68,38 @@ export const unfinishedDeps = (card: CardSummary, stageById: Map<string, string>
     card.dependsOn.filter(id => stageById.get(id) !== 'merged');
 
 export const stagesById = (cards: CardSummary[]): Map<string, string> => new Map(cards.map(card => [card.id, card.stage]));
+
+/**
+ * Which of `StateIcon`'s six faces a board tile should show for `card`, or `undefined` for a
+ * plain in-flight stage — which gets no face at all rather than a guessed one. Conservative on
+ * purpose (this card's plan, Constraints): only the four claims `CardSummary` can actually prove
+ * appear here. `needsHuman` overrides the stage entirely, so a flagged card reads as needing a
+ * human regardless of what stage it happens to be sitting in. There is deliberately no `running`
+ * face — nothing on the wire says a job is actively working a card right now, and faking that from
+ * stage would claim more than the data supports.
+ */
+export const cardState = (card: CardSummary): CardState | undefined => {
+    if (card.needsHuman) return 'needs-human';
+    if (card.stage === PARKING_LOT) return 'parked';
+    if (card.stage === 'poisoned') return 'poisoned';
+    if (card.stage === 'merged') return 'passed';
+    return undefined;
+};
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * The dimmed "3d in stage" line a board tile shows below its badges — how long `card` has held
+ * its current stage, as of `now` (a parameter rather than a read of the clock, so this stays pure
+ * and testable). Callers render it only when `stageEnteredAt` is present (see `CardBody` in
+ * `Board.tsx`) — omitting the line rather than guessing a duration, matching `stageEnteredAt`'s own
+ * contract (card 0178).
+ */
+export const ageInStage = (stageEnteredAt: string, now: Date): string => {
+    const elapsed = Math.max(0, now.getTime() - new Date(stageEnteredAt).getTime());
+    if (elapsed < HOUR_MS) return `${Math.round(elapsed / MINUTE_MS)}m in stage`;
+    if (elapsed < DAY_MS) return `${Math.round(elapsed / HOUR_MS)}h in stage`;
+    return `${Math.round(elapsed / DAY_MS)}d in stage`;
+};
