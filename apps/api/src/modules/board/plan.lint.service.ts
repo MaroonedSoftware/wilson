@@ -1,3 +1,4 @@
+import picomatch from 'picomatch';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
@@ -6,7 +7,6 @@ import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { filesInScope, type Card } from './card.js';
-import { scopeOverlap } from './scope.overlap.js';
 import type { LintFinding } from '../../generated/board.js';
 
 /**
@@ -104,18 +104,44 @@ const exactPathFindings = (card: Card): LintFinding[] => {
 };
 
 /**
- * Every `Files in scope` entry that overlaps a pattern on the project's `alwaysAllowed` list —
- * machine-owned paths no plan should have to mention. Overlap, not a strict subset test: `scopeOverlap`
- * (card 0069's proven pattern-vs-pattern matcher, reused rather than reimplemented) is what this
- * codebase already uses everywhere two glob lists are compared, and a plan's own entry naming ground
- * `alwaysAllowed` already covers is noise regardless of how much more the entry also reaches.
+ * Every `Files in scope` entry that `alwaysAllowed` covers *entirely* — machine-owned paths no plan
+ * should have to mention.
+ *
+ * Subsumption, not overlap, and the distinction is the whole check. This first shipped using
+ * `scopeOverlap` (card 0069's pattern-vs-pattern matcher) on the reasoning that "a plan's own entry
+ * naming ground `alwaysAllowed` already covers is noise regardless of how much more the entry also
+ * reaches". That is backwards. Run against card [[0185]]'s real plan it reported
+ * `apps/api/src/modules/context/**` as covered by the snapshot-file pattern on `alwaysAllowed`,
+ * because a `.snap` file could live under that directory — so the two patterns do overlap, and the
+ * entry is nonetheless carrying an entire module that nothing else permits. Acting on that finding
+ * would have broken the card.
+ *
+ * The test is therefore: does an `alwaysAllowed` pattern match the entry *read as a literal path*?
+ * That is sound in the direction that matters. `apps/api/src/generated/context.ts` is matched by
+ * `apps/api/src/generated/*.ts` and is genuinely redundant; `packages/sdk/src/types/**` sits under
+ * `packages/sdk/src/**` and is too. It is deliberately conservative the other way —
+ * `apps/api/src/generated/**` is not reported, because it reaches past the `*.ts` that is exempt —
+ * and a check that stays quiet when unsure is worth more here than one that is confidently wrong,
+ * since its whole value is that an operator can act on what it says.
  */
 const alwaysAllowedFindings = (card: Card, stages: ProjectStages): LintFinding[] => {
-    const overlaps = scopeOverlap(filesInScope(card), stages.alwaysAllowed);
-    return overlaps.map(({ ours, theirs }) => ({
-        kind: 'alwaysAllowed' as const,
-        message: `"${ours}" is already covered by alwaysAllowed's "${theirs}" — the runner permits this without the plan declaring it.`,
-    }));
+    if (stages.alwaysAllowed.length === 0) return [];
+    // One matcher per pattern rather than one over the list: the finding names *which* entry on
+    // `alwaysAllowed` subsumes the plan's, which is what lets an operator check the claim instead of
+    // taking it. `dot: true` matches `ScopeGuard`'s own picomatch options, so this agrees with the
+    // guard that enforces the list rather than with a second, subtly different reading of it.
+    const matchers = stages.alwaysAllowed.map(pattern => ({ pattern, matches: picomatch(pattern, { dot: true }) }));
+
+    const findings: LintFinding[] = [];
+    for (const entry of filesInScope(card)) {
+        const covering = matchers.find(({ matches }) => matches(entry));
+        if (!covering) continue;
+        findings.push({
+            kind: 'alwaysAllowed',
+            message: `"${entry}" is already covered by alwaysAllowed's "${covering.pattern}" — the runner permits this without the plan declaring it.`,
+        });
+    }
+    return findings;
 };
 
 /**

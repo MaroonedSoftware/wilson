@@ -164,3 +164,43 @@ describe('PlanLintService', () => {
         expect(await service.lint('c1')).toEqual([]);
     });
 });
+
+/**
+ * Regression, found by running this service against card 0185's real plan on 2026-09-02 rather than
+ * against a fixture. The check first shipped using `scopeOverlap`, on the reasoning that an entry
+ * naming ground `alwaysAllowed` covers is noise "regardless of how much more the entry also
+ * reaches". Overlap is not subsumption: a `.snap` file *could* live under
+ * `apps/api/src/modules/context/`, so the patterns overlap, and the entry is still carrying a whole
+ * module that nothing else permits. Acting on that finding would have broken the card.
+ *
+ * Both cases below fail on the pre-change tree — the first reported, the second reported against
+ * the wrong pattern.
+ */
+describe('PlanLintService alwaysAllowed subsumption', () => {
+    it('does not report an entry that merely overlaps a pattern, without being covered by it', async () => {
+        const c = card({ filesInScope: 'apps/api/src/modules/context/**' });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig([], ['**/*.snap', 'packages/sdk/src/**']));
+
+        const findings = await service.lint('c1');
+
+        expect(findings.filter(f => f.kind === 'alwaysAllowed')).toHaveLength(0);
+    });
+
+    it('still reports an entry a pattern genuinely subsumes, naming the pattern', async () => {
+        const c = card({ filesInScope: 'packages/sdk/src/types/**' });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig([], ['**/*.snap', 'packages/sdk/src/**']));
+
+        const finding = (await service.lint('c1')).find(f => f.kind === 'alwaysAllowed');
+
+        expect(finding?.message).toContain('packages/sdk/src/**');
+    });
+
+    it('stays quiet when an entry reaches past what the pattern exempts', async () => {
+        // `apps/api/src/generated/**` includes more than the `*.ts` that is exempt, so the plan is
+        // right to declare it. A check that guesses here is worse than one that says nothing.
+        const c = card({ filesInScope: 'apps/api/src/generated/**' });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig([], ['apps/api/src/generated/*.ts']));
+
+        expect((await service.lint('c1')).filter(f => f.kind === 'alwaysAllowed')).toHaveLength(0);
+    });
+});
