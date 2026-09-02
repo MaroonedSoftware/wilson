@@ -58,6 +58,11 @@ describe('wilson card lint', () => {
         const printed = logger.info.mock.calls.map(call => call[0]).join('\n');
         expect(printed).toContain('[command] pnpm migrate:create is not on the implementing allowlist');
         expect(printed).toContain('[alwaysAllowed] git status is already covered by the project alwaysAllowed list');
+        // Constraint: "a finding is an observation, not a defect" — the summary line must read
+        // that way rather than as a pass/fail verdict. Asserted on the exact sentence so this test
+        // fails if the wording regresses to something that reads as "fix these errors".
+        expect(logger.error).not.toHaveBeenCalled();
+        expect(logger.info).toHaveBeenCalledWith('0195: 2 finding(s) — what the runner will make of this plan, not a list of errors to fix');
     });
 
     it('says so and exits zero when there are no findings', async () => {
