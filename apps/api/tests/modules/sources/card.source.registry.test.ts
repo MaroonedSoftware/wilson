@@ -45,4 +45,23 @@ describe('CardSourceRegistry', () => {
 
         expect(result.ok).toBe(false);
     });
+
+    it('treats the name as case-sensitive and exact, not a prefix or substring match', () => {
+        const registry = new CardSourceRegistry([fakeSource('linear')]);
+
+        const result = registry.resolve('Linear');
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toContain('Linear');
+    });
+
+    it('resolves the first source when two are registered under the same name', () => {
+        const first = fakeSource('linear');
+        const second = fakeSource('linear');
+        const registry = new CardSourceRegistry([first, second]);
+
+        const result = registry.resolve('linear');
+
+        expect(result).toEqual({ ok: true, source: first });
+    });
 });
