@@ -838,10 +838,22 @@ what is done, what is not, and what each remaining one is actually waiting on.
   gap that consumer found. It is off unless `DEV_SERVER_PORT_RANGE` is set. The
   dry-run toggle is card 0144. Filesystem reconciliation was once on this list and is
   not coming: with the board in Postgres there is no file to reconcile against.
+- **Plugins: context providers.** Cards 0185–0189, the narrower of the two plugin seams:
+  `runner.card_context` and its repository, a `ContextProvider` interface with a URL
+  provider that reuses card 0107's destination check rather than writing a second one,
+  the `context.ck` contract and its SDK, the planning agent reading a card's snapshots
+  as quoted source material on the turn they are attached, and attach-and-review on the
+  card page. Retention (`context.retain: keep | ephemeral`) is card 0190 and parked by
+  its own note: snapshots are kept, which is the default this document specifies, and no
+  project yet needs the other setting.
 
 **Not done:**
 
-- **Plugins: card sources and context providers.**
+- **Plugins: card sources.** The other, larger seam — context providers above are done.
+  A ticket source is a stateful bidirectional sync with identity mapping and webhooks,
+  as against the stateless one-shot read that shipped, which is why this document treats
+  them as two extension points rather than one. `cards.external` and `source_closed` are
+  already columns on `runner.cards`, put there for this.
 - **Compose stack.** Card 0074's remaining half — mounting a `CLAUDE_CONFIG_DIR` at a
   volume — waits here. The setting itself does not (card 0141).
 
