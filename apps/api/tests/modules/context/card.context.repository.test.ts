@@ -83,19 +83,28 @@ describe('CardContextRepository', () => {
         await expect(repo.get('999999999')).resolves.toBeUndefined();
     });
 
-    it('remove deletes one snapshot and leaves the card\'s others intact', async () => {
+    it('remove deletes one snapshot, reports it was deleted, and leaves the card\'s others intact', async () => {
         const first = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
         const second = await repo.attach('0001', 'https://example.com/b', fetchedAt, 'url-provider', 'b', 'content b', 'hash-b');
 
-        await repo.remove(first.id);
+        await expect(repo.remove('0001', first.id)).resolves.toBe(true);
 
         expect(await repo.get(first.id)).toBeUndefined();
         expect(await repo.get(second.id)).toEqual(second);
         expect((await repo.list('0001')).map(s => s.id)).toEqual([second.id]);
     });
 
-    it('remove is safe to call for a snapshot id that does not exist', async () => {
-        await expect(repo.remove('999999999')).resolves.toBeUndefined();
+    it('remove reports false, and deletes nothing, for a snapshot id that does not exist', async () => {
+        await expect(repo.remove('0001', '999999999')).resolves.toBe(false);
+    });
+
+    it('remove reports false, and deletes nothing, for a snapshot id that belongs to a different card', async () => {
+        await board.create(card('0002'), 'seed');
+        const snapshot = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
+
+        await expect(repo.remove('0002', snapshot.id)).resolves.toBe(false);
+
+        expect(await repo.get(snapshot.id)).toEqual(snapshot);
     });
 
     it('rejects attach for a card id with no matching card row, the composite FK\'s other half', async () => {

@@ -10,6 +10,7 @@ import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { BoardRouter } from './board.router.js';
+import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { SettingsRouter } from './settings.router.js';
@@ -250,6 +251,7 @@ export const routers = (signal?: AbortSignal) => [
     ProjectContextRouter(),
     HealthRouter,
     BoardRouter,
+    ContextRouter,
     SettingsRouter,
     ProjectsRouter,
     StagesRouter,
