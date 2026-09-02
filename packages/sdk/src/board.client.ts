@@ -9,6 +9,7 @@ import type {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    LintFinding,
     ListQuery,
     MergeResult,
     MoveCardRequest,
@@ -210,6 +211,19 @@ export class BoardClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<SplitResult>(result);
+    }
+
+    /**
+     * @name Lint a card plan
+     * @description Card 0193. Checks a plan against the config the runner will actually enforce — a stage's
+     * `CommandAllowlist`, the project's `alwaysAllowed` list, the literal shape of a `Files in scope`
+     * line — and reports what it finds. Read-only, like `division` above: nothing here blocks `approve`
+     * or any other transition (see `PlanLintService`'s own doc comment for why), so a client is free to
+     * call this whenever it wants a second opinion, not only right before approving.
+     */
+    async lintACardPlan(id: string): Promise<LintFinding[]> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/lint`, { method: 'GET' });
+        return await parseJson<LintFinding[]>(result);
     }
 
     /**
