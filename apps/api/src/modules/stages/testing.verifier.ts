@@ -68,6 +68,26 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
 export const baselineProvesChange = (counts: TestCounts | undefined, exitedNonZero: boolean): boolean => (counts?.failed ?? 0) > 0 || exitedNonZero;
 
 /**
+ * What the baseline check says when it refuses, and why it says more than "these tests prove
+ * nothing".
+ *
+ * The check stays exactly this strict — copying new tests onto the pre-change tree and requiring
+ * them to fail there is what separates a real test from one that passes vacuously, and it earned
+ * that on cards 0168 and 0178. What it assumes is that every card changes behaviour.
+ *
+ * A card whose purpose is a regression guard over behaviour that is *already* correct has nothing
+ * to fail against: whatever it guards was fixed by an earlier merged card, so the pre-change tree
+ * cut here already contains that fix. No rewrite of such a card can pass, and the runner cannot know
+ * which earlier change to undo to find out. Card 0184 was decided on 2026-09-02 by accepting that
+ * and naming the manual proof here, rather than leaving it to be rediscovered — card 0180 spent
+ * three kickbacks and a human flag learning it.
+ */
+export const baselineRefusal = (testPaths: string[]): string =>
+    `these new tests pass against the pre-change tree, so they do not prove this card's change is exercised: ${testPaths.join(', ')}. ` +
+    'If this card adds a regression guard over behaviour an earlier card already fixed, it cannot fail here and no rewrite will change that: ' +
+    'prove the guard by removing what it guards, record that the test fails without it, then ack and move the card on (card 0184).';
+
+/**
  * The testing stage's exit condition: the suite is green, the test count has not dropped, no new
  * tests were skipped, and — the baseline check — at least one new test fails against the pre-change
  * tree.
@@ -262,9 +282,7 @@ export class TestingVerifier implements StageVerifier {
             const newCounts = await this.readReport(baseline.path, stage.testReportPath, []);
 
             if (!baselineProvesChange(newCounts, !!run)) {
-                failures.push(
-                    `these new tests pass against the pre-change tree, so they do not prove this card's change is exercised: ${testPaths.join(', ')}`,
-                );
+                failures.push(baselineRefusal(testPaths));
             }
 
             return failures;

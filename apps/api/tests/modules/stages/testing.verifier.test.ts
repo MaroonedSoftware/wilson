@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baselineProvesChange, checkCounts, scratchTestFileName, TestingVerifier } from '#modules/stages/testing.verifier.js';
+import { baselineProvesChange, baselineRefusal, checkCounts, scratchTestFileName, TestingVerifier } from '#modules/stages/testing.verifier.js';
 import { parseTestReport } from '#modules/stages/test.report.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -376,5 +376,43 @@ describe('TestingVerifier — format check (card 0041)', () => {
         const outcome = await verifier.verify(verifyInput(worktree, stage));
 
         expect(outcome.failures.some(f => f.includes('bad.test.ts'))).toBe(false);
+    });
+});
+
+/**
+ * Card 0184, decided 2026-09-02: accepted. The baseline check stays exactly as strict — it is what
+ * separates a real test from one that passes vacuously, and it caught real bugs on cards 0168 and
+ * 0178. What changes is that the refusal now names the one case it cannot judge.
+ *
+ * A regression guard over behaviour an earlier card already fixed cannot fail against the
+ * pre-change tree, because that tree already contains the fix. Card 0180 spent three kickbacks and
+ * a human flag discovering that. The message is the deliverable of the decision, so it is asserted
+ * rather than left to prose: every case here fails on the pre-change tree, where the refusal said
+ * only that the tests proved nothing.
+ */
+describe('baselineRefusal', () => {
+    it('still says plainly what the check found', () => {
+        const message = baselineRefusal(['apps/web/tests/link-contrast.test.ts']);
+
+        expect(message).toContain('pass against the pre-change tree');
+        expect(message).toContain('apps/web/tests/link-contrast.test.ts');
+    });
+
+    it('names the guard case, so a card that cannot pass is not rewritten three times trying', () => {
+        const message = baselineRefusal(['a.test.ts']);
+
+        expect(message).toContain('regression guard');
+        expect(message).toContain('no rewrite will change that');
+    });
+
+    it('names the manual proof and the way out, not just the problem', () => {
+        const message = baselineRefusal(['a.test.ts']);
+
+        expect(message).toContain('removing what it guards');
+        expect(message).toContain('ack and move the card on');
+    });
+
+    it('lists every path it was given', () => {
+        expect(baselineRefusal(['a.test.ts', 'b.test.ts'])).toContain('a.test.ts, b.test.ts');
     });
 });

@@ -28,7 +28,18 @@ export class ImplementingVerifier implements StageVerifier {
         const written = await this.worktrees.uncommittedPaths(worktree);
 
         if (written.length === 0) {
-            failures.push('the diff is empty: the stage changed nothing');
+            // Card 0182, decided 2026-09-02: the rule stands, the message tells the two cases apart.
+            // "Did nothing" and "nothing left to do" both leave this set empty, and the difference is
+            // already in hand — `changedPaths` measures from the fork point, so on a branch that
+            // already carries this card's work it is non-empty while `written` is not. That happens
+            // when a plan is corrected mid-flight (card 0171) or when a stage was landed by hand. The
+            // verdict is the same either way; what changes is whether the operator is told to look at
+            // the agent or at the board.
+            failures.push(
+                changedPaths.length > 0
+                    ? `this stage wrote nothing, and the branch already carries ${changedPaths.length} file(s) of this card's work. If that work is done, move the card to the stage that still has work rather than re-running this one — an already-finished stage cannot satisfy a rule that exists to stop an agent doing less (card 0182).`
+                    : 'the diff is empty: the stage changed nothing',
+            );
         }
 
         // Scope is judged against this stage's own writes, never the card's whole diff. `changedPaths`
