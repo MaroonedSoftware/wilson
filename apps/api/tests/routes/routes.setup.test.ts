@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SseResponse } from '@maroonedsoftware/koa';
 import { FeedRouter, PlanStreamRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
+import { ContextRouter } from '#src/routes/context.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
@@ -28,28 +29,32 @@ import { uniqueProject } from '#tests/support/test.db.js';
  * `SettingsRouter` (card 0106) joined the same way the board router did: generated from
  * `settings.ck`, and mounted here alongside the others. `ProjectsRouter` (card 0162) joined the
  * same way again: generated from `projects.ck`, mounted right after `SettingsRouter`, and
- * `StagesRouter` (stage config in Postgres) after that, generated from `stages.ck`.
+ * `StagesRouter` (stage config in Postgres) after that, generated from `stages.ck`. `ContextRouter`
+ * (card 0187) joined the same way too, generated from `context.ck`, mounted right after
+ * `BoardRouter` — the ordering `routes.setup.ts` itself uses.
  */
 describe('routers', () => {
     // Card 0150: `ProjectContextRouter` is mounted first, ahead of the routers that were the whole
     // array before this card — see the `ProjectContextRouter` describe block below for what it
     // actually does; this test only pins its position. Card 0162 added `ProjectsRouter` as the
     // fifth entry, after `SettingsRouter`, and `StagesRouter` follows it as the sixth, both before
-    // the two hand-written SSE routers.
-    it('mounts the project-context router first, then the generated health, board, settings, projects and stages routers plus the two hand-written SSE routers, and nothing else', () => {
+    // the two hand-written SSE routers. Card 0187 added `ContextRouter` right after `BoardRouter`,
+    // pushing every entry from `SettingsRouter` on down one place later.
+    it('mounts the project-context router first, then the generated health, board, context, settings, projects and stages routers plus the two hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(8);
+        expect(mounted).toHaveLength(9);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
-        expect(mounted[3]).toBe(SettingsRouter);
-        expect(mounted[4]).toBe(ProjectsRouter);
-        expect(mounted[5]).toBe(StagesRouter);
+        expect(mounted[3]).toBe(ContextRouter);
+        expect(mounted[4]).toBe(SettingsRouter);
+        expect(mounted[5]).toBe(ProjectsRouter);
+        expect(mounted[6]).toBe(StagesRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[6].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[7].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[7].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[8].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -61,14 +66,15 @@ describe('routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(8);
+        expect(mounted).toHaveLength(9);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
-        expect(mounted[3]).toBe(SettingsRouter);
-        expect(mounted[4]).toBe(ProjectsRouter);
-        expect(mounted[5]).toBe(StagesRouter);
-        expect(mounted[6].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[7].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[3]).toBe(ContextRouter);
+        expect(mounted[4]).toBe(SettingsRouter);
+        expect(mounted[5]).toBe(ProjectsRouter);
+        expect(mounted[6]).toBe(StagesRouter);
+        expect(mounted[7].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[8].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
@@ -262,6 +268,23 @@ describe('routers', () => {
         expect(ProjectsRouter.match('/api/projects/wilson', 'POST').route).toBe(false);
         expect(ProjectsRouter.match('/api/projects/wilson', 'PUT').route).toBe(false);
         expect(ProjectsRouter.match('/api/projects/wilson', 'DELETE').route).toBe(false);
+    });
+
+    // Card 0187: attaching, listing and removing a card's context snapshots, generated from
+    // context.ck and mounted as ContextRouter right after BoardRouter.
+    it.each([
+        ['POST', '/api/cards/0001/context'],
+        ['GET', '/api/cards/0001/context'],
+        ['DELETE', '/api/cards/0001/context/0002'],
+    ])('routes %s %s to the context router', (method, path) => {
+        expect(ContextRouter.match(path, method).route).toBe(true);
+    });
+
+    it('does not route an undeclared method to either context path', () => {
+        expect(ContextRouter.match('/api/cards/0001/context', 'PUT').route).toBe(false);
+        expect(ContextRouter.match('/api/cards/0001/context', 'DELETE').route).toBe(false);
+        expect(ContextRouter.match('/api/cards/0001/context/0002', 'GET').route).toBe(false);
+        expect(ContextRouter.match('/api/cards/0001/context/0002', 'POST').route).toBe(false);
     });
 });
 

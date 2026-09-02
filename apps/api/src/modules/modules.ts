@@ -1,6 +1,7 @@
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
 import { BoardModule } from './board/board.module.js';
+import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
@@ -25,11 +26,16 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * leases when its worktree is reclaimed. `setup` only registers tokens, so — as with every other
  * ordering note here — the actual container resolution does not depend on this order; it is for a
  * reader tracing the dependency the same direction the list reads.
+ *
+ * Context is listed after Board and after Data (card 0187): `CardContextRepository` takes
+ * `BoardConfig`, and `ContextService` takes `BoardRepository` to answer "does this card exist" the
+ * same way `PlanService` does — both already registered by the time this module's turn comes.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
     BoardModule,
+    ContextModule,
     HealthModule,
     LeaseModule,
     WorktreeModule,

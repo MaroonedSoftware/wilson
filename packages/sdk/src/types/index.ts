@@ -1,5 +1,6 @@
 // Auto-generated barrel file
 export * from './board.js';
+export * from './context.js';
 export * from './health.js';
 export * from './projects.js';
 export * from './settings.js';

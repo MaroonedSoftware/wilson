@@ -19,14 +19,16 @@ export interface CardContext {
  * `PlanCommentRepository`'s shape: constructed with `BoardConfig` and the shared `Kysely<DB>` pool
  * rather than resolved through the container.
  *
- * Not `@Injectable()`, for the same reason `PlanCommentRepository` is not — no polymorphic swap,
- * and every future caller already holds the two constructor arguments, so `new` is simpler than a
- * registration this card's files in scope have nowhere to add.
+ * Not `@Injectable()`: unlike `PostgresBoardRepository`'s constructor-injected dependencies, a
+ * `@Injectable()`/`.useClass()` pair buys nothing here that a factory doesn't already give more
+ * directly. `ContextModule` registers this token with `.useFactory(container => new
+ * CardContextRepository(container.get(BoardConfig), container.get(Kysely<DB>)))` — the same two
+ * arguments a decorator's reflection would have resolved, spelled out instead of inferred.
  *
- * A mechanism with no consumer, deliberately: the `ContextProvider` interface and the URL provider
- * that would populate this table are the provider-seam card, and the HTTP surface that would call
- * `attach` is the contract card. Nothing calls this repository yet. See the migration
- * (`data/migrations/20260902120000_card_context.sql`) for what a row holds and why.
+ * `ContextService` (card 0187) is the one caller: it resolves a URL through
+ * `ContextProviderRegistry`, calls the `ContextProvider` that handles it, and writes what came back
+ * through `attach` below. See the migration (`data/migrations/20260902120000_card_context.sql`) for
+ * what a row holds and why.
  */
 export class CardContextRepository {
     constructor(
@@ -87,11 +89,21 @@ export class CardContextRepository {
 
     /**
      * Delete one snapshot. A real delete, not a `resolved`-style state: unlike a plan comment, a
-     * snapshot has no history worth keeping once a person says it was the wrong document. Safe to
-     * call for an id that does not exist, or does not belong to this project.
+     * snapshot has no history worth keeping once a person says it was the wrong document. Scoped by
+     * `cardId` as well as `id`, mirroring `PlanCommentRepository.resolve` — the caller passes both
+     * because they came from the same two path params, and a snapshot id that exists but belongs to
+     * a different card in this project must miss exactly like one that does not exist at all.
+     * Returns whether a row was actually deleted, so `ContextService` can tell that miss apart from
+     * a real removal and answer with its own 404.
      */
-    async remove(id: string): Promise<void> {
-        await this.db.deleteFrom('runner.cardContext').where('project', '=', this.config.project).where('id', '=', id).execute();
+    async remove(cardId: string, id: string): Promise<boolean> {
+        const result = await this.db
+            .deleteFrom('runner.cardContext')
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', '=', id)
+            .executeTakeFirst();
+        return (result?.numDeletedRows ?? 0n) > 0n;
     }
 }
 
