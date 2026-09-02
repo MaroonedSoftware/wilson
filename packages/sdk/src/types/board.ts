@@ -319,7 +319,7 @@ export interface DivisionPiece {
  * generated from [LintFinding](file://./../../../../apps/api/data/contracts/board.ck#L310)
  */
 export interface LintFinding {
-    kind: 'command' | 'exactPath' | 'alwaysAllowed';
+    kind: 'command' | 'alwaysAllowed';
     message: string;
 }
 

@@ -122,23 +122,6 @@ describe('PlanLintService', () => {
         expect(await service.lint('c1')).toHaveLength(0);
     });
 
-    it('reports an exact path where a glob is wanted, suggesting the dir/** form', async () => {
-        const c = card({ filesInScope: 'apps/api/src/modules/newthing/brand.new.ts' });
-        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig([]));
-
-        const findings = await service.lint('c1');
-
-        expect(findings).toHaveLength(1);
-        expect(findings[0]!.kind).toBe('exactPath');
-        expect(findings[0]!.message).toContain('apps/api/src/modules/newthing/**');
-    });
-
-    it('does not flag a glob entry as an exact path', async () => {
-        const c = card({ filesInScope: 'apps/api/src/modules/newthing/**' });
-        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig([]));
-
-        expect(await service.lint('c1')).toHaveLength(0);
-    });
 
     it('reports a scope entry alwaysAllowed already covers', async () => {
         const c = card({ filesInScope: 'apps/api/src/generated/board.ts' });
@@ -146,8 +129,6 @@ describe('PlanLintService', () => {
 
         const findings = await service.lint('c1');
 
-        // The literal path also names an exact file (`board.ts` has an extension), so it earns both
-        // findings — this asserts the one this test is about is among them.
         expect(findings.map(f => f.kind)).toContain('alwaysAllowed');
         const finding = findings.find(f => f.kind === 'alwaysAllowed')!;
         expect(finding.message).toContain('apps/api/src/generated/*.ts');

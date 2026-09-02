@@ -308,7 +308,7 @@ contract SplitResult: {
 # reason, the glob this suggests, which `alwaysAllowed` entry already covers the line) rather than
 # splitting them into fields a client would have to reassemble into the same sentence.
 contract LintFinding: {
-    kind: enum(command, exactPath, alwaysAllowed)
+    kind: enum(command, alwaysAllowed)
     message: string
 }
 

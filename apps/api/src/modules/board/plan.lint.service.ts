@@ -75,34 +75,6 @@ const commandFindings = (card: Card, stages: ProjectStages): LintFinding[] => {
     return findings;
 };
 
-/** Glob metacharacters — the same set `scope.overlap.ts` treats as making a path segment a pattern rather than a literal. */
-const GLOB_META = /[*?[\]{}]/;
-
-/**
- * Every `Files in scope` entry that names an exact file rather than a glob — no glob metacharacter
- * anywhere in it, and a last path segment that looks like a filename (it has an extension), not a
- * bare directory a reader would already read as needing `/**` to mean anything. An entry shaped
- * this way cannot widen to cover a sibling the agent ends up creating instead of the one predicted,
- * so this suggests the `dir/**` form that would.
- */
-const exactPathFindings = (card: Card): LintFinding[] => {
-    const findings: LintFinding[] = [];
-    for (const entry of filesInScope(card)) {
-        if (GLOB_META.test(entry)) continue;
-
-        const lastSlash = entry.lastIndexOf('/');
-        const leaf = lastSlash === -1 ? entry : entry.slice(lastSlash + 1);
-        if (!leaf.includes('.')) continue;
-
-        const suggestion = lastSlash === -1 ? '**' : `${entry.slice(0, lastSlash)}/**`;
-        findings.push({
-            kind: 'exactPath',
-            message: `"${entry}" is an exact path, not a glob — if it or its directory does not exist yet, prefer "${suggestion}" so the plan does not have to predict exactly what gets created.`,
-        });
-    }
-    return findings;
-};
-
 /**
  * Every `Files in scope` entry that `alwaysAllowed` covers *entirely* — machine-owned paths no plan
  * should have to mention.
@@ -172,7 +144,7 @@ export class PlanLintService {
         const card = await this.readOrThrow(id);
         const stages = await this.stageConfigs.load();
 
-        return [...commandFindings(card, stages), ...exactPathFindings(card), ...alwaysAllowedFindings(card, stages)];
+        return [...commandFindings(card, stages), ...alwaysAllowedFindings(card, stages)];
     }
 
     private async readOrThrow(id: string): Promise<Card> {

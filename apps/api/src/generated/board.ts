@@ -315,7 +315,7 @@ export type DivisionPiece = z.infer<typeof DivisionPiece>;
  * generated from [LintFinding](file://./../../data/contracts/board.ck#L310)
  */
 export const LintFinding = z.strictObject({
-    kind: z.enum(['command', 'exactPath', 'alwaysAllowed']),
+    kind: z.enum(['command', 'alwaysAllowed']),
     message: z.string(),
 });
 export type LintFinding = z.infer<typeof LintFinding>;

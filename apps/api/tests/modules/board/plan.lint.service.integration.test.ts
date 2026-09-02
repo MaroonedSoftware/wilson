@@ -138,16 +138,7 @@ describe('PlanLintService, driven from a real plan.md-shaped body', () => {
         );
         expect(commandFindings.some(f => f.message.includes('pnpm build'))).toBe(false);
 
-        // `Files in scope`: the HTML comment line contributed no entry, the two exact files are
-        // reported (bullet marker and backticks stripped correctly, since matching required the
-        // literal path with neither), and the glob entry is left alone.
-        const exactPathFindings = findings.filter(f => f.kind === 'exactPath');
-        expect(exactPathFindings.map(f => f.message).some(m => m.includes('"apps/api/src/modules/newthing/brand.new.ts"'))).toBe(true);
-        expect(exactPathFindings.map(f => f.message).some(m => m.includes('"apps/api/src/generated/board.ts"'))).toBe(true);
-        expect(exactPathFindings.map(f => f.message).some(m => m.includes('apps/api/src/modules/board/**'))).toBe(false);
-        expect(exactPathFindings).toHaveLength(2);
-
-        // The generated-types entry also overlaps `alwaysAllowed`, reported as its own finding kind.
+        // The generated-types entry is covered by `alwaysAllowed`, reported as its own finding kind.
         const alwaysAllowedFindings = findings.filter(f => f.kind === 'alwaysAllowed');
         expect(alwaysAllowedFindings).toHaveLength(1);
         expect(alwaysAllowedFindings[0]!.message).toContain('apps/api/src/generated/*.ts');
@@ -162,7 +153,6 @@ describe('PlanLintService, driven from a real plan.md-shaped body', () => {
         const findings = await service.lint('c1');
 
         expect(findings.filter(f => f.kind === 'command')).toHaveLength(0);
-        expect(findings.filter(f => f.kind === 'exactPath')).toHaveLength(2);
         expect(findings.filter(f => f.kind === 'alwaysAllowed')).toHaveLength(1);
     });
 });
