@@ -60,9 +60,8 @@ class FakeResizeObserver {
     disconnect() {}
 }
 
-function renderApp(path: string) {
+function renderApp(path: string, queryClient = new QueryClient()) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
-    const queryClient = new QueryClient();
     render(
         createElement(
             MantineProvider,
@@ -187,6 +186,17 @@ describe('the context section', () => {
         expect((screen.getByLabelText('Source URL') as HTMLInputElement).value).toBe('http://169.254.169.254/');
         // Nothing was added to the list.
         expect(screen.getByText('Nothing attached.')).toBeTruthy();
+    });
+
+    it("surfaces a failed context fetch with the query's own error message, not a blank or stuck loading section", async () => {
+        vi.spyOn(ContextClient.prototype, 'listCardContext').mockRejectedValue(new Error('context service unreachable'));
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+        renderApp(CARD_PATH, queryClient);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('Could not load context: context service unreachable')).toBeTruthy();
+        expect(screen.queryByText('Nothing attached.')).toBeNull();
     });
 
     it('removes a snapshot only after a confirmation, and only the one removed', async () => {
