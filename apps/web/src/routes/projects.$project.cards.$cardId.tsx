@@ -41,6 +41,13 @@ function ProjectCardDetailRoute() {
         queryFn: () => client.board.listCardVersions(cardId, { limit: HISTORY_LIMIT }),
     });
     const columns = useQuery({ queryKey: ['project', project, 'columns'], queryFn: () => client.board.listBoardColumns() });
+    // Card 0189: keyed `[..., cardId, 'context']`, one segment longer than the card's own
+    // `[..., 'card', cardId]` key — `lib/mutations.ts`'s `matchesContextList` is written to match
+    // exactly this shape, not `matchesCard`'s (this card's Constraints).
+    const context = useQuery({
+        queryKey: ['project', project, 'card', cardId, 'context'],
+        queryFn: () => client.context.listCardContext(cardId),
+    });
 
     if (card.error) {
         return (
@@ -67,6 +74,8 @@ function ProjectCardDetailRoute() {
                 versions={versions.data}
                 versionsLimit={HISTORY_LIMIT}
                 versionsError={versions.error}
+                context={context.data}
+                contextError={context.error}
                 columns={columns.data}
                 columnsError={columns.error}
                 project={project}

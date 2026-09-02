@@ -2,8 +2,10 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 import { notifications } from '@mantine/notifications';
 import {
     SdkError,
+    type AttachContextRequest,
     type CardDetail,
     type CardSummary,
+    type ContextSnapshot,
     type CreateCardRequest,
     type CreatePlanCommentRequest,
     type DependCardRequest,
@@ -46,6 +48,26 @@ export function invalidateCardsList(queryClient: QueryClient) {
 
 export function invalidateCard(queryClient: QueryClient, id: string) {
     void queryClient.invalidateQueries({ predicate: query => matchesCard(query.queryKey, id) });
+}
+
+/**
+ * Card 0189: a card's context list lives at `['project', project, 'card', id, 'context']`
+ * (`ProjectCardDetailRoute`, alongside `events`/`versions`) — a key neither predicate above was
+ * ever written to match, and this card's own Constraints call that out as the trap this file's
+ * header already documents: `matchesCard` requires the key's own last two elements to be `['card',
+ * id]`, and a context key's last two are `[id, 'context']`, one segment longer, so it silently
+ * misses; `matchesCardsList` looks for `'cards'` anywhere in the key, which a context key never
+ * contains either. This predicate applies `matchesCard`'s own shape to this key instead — the
+ * key's own last two elements must be `[id, 'context']` — so `useAttachContext`/`useRemoveContext`
+ * below invalidate the list they actually change rather than leaving it stale after every write.
+ */
+const matchesContextList = (queryKey: readonly unknown[], id: string) => {
+    const last = queryKey.length - 1;
+    return queryKey[last] === 'context' && queryKey[last - 1] === id;
+};
+
+export function invalidateContextList(queryClient: QueryClient, id: string) {
+    void queryClient.invalidateQueries({ predicate: query => matchesContextList(query.queryKey, id) });
 }
 
 /**
@@ -371,6 +393,51 @@ export function useSetCardDependency(id: string) {
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not update the dependency', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0189: attaches a URL to a card as a context snapshot ([[0187]]'s `POST .../context`,
+ * `AttachContextRequest`) — [[0186]]'s `ContextService` does the actual fetch and is the sole
+ * validator, refusing it six ways (a private address, a redirect, a timeout, an oversized body, an
+ * upstream error, no provider); this hook only ever surfaces whichever one comes back, via
+ * `reasonFor`, the same house pattern `useRenameCard`/`useMoveCard` follow (this card's
+ * Constraints).
+ *
+ * Success invalidates the context list (`invalidateContextList` above) rather than writing the
+ * new snapshot into the cache directly — this card's "no optimistic rendering" constraint: the
+ * list only ever shows what the server has actually answered for, `useMoveCard`'s own rule for a
+ * stage applied here to an attach.
+ */
+export function useAttachContext(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: AttachContextRequest): Promise<ContextSnapshot> => wilson.context.attachContextToACard(id, body),
+        onSuccess: () => {
+            invalidateContextList(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not attach context', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0189: removes a context snapshot ([[0187]]'s `DELETE .../context/:contextId`) — the
+ * operator's end of "remove and re-attach", [[0187]]'s own remedy for a wrong snapshot (this
+ * card's Out of scope rules out editing one). Same invalidate-and-notify shape as
+ * `useAttachContext` above.
+ */
+export function useRemoveContext(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (contextId: string): Promise<void> => wilson.context.removeAContextSnapshot(id, contextId),
+        onSuccess: () => {
+            invalidateContextList(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not remove the snapshot', message: reasonFor(err) });
         },
     });
 }

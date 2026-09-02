@@ -9,15 +9,17 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SdkError, type CardDetail, type CardSummary, type PlanComment } from '@wilson/sdk';
+import { SdkError, type CardDetail, type CardSummary, type ContextSnapshot, type PlanComment } from '@wilson/sdk';
 import { wilson } from '#src/lib/sdk.js';
 import {
     useAckCard,
     useAddPlanComment,
+    useAttachContext,
     useCreateCard,
     useEditCardBody,
     useMoveCard,
     useReleaseCard,
+    useRemoveContext,
     useRenameCard,
     useRepositionCard,
     useResolvePlanComment,
@@ -862,5 +864,166 @@ describe('useSetCardDependency', () => {
                 expect.objectContaining({ title: 'Could not update the dependency', message: 'no such card 0099' }),
             ),
         );
+    });
+});
+
+// Card 0189: attaching and removing a card's context snapshots. This file's own header documents
+// the trap this card's Constraints call out — a context list is keyed `['project', project,
+// 'card', id, 'context']`, one segment longer than `matchesCard`'s own `['card', id]` shape, and
+// `matchesCardsList` never matches it either since it never contains `'cards'`. The tests below
+// prove the new predicate matches that key while the two existing ones do not, and that both
+// hooks otherwise follow this file's own invalidate-and-notify house pattern.
+describe('useAttachContext', () => {
+    const snapshot: ContextSnapshot = {
+        id: 'ctx-1',
+        sourceUrl: 'https://example.com/doc',
+        fetchedAt: '2026-09-01T00:00:00.000Z',
+        fetchedBy: 'human',
+        content: 'the fetched body',
+        contentHash: 'abc123',
+        createdAt: '2026-09-01T00:00:00.000Z',
+    };
+
+    it('sends the typed sourceUrl to attachContextToACard', async () => {
+        const attachContextToACard = vi.spyOn(wilson.context, 'attachContextToACard').mockResolvedValue(snapshot);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useAttachContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ sourceUrl: 'https://example.com/doc' });
+        });
+
+        expect(attachContextToACard).toHaveBeenCalledWith('0007', { sourceUrl: 'https://example.com/doc' });
+    });
+
+    it("invalidates the card's context list on success, with no direct write — the list only ever shows what the server answered", async () => {
+        vi.spyOn(wilson.context, 'attachContextToACard').mockResolvedValue(snapshot);
+        const queryClient = new QueryClient();
+        // The exact key `ProjectCardDetailRoute` mounts this query at, plus the two sibling keys a
+        // wrong predicate has historically been the trap for (this file's header, this card's
+        // Constraints): a same-shaped key for a different card, and the card's own query one
+        // segment shorter, neither of which this attach should touch.
+        queryClient.setQueryData(['project', 'demo', 'card', '0007', 'context'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0099', 'context'], []);
+        queryClient.setQueryData(['project', 'demo', 'card', '0007'], {});
+        const setQueryData = vi.spyOn(queryClient, 'setQueryData');
+
+        const { result } = renderHook(() => useAttachContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync({ sourceUrl: 'https://example.com/doc' });
+        });
+
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007', 'context'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0099', 'context'])?.isInvalidated).toBeFalsy();
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBeFalsy();
+        expect(setQueryData).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not attach context'", async () => {
+        vi.spyOn(wilson.context, 'attachContextToACard').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'refused to fetch a private address' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useAttachContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate({ sourceUrl: 'http://169.254.169.254/' });
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not attach context', message: 'refused to fetch a private address' }),
+            ),
+        );
+    });
+});
+
+describe('useRemoveContext', () => {
+    it('sends the snapshot id to removeAContextSnapshot', async () => {
+        const removeAContextSnapshot = vi.spyOn(wilson.context, 'removeAContextSnapshot').mockResolvedValue(undefined);
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useRemoveContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('ctx-1');
+        });
+
+        expect(removeAContextSnapshot).toHaveBeenCalledWith('0007', 'ctx-1');
+    });
+
+    it("invalidates the card's context list on success, the same predicate useAttachContext uses", async () => {
+        vi.spyOn(wilson.context, 'removeAContextSnapshot').mockResolvedValue(undefined);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'card', '0007', 'context'], []);
+        queryClient.setQueryData(['unrelated'], {});
+
+        const { result } = renderHook(() => useRemoveContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await result.current.mutateAsync('ctx-1');
+        });
+
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007', 'context'])?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
+    });
+
+    it("shows the API's own refusal reason as a notification titled 'Could not remove the snapshot'", async () => {
+        vi.spyOn(wilson.context, 'removeAContextSnapshot').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'no such context snapshot' } }, new Headers()),
+        );
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useRemoveContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('ctx-missing');
+        });
+
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Could not remove the snapshot', message: 'no such context snapshot' }),
+            ),
+        );
+    });
+});
+
+describe('the context list invalidation predicate', () => {
+    it("matches the context key while matchesCard and matchesCardsList — useMoveCard's own predicates — do not", async () => {
+        vi.spyOn(wilson.board, 'moveCard').mockResolvedValue({
+            id: '0007',
+            title: 'x',
+            stage: 'implementing',
+            dependsOn: [],
+            needsHuman: false,
+            sections: {},
+            body: '',
+        });
+        vi.spyOn(wilson.context, 'attachContextToACard').mockResolvedValue({
+            id: 'ctx-1',
+            sourceUrl: 'https://example.com/doc',
+            fetchedAt: '2026-09-01T00:00:00.000Z',
+            fetchedBy: 'human',
+            content: 'the fetched body',
+            contentHash: 'abc123',
+            createdAt: '2026-09-01T00:00:00.000Z',
+        });
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(['project', 'demo', 'card', '0007', 'context'], []);
+        queryClient.setQueryData(['project', 'demo', 'cards'], []);
+
+        // useMoveCard invalidates through matchesCard/matchesCardsList (`invalidateCard`,
+        // `invalidateCardsList`) — neither matches a key one segment longer ending in 'context'
+        // rather than ['card', id], this card's Constraints' own trap.
+        const { result: moveResult } = renderHook(() => useMoveCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await moveResult.current.mutateAsync('implementing');
+        });
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007', 'context'])?.isInvalidated).toBeFalsy();
+
+        // useAttachContext invalidates through the new matchesContextList predicate, which does
+        // match that same key.
+        const { result: attachResult } = renderHook(() => useAttachContext('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            await attachResult.current.mutateAsync({ sourceUrl: 'https://example.com/doc' });
+        });
+        expect(queryClient.getQueryState(['project', 'demo', 'card', '0007', 'context'])?.isInvalidated).toBe(true);
     });
 });

@@ -2,8 +2,9 @@ import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select,
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardEvent, CardVersion, ContextSnapshot } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
+import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
@@ -324,6 +325,8 @@ export function CardDetailView({
     versions,
     versionsLimit,
     versionsError,
+    context,
+    contextError,
     columns,
     columnsError,
     project,
@@ -335,6 +338,10 @@ export function CardDetailView({
     versions: CardVersion[] | undefined;
     versionsLimit: number;
     versionsError: Error | null | undefined;
+    /** Card 0189: the card's attached context snapshots, from the query `ProjectCardDetailRoute`
+     * mounts alongside `events`/`versions`. */
+    context: ContextSnapshot[] | undefined;
+    contextError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
     /** Card 0153: the project this card was reached under, threaded to `PlanningPanes` so the
@@ -414,6 +421,10 @@ export function CardDetailView({
                     <Markdown body={card.body} />
                 </Stack>
             )}
+
+            <Divider />
+
+            <CardContext cardId={card.id} snapshots={context} error={contextError} />
 
             <Divider />
 
