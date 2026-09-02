@@ -101,6 +101,21 @@ const MIGRATION_TOKEN = /^(?:migrate:[a-z:]+|dbmate|build:datatypes)$/;
 const isMigrationAttempt = (argv: string[]): boolean => argv.some(token => MIGRATION_TOKEN.test(token));
 
 /**
+ * Is `token` a binary this list knows by name — one it has a tool equivalent for, or one of the
+ * migration commands no stage carries?
+ *
+ * Exported for `PlanLintService`, which has to tell a command a plan is prescribing from prose that
+ * merely happens to be lowercase and multi-word. `id BIGSERIAL PRIMARY KEY`, quoted from a
+ * migration task in card [[0185]]'s plan, satisfies every shape test a command does and is a column
+ * definition. Keeping the vocabulary here is the rule that lint follows everywhere else: ask the
+ * object that owns the knowledge rather than carry a second copy of it.
+ *
+ * `Object.hasOwn` rather than `in`: `TOOL_EQUIVALENTS` is a plain object literal, and `'constructor'
+ * in` it is true.
+ */
+export const isKnownBinary = (token: string): boolean => Object.hasOwn(TOOL_EQUIVALENTS, token) || MIGRATION_TOKEN.test(token);
+
+/**
  * Does this stage's own allowlist actually permit `pnpm exec vitest run`?
  *
  * Naming a command the stage cannot run would be worse than the generic refusal — the agent would

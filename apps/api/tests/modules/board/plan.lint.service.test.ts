@@ -185,3 +185,48 @@ describe('PlanLintService alwaysAllowed subsumption', () => {
         expect((await service.lint('c1')).filter(f => f.kind === 'alwaysAllowed')).toHaveLength(0);
     });
 });
+
+/**
+ * Regression, found by running this service against card 0185's real plan rather than a fixture.
+ * The extractor accepted any backticked span that was multi-token with a lowercase first word, and
+ * `id BIGSERIAL PRIMARY KEY` — a column definition quoted in a migration task — satisfies both. It
+ * was reported as a command the stage would refuse, which is true and useless.
+ *
+ * The head must now also be a binary something knows about: one heading an entry on the stage's own
+ * allowlist, or one `CommandAllowlist` names itself.
+ */
+describe('PlanLintService command extraction', () => {
+    const prose = (tasks: string) => card({ tasks, filesInScope: 'apps/api/src/modules/board/**' });
+
+    it('does not treat quoted SQL as a command, however command-shaped it looks', async () => {
+        const c = prose('Columns: `id BIGSERIAL PRIMARY KEY`, `project TEXT NOT NULL`.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        expect(await service.lint('c1')).toHaveLength(0);
+    });
+
+    it('still reports a real command the stage would refuse', async () => {
+        const c = prose('Run `pnpm migrate:create card_context`, then `pnpm build`.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        const findings = await service.lint('c1');
+
+        expect(findings).toHaveLength(1);
+        expect(findings[0]!.message).toContain('pnpm migrate:create card_context');
+    });
+
+    it('recognises a binary CommandAllowlist names even when no allowlist entry heads with it', async () => {
+        // `dbmate` heads nothing on the allowlist; the list knows it by name as migration tooling.
+        const c = prose('Apply it with `dbmate -d ./data/migrations up`.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        expect(await service.lint('c1')).toHaveLength(1);
+    });
+
+    it('recognises a head from the stage’s own allowlist, so a project naming other binaries needs no code change', async () => {
+        const c = prose('Then `cargo build --release`.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['cargo test']));
+
+        expect(await service.lint('c1')).toHaveLength(1);
+    });
+});

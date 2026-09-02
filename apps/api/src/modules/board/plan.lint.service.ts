@@ -1,7 +1,7 @@
 import picomatch from 'picomatch';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
-import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { CommandAllowlist, isKnownBinary } from '#modules/agent/command.allowlist.js';
 import { findStage, StageConfigError, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from './board.repository.js';
@@ -38,11 +38,25 @@ const COMMAND_HEAD = /^[a-z][a-z0-9_-]*$/;
  * is never a command in this codebase's stage configs (`pnpm build`, `pnpm exec vitest run`); every
  * allowlist entry is at least two, so a lone word is left alone rather than run through the
  * allowlist and reported as refused for no reason a reader could act on.
+ *
+ * Shape alone is not enough, and card [[0185]]'s plan proved it: `id BIGSERIAL PRIMARY KEY`, quoted
+ * from a migration task, is multi-token with a lowercase head and was duly reported as a refused
+ * command. So the head must also be a binary something actually knows about — one heading an entry
+ * on this stage's own allowlist, or one `CommandAllowlist` names itself (`isKnownBinary`).
+ *
+ * The deliberate gap: a plan prescribing a binary no allowlist mentions and the allowlist has no
+ * opinion on — `psql`, say — is not recognised, so it is not reported. That is the safe direction
+ * for this lint. A missed finding costs what it cost before this check existed; a confident wrong
+ * one teaches an operator to stop reading.
  */
-const looksLikeCommand = (span: string): boolean => {
+const looksLikeCommand = (span: string, allowlistHeads: ReadonlySet<string>): boolean => {
     if (CODE_SYNTAX.test(span)) return false;
     const tokens = span.split(/\s+/).filter(Boolean);
-    return tokens.length >= 2 && COMMAND_HEAD.test(tokens[0]!);
+    if (tokens.length < 2) return false;
+
+    const head = tokens[0]!;
+    if (!COMMAND_HEAD.test(head)) return false;
+    return allowlistHeads.has(head) || isKnownBinary(head);
 };
 
 /**
@@ -62,11 +76,14 @@ const commandFindings = (card: Card, stages: ProjectStages): LintFinding[] => {
     }
 
     const allowlist = new CommandAllowlist(allowedCommands);
+    // The binaries this stage's own config mentions — `pnpm`, `git` — derived rather than listed, so
+    // a project whose allowlist names something else gets the same recognition with no code change.
+    const allowlistHeads = new Set(allowedCommands.map(entry => entry.trim().split(/\s+/)[0]).filter((head): head is string => Boolean(head)));
     const spans = new Set([...backtickedSpans(card.sections['Tasks']), ...backtickedSpans(card.sections['Constraints'])]);
 
     const findings: LintFinding[] = [];
     for (const span of spans) {
-        if (!looksLikeCommand(span)) continue;
+        if (!looksLikeCommand(span, allowlistHeads)) continue;
         const decision = allowlist.check(span);
         if (!decision.allowed) {
             findings.push({ kind: 'command', message: `\`${span}\` — ${decision.reason}` });
