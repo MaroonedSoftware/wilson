@@ -7,8 +7,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
+import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { PlanService } from '#modules/plan/plan.service.js';
+import { CardContextRepository } from '#modules/context/card.context.repository.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -942,6 +944,140 @@ describe('PlanService', () => {
         it('404s for a card that does not exist', async () => {
             const { service } = await freshEnv();
             await expect(service.turn('9999', { text: 'hi' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    /**
+     * Card 0188: a card's attached context snapshots ([[0185]]-[[0187]]: rows exist, a provider
+     * fills them, the API attaches them) reach the planning agent as quoted data, on the turn where
+     * each is new and never again. `CardContextRepository` is constructed directly against the same
+     * `db`/`config` `freshEnv` already hands every other test in this file, the same way
+     * `PlanTurnRepository` is above — `PlanService` exposes no method of its own to attach one.
+     */
+    describe('context', () => {
+        afterEach(() => {
+            sessionAgentCalls.length = 0;
+            instances.length = 0;
+            disposeSpy.mockClear();
+        });
+
+        it('a first turn on a card with an attached snapshot carries its manifest and quoted content, after the instructions and before the operator\'s own text', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const contextRepo = new CardContextRepository(config, db);
+                await contextRepo.attach(id, 'https://example.com/spec', DateTime.now(), 'human', 'The Spec', 'line one\nline two', 'hash1');
+
+                const result = await service.turn(id, { text: 'hello there' });
+
+                expect(result.content).toContain('Source: https://example.com/spec');
+                expect(result.content).toContain('by human');
+                expect(result.content).toContain('Title: The Spec');
+                expect(result.content).toContain('> line one');
+                expect(result.content).toContain('> line two');
+
+                const instructionsIdx = result.content.indexOf('Write a plan for this card');
+                const contextIdx = result.content.indexOf('Attached context');
+                const textIdx = result.content.indexOf('hello there');
+                expect(instructionsIdx).toBeGreaterThanOrEqual(0);
+                expect(contextIdx).toBeGreaterThan(instructionsIdx);
+                expect(textIdx).toBeGreaterThan(contextIdx);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a card with no snapshots at all builds a prompt byte-identical to what turn sent before this card existed', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const session = await service.open(id);
+
+                const result = await service.turn(id, { text: 'hello there' });
+
+                expect(result.content).toBe(`${session.instructions}\n\nhello there`);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a later turn, with nothing attached since the last one, carries no context block', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const contextRepo = new CardContextRepository(config, db);
+                await contextRepo.attach(id, 'https://example.com/spec', DateTime.now(), 'human', undefined, 'first doc', 'hash1');
+
+                await service.turn(id, { text: 'first message' });
+                const second = await service.turn(id, { text: 'second message' });
+
+                expect(second.content).toBe('second message');
+                expect(second.content).not.toContain('Attached context');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a snapshot attached between two turns reaches the very next turn, and no turn after that', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.turn(id, { text: 'first message' });
+
+                const contextRepo = new CardContextRepository(config, db);
+                await contextRepo.attach(id, 'https://example.com/mid', DateTime.now(), 'human', undefined, 'attached mid-conversation', 'hash2');
+
+                const second = await service.turn(id, { text: 'second message' });
+                expect(second.content).toContain('Attached context');
+                expect(second.content).toContain('attached mid-conversation');
+
+                const third = await service.turn(id, { text: 'third message' });
+                expect(third.content).toBe('third message');
+                expect(third.content).not.toContain('Attached context');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a snapshot whose content exceeds the prompt cap is truncated, and the block says so', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const cap = 100_000;
+                const oversized = `${'a'.repeat(cap)}THIS PART MUST BE CUT`;
+                const contextRepo = new CardContextRepository(config, db);
+                await contextRepo.attach(id, 'https://example.com/big', DateTime.now(), 'human', undefined, oversized, 'hash3');
+
+                const result = await service.turn(id, { text: 'go' });
+
+                expect(result.content).toContain(`truncated at ${cap} characters`);
+                expect(result.content).not.toContain('THIS PART MUST BE CUT');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('stores the user turn exactly as typed, without the context preamble the prompt to the engine carried', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const contextRepo = new CardContextRepository(config, db);
+                await contextRepo.attach(id, 'https://example.com/spec', DateTime.now(), 'human', undefined, 'fetched content', 'hash4');
+
+                await service.turn(id, { text: 'first message' });
+
+                const turnsRepo = new PlanTurnRepository(config, db);
+                const stored = await turnsRepo.since(id, 0);
+                expect(stored[0]!.content).toBe('first message');
+            } finally {
+                planSessions.dispose(id);
+            }
         });
     });
 });
