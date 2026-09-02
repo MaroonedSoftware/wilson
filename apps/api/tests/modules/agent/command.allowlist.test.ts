@@ -162,3 +162,55 @@ describe('CommandAllowlist glob refusal note', () => {
         expect((decision as { reason: string }).reason).not.toContain('Plain paths are accepted');
     });
 });
+
+/**
+ * Card 0192, decided 2026-09-02: migrations stay a human step. No stage carries the migration
+ * tooling, so a refusal here is permanent, and saying only "not in this stage's allowlist. Allowed:
+ * ..." reads like an invitation to find the right phrasing. Card 0185 accepted that invitation and
+ * spent three runs on spellings of a command that was never going to be allowed.
+ *
+ * Every case here fails on the pre-change tree, where each falls through to the generic refusal.
+ */
+describe('CommandAllowlist migration refusals', () => {
+    const list = new CommandAllowlist(['pnpm build', 'pnpm test', 'pnpm exec vitest run']);
+
+    // The spellings card 0185 actually produced, in the order it tried them.
+    const attempts = [
+        'pnpm migrate:create card_context',
+        'pnpm migrate:up',
+        'pnpm --filter @wilson/api migrate:create card_context',
+        'pnpm --dir /somewhere/apps/api migrate:create card_context',
+        'pnpm exec dbmate --help',
+        'dbmate -d ./data/migrations up',
+        'pnpm build:datatypes',
+    ];
+
+    for (const attempt of attempts) {
+        it(`refuses "${attempt}" by naming the policy, not the allowlist`, () => {
+            const decision = list.check(attempt);
+
+            expect(decision.allowed).toBe(false);
+            const reason = decision.allowed ? '' : decision.reason;
+            // The remedy, not merely the refusal: what to do instead, and that retrying is pointless.
+            expect(reason).toContain('by hand');
+            expect(reason).toContain('operator');
+            expect(reason).toContain('another form will not help');
+            // Never the generic list, which is what invited the retry loop.
+            expect(reason).not.toContain('Allowed: pnpm build');
+        });
+    }
+
+    it('does not mistake an ordinary allowed command for a migration', () => {
+        expect(list.check('pnpm build')).toMatchObject({ allowed: true });
+        expect(list.check('pnpm test')).toMatchObject({ allowed: true });
+    });
+
+    it('still refuses an unrelated command with the generic allowlist message', () => {
+        const decision = list.check('pnpm deploy');
+
+        expect(decision.allowed).toBe(false);
+        const reason = decision.allowed ? '' : decision.reason;
+        expect(reason).toContain("not in this stage's allowlist");
+        expect(reason).not.toContain('operator');
+    });
+});

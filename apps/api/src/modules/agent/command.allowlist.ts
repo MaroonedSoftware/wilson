@@ -86,6 +86,21 @@ const isSubsetTestAttempt = (argv: string[]): boolean => {
 const VITEST_RUN_ARGV = ['pnpm', 'exec', 'vitest', 'run'];
 
 /**
+ * Tokens that mean a command is reaching for the migration tooling, in any of the spellings card
+ * 0185 actually produced: `pnpm migrate:create`, `pnpm migrate:up`, `pnpm --filter @wilson/api
+ * migrate:create`, `pnpm --dir <path> migrate:create`, `pnpm exec dbmate`, bare `dbmate`, and
+ * `pnpm build:datatypes` — which is not itself a migration but needs a migrated database, so it
+ * fails for the same reason and wants the same answer.
+ *
+ * Matched anywhere in argv rather than at a fixed position, because `pnpm`'s own flags sit between
+ * the binary and the script name.
+ */
+const MIGRATION_TOKEN = /^(?:migrate:[a-z:]+|dbmate|build:datatypes)$/;
+
+/** Is this command reaching for the migration tooling, which no stage has? */
+const isMigrationAttempt = (argv: string[]): boolean => argv.some(token => MIGRATION_TOKEN.test(token));
+
+/**
  * Does this stage's own allowlist actually permit `pnpm exec vitest run`?
  *
  * Naming a command the stage cannot run would be worse than the generic refusal — the agent would
@@ -179,6 +194,22 @@ export class CommandAllowlist {
                 reason:
                     `${argv.join(' ')} is not in this stage's allowlist — use pnpm exec vitest run <path> instead, ` +
                     'with a path relative to the repo root, not to a package (it resolves against the root vitest.config.mts).',
+            };
+        }
+
+        // Card 0192, decided 2026-09-02: migrations stay a human step, so this refusal is permanent
+        // and no stage will ever carry these commands. Said explicitly for the reason
+        // `TOOL_EQUIVALENTS` above gives — "a refusal that only says no gets retried in variants" —
+        // which is exactly what card 0185 did, spending three runs on spellings of a command that
+        // was never going to be allowed. The generic refusal below lists what *is* allowed and so
+        // reads like an invitation to find the right phrasing; there isn't one.
+        if (isMigrationAttempt(argv)) {
+            return {
+                allowed: false,
+                reason:
+                    `${argv.join(' ')} is refused, and no stage's allowlist carries it: applying a migration needs a database ` +
+                    'connection, and an agent is given none (card 0194). Write the migration file by hand and leave applying it — ' +
+                    'and running whatever tests depend on it — to the operator (card 0192). Retrying this in another form will not help.',
             };
         }
 
