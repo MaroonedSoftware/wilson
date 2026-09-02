@@ -37,6 +37,24 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
+    // Card 0194. `AppConfigSourceDotenv` mutates `process.env` — the same load that puts
+    // `ANTHROPIC_API_KEY` there, which is why the line above exists — so the daemon holds
+    // `DATABASE_URL` and the copy above hands it to the engine, and to every Bash command the
+    // engine runs. That is a credentialed connection to the database holding `runner.cards`,
+    // `runner.card_versions` and `runner.stage_configs`: the board itself. Nothing exploited it
+    // because no allowlisted command takes a connection string, but that is the command allowlist
+    // holding the line — the guardrail decision 8's own note distinguishes from a boundary — and
+    // decision 6's "unreachable from a worktree by construction" is true of the disk (`.env` is
+    // gitignored, so no worktree has one) and was not true of this environment.
+    //
+    // A prefix rather than the five names: `DATABASE_URL` and the `DATABASE_HOST`/`PORT`/`USER`/
+    // `PASSWORD`/`NAME` set are the same secret in two shapes, and a sixth added to `.env` later
+    // should not need remembering here. `TEST_DATABASE_*` is deliberately untouched: it names the
+    // disposable tmpfs database the suite already writes to, and stripping it would change what
+    // `pnpm test` does inside a stage.
+    for (const key of Object.keys(env)) {
+        if (key.startsWith('DATABASE_')) delete env[key];
+    }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
 };
