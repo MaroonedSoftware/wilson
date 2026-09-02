@@ -174,6 +174,27 @@ export interface StageConfigs {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A snapshot of external context attached to a card — what `CardContextRepository` writes to and
+ * reads from. `sourceUrl`/`fetchedAt`/`fetchedBy` are the manifest a provider reports about the
+ * fetch; `title`/`content`/`contentHash` are what it fetched. See the migration's header comment
+ * for why `fetchedAt` and `createdAt` both exist, and why `contentHash` is declared here though
+ * nothing reads it yet. Nothing in this table enforces the trimming rule on `content` — that is
+ * the provider-seam card's job, not this schema's.
+ */
+export interface CardContext {
+    id: Generated<string>;
+    project: string;
+    cardId: string;
+    sourceUrl: string;
+    fetchedAt: ColumnType<DateTime, DateTime | string, never>;
+    fetchedBy: string;
+    title: string | null;
+    content: string;
+    contentHash: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -186,4 +207,5 @@ export interface DB {
     'runner.projects': Projects;
     'runner.leases': Leases;
     'runner.stageConfigs': StageConfigs;
+    'runner.cardContext': CardContext;
 }
