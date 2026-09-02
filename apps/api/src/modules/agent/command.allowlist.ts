@@ -116,6 +116,18 @@ const isMigrationAttempt = (argv: string[]): boolean => argv.some(token => MIGRA
 export const isKnownBinary = (token: string): boolean => Object.hasOwn(TOOL_EQUIVALENTS, token) || MIGRATION_TOKEN.test(token);
 
 /**
+ * Does `command` contain a character this list will refuse for having no shell to interpret it?
+ *
+ * Exported for `PlanLintService`, which needs the opposite conclusion from the one `check` draws.
+ * `check` sees shell syntax and refuses, correctly, because the command cannot run. The lint sees it
+ * and should stop looking: a span carrying a metacharacter is never a command a plan is prescribing,
+ * because no such command could ever run — it is prose using `*` or `|` as shorthand for a set, the
+ * way a plan writes \`pnpm migrate:*\` or \`pnpm build|test|lint\`. Reporting those as refused
+ * commands is true and useless, which is the one thing this lint cannot afford.
+ */
+export const hasShellSyntax = (command: string): boolean => SHELL_METACHARACTERS.test(command);
+
+/**
  * Does this stage's own allowlist actually permit `pnpm exec vitest run`?
  *
  * Naming a command the stage cannot run would be worse than the generic refusal — the agent would

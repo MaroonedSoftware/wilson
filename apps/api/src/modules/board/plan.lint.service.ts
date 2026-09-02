@@ -1,7 +1,7 @@
 import picomatch from 'picomatch';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
-import { CommandAllowlist, isKnownBinary } from '#modules/agent/command.allowlist.js';
+import { CommandAllowlist, hasShellSyntax, isKnownBinary } from '#modules/agent/command.allowlist.js';
 import { findStage, StageConfigError, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardRepository } from './board.repository.js';
@@ -51,6 +51,11 @@ const COMMAND_HEAD = /^[a-z][a-z0-9_-]*$/;
  */
 const looksLikeCommand = (span: string, allowlistHeads: ReadonlySet<string>): boolean => {
     if (CODE_SYNTAX.test(span)) return false;
+    // A span carrying shell syntax is prose using `*` or `|` as shorthand for a set of commands, not
+    // a command: `CommandAllowlist` would refuse it for exactly that reason, so reporting it says
+    // only that a thing which could never run cannot run. Found on card [[0187]]'s own plan, which
+    // writes `pnpm migrate:*` and `pnpm build|test|lint|install|codegen` when naming groups.
+    if (hasShellSyntax(span)) return false;
     const tokens = span.split(/\s+/).filter(Boolean);
     if (tokens.length < 2) return false;
 

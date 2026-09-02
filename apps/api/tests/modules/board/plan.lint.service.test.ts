@@ -230,3 +230,37 @@ describe('PlanLintService command extraction', () => {
         expect(await service.lint('c1')).toHaveLength(1);
     });
 });
+
+/**
+ * Regression, found by sweeping the lint across the board's own cards. Card 0187's plan writes
+ * `pnpm migrate:*` and `pnpm build|test|lint|install|codegen` when naming groups of commands in
+ * prose. Both were reported as refused — accurately, since `CommandAllowlist` refuses anything
+ * carrying shell syntax — and uselessly, since neither was ever a command the plan prescribed.
+ *
+ * A span with a metacharacter cannot be a command a plan means to run, because no such command can
+ * run at all. Both cases fail on the pre-change tree.
+ */
+describe('PlanLintService and shell-syntax prose', () => {
+    const prose = (tasks: string) => card({ tasks, filesInScope: 'apps/api/src/modules/board/**' });
+
+    it('ignores a glob used as shorthand for a family of commands', async () => {
+        const c = prose('Do not reach for `pnpm migrate:*` — no stage carries it.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        expect(await service.lint('c1')).toHaveLength(0);
+    });
+
+    it('ignores an alternation used as shorthand for an allowlist', async () => {
+        const c = prose('This stage allows `pnpm build|test|lint|install|codegen` and read-only git.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        expect(await service.lint('c1')).toHaveLength(0);
+    });
+
+    it('still reports a real command, which carries no shell syntax to begin with', async () => {
+        const c = prose('Run `pnpm migrate:up` first.');
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
+
+        expect(await service.lint('c1')).toHaveLength(1);
+    });
+});
