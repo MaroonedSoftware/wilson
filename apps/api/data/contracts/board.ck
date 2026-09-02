@@ -5,6 +5,7 @@ options {
         BoardBootstrapService: "#modules/board/board.bootstrap.service.js"
         StagesService: "#modules/stages/stages.service.js"
         PlanService: "#modules/plan/plan.service.js"
+        PlanLintService: "#modules/board/plan.lint.service.js"
     }
     security: none
 }
@@ -297,6 +298,18 @@ contract SplitCardsRequest: {
 contract SplitResult: {
     origin: CardDetail
     pieces: array(CardDetail)
+}
+
+# Card 0193. One thing `PlanLintService` found wrong with a plan when checked against the config the
+# runner will actually enforce — never a judgement on the plan's prose (that stays a human's job, or
+# `review`'s), only what a stage's own `CommandAllowlist`, a project's `alwaysAllowed` list, or the
+# literal shape of a `Files in scope` line actually decide. `kind` names which of the three checks
+# produced it; `message` already carries whatever specifics matter (the allowlist's own refusal
+# reason, the glob this suggests, which `alwaysAllowed` entry already covers the line) rather than
+# splitting them into fields a client would have to reassemble into the same sentence.
+contract LintFinding: {
+    kind: enum(command, exactPath, alwaysAllowed)
+    message: string
 }
 
 operation /api/cards: {
@@ -624,6 +637,27 @@ operation /api/cards/{id}/split: {
             # Fewer than two pieces, duplicate piece titles, or a `dependsOn` that names itself or a
             # title not among the pieces being created — carried via `details`.
             400:
+            404:
+        }
+    }
+}
+
+# Card 0193. Checks a plan against the config the runner will actually enforce — a stage's
+# `CommandAllowlist`, the project's `alwaysAllowed` list, the literal shape of a `Files in scope`
+# line — and reports what it finds. Read-only, like `division` above: nothing here blocks `approve`
+# or any other transition (see `PlanLintService`'s own doc comment for why), so a client is free to
+# call this whenever it wants a second opinion, not only right before approving.
+operation /api/cards/{id}/lint: {
+    params: {
+        id: string
+    }
+    get: {
+        name: Lint a card plan
+        service: PlanLintService.lint
+        response: {
+            200: {
+                application/json: array(LintFinding)
+            }
             404:
         }
     }

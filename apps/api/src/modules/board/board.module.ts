@@ -14,6 +14,7 @@ import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
 import { BoardWriteService } from './board.write.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
+import { PlanLintService } from './plan.lint.service.js';
 import { ProjectsService } from './projects.service.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
@@ -100,6 +101,9 @@ export const BoardModule: ServerKitModule = {
         // `WorktreeModule` registers `WorktreeManager` this service depends on — order doesn't matter
         // here, `setup` only registers tokens, it does not resolve them.
         registry.register(PlanService).useClass(PlanService).asTransient();
+        // Card 0193. `GET /api/cards/{id}/lint`'s service — `BoardRepository` and `StageConfigStore`
+        // are already registered above, the same two tokens every other service resolved here shares.
+        registry.register(PlanLintService).useClass(PlanLintService).asTransient();
         // Card 0149: unregistered at `setup` time for the same reason `ProjectRepository`'s own doc
         // comment gives — no container to inject a `Kysely<DB>` into yet. Registered here so `Poller`
         // and this module's own `start` hook below can inject it once the container exists; `setup`
