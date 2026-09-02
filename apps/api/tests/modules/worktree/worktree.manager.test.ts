@@ -295,6 +295,22 @@ describe('WorktreeManager', () => {
             await writeFile(join(worktree.path, 'src', 'new.ts'), 'export const n = 1;\n', 'utf8');
             await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/new.ts']);
         });
+
+        // Card 0191. The tests above write into `src/`, which the fixture repo already tracks, so
+        // every one of them passed while this case was broken: `git status --porcelain` on its own
+        // collapses an *untracked* directory into a single entry, and this returned
+        // `src/modules/` rather than the two files. The implementing verifier matches each of
+        // these paths against the plan's file globs, which no directory can satisfy, so a card
+        // creating a new directory failed however its plan was written — card 0186 lost three
+        // attempts to it.
+        it('lists the files under a directory the stage created, not the directory itself', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await mkdir(join(worktree.path, 'src', 'modules', 'context'), { recursive: true });
+            await writeFile(join(worktree.path, 'src', 'modules', 'context', 'a.ts'), 'export const a = 1;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'modules', 'context', 'b.ts'), 'export const b = 2;\n', 'utf8');
+
+            await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/modules/context/a.ts', 'src/modules/context/b.ts']);
+        });
     });
 
     describe('resume', () => {

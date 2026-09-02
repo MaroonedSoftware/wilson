@@ -456,9 +456,23 @@ export class WorktreeManager {
      * whole card across every stage. On a resumed branch that list is never empty, so it cannot
      * answer "did *this* stage write anything" — which is exactly what a read-only stage must be
      * held to.
+     *
+     * `--untracked-files=all` is load-bearing, not tidiness. Without it `git status --porcelain`
+     * collapses an untracked directory into one entry — `?? src/modules/`, the topmost new
+     * directory, not even the leaf — instead of listing the files beneath it. `ImplementingVerifier`
+     * matches every path this returns against the plan's file globs, and no directory satisfies a
+     * file glob, so a card that created a directory failed scope-check however its plan was written.
+     * Card 0186 lost three attempts to it while the same event's `changedPaths` listed its five
+     * declared files correctly — because `changedPaths` never had the bug, reaching for
+     * `ls-files --others --exclude-standard` a few lines below. This makes the two agree.
+     *
+     * The other two callers only ask whether this list is empty (`ReviewVerifier`,
+     * `ScopeCheckVerifier`: a read-only stage must write nothing). A collapsed directory and its
+     * expanded files are both non-empty, so their verdicts are unchanged; they now name the files
+     * rather than the directory when they refuse, which is strictly more useful.
      */
     async uncommittedPaths(worktree: Worktree): Promise<string[]> {
-        const { stdout } = await git(worktree.path, ['status', '--porcelain']);
+        const { stdout } = await git(worktree.path, ['status', '--porcelain', '--untracked-files=all']);
         return stdout
             .split('\n')
             .map(line => line.slice(3).trim())
