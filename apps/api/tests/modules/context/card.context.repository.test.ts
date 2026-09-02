@@ -98,6 +98,15 @@ describe('CardContextRepository', () => {
         await expect(repo.remove('999999999')).resolves.toBeUndefined();
     });
 
+    it('rejects attach for a card id with no matching card row, the composite FK\'s other half', async () => {
+        // The FK is `(project, card_id) REFERENCES runner.cards (project, id)` — cascade-on-delete
+        // is only half of what that buys; a snapshot must never land for a card that never existed
+        // in the first place.
+        await expect(repo.attach('no-such-card', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a')).rejects.toThrow();
+
+        expect(await repo.list('no-such-card')).toEqual([]);
+    });
+
     it('cascades on card deletion: deleting the card removes its snapshots', async () => {
         const snapshot = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
 
