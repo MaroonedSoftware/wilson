@@ -90,6 +90,31 @@ export class BoardWriteService {
     }
 
     /**
+     * Card 0203. Create a card reported by a `CardSource`, carrying its external ref. `create`'s own
+     * body, with two differences that are the whole point of this method: `stage` is always
+     * `parking-lot`, never a caller's choice — a source may not promote, the same rule the card
+     * poller follows (this card's Constraints) — and `frontmatter.external` records `{ [source]:
+     * externalId }` so `InboundCardWriter` can find this card again on the next report.
+     *
+     * Internal rather than a wider `CreateCardRequest`: that type is generated from `board.ck` and has
+     * no `external` field, and adding one there would change the generated code and the SDK for a
+     * caller — a `CardSource` — that is not on the wire (this card's Constraints, "no HTTP surface").
+     * Returns the stored `Card`, not a `CardDetail`: there is no wire contract for this method to
+     * shape a response for, and `toCardDetail` does not carry `external` anyway.
+     */
+    async createFromSource(source: string, externalId: string, title: string, body: string): Promise<Card> {
+        const id = nextCardId(await this.boardRepository.list());
+        const card: Card = {
+            frontmatter: { id, title, stage: 'parking-lot', dependsOn: [], retries: {}, external: { [source]: externalId } },
+            sections: {},
+            body,
+        };
+
+        await this.boardRepository.create(card, `Create ${id} from ${source} ${externalId}: ${title}`);
+        return this.boardRepository.read(id);
+    }
+
+    /**
      * Move a card to another stage, recording the transition. Mirrors `wilson card move`,
      * including its two edge cases: a move to the card's current stage still clears a `needsHuman`
      * flag rather than being a no-op, and a terminal target reclaims the card's worktree

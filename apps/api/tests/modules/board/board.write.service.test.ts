@@ -234,6 +234,42 @@ describe('BoardWriteService', () => {
         });
     });
 
+    describe('createFromSource', () => {
+        it('creates the card in parking-lot with the external ref recorded, regardless of the id passed', async () => {
+            const { board, service } = freshBoard();
+
+            const created = await service.createFromSource('linear', 'ENG-123', 'Fix the thing', 'It is broken.');
+
+            expect(created.frontmatter.stage).toBe('parking-lot');
+            expect(created.frontmatter.title).toBe('Fix the thing');
+            expect(created.body).toBe('It is broken.');
+            expect(created.frontmatter.external).toEqual({ linear: 'ENG-123' });
+
+            const stored = await board.read(created.frontmatter.id);
+            expect(stored.frontmatter.external).toEqual({ linear: 'ENG-123' });
+            expect(stored.frontmatter.stage).toBe('parking-lot');
+        });
+
+        it('assigns the next sequential id, the same as `create`', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0001', { stage: 'implementing' }), 'seed');
+
+            const created = await service.createFromSource('linear', 'ENG-1', 'Title', 'Body');
+
+            expect(created.frontmatter.id).toBe('0002');
+        });
+
+        it('records a version message naming the source and external id', async () => {
+            const { board, service } = freshBoard();
+
+            const created = await service.createFromSource('linear', 'ENG-9', 'Traceable', 'x');
+
+            const versions = await board.versions(created.frontmatter.id, 10);
+            expect(versions).toHaveLength(1);
+            expect(versions[0].message).toBe(`Create ${created.frontmatter.id} from linear ENG-9: Traceable`);
+        });
+    });
+
     describe('move', () => {
         it('refuses a target the stage graph does not define with a 400 carrying the same reason `wilson card move` reports', async () => {
             const { board, service } = freshBoard();
