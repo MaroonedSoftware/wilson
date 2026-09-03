@@ -26,4 +26,14 @@ export class CardSourceRegistry {
         }
         return { ok: true, source };
     }
+
+    /**
+     * Every registered source, in registration order. Card 0198's `SourcePoller` is the first caller:
+     * a poll has no single name to `resolve` against, it walks all of them each tick. Empty today —
+     * `SourcesModule` constructs this registry with no sources — which is why that poller imports
+     * nothing at runtime until a source is registered ([[0199]]).
+     */
+    list(): readonly CardSource[] {
+        return this.sources;
+    }
 }

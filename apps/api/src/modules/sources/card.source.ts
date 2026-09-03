@@ -16,9 +16,17 @@ export type CardSourceItem = {
  * A source's report of what changed since `cursor` — `{ ok: true }` or a refusal naming why, never a
  * throw, shaped after `WebhookDestinationCheck` (`#modules/notify/webhook.destination.js`), the house
  * shape for "this failed, here is why".
+ *
+ * The success branch carries `cursor` forward — the value the *next* `changedSince` call should be
+ * handed, opaque to everything but the source that produced it (`runner.source_cursors`'s own doc
+ * comment: "a timestamp for one source, an ETag or an opaque page token for another"). Required, not
+ * optional: a source answers "what changed, and where am I now" together, every time it succeeds,
+ * even when `items` is empty — there is always a point to resume from, whether or not anything
+ * actually changed since the last one. Card 0198's poller (`source.poller.ts`) is what actually
+ * persists it, only on this branch and only once every reported item has been applied.
  */
 export type CardSourceFetchResult =
-    | { readonly ok: true; readonly items: readonly CardSourceItem[] }
+    | { readonly ok: true; readonly items: readonly CardSourceItem[]; readonly cursor: string }
     | { readonly ok: false; readonly reason: string };
 
 /**
