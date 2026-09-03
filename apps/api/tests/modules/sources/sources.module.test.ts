@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import type { Container, Identifier, Registry } from 'injectkit';
 import { BoardModule } from '#modules/board/board.module.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CardSourceRegistry } from '#modules/sources/card.source.registry.js';
+import { GitHubIssuesSource } from '#modules/sources/github.issues.source.js';
 import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
 import { SourcePoller } from '#modules/sources/source.poller.js';
@@ -68,7 +70,12 @@ const recordingRegistry = (): { registry: Registry; registrations: Map<unknown, 
 };
 
 describe('SourcesModule.setup', () => {
-    const fakeConfig = (): AppConfig => ({ get: () => 'unused' }) as unknown as AppConfig;
+    // `GITHUB_TOKEN`/`GITHUB_REPO` default to unset here — every test below except card 0199's own
+    // gating tests wants the pre-0199 registry-construction behaviour, not a `GitHubIssuesSource`
+    // sneaking in because a generic "any key returns something" stub happened to satisfy both.
+    const fakeConfig = (env: Record<string, string> = {}): AppConfig =>
+        ({ get: (key: string) => env[key] ?? (key === 'GITHUB_TOKEN' || key === 'GITHUB_REPO' ? '' : 'unused') }) as unknown as AppConfig;
+    const fakeContainerWithSettings = (): Container => ({ get: (id: unknown) => (id === SettingsStore ? ({} as SettingsStore) : undefined) }) as unknown as Container;
 
     it('registers InboundCardWriter as a plain useClass registration', async () => {
         const { registry, registrations } = recordingRegistry();
@@ -107,8 +114,10 @@ describe('SourcesModule.setup', () => {
 
     /**
      * Card 0198. `CardSourceRegistry` follows `ContextProviderRegistry`'s own registration: constructed
-     * with a plain array, not a set of DI tokens, so `.useFactory` builds it directly — with no
-     * sources, per this card's Constraints ("stays constructed with an empty list").
+     * with a plain array, not a set of DI tokens, so `.useFactory` builds it directly. Card 0199: with
+     * `GITHUB_TOKEN`/`GITHUB_REPO` unset (this describe block's own default `fakeConfig()`), that array
+     * stays empty — exactly [[0196]]'s "stays constructed with an empty list" until something is
+     * actually configured to register.
      */
     it('registers CardSourceRegistry via useFactory with an empty source list, as a singleton', async () => {
         const { registry, registrations } = recordingRegistry();
@@ -118,7 +127,45 @@ describe('SourcesModule.setup', () => {
         const entry = registrations.get(CardSourceRegistry);
         expect(entry?.kind).toBe('useFactory');
         expect(entry?.lifetime).toBe('singleton');
-        const built = (entry?.impl as () => CardSourceRegistry)();
+        const built = (entry?.impl as (container: Container) => CardSourceRegistry)(fakeContainerWithSettings());
+        expect(built.list()).toEqual([]);
+    });
+
+    /**
+     * Card 0199, this card's own registration gate: `GitHubIssuesSource` is constructed and added to
+     * the array `CardSourceRegistry`'s factory builds only when `GITHUB_TOKEN` and `GITHUB_REPO` are
+     * both present in the environment at boot — read once in `setup`, not per tick (this card's
+     * Constraints, "Registration is all-or-nothing at boot, on the environment").
+     */
+    it('registers GitHubIssuesSource when GITHUB_TOKEN and GITHUB_REPO are both set', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig({ GITHUB_TOKEN: 'ghp_tok', GITHUB_REPO: 'octocat/hello-world' }));
+
+        const entry = registrations.get(CardSourceRegistry);
+        const built = (entry?.impl as (container: Container) => CardSourceRegistry)(fakeContainerWithSettings());
+        const sources = built.list();
+        expect(sources).toHaveLength(1);
+        expect(sources[0]).toBeInstanceOf(GitHubIssuesSource);
+        expect(sources[0]!.name).toBe('github');
+    });
+
+    /**
+     * Card 0199's acceptance criteria: with `GITHUB_TOKEN` unset, `SourcesModule` registers no source
+     * and `CardSourceRegistry.list()` is empty, exactly as today — proven here for each variable
+     * missing on its own, not only both together.
+     */
+    it.each([
+        ['GITHUB_TOKEN missing', { GITHUB_REPO: 'octocat/hello-world' }],
+        ['GITHUB_REPO missing', { GITHUB_TOKEN: 'ghp_tok' }],
+        ['both missing', {}],
+    ])('registers no source when %s', async (_label, env) => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig(env));
+
+        const entry = registrations.get(CardSourceRegistry);
+        const built = (entry?.impl as (container: Container) => CardSourceRegistry)(fakeContainerWithSettings());
         expect(built.list()).toEqual([]);
     });
 

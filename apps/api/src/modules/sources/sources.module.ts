@@ -4,7 +4,11 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
+import { optionalConfigString } from '#shared/require.config.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import type { CardSource } from './card.source.js';
 import { CardSourceRegistry } from './card.source.registry.js';
+import { GitHubIssuesSource } from './github.issues.source.js';
 import { InboundCardWriter } from './inbound.card.writer.js';
 import { SourceCursorRepository } from './source.cursor.repository.js';
 import { SourcePoller } from './source.poller.js';
@@ -22,21 +26,44 @@ import { SourcePoller } from './source.poller.js';
  * itself, `.useClass`, singleton — it owns one interval timer for the process, the same reason
  * `Poller` is a singleton in `jobs.module.ts`.
  *
+ * Card 0199 is what finally hands `CardSourceRegistry`'s factory something to construct: `GITHUB_TOKEN`
+ * and `GITHUB_REPO` are read once, here, via `optionalConfigString` — not `SettingsStore`, since a
+ * `SettingDefinition` resolves per current project and `setup` runs at boot with none current — and
+ * closed over by the factory, so `GitHubIssuesSource` is constructed (with the resolved `SettingsStore`
+ * for the repo/label it reads on every `changedSince`) only when both are present, exactly once, at
+ * boot. Neither unset leaves the registry exactly as empty as [[0196]] shipped it.
+ *
+
  * Listed after `Board` in `modules.ts` for a reader tracing the dependency the same direction the
  * list reads — `setup` only registers tokens, so the actual container resolution does not depend on
  * this order (see `BoardModule`'s own note on the same point).
  */
 export const SourcesModule: ServerKitModule = {
     name: 'Sources',
-    setup: async (registry: Registry, _: AppConfig) => {
+    setup: async (registry: Registry, config: AppConfig) => {
         registry.register(InboundCardWriter).useClass(InboundCardWriter).asTransient();
         registry
             .register(SourceCursorRepository)
             .useFactory(container => new SourceCursorRepository(container.get(BoardConfig), container.get(Kysely<DB>)))
             .asTransient();
+        // Card 0199: registration is all-or-nothing at boot, on the environment — read once here,
+        // in `setup`, and closed over by the factory below, never re-read per tick. Both unset is
+        // the deployment's own idiom (`NOTIFY_WEBHOOK_URL`'s "unset turns it off entirely, no
+        // warning, no HTTP call"): the registry stays empty exactly as it does today. `GITHUB_REPO`
+        // and `GITHUB_LABEL` themselves are `SettingDefinition`s (`GitHubIssuesSource` reads them,
+        // scoped per project, fresh on every `changedSince`); only the token and the yes/no
+        // decision to register at all come from here.
+        const githubToken = optionalConfigString(config, 'GITHUB_TOKEN');
+        const githubRepo = optionalConfigString(config, 'GITHUB_REPO');
         registry
             .register(CardSourceRegistry)
-            .useFactory(() => new CardSourceRegistry([]))
+            .useFactory(container => {
+                const sources: CardSource[] = [];
+                if (githubToken && githubRepo) {
+                    sources.push(new GitHubIssuesSource(container.get(SettingsStore), githubToken));
+                }
+                return new CardSourceRegistry(sources);
+            })
             .asSingleton();
         registry.register(SourcePoller).useClass(SourcePoller).asSingleton();
     },
