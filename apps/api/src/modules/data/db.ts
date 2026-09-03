@@ -195,6 +195,20 @@ export interface CardContext {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * Where each card source left off — the cursor `CardSource.changedSince` is handed on the next
+ * tick, one row per `(project, source)`. `source` is the same name a ref is stored under in
+ * `Cards.external`. A source with no row yet has no cursor: `SourceCursorRepository.get` reports
+ * that as `undefined`, which card 0196's interface documents as "since the beginning".
+ */
+export interface SourceCursors {
+    project: string;
+    source: string;
+    /** Opaque to the board: a timestamp, an ETag or a page token, whatever the source last gave. */
+    cursor: string;
+    updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string | undefined>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -208,4 +222,5 @@ export interface DB {
     'runner.leases': Leases;
     'runner.stageConfigs': StageConfigs;
     'runner.cardContext': CardContext;
+    'runner.sourceCursors': SourceCursors;
 }
