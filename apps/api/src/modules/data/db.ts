@@ -209,6 +209,19 @@ export interface SourceCursors {
     updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string | undefined>;
 }
 
+/**
+ * A generic key/value entry with expiry — the table `@maroonedsoftware/cache`'s `CacheProvider` is
+ * backed by in this deployment (card 0197). `expires_at` is an absolute point, not a TTL: every
+ * `CacheProvider` method already computes one, and storing the deadline directly is what makes both
+ * a plain read (`WHERE expiresAt > now()`) and the atomic claim `add` needs (an expired row must
+ * read as absent) a comparison rather than a computed one.
+ */
+export interface CacheEntries {
+    key: string;
+    value: string;
+    expiresAt: ColumnType<DateTime, DateTime | string, DateTime | string>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -223,4 +236,5 @@ export interface DB {
     'runner.stageConfigs': StageConfigs;
     'runner.cardContext': CardContext;
     'runner.sourceCursors': SourceCursors;
+    'runner.cacheEntries': CacheEntries;
 }
