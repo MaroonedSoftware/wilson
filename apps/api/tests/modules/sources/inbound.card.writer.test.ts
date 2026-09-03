@@ -151,4 +151,29 @@ describe('InboundCardWriter', () => {
         expect(created!.frontmatter.branch).toBeUndefined();
         expect(created!.frontmatter.retries).toEqual({});
     });
+
+    /**
+     * The create path staying in `parking-lot` (covered above) only proves half of "a source may
+     * never touch `stage`" — the update path goes through `rename`/`edit`, not `createFromSource`,
+     * so it needs its own check. A card a human has since promoted out of `parking-lot` (the board's
+     * own move, bypassing the writer entirely, the way an operator's drag would) must stay exactly
+     * where the human put it when the same external ref is reported again — `apply`'s update branch
+     * has no parameter that could carry a stage even if it wanted to.
+     */
+    it('does not move a card a human has since promoted, when the same external ref is reported again', async () => {
+        const { board, writer } = freshWriter();
+        await writer.apply('linear', item({ externalId: 'ENG-1', title: 'First' }));
+        const [created] = await board.list();
+        await board.write(created!.frontmatter.id, 'operator promotes it by hand', card => ({
+            ...card,
+            frontmatter: { ...card.frontmatter, stage: 'implementing' },
+        }));
+
+        await writer.apply('linear', item({ externalId: 'ENG-1', title: 'First (updated upstream)' }));
+
+        const cards = await board.list();
+        expect(cards).toHaveLength(1);
+        expect(cards[0]!.frontmatter.stage).toBe('implementing');
+        expect(cards[0]!.frontmatter.title).toBe('First (updated upstream)');
+    });
 });
