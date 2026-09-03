@@ -64,4 +64,20 @@ describe('CardSourceRegistry', () => {
 
         expect(result).toEqual({ ok: true, source: first });
     });
+
+    describe('list', () => {
+        it('returns every registered source, in registration order', () => {
+            const linear = fakeSource('linear');
+            const github = fakeSource('github');
+            const registry = new CardSourceRegistry([linear, github]);
+
+            expect(registry.list()).toEqual([linear, github]);
+        });
+
+        it('returns an empty list when constructed with no sources — the intended state until a source registers ([[0199]])', () => {
+            const registry = new CardSourceRegistry([]);
+
+            expect(registry.list()).toEqual([]);
+        });
+    });
 });

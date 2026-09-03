@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
-import type { Identifier, Registry } from 'injectkit';
+import type { Container, Identifier, Registry } from 'injectkit';
 import { BoardModule } from '#modules/board/board.module.js';
+import { CardSourceRegistry } from '#modules/sources/card.source.registry.js';
 import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
+import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
+import { SourcePoller } from '#modules/sources/source.poller.js';
 import { SourcesModule } from '#modules/sources/sources.module.js';
 import { modules } from '#modules/modules.js';
 
@@ -19,42 +22,60 @@ import { modules } from '#modules/modules.js';
  * *describes* registrations, so reading back what it described needs no container build and no
  * database.
  */
+/** One registration as `recordingRegistry` below sees it: which `register(...)` call closed it out
+ * (`useClass`/`useFactory`/`useInstance`, and what was handed to it), and which lifetime method was
+ * called on the returned handle. */
+type Registration = { kind: 'useClass' | 'useFactory' | 'useInstance'; impl: unknown; lifetime: string };
+
+/** Records what `register(...)` was called with — `useClass`'s implementation, or `useFactory`'s
+ * factory function itself so a test can invoke it against a fake container — and which lifetime
+ * method closed it out. Follows `JobsModule.setup`'s own `recordingRegistry` idiom
+ * (`jobs.module.test.ts`): `setup` only ever *describes* registrations, so reading them back needs no
+ * container build and no database. */
+const recordingRegistry = (): { registry: Registry; registrations: Map<unknown, Registration> } => {
+    const registrations = new Map<unknown, Registration>();
+    const lifetimeHandle = (entry: Registration) => ({
+        asSingleton: () => {
+            entry.lifetime = 'singleton';
+        },
+        asTransient: () => {
+            entry.lifetime = 'transient';
+        },
+        asScoped: () => {
+            entry.lifetime = 'scoped';
+        },
+    });
+    const registry = {
+        register: (id: Identifier<unknown>) => ({
+            useClass: (impl: unknown) => {
+                const entry: Registration = { kind: 'useClass', impl, lifetime: 'unset' };
+                registrations.set(id, entry);
+                return lifetimeHandle(entry);
+            },
+            useFactory: (impl: unknown) => {
+                const entry: Registration = { kind: 'useFactory', impl, lifetime: 'unset' };
+                registrations.set(id, entry);
+                return lifetimeHandle(entry);
+            },
+            useInstance: (impl: unknown) => {
+                const entry: Registration = { kind: 'useInstance', impl, lifetime: 'unset' };
+                registrations.set(id, entry);
+                return lifetimeHandle(entry);
+            },
+        }),
+    } as unknown as Registry;
+    return { registry, registrations };
+};
+
 describe('SourcesModule.setup', () => {
     const fakeConfig = (): AppConfig => ({ get: () => 'unused' }) as unknown as AppConfig;
-
-    /** Records what `register(...)` was called with and which lifetime method closed it out. */
-    const recordingRegistry = (): { registry: Registry; registrations: Map<unknown, { useClass: unknown; lifetime: string }> } => {
-        const registrations = new Map<unknown, { useClass: unknown; lifetime: string }>();
-        const registry = {
-            register: (id: Identifier<unknown>) => ({
-                useClass: (impl: unknown) => {
-                    const entry = { useClass: impl, lifetime: 'unset' };
-                    registrations.set(id, entry);
-                    return {
-                        asSingleton: () => {
-                            entry.lifetime = 'singleton';
-                        },
-                        asTransient: () => {
-                            entry.lifetime = 'transient';
-                        },
-                        asScoped: () => {
-                            entry.lifetime = 'scoped';
-                        },
-                    };
-                },
-                useFactory: () => ({ asSingleton: () => {}, asTransient: () => {}, asScoped: () => {} }),
-                useInstance: () => ({ asSingleton: () => {}, asTransient: () => {}, asScoped: () => {} }),
-            }),
-        } as unknown as Registry;
-        return { registry, registrations };
-    };
 
     it('registers InboundCardWriter as a plain useClass registration', async () => {
         const { registry, registrations } = recordingRegistry();
 
         await SourcesModule.setup!(registry, fakeConfig());
 
-        expect(registrations.get(InboundCardWriter)?.useClass).toBe(InboundCardWriter);
+        expect(registrations.get(InboundCardWriter)?.impl).toBe(InboundCardWriter);
     });
 
     // `InboundCardWriter` carries no state of its own to protect across calls, but a stray
@@ -69,8 +90,91 @@ describe('SourcesModule.setup', () => {
         expect(registrations.get(InboundCardWriter)?.lifetime).toBe('transient');
     });
 
+    /**
+     * Card 0198. `SourceCursorRepository` follows `CardContextRepository`'s own registration in
+     * `ContextModule`: `.useFactory`, because the class needs the process's `Kysely<DB>` pool, not
+     * something `useClass`'s reflection can supply on its own.
+     */
+    it('registers SourceCursorRepository via useFactory, transient', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(SourceCursorRepository);
+        expect(entry?.kind).toBe('useFactory');
+        expect(entry?.lifetime).toBe('transient');
+    });
+
+    /**
+     * Card 0198. `CardSourceRegistry` follows `ContextProviderRegistry`'s own registration: constructed
+     * with a plain array, not a set of DI tokens, so `.useFactory` builds it directly — with no
+     * sources, per this card's Constraints ("stays constructed with an empty list").
+     */
+    it('registers CardSourceRegistry via useFactory with an empty source list, as a singleton', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(CardSourceRegistry);
+        expect(entry?.kind).toBe('useFactory');
+        expect(entry?.lifetime).toBe('singleton');
+        const built = (entry?.impl as () => CardSourceRegistry)();
+        expect(built.list()).toEqual([]);
+    });
+
+    /**
+     * Card 0198. `SourcePoller` owns one interval timer for the process — the same reason `Poller` is
+     * a singleton in `jobs.module.ts`.
+     */
+    it('registers SourcePoller as a useClass singleton', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(SourcePoller);
+        expect(entry?.kind).toBe('useClass');
+        expect(entry?.impl).toBe(SourcePoller);
+        expect(entry?.lifetime).toBe('singleton');
+    });
+
     it('names itself "Sources"', () => {
         expect(SourcesModule.name).toBe('Sources');
+    });
+});
+
+/**
+ * Card 0198, task 4: `SourcesModule` gains `start`/`shutdown` hooks resolving `SourcePoller` from the
+ * container and calling `start()`/`stop()` — the shape `JobsModule` uses for `JobRunner`.
+ * Unconditional, unlike `JobsModule`'s `BoundedCardStageJobRunner.start()`: nothing here asks
+ * `SOURCE_POLL_ENABLED` — that setting is `SourcePoller.tickProject`'s own question, per project, on
+ * every tick, not a gate on whether the loop runs at all.
+ */
+describe('SourcesModule start/shutdown', () => {
+    const fakeContainer = (poller: { start: () => void; stop: () => Promise<void> }): Container =>
+        ({ get: (id: unknown) => (id === SourcePoller ? poller : undefined) }) as unknown as Container;
+
+    it('start calls SourcePoller.start()', async () => {
+        const poller = { start: vi.fn(), stop: vi.fn(async () => {}) };
+
+        await SourcesModule.start!(fakeContainer(poller));
+
+        expect(poller.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('shutdown calls and awaits SourcePoller.stop()', async () => {
+        let resolved = false;
+        const poller = {
+            start: vi.fn(),
+            stop: vi.fn(async () => {
+                await Promise.resolve();
+                resolved = true;
+            }),
+        };
+
+        await SourcesModule.shutdown!(fakeContainer(poller));
+
+        expect(poller.stop).toHaveBeenCalledTimes(1);
+        expect(resolved).toBe(true);
     });
 });
 

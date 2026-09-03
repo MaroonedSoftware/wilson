@@ -3,9 +3,9 @@ import type { CardSource, CardSourceFetchResult, CardSourceItem } from '#modules
 
 /** A stub `CardSource` that hands back a fixed set of items regardless of `cursor` — enough to prove
  * the interface's item shape round-trips, without a network call or a database. */
-const stubSource = (items: readonly CardSourceItem[]): CardSource => ({
+const stubSource = (items: readonly CardSourceItem[], cursor = 'stub-cursor'): CardSource => ({
     name: 'stub',
-    changedSince: async () => ({ ok: true, items }),
+    changedSince: async () => ({ ok: true, items, cursor }),
 });
 
 /** A stub `CardSource` that always refuses — proves the `{ ok: false; reason }` branch of
@@ -22,7 +22,7 @@ describe('CardSource', () => {
 
         const result = await source.changedSince(undefined);
 
-        expect(result).toEqual({ ok: true, items: [item] });
+        expect(result).toEqual({ ok: true, items: [item], cursor: 'stub-cursor' });
     });
 
     it('round-trips multiple items in a single fetch', async () => {
@@ -34,7 +34,15 @@ describe('CardSource', () => {
 
         const result = await source.changedSince(undefined);
 
-        expect(result).toEqual({ ok: true, items });
+        expect(result).toEqual({ ok: true, items, cursor: 'stub-cursor' });
+    });
+
+    it('carries the cursor to resume from on the next call, even when nothing changed', async () => {
+        const source = stubSource([], 'cursor-99');
+
+        const result = await source.changedSince(undefined);
+
+        expect(result).toEqual({ ok: true, items: [], cursor: 'cursor-99' });
     });
 
     it('reports its name as the key its refs are stored under', () => {
@@ -58,7 +66,7 @@ describe('CardSource', () => {
             name: 'stub',
             changedSince: async (cursor) => {
                 receivedCursor = cursor;
-                return { ok: true, items: [] };
+                return { ok: true, items: [], cursor: 'next-cursor' };
             },
         };
 
