@@ -8,6 +8,7 @@ import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { SettingsModule } from './settings/settings.module.js';
+import { SourcesModule } from './sources/sources.module.js';
 import { StagesModule } from './stages/stages.module.js';
 import { WorktreeModule } from './worktree/worktree.module.js';
 
@@ -30,11 +31,15 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * Context is listed after Board and after Data (card 0187): `CardContextRepository` takes
  * `BoardConfig`, and `ContextService` takes `BoardRepository` to answer "does this card exist" the
  * same way `PlanService` does — both already registered by the time this module's turn comes.
+ *
+ * Sources is listed right after Board (card 0203): `InboundCardWriter` takes `BoardWriteService` and
+ * `BoardRepository`, both registered by Board's own `setup`.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
     BoardModule,
+    SourcesModule,
     ContextModule,
     HealthModule,
     LeaseModule,
