@@ -565,9 +565,19 @@ export class StageDispatcher {
         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
         // is frozen at approval — a retry count read from it would forget every attempt made since,
         // and a flag read from it would look unset even after the card was flagged post-approval.
-        const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
+        let decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: head.frontmatter.retries }
             : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+
+        // Card 0200: a card whose ticket closed externally while this stage was running halts here
+        // instead of advancing or kicking back further, once this one stage — already bounded by its
+        // own budget — finishes. `InboundCardWriter` is what set the flag going in; this is the one
+        // place that flag turns into "stop". Only overrides when the ordinary decision did not
+        // already flag one: an exhausted kickback's own reason must not be replaced by this one.
+        if (head.frontmatter.sourceClosed && !decision.needsHuman) {
+            decision = { target: stageName, retries: decision.retries, needsHuman: { reason: 'source-closed' } };
+        }
+
         const findings = findingsFrom(outcome.result);
         const needsHuman = decision.needsHuman;
 

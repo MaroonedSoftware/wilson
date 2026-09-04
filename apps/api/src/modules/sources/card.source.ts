@@ -18,6 +18,15 @@ export type CardSourceItem = {
      * holds it fixed on a pure redelivery.
      */
     readonly version: string;
+    /**
+     * Whether the ticket behind this item is closed upstream. A source has no authority over board
+     * state (PROJECT.md's "Card sources" inbound-authority rule) — it only reports the fact, and
+     * `InboundCardWriter` (card 0200) decides what a closure means for a matching card, or for one it
+     * has never seen. `GitHubIssuesSource` ([[0199]]) fetches `state=all` rather than `state=open`
+     * precisely so it can report this on every item, including the pull-request-filtered ones it
+     * already drops.
+     */
+    readonly closed: boolean;
 };
 
 /**

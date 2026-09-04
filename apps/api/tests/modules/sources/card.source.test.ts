@@ -16,8 +16,8 @@ const refusingSource = (reason: string): CardSource => ({
 });
 
 describe('CardSource', () => {
-    it('round-trips the item shape: external id, title, body, and version', async () => {
-        const item: CardSourceItem = { externalId: 'ENG-123', title: 'Fix the thing', body: 'It is broken.', version: 'v1' };
+    it('round-trips the item shape: external id, title, body, version, and closed', async () => {
+        const item: CardSourceItem = { externalId: 'ENG-123', title: 'Fix the thing', body: 'It is broken.', version: 'v1', closed: false };
         const source = stubSource([item]);
 
         const result = await source.changedSince(undefined);
@@ -27,8 +27,8 @@ describe('CardSource', () => {
 
     it('round-trips multiple items in a single fetch', async () => {
         const items: CardSourceItem[] = [
-            { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1' },
-            { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1' },
+            { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1', closed: false },
+            { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1', closed: true },
         ];
         const source = stubSource(items);
 

@@ -131,8 +131,8 @@ const buildPoller = (
 
 describe('SourcePoller tick — applying and advancing', () => {
     it('applies every item a source reports, in order, before advancing that cursor', async () => {
-        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1' };
-        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1' };
+        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1', closed: false };
+        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1', closed: false };
         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items: [item1, item2], cursor: 'cursor-1' }) };
         const { poller, cursors, writer } = buildPoller([source]);
 
@@ -413,8 +413,8 @@ describe('SourcePoller — end to end against a real board', () => {
 
     it('a source reporting two items lands two cards in parking-lot, both carrying their external ref', async () => {
         const items = [
-            { externalId: 'ENG-1', title: 'First', body: 'Body one', version: 'v1' },
-            { externalId: 'ENG-2', title: 'Second', body: 'Body two', version: 'v1' },
+            { externalId: 'ENG-1', title: 'First', body: 'Body one', version: 'v1', closed: false },
+            { externalId: 'ENG-2', title: 'Second', body: 'Body two', version: 'v1', closed: false },
         ];
         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items, cursor: 'cursor-1' }) };
         const { board, config, cursors, registry, writer } = freshPoller(source);
@@ -439,7 +439,7 @@ describe('SourcePoller — end to end against a real board', () => {
                 // A real source bumps `version` when the item genuinely changes (GitHubIssuesSource
                 // uses the issue's `updated_at`); holding it fixed here would make the second delivery a
                 // duplicate by card 0197's key, which is the dedup working, not an update being lost.
-                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}` }], cursor: `cursor-${call}` };
+                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}`, closed: false }], cursor: `cursor-${call}` };
             },
         };
         const { board, config, cursors, registry, writer } = freshPoller(source);

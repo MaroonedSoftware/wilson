@@ -68,11 +68,14 @@ function hangingFetch(): typeof fetch {
     }) as unknown as typeof fetch;
 }
 
-const issue = (overrides: Partial<{ number: number; title: string; body: string | null; updated_at: string; pull_request: unknown }> = {}) => ({
+const issue = (
+    overrides: Partial<{ number: number; title: string; body: string | null; updated_at: string; state: string; pull_request: unknown }> = {},
+) => ({
     number: 1,
     title: 'Fix the thing',
     body: 'It is broken.',
     updated_at: '2026-01-01T00:00:00Z',
+    state: 'open',
     ...overrides,
 });
 
@@ -93,7 +96,13 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.items).toEqual([
-            { externalId: 'octocat/hello-world#123', title: 'Widget is broken', body: 'Steps to reproduce...', version: '2026-01-01T00:00:00Z' },
+            {
+                externalId: 'octocat/hello-world#123',
+                title: 'Widget is broken',
+                body: 'Steps to reproduce...',
+                version: '2026-01-01T00:00:00Z',
+                closed: false,
+            },
         ]);
     });
 
@@ -137,7 +146,41 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
         expect(result.items[0]!.externalId).toContain('#1');
     });
 
-    it('requests the documented query: labels, state=open, sort=updated, direction=asc, per_page=100, and since when a cursor is given', async () => {
+    /**
+     * Card 0200: `state=all` now surfaces closed pull requests too, and `pull_request` is still the
+     * only tell that separates them from issues — the filter must not accidentally start letting a
+     * closed one through just because `state` is no longer `'open'`.
+     */
+    it('does not return a closed pull request either', async () => {
+        const closedPr = issue({ number: 2, title: 'A closed pull request', state: 'closed', pull_request: { url: 'https://api.github.com/...' } });
+        const { fetchImpl } = scriptedFetch([jsonResponse([issue({ number: 1 }), closedPr])]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.changedSince(undefined);
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]!.externalId).toContain('#1');
+    });
+
+    /**
+     * Card 0200's whole reason to fetch `state=all`: `InboundCardWriter` decides what a closed ticket
+     * means for a card, but only if this source actually reports the closure.
+     */
+    it("reports closed: true for a closed issue and closed: false for an open one", async () => {
+        const { fetchImpl } = scriptedFetch([jsonResponse([issue({ number: 1, state: 'open' }), issue({ number: 2, state: 'closed' })])]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.changedSince(undefined);
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.items.find(i => i.externalId.endsWith('#1'))!.closed).toBe(false);
+        expect(result.items.find(i => i.externalId.endsWith('#2'))!.closed).toBe(true);
+    });
+
+    it('requests the documented query: labels, state=all, sort=updated, direction=asc, per_page=100, and since when a cursor is given', async () => {
         const { fetchImpl, calls } = scriptedFetch([jsonResponse([])]);
         const source = new GitHubIssuesSource(withRepo('octocat/hello-world', 'wilson-import'), 'tok', fetchImpl);
 
@@ -146,7 +189,10 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
         const url = new URL(calls[0]!.url);
         expect(url.pathname).toBe('/repos/octocat/hello-world/issues');
         expect(url.searchParams.get('labels')).toBe('wilson-import');
-        expect(url.searchParams.get('state')).toBe('open');
+        // Card 0200: `state=all`, not `state=open` — reacting to a closed ticket is
+        // `InboundCardWriter`'s job, not this source's, but it can only react to what this source
+        // reports.
+        expect(url.searchParams.get('state')).toBe('all');
         expect(url.searchParams.get('sort')).toBe('updated');
         expect(url.searchParams.get('direction')).toBe('asc');
         expect(url.searchParams.get('per_page')).toBe('100');
