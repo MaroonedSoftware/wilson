@@ -6,7 +6,6 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
-import { SOURCE_POLL_INTERVAL_MS_DEFAULT } from '#modules/settings/source.poll.interval.setting.js';
 import type { CardSourceItem } from './card.source.js';
 
 /**
