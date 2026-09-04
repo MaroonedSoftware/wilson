@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -50,9 +50,9 @@ const fakeLogger = (): Logger =>
  * duplicate/retention path rather than a fake's idea of it. A caller that wants to control exactly
  * what `deduplicate` reports back (the `dropped` test) passes its own fake instead.
  */
-const freshWriter = (idempotencyStore?: IdempotencyStore, logger = fakeLogger()) => {
+const freshWriter = (idempotencyStore?: IdempotencyStore, logger = fakeLogger(), notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
     const events = { append: vi.fn(async () => {}) };
-    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run', notifyWebhookUrl, notifyBaseUrl);
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     const worktrees = {
         branchName: vi.fn((cardId: string, title: string) => `card/${cardId}-${title}`),
@@ -83,6 +83,7 @@ const item = (overrides: Partial<CardSourceItem> = {}): CardSourceItem => ({
     title: 'Fix the thing',
     body: 'It is broken.',
     version: 'v1',
+    closed: false,
     ...overrides,
 });
 
@@ -227,5 +228,139 @@ describe('InboundCardWriter', () => {
         expect(await board.list()).toHaveLength(0);
         expect(logger.error).toHaveBeenCalledTimes(1);
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('dropped'));
+    });
+});
+
+/**
+ * Card 0200: a closed item is not a create-or-update. `fetch` is stubbed rather than `Notifier`
+ * itself, the same idiom `stage.dispatcher.test.ts` uses for the equivalent `needs-human`
+ * notification — what is asserted is the observable HTTP call a real webhook would receive, while
+ * the board write itself is real, against the same `PostgresBoardRepository` every other test in
+ * this file uses.
+ */
+describe('InboundCardWriter — a closed item (card 0200)', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    /** A row in `runner.cardJobs` is exactly what `BoardRepository.hasLiveClaim` treats as "a stage
+     * is executing this card right now" (card 0128) — the same idiom
+     * `postgres.board.repository.test.ts`'s own `hasLiveClaim` test uses to fake one without a real
+     * job broker. */
+    const claim = async (project: string, cardId: string) => {
+        await db.insertInto('runner.cardJobs').values({ project, cardId, jobId: 'job-1' }).execute();
+    };
+
+    it('does nothing for a closed item naming a ref the board has never seen', async () => {
+        const { board, writer } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+
+        await writer.apply('github', item({ closed: true }));
+
+        expect(await board.list()).toHaveLength(0);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('moves a matching parking-lot card to dropped and notifies exactly once', async () => {
+        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify', 'https://board.example');
+        await writer.apply('github', item({ externalId: 'ENG-1' }));
+
+        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
+
+        const [card] = await board.list();
+        expect(card!.frontmatter.stage).toBe('dropped');
+        expect(card!.frontmatter.sourceClosed).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+        expect(body).toMatchObject({ moment: 'source-closed', project: config.project, stage: 'dropped', url: 'https://board.example/cards/' + card!.frontmatter.id });
+    });
+
+    it('moves a matching planning or backlog card to dropped too, the same as parking-lot', async () => {
+        const { board, writer } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+        await writer.apply('github', item({ externalId: 'ENG-1' }));
+        const [created] = await board.list();
+        await board.write(created!.frontmatter.id, 'move to backlog', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'backlog' } }));
+
+        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
+
+        const [card] = await board.list();
+        expect(card!.frontmatter.stage).toBe('dropped');
+        expect(card!.frontmatter.sourceClosed).toBe(true);
+    });
+
+    it('flags a matching card at ready and notifies once, but leaves it at ready rather than dropping it', async () => {
+        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+        await writer.apply('github', item({ externalId: 'ENG-1' }));
+        const [created] = await board.list();
+        await board.write(created!.frontmatter.id, 'promote to ready', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'ready' } }));
+
+        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
+
+        const [card] = await board.list();
+        expect(card!.frontmatter.stage).toBe('ready');
+        expect(card!.frontmatter.sourceClosed).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+        expect(body).toMatchObject({ moment: 'source-closed', project: config.project, stage: 'ready' });
+    });
+
+    it('sets sourceClosed and changes nothing else on a card something is actively running, and sends no notification yet', async () => {
+        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+        await writer.apply('github', item({ externalId: 'ENG-1' }));
+        const [created] = await board.list();
+        await board.write(created!.frontmatter.id, 'move to implementing', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'implementing' } }));
+        await claim(config.project, created!.frontmatter.id);
+
+        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
+
+        const [card] = await board.list();
+        expect(card!.frontmatter.stage).toBe('implementing');
+        expect(card!.frontmatter.sourceClosed).toBe(true);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The one-way door (this card's Constraints): once `sourceClosed` is recorded, a second closed
+     * report for the same card writes nothing and notifies nothing — checked here across all three
+     * branches by asserting a spy on the write methods and the notifier both see zero calls on the
+     * second `apply`.
+     */
+    it('does nothing on a second closed report against a card already carrying sourceClosed: true, in every branch', async () => {
+        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+
+        // Branch 1: parking-lot -> dropped.
+        await writer.apply('github', item({ externalId: 'DROP-1' }));
+        await writer.apply('github', item({ externalId: 'DROP-1', closed: true }));
+
+        // Branch 2: ready, flagged in place.
+        await writer.apply('github', item({ externalId: 'READY-1' }));
+        const [readyCard] = (await board.list()).filter(c => c.frontmatter.external?.github === 'READY-1');
+        await board.write(readyCard!.frontmatter.id, 'promote to ready', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'ready' } }));
+        await writer.apply('github', item({ externalId: 'READY-1', closed: true }));
+
+        // Branch 3: mid-run, flagged with no stage change.
+        await writer.apply('github', item({ externalId: 'RUN-1' }));
+        const [runCard] = (await board.list()).filter(c => c.frontmatter.external?.github === 'RUN-1');
+        await board.write(runCard!.frontmatter.id, 'move to implementing', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'implementing' } }));
+        await claim(config.project, runCard!.frontmatter.id);
+        await writer.apply('github', item({ externalId: 'RUN-1', closed: true }));
+
+        fetchMock.mockClear();
+        const writeSpy = vi.spyOn(board, 'write');
+        const writeWithEventSpy = vi.spyOn(board, 'writeWithEvent');
+
+        await writer.apply('github', item({ externalId: 'DROP-1', closed: true }));
+        await writer.apply('github', item({ externalId: 'READY-1', closed: true }));
+        await writer.apply('github', item({ externalId: 'RUN-1', closed: true }));
+
+        expect(writeSpy).not.toHaveBeenCalled();
+        expect(writeWithEventSpy).not.toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 });

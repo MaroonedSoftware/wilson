@@ -28,6 +28,9 @@ type GitHubIssuePayload = {
     readonly title: string;
     readonly body: string | null;
     readonly updated_at: string;
+    /** `'open'` or `'closed'` — reported on every item as `CardSourceItem.closed` (card 0200), which
+     * is why this source fetches `state=all` rather than `state=open`. */
+    readonly state: string;
     /** Present (with any value) on a pull request — GitHub's `/issues` endpoint returns pull
      * requests as issues, and this is the tell this card's Constraints name as "the single most
      * likely defect in the card". */
@@ -100,7 +103,13 @@ export class GitHubIssuesSource implements CardSource {
                 // The `/issues` endpoint returns pull requests as issues; `pull_request` is the only
                 // field that tells them apart (this card's Constraints).
                 if ('pull_request' in issue) continue;
-                items.push({ externalId: `${repo}#${issue.number}`, title: issue.title, body: issue.body ?? '', version: issue.updated_at });
+                items.push({
+                    externalId: `${repo}#${issue.number}`,
+                    title: issue.title,
+                    body: issue.body ?? '',
+                    version: issue.updated_at,
+                    closed: issue.state === 'closed',
+                });
                 if (!latestUpdatedAt || issue.updated_at > latestUpdatedAt) latestUpdatedAt = issue.updated_at;
             }
 
@@ -124,7 +133,11 @@ export class GitHubIssuesSource implements CardSource {
     }
 
     private buildUrl(repo: string, label: string, since: string | undefined): string {
-        const params = new URLSearchParams({ labels: label, state: 'open', sort: 'updated', direction: 'asc', per_page: '100' });
+        // `state=all`, not `state=open` (card 0200's Constraints): reacting to a closed ticket is
+        // `InboundCardWriter`'s job, not this source's, but it can only react to what this source
+        // reports. `since` already filters by `updated_at` regardless of state, so this is the only
+        // change needed to see a closed issue at all — no second request, no second endpoint.
+        const params = new URLSearchParams({ labels: label, state: 'all', sort: 'updated', direction: 'asc', per_page: '100' });
         if (since !== undefined) params.set('since', since);
         // `repo` has already passed `validateRepo`: letters, digits, `.`, `_`, `-`, and exactly one
         // `/`, so no further encoding is needed for the path segment itself.

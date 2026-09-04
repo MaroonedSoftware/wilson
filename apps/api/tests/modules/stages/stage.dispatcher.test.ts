@@ -283,6 +283,60 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         const stored = await board.read('0001');
         expect(stored.frontmatter.retries).toEqual({ testing: 5 });
     });
+
+    /**
+     * Card 0200: `InboundCardWriter` sets `sourceClosed` on the live card mid-run, while this stage
+     * is still executing (see this card's Note). By the time the stage finishes and this method
+     * runs, that flag must turn "advance" into "halt here instead" — one more stage, bounded by its
+     * own budget, is what the card's Constraints allow, not a second one.
+     */
+    it('halts a passing stage at its own stage, flagged, when the card carries sourceClosed going in', async () => {
+        const stage = makeStage({ onPass: 'review' });
+        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
+
+        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: true }), closedHead);
+
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.stage).toBe('testing');
+        expect(stored.frontmatter.needsHuman).toBe(true);
+        expect(stored.frontmatter.needsHumanReason).toBe('source-closed');
+    });
+
+    it('halts a stage that would have kicked back at its own stage instead, when the card carries sourceClosed going in', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
+        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
+
+        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }), closedHead);
+
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.stage).toBe('testing');
+        // Not routed to `implementing`, and not merely flagged with the ordinary kickback-exhaustion
+        // reason — the override replaces the target and the reason together.
+        expect(stored.frontmatter.needsHumanReason).toBe('source-closed');
+    });
+
+    /**
+     * The override must not replace a reason the ordinary decision already computed: an exhausted
+     * kickback on a card that also happens to carry `sourceClosed` still reports why the kickback
+     * itself failed, since that decision already flagged one (this card's Constraints: "when ... the
+     * ordinary decision did not already flag one").
+     */
+    it('does not override an ordinary decision that already flags the card for its own reason', async () => {
+        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
+        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
+
+        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }), closedHead);
+
+        expect(target).toBe('testing');
+        expect(needsHuman).toBe(true);
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.needsHumanReason).toContain('testing');
+        expect(stored.frontmatter.needsHumanReason).not.toBe('source-closed');
+    });
 });
 
 /**
@@ -449,6 +503,30 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         expect(target).toBe('testing');
         const stored = await boardRepo.read('0001');
         expect(stored.frontmatter.needsHuman).toBe(true);
+    });
+
+    /**
+     * Card 0200: the mid-run halt reuses this exact `needs-human` machinery rather than a second
+     * notification path (this card's Constraints), so it gets the notify-once guard for free — this
+     * checks it actually fires, once, with the reason the override sets.
+     */
+    it('notifies exactly once, with reason "source-closed", when a card whose source closed halts here', async () => {
+        const { dispatcher, project } = await buildDispatcher('https://hooks.example/notify', 'https://board.example');
+        const stage = makeStage({ onPass: 'review' });
+        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
+
+        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: true }), closedHead);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        expect(body).toMatchObject({
+            moment: 'needs-human',
+            project,
+            cardId: '0001',
+            stage: 'testing',
+            reason: 'source-closed',
+            url: 'https://board.example/cards/0001',
+        });
     });
 });
 

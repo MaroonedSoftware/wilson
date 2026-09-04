@@ -1,11 +1,20 @@
 /**
- * Which of the three moments PROJECT.md's Notification section names produced this notification.
+ * Which of the moments PROJECT.md's Notification section (and card 0200's Note) names produced
+ * this notification.
  *
  * A `manual` gate reached normally, a card flagged for a human (retries exhausted or over budget),
- * and a poisoning call for three different responses from the reader — that is why the payload
- * names which one this is rather than leaving the reader to infer it from the stage alone.
+ * a poisoning call, and a card source's ticket closing externally — four different responses from
+ * the reader, which is why the payload names which one this is rather than leaving the reader to
+ * infer it from the stage alone.
+ *
+ * `source-closed` is its own moment, not a reuse of `needs-human`: card 0200's `InboundCardWriter`
+ * sends it for a card dropped or flagged-at-`ready` because its ticket closed externally — an FYI
+ * and a "please decide," neither of which is `needs-human`'s existing meaning (retries exhausted or
+ * over budget) or `manual`'s (a gate reached normally). The one exception is the mid-run halt
+ * (`StageDispatcher.writeTransition`), which keeps using `needs-human` with `reason: 'source-closed'`
+ * since that machinery already notifies on every fresh flag.
  */
-export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned';
+export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned' | 'source-closed';
 
 /**
  * Everything a notification says, independent of the channel that carries it.
