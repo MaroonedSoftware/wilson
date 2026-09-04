@@ -35,7 +35,7 @@ describe('claudeBinaryCurrent', () => {
         expect(result.message).toContain('9.9.9');
         expect(result.message).toContain(EXPECTED_CLAUDE_BINARY_VERSION);
         expect(result.message).toContain('a warning, not a failure');
-        expect(result.fixHint).toContain('cli.engine.contract.test.ts');
+        expect(result.fixHint).toContain('cli.engine.contract.probe.ts');
     });
 
     it('reports a passing skip, naming the reason, when no binary is on PATH', async () => {

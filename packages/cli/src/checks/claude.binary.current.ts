@@ -8,7 +8,7 @@ const exec = promisify(execFile);
  * Duplicated from `apps/api/src/modules/agent/cli.engine.version.ts` — see that constant's own
  * comment for why this package cannot import it directly (card 0085 dropped `packages/cli`'s
  * dependency on `@wilson/api` entirely; `board-view.ts` duplicates rather than imports for the same
- * reason). Bump both together, in the same commit, once `cli.engine.contract.test.ts` has been
+ * reason). Bump both together, in the same commit, once `cli.engine.contract.probe.ts` has been
  * verified to pass against the newer binary.
  */
 export const EXPECTED_CLAUDE_BINARY_VERSION = '2.1.246';
@@ -64,9 +64,9 @@ export const buildClaudeBinaryCurrent = (readVersion: () => Promise<string | und
                 ok: true,
                 message: `host claude binary is ${version}, but this board's probes last passed against ${EXPECTED_CLAUDE_BINARY_VERSION} — a warning, not a failure`,
                 fixHint:
-                    'Run pnpm test and watch cli.engine.contract.test.ts and cli.tool.surface.test.ts (apps/api/tests/modules/agent/). If they ' +
-                    'still pass against this binary, bump EXPECTED_CLAUDE_BINARY_VERSION here and CLAUDE_BINARY_VERSION in ' +
-                    'apps/api/src/modules/agent/cli.engine.version.ts together, in the same commit.',
+                    'Run WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test:engine and watch cli.engine.contract.probe.ts ' +
+                    '(apps/api/tests/modules/agent/). If it still passes against this binary, bump EXPECTED_CLAUDE_BINARY_VERSION here ' +
+                    'and CLAUDE_BINARY_VERSION in apps/api/src/modules/agent/cli.engine.version.ts together, in the same commit.',
             };
         }
 

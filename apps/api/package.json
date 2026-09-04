@@ -17,7 +17,8 @@
         "migrate:down:all": "./scripts/rollbackall.sh",
         "migrate:create": "dbmate -d ./data/migrations new",
         "lint": "eslint --fix",
-        "test": "vitest run"
+        "test": "vitest run",
+        "test:engine": "vitest run --config vitest.engine.config.ts"
     },
     "dependencies": {
         "@ai-sdk/anthropic": "^4.0.41",

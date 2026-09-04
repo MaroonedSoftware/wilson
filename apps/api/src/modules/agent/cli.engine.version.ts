@@ -1,5 +1,5 @@
 /**
- * The host `claude` binary version this file's own probes (`cli.engine.contract.test.ts`,
+ * The host `claude` binary version this file's own probes (`cli.engine.contract.probe.ts`,
  * `cli.tool.surface.test.ts`, both in `apps/api/tests/modules/agent/`) last passed against.
  *
  * `apps/api/package.json` pins `@anthropic-ai/claude-agent-sdk` to an exact version and this repo

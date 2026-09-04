@@ -35,16 +35,22 @@ import type { ToolContext } from '#modules/agent/tools/index.js';
  * Every assertion is on a mechanism a spy, a flag, or a returned value observed — never on the
  * model's prose, which the Constraints call a flake generator.
  *
- * All three `describe` blocks below are gated behind `WILSON_RUN_ENGINE_PROBES=1` and skipped —
- * via vitest's own `describe.skipIf`, so the reporter says "skipped" rather than reporting a green
- * pass that never ran anything — everywhere else. Every probe here drives a real turn, which spends
- * real model turns against the operator's own credentials; the gate exists so that cost is opt-in,
- * not something every `pnpm test` pays. It is also why turning it on inside a stage does not work:
- * a stage *is* an engine, so a probe run from inside one spawns a nested engine, and the nested one
- * cannot authenticate (see the card's own Constraints for the mechanism). Run these by hand instead,
- * from a terminal that already has a working `claude` session, with:
+ * This file is not named `*.test.ts` on purpose, so `apps/api/vitest.config.ts`'s default `include`
+ * — and therefore the default `pnpm test` — never collects it at all: not a skip, a file the
+ * default run does not see, per the Constraints. `apps/api/vitest.engine.config.ts` names this file
+ * exactly, and `pnpm --filter @wilson/api test:engine` runs it through that config.
  *
- *     WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test cli.engine.contract.test.ts
+ * Even under that command, all three `describe` blocks below stay gated behind
+ * `WILSON_RUN_ENGINE_PROBES=1` — via vitest's own `describe.skipIf`, so the reporter says "skipped"
+ * rather than reporting a green pass that never ran anything. Every probe here drives a real turn,
+ * which spends real model turns against the operator's own credentials; the gate keeps that cost
+ * opt-in even for someone who runs `test:engine` without reading this comment first. It is also why
+ * turning it on inside a stage does not work: a stage *is* an engine, so a probe run from inside one
+ * spawns a nested engine, and the nested one cannot authenticate (see the card's own Constraints for
+ * the mechanism). Run these by hand instead, from a terminal that already has a working `claude`
+ * session, with:
+ *
+ *     WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test:engine
  *
  * Do this at an SDK or `claude` binary bump — exactly the moment `claudeBinaryCurrent`
  * (`packages/cli/src/checks/claude.binary.current.ts`) exists to announce, since with the gate off
