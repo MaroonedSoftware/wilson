@@ -50,6 +50,9 @@ importers:
       '@maroonedsoftware/appconfig':
         specifier: ^2.5.1
         version: 2.5.1(pg@8.23.0)(yaml@2.9.0)
+      '@maroonedsoftware/cache':
+        specifier: ^0.4.5
+        version: 0.4.5
       '@maroonedsoftware/errors':
         specifier: ^1.9.0
         version: 1.9.0

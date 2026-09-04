@@ -2,8 +2,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
+import { CacheIdempotencyStore, type IdempotencyStore } from '@maroonedsoftware/cache';
 import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
 import type { CardSourceItem } from '#modules/sources/card.source.js';
+import { PostgresCacheProvider } from '#modules/sources/postgres.cache.provider.js';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -42,8 +44,13 @@ const fakeLogger = (): Logger =>
  * the event log, or stage config, so those only need to satisfy the constructor, not do anything.
  * `worktrees` answers `hasWork` (which `rename` checks) `false` — a card fresh out of `createFromSource`
  * has no branch anything could have worked on yet.
+ *
+ * Card 0197: `idempotencyStore` defaults to a real `CacheIdempotencyStore` over a real
+ * `PostgresCacheProvider` on the same test db, so the dedup tests below exercise the real claim/
+ * duplicate/retention path rather than a fake's idea of it. A caller that wants to control exactly
+ * what `deduplicate` reports back (the `dropped` test) passes its own fake instead.
  */
-const freshWriter = () => {
+const freshWriter = (idempotencyStore?: IdempotencyStore, logger = fakeLogger()) => {
     const events = { append: vi.fn(async () => {}) };
     const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
@@ -66,14 +73,16 @@ const freshWriter = () => {
         undefined as unknown as SettingsStore,
         new StaticStageConfigStore(),
     );
-    const writer = new InboundCardWriter(boardWriteService, board);
-    return { board, writer };
+    const idempotency = idempotencyStore ?? new CacheIdempotencyStore(new PostgresCacheProvider(db));
+    const writer = new InboundCardWriter(boardWriteService, board, idempotency, config, logger);
+    return { board, config, writer, logger, boardWriteService };
 };
 
 const item = (overrides: Partial<CardSourceItem> = {}): CardSourceItem => ({
     externalId: 'ENG-1',
     title: 'Fix the thing',
     body: 'It is broken.',
+    version: 'v1',
     ...overrides,
 });
 
@@ -91,11 +100,11 @@ describe('InboundCardWriter', () => {
         expect(cards[0]!.frontmatter.external).toEqual({ linear: 'ENG-1' });
     });
 
-    it("updates the existing card's title and body on a second report carrying the same external ref, gaining the board no second card", async () => {
+    it("updates the existing card's title and body on a second report carrying a changed version, gaining the board no second card", async () => {
         const { board, writer } = freshWriter();
         await writer.apply('linear', item());
 
-        await writer.apply('linear', item({ title: 'Fix the thing (updated)', body: 'Turns out it was worse.' }));
+        await writer.apply('linear', item({ version: 'v2', title: 'Fix the thing (updated)', body: 'Turns out it was worse.' }));
 
         const cards = await board.list();
         expect(cards).toHaveLength(1);
@@ -131,14 +140,15 @@ describe('InboundCardWriter', () => {
 
     it('exposes no way to set stage, branch, or retries: forcing them onto a reported item through an unsafe cast still leaves them untouched', async () => {
         const { board, writer } = freshWriter();
-        // `CardSourceItem` carries only `externalId`, `title`, and `body` — this cast is the only way
-        // to even attempt handing `apply` a `stage`/`branch`/`retries`, and it proves the class reads
-        // none of them: nothing it writes to the board carries them, not merely that a validator
-        // would have refused them.
+        // `CardSourceItem` carries only `externalId`, `title`, `body`, and `version` — this cast is the
+        // only way to even attempt handing `apply` a `stage`/`branch`/`retries`, and it proves the
+        // class reads none of them: nothing it writes to the board carries them, not merely that a
+        // validator would have refused them.
         const smuggled = {
             externalId: 'ENG-1',
             title: 'Title',
             body: 'Body',
+            version: 'v1',
             stage: 'merged',
             branch: 'evil-branch',
             retries: { implementing: 99 },
@@ -160,7 +170,7 @@ describe('InboundCardWriter', () => {
      * where the human put it when the same external ref is reported again — `apply`'s update branch
      * has no parameter that could carry a stage even if it wanted to.
      */
-    it('does not move a card a human has since promoted, when the same external ref is reported again', async () => {
+    it('does not move a card a human has since promoted, when the same external ref is reported again with a changed version', async () => {
         const { board, writer } = freshWriter();
         await writer.apply('linear', item({ externalId: 'ENG-1', title: 'First' }));
         const [created] = await board.list();
@@ -169,11 +179,53 @@ describe('InboundCardWriter', () => {
             frontmatter: { ...card.frontmatter, stage: 'implementing' },
         }));
 
-        await writer.apply('linear', item({ externalId: 'ENG-1', title: 'First (updated upstream)' }));
+        await writer.apply('linear', item({ externalId: 'ENG-1', version: 'v2', title: 'First (updated upstream)' }));
 
         const cards = await board.list();
         expect(cards).toHaveLength(1);
         expect(cards[0]!.frontmatter.stage).toBe('implementing');
         expect(cards[0]!.frontmatter.title).toBe('First (updated upstream)');
+    });
+
+    /**
+     * Card 0197's whole reason to exist: [[0198]]'s poll reports the same unedited item again on
+     * every later tick (`since` is inclusive), and a webhook redelivers at least once. Both land here
+     * as the exact same `(source, externalId, version)` — the second `apply` must skip the board write
+     * entirely, not merely happen to produce the same result.
+     */
+    it('performs no board write on a second report of the same version, whether the card was created or already existed', async () => {
+        const { board, writer, boardWriteService } = freshWriter();
+
+        await writer.apply('linear', item());
+        const createSpy = vi.spyOn(boardWriteService, 'createFromSource');
+        await writer.apply('linear', item());
+        expect(createSpy).not.toHaveBeenCalled();
+
+        await writer.apply('linear', item({ version: 'v2', title: 'Updated' }));
+        const renameSpy = vi.spyOn(boardWriteService, 'rename');
+        const editSpy = vi.spyOn(boardWriteService, 'edit');
+        await writer.apply('linear', item({ version: 'v2', title: 'Updated' }));
+        expect(renameSpy).not.toHaveBeenCalled();
+        expect(editSpy).not.toHaveBeenCalled();
+
+        expect(await board.list()).toHaveLength(1);
+    });
+
+    /**
+     * `IdempotencyStore.deduplicate`'s three outcomes: `dropped` — `work` has failed `maxAttempts`
+     * times for this key — must be logged (the way `SourcePoller` already logs a source refusal) and
+     * must not throw, so the caller's walk over the rest of its own batch keeps going. A fake
+     * `IdempotencyStore` reports `dropped` directly rather than driving a real `work` to fail
+     * `maxAttempts` times for real, which is `CacheIdempotencyStore`'s own concern, not this class's.
+     */
+    it('logs a dropped outcome and does not throw, performing no board write', async () => {
+        const dropped = { deduplicate: vi.fn(async () => ({ status: 'dropped' as const, attempts: 5 })) } as unknown as IdempotencyStore;
+        const { board, writer, logger } = freshWriter(dropped);
+
+        await expect(writer.apply('linear', item())).resolves.toBeUndefined();
+
+        expect(await board.list()).toHaveLength(0);
+        expect(logger.error).toHaveBeenCalledTimes(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('dropped'));
     });
 });

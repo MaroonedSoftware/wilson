@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import type { Container, Identifier, Registry } from 'injectkit';
+import { Kysely } from 'kysely';
+import { CacheIdempotencyStore, CacheProvider, IdempotencyStore } from '@maroonedsoftware/cache';
 import { BoardModule } from '#modules/board/board.module.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CardSourceRegistry } from '#modules/sources/card.source.registry.js';
 import { GitHubIssuesSource } from '#modules/sources/github.issues.source.js';
 import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
+import { PostgresCacheProvider } from '#modules/sources/postgres.cache.provider.js';
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
 import { SourcePoller } from '#modules/sources/source.poller.js';
 import { SourcesModule } from '#modules/sources/sources.module.js';
 import { modules } from '#modules/modules.js';
+import type { DB } from '#modules/data/db.js';
 
 /**
  * Card 0203. `container.setup.test.ts` already proves the app's *whole* dependency graph resolves,
@@ -186,6 +190,47 @@ describe('SourcesModule.setup', () => {
 
     it('names itself "Sources"', () => {
         expect(SourcesModule.name).toBe('Sources');
+    });
+
+    /**
+     * Card 0197, task 4: `SourcesModule` registers the two tokens `InboundCardWriter` now also
+     * depends on. `CacheProvider` follows `SourceCursorRepository`'s own `.useFactory` reasoning above
+     * — it needs the process's `Kysely<DB>` pool, which only a factory (not `useClass`'s reflection)
+     * can hand it — and its factory must build a `PostgresCacheProvider`, this deployment's Postgres
+     * stand-in for `@maroonedsoftware/cache`'s only shipped backend.
+     */
+    it('registers CacheProvider via useFactory, transient, built as a PostgresCacheProvider over the process Kysely<DB> pool', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(CacheProvider);
+        expect(entry?.kind).toBe('useFactory');
+        expect(entry?.lifetime).toBe('transient');
+        const fakeDb = {} as unknown as Kysely<DB>;
+        const fakeContainer = { get: (id: unknown) => (id === Kysely ? fakeDb : undefined) } as unknown as Container;
+        const built = (entry?.impl as (container: Container) => CacheProvider)(fakeContainer);
+        expect(built).toBeInstanceOf(PostgresCacheProvider);
+    });
+
+    /**
+     * Card 0197, task 4: `IdempotencyStore` is `.useFactory` too — `@maroonedsoftware/cache`'s own
+     * `CacheIdempotencyStore` carries no `@Injectable` decorator from this codebase, so `useClass`'s
+     * reflection cannot construct it — and it must be built over the very `CacheProvider` the container
+     * resolves, not a fresh one of its own.
+     */
+    it('registers IdempotencyStore via useFactory, transient, built as a CacheIdempotencyStore over the resolved CacheProvider', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(IdempotencyStore);
+        expect(entry?.kind).toBe('useFactory');
+        expect(entry?.lifetime).toBe('transient');
+        const fakeCacheProvider = {} as unknown as CacheProvider;
+        const fakeContainer = { get: (id: unknown) => (id === CacheProvider ? fakeCacheProvider : undefined) } as unknown as Container;
+        const built = (entry?.impl as (container: Container) => IdempotencyStore)(fakeContainer);
+        expect(built).toBeInstanceOf(CacheIdempotencyStore);
     });
 });
 

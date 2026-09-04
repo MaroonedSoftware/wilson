@@ -10,6 +10,14 @@ export type CardSourceItem = {
     readonly externalId: string;
     readonly title: string;
     readonly body: string;
+    /**
+     * A source-supplied marker that changes when this item genuinely changes and stays fixed when
+     * the exact same delivery repeats — card 0197's dedup key includes it precisely so two edits to
+     * identical text still count as two deliveries, which content itself could never tell apart.
+     * `GitHubIssuesSource` ([[0199]]) uses the issue's `updated_at`: GitHub bumps it on every edit and
+     * holds it fixed on a pure redelivery.
+     */
+    readonly version: string;
 };
 
 /**

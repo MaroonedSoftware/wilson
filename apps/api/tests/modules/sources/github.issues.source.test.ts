@@ -92,7 +92,25 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(result.items).toEqual([{ externalId: 'octocat/hello-world#123', title: 'Widget is broken', body: 'Steps to reproduce...' }]);
+        expect(result.items).toEqual([
+            { externalId: 'octocat/hello-world#123', title: 'Widget is broken', body: 'Steps to reproduce...', version: '2026-01-01T00:00:00Z' },
+        ]);
+    });
+
+    /**
+     * Card 0197: `version` is what lets `InboundCardWriter` tell a genuine edit from a pure
+     * redelivery — GitHub bumps `updated_at` on every edit and holds it fixed on a redelivery, so
+     * this source hands it straight through rather than computing anything of its own.
+     */
+    it("maps an issue's updated_at to the item's version, verbatim", async () => {
+        const { fetchImpl } = scriptedFetch([jsonResponse([issue({ updated_at: '2026-03-14T09:26:00Z' })])]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.changedSince(undefined);
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.items[0]!.version).toBe('2026-03-14T09:26:00Z');
     });
 
     it('falls back to an empty body when GitHub reports null', async () => {

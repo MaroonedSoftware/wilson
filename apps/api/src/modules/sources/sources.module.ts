@@ -2,6 +2,7 @@ import { Kysely } from 'kysely';
 import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
+import { CacheIdempotencyStore, CacheProvider, IdempotencyStore } from '@maroonedsoftware/cache';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 import { optionalConfigString } from '#shared/require.config.js';
@@ -10,6 +11,7 @@ import type { CardSource } from './card.source.js';
 import { CardSourceRegistry } from './card.source.registry.js';
 import { GitHubIssuesSource } from './github.issues.source.js';
 import { InboundCardWriter } from './inbound.card.writer.js';
+import { PostgresCacheProvider } from './postgres.cache.provider.js';
 import { SourceCursorRepository } from './source.cursor.repository.js';
 import { SourcePoller } from './source.poller.js';
 
@@ -33,7 +35,12 @@ import { SourcePoller } from './source.poller.js';
  * for the repo/label it reads on every `changedSince`) only when both are present, exactly once, at
  * boot. Neither unset leaves the registry exactly as empty as [[0196]] shipped it.
  *
-
+ * Card 0197 registers the two tokens `InboundCardWriter` now also depends on, so its own `useClass`
+ * registration above needs no change: `CacheProvider` (`.useFactory`, `PostgresCacheProvider` against
+ * the process's `Kysely<DB>` pool — the same reason `SourceCursorRepository` gets one) and
+ * `IdempotencyStore` (`.useFactory`, `CacheIdempotencyStore` built over that provider — not `useClass`,
+ * since it comes from `@maroonedsoftware/cache` and cannot carry this codebase's own DI decorator).
+ *
  * Listed after `Board` in `modules.ts` for a reader tracing the dependency the same direction the
  * list reads — `setup` only registers tokens, so the actual container resolution does not depend on
  * this order (see `BoardModule`'s own note on the same point).
@@ -41,6 +48,14 @@ import { SourcePoller } from './source.poller.js';
 export const SourcesModule: ServerKitModule = {
     name: 'Sources',
     setup: async (registry: Registry, config: AppConfig) => {
+        registry
+            .register(CacheProvider)
+            .useFactory(container => new PostgresCacheProvider(container.get(Kysely<DB>)))
+            .asTransient();
+        registry
+            .register(IdempotencyStore)
+            .useFactory(container => new CacheIdempotencyStore(container.get(CacheProvider)))
+            .asTransient();
         registry.register(InboundCardWriter).useClass(InboundCardWriter).asTransient();
         registry
             .register(SourceCursorRepository)

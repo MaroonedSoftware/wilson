@@ -16,6 +16,8 @@ import { SOURCE_POLL_INTERVAL_MS_DEFAULT } from '#modules/settings/source.poll.i
 import { CardSourceRegistry } from '#modules/sources/card.source.registry.js';
 import type { CardSource } from '#modules/sources/card.source.js';
 import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
+import { CacheIdempotencyStore } from '@maroonedsoftware/cache';
+import { PostgresCacheProvider } from '#modules/sources/postgres.cache.provider.js';
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -129,8 +131,8 @@ const buildPoller = (
 
 describe('SourcePoller tick — applying and advancing', () => {
     it('applies every item a source reports, in order, before advancing that cursor', async () => {
-        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One' };
-        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two' };
+        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1' };
+        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1' };
         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items: [item1, item2], cursor: 'cursor-1' }) };
         const { poller, cursors, writer } = buildPoller([source]);
 
@@ -403,7 +405,7 @@ describe('SourcePoller — end to end against a real board', () => {
             undefined as unknown as SettingsStore,
             new StaticStageConfigStore(),
         );
-        const writer = new InboundCardWriter(boardWriteService, board);
+        const writer = new InboundCardWriter(boardWriteService, board, new CacheIdempotencyStore(new PostgresCacheProvider(db)), config, fakeLogger());
         const cursors = new SourceCursorRepository(config, db);
         const registry = new CardSourceRegistry([source]);
         return { board, config, cursors, project, registry, writer };
@@ -411,8 +413,8 @@ describe('SourcePoller — end to end against a real board', () => {
 
     it('a source reporting two items lands two cards in parking-lot, both carrying their external ref', async () => {
         const items = [
-            { externalId: 'ENG-1', title: 'First', body: 'Body one' },
-            { externalId: 'ENG-2', title: 'Second', body: 'Body two' },
+            { externalId: 'ENG-1', title: 'First', body: 'Body one', version: 'v1' },
+            { externalId: 'ENG-2', title: 'Second', body: 'Body two', version: 'v1' },
         ];
         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items, cursor: 'cursor-1' }) };
         const { board, config, cursors, registry, writer } = freshPoller(source);
@@ -434,7 +436,10 @@ describe('SourcePoller — end to end against a real board', () => {
             changedSince: async () => {
                 call += 1;
                 const title = call === 1 ? 'First' : 'First (updated upstream)';
-                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body' }], cursor: `cursor-${call}` };
+                // A real source bumps `version` when the item genuinely changes (GitHubIssuesSource
+                // uses the issue's `updated_at`); holding it fixed here would make the second delivery a
+                // duplicate by card 0197's key, which is the dedup working, not an update being lost.
+                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}` }], cursor: `cursor-${call}` };
             },
         };
         const { board, config, cursors, registry, writer } = freshPoller(source);

@@ -100,7 +100,7 @@ export class GitHubIssuesSource implements CardSource {
                 // The `/issues` endpoint returns pull requests as issues; `pull_request` is the only
                 // field that tells them apart (this card's Constraints).
                 if ('pull_request' in issue) continue;
-                items.push({ externalId: `${repo}#${issue.number}`, title: issue.title, body: issue.body ?? '' });
+                items.push({ externalId: `${repo}#${issue.number}`, title: issue.title, body: issue.body ?? '', version: issue.updated_at });
                 if (!latestUpdatedAt || issue.updated_at > latestUpdatedAt) latestUpdatedAt = issue.updated_at;
             }
 
