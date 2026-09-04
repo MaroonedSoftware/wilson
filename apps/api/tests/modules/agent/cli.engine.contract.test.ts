@@ -34,7 +34,24 @@ import type { ToolContext } from '#modules/agent/tools/index.js';
  *
  * Every assertion is on a mechanism a spy, a flag, or a returned value observed — never on the
  * model's prose, which the Constraints call a flake generator.
+ *
+ * All three `describe` blocks below are gated behind `WILSON_RUN_ENGINE_PROBES=1` and skipped —
+ * via vitest's own `describe.skipIf`, so the reporter says "skipped" rather than reporting a green
+ * pass that never ran anything — everywhere else. Every probe here drives a real turn, which spends
+ * real model turns against the operator's own credentials; the gate exists so that cost is opt-in,
+ * not something every `pnpm test` pays. It is also why turning it on inside a stage does not work:
+ * a stage *is* an engine, so a probe run from inside one spawns a nested engine, and the nested one
+ * cannot authenticate (see the card's own Constraints for the mechanism). Run these by hand instead,
+ * from a terminal that already has a working `claude` session, with:
+ *
+ *     WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test cli.engine.contract.test.ts
+ *
+ * Do this at an SDK or `claude` binary bump — exactly the moment `claudeBinaryCurrent`
+ * (`packages/cli/src/checks/claude.binary.current.ts`) exists to announce, since with the gate off
+ * by default nothing else catches drift on its own.
  */
+
+const RUN_ENGINE_PROBES = process.env.WILSON_RUN_ENGINE_PROBES === '1';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
@@ -106,7 +123,7 @@ const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolNam
     return { canUseTool, calls };
 };
 
-describe('a write outside scope really is checked by a live engine, through the guard this adapter exports', () => {
+describe.skipIf(!RUN_ENGINE_PROBES)('a write outside scope really is checked by a live engine, through the guard this adapter exports', () => {
     it(
         'consults canUseTool for a Write outside the declared scope and denies it, with nothing landing on disk',
         async () => {
@@ -212,7 +229,7 @@ const wilsonServer = (reportHandler: (input: { path?: string }) => Promise<{ con
         alwaysLoad: true,
     });
 
-describe('a report_result call really reaches this adapter’s in-process MCP handler', () => {
+describe.skipIf(!RUN_ENGINE_PROBES)('a report_result call really reaches this adapter’s in-process MCP handler', () => {
     it(
         'invokes the handler when the model calls mcp__wilson__report_result',
         async () => {
@@ -305,7 +322,7 @@ describe('a report_result call really reaches this adapter’s in-process MCP ha
     );
 });
 
-describe('a denied bash command does not spend a step, asked of a real engine', () => {
+describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step, asked of a real engine', () => {
     /**
      * `cli.step.budget.test.ts` already covers this against a mocked SDK — see its own "does not
      * charge refused calls" case. What a live engine can add is that a *real* denied Bash call is
