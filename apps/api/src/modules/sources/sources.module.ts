@@ -2,8 +2,11 @@ import { Kysely } from 'kysely';
 import { Container, Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
+import { Logger } from '@maroonedsoftware/logger';
 import { CacheIdempotencyStore, CacheProvider, IdempotencyStore } from '@maroonedsoftware/cache';
 import { BoardConfig } from '#modules/board/board.config.js';
+import { BoardRepository } from '#modules/board/board.repository.js';
+import { ProjectRepository } from '#modules/board/project.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { optionalConfigString } from '#shared/require.config.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -14,6 +17,7 @@ import { InboundCardWriter } from './inbound.card.writer.js';
 import { PostgresCacheProvider } from './postgres.cache.provider.js';
 import { SourceCursorRepository } from './source.cursor.repository.js';
 import { SourcePoller } from './source.poller.js';
+import { StatusMirrorPoller } from './status.mirror.poller.js';
 
 /**
  * Card 0203 registered `InboundCardWriter`, a plain `useClass` like `LeaseModule` registers
@@ -81,17 +85,42 @@ export const SourcesModule: ServerKitModule = {
             })
             .asSingleton();
         registry.register(SourcePoller).useClass(SourcePoller).asSingleton();
+        // Card 0201: a third, independent loop — mirroring status outward is a different reason to
+        // tick than `SourcePoller`'s importing, so this is its own class and its own registration,
+        // never a branch inside `SourcePoller`. `.useFactory`, not `.useClass`: this needs the
+        // process's `Kysely<DB>` pool directly (to read `runner.card_events`, which `modules/events/`
+        // is outside this card's "Files in scope" to expose a query for), the same reason
+        // `SourceCursorRepository` above gets one instead of a decorator's reflection.
+        registry
+            .register(StatusMirrorPoller)
+            .useFactory(
+                container =>
+                    new StatusMirrorPoller(
+                        container.get(CardSourceRegistry),
+                        container.get(SourceCursorRepository),
+                        container.get(BoardRepository),
+                        container.get(BoardConfig),
+                        container.get(SettingsStore),
+                        container.get(Kysely<DB>),
+                        container.get(Logger),
+                        container.get(ProjectRepository),
+                    ),
+            )
+            .asSingleton();
     },
-    // Unconditional, unlike `JobsModule`'s `BoundedCardStageJobRunner.start()`: `SOURCE_POLL_ENABLED`
-    // is asked by `SourcePoller.tickProject` itself, per project, on every tick — not here — so this
-    // loop always runs once the process starts, exactly as `SourcePoller`'s own doc explains.
+    // Unconditional, unlike `JobsModule`'s `BoundedCardStageJobRunner.start()`: `SOURCE_POLL_ENABLED`/
+    // `STATUS_MIRROR_ENABLED` are asked by each poller's own `tickProject`, per project, on every
+    // tick — not here — so both loops always run once the process starts, exactly as `SourcePoller`'s
+    // own doc explains.
     start: async (container: Container) => {
         container.get(SourcePoller).start();
+        container.get(StatusMirrorPoller).start();
     },
-    // Waits out whatever tick is in flight before the pool `SourceCursorRepository` and
-    // `InboundCardWriter` both write through (Data) tears down underneath it — `Poller.stop()`'s own
-    // contract, mirrored here.
+    // Waits out whatever tick is in flight before the pool `SourceCursorRepository`,
+    // `InboundCardWriter`, and `StatusMirrorPoller` all write through (Data) tears down underneath it
+    // — `Poller.stop()`'s own contract, mirrored here.
     shutdown: async (container: Container) => {
         await container.get(SourcePoller).stop();
+        await container.get(StatusMirrorPoller).stop();
     },
 };
