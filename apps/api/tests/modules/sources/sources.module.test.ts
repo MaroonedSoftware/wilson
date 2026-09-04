@@ -11,6 +11,7 @@ import { InboundCardWriter } from '#modules/sources/inbound.card.writer.js';
 import { PostgresCacheProvider } from '#modules/sources/postgres.cache.provider.js';
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
 import { SourcePoller } from '#modules/sources/source.poller.js';
+import { StatusMirrorPoller } from '#modules/sources/status.mirror.poller.js';
 import { SourcesModule } from '#modules/sources/sources.module.js';
 import { modules } from '#modules/modules.js';
 import type { DB } from '#modules/data/db.js';
@@ -188,6 +189,31 @@ describe('SourcesModule.setup', () => {
         expect(entry?.lifetime).toBe('singleton');
     });
 
+    /**
+     * Card 0201. `StatusMirrorPoller` is `.useFactory`, not `.useClass`, for the same reason
+     * `SourceCursorRepository`/`CacheProvider` above are: it needs the process's `Kysely<DB>` pool
+     * directly (to read `runner.card_events`), which only a factory can hand it. Still a singleton —
+     * it owns its own interval timer for the process, the same reason `SourcePoller` is one.
+     */
+    it('registers StatusMirrorPoller via useFactory, singleton, built from the resolved collaborators', async () => {
+        const { registry, registrations } = recordingRegistry();
+
+        await SourcesModule.setup!(registry, fakeConfig());
+
+        const entry = registrations.get(StatusMirrorPoller);
+        expect(entry?.kind).toBe('useFactory');
+        expect(entry?.lifetime).toBe('singleton');
+
+        const fakeCollaborators = new Map<unknown, unknown>([
+            [CardSourceRegistry, new CardSourceRegistry([])],
+            [SourceCursorRepository, {}],
+            [Kysely<DB>, {} as unknown as Kysely<DB>],
+        ]);
+        const fakeContainer = { get: (id: unknown) => fakeCollaborators.get(id) ?? {} } as unknown as Container;
+        const built = (entry?.impl as (container: Container) => StatusMirrorPoller)(fakeContainer);
+        expect(built).toBeInstanceOf(StatusMirrorPoller);
+    });
+
     it('names itself "Sources"', () => {
         expect(SourcesModule.name).toBe('Sources');
     });
@@ -240,33 +266,57 @@ describe('SourcesModule.setup', () => {
  * Unconditional, unlike `JobsModule`'s `BoundedCardStageJobRunner.start()`: nothing here asks
  * `SOURCE_POLL_ENABLED` — that setting is `SourcePoller.tickProject`'s own question, per project, on
  * every tick, not a gate on whether the loop runs at all.
+ *
+ * Card 0201 adds `StatusMirrorPoller` to both hooks the same way, unconditionally too —
+ * `STATUS_MIRROR_ENABLED` is `StatusMirrorPoller.tickProject`'s own question, not a gate here either.
  */
 describe('SourcesModule start/shutdown', () => {
-    const fakeContainer = (poller: { start: () => void; stop: () => Promise<void> }): Container =>
-        ({ get: (id: unknown) => (id === SourcePoller ? poller : undefined) }) as unknown as Container;
+    const fakeContainer = (
+        sourcePoller: { start: () => void; stop: () => Promise<void> },
+        statusMirrorPoller: { start: () => void; stop: () => Promise<void> },
+    ): Container =>
+        ({
+            get: (id: unknown) => {
+                if (id === SourcePoller) return sourcePoller;
+                if (id === StatusMirrorPoller) return statusMirrorPoller;
+                return undefined;
+            },
+        }) as unknown as Container;
 
-    it('start calls SourcePoller.start()', async () => {
-        const poller = { start: vi.fn(), stop: vi.fn(async () => {}) };
+    it('start calls SourcePoller.start() and StatusMirrorPoller.start()', async () => {
+        const sourcePoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
+        const statusMirrorPoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
 
-        await SourcesModule.start!(fakeContainer(poller));
+        await SourcesModule.start!(fakeContainer(sourcePoller, statusMirrorPoller));
 
-        expect(poller.start).toHaveBeenCalledTimes(1);
+        expect(sourcePoller.start).toHaveBeenCalledTimes(1);
+        expect(statusMirrorPoller.start).toHaveBeenCalledTimes(1);
     });
 
-    it('shutdown calls and awaits SourcePoller.stop()', async () => {
-        let resolved = false;
-        const poller = {
+    it('shutdown calls and awaits both SourcePoller.stop() and StatusMirrorPoller.stop()', async () => {
+        let sourceResolved = false;
+        let statusMirrorResolved = false;
+        const sourcePoller = {
             start: vi.fn(),
             stop: vi.fn(async () => {
                 await Promise.resolve();
-                resolved = true;
+                sourceResolved = true;
+            }),
+        };
+        const statusMirrorPoller = {
+            start: vi.fn(),
+            stop: vi.fn(async () => {
+                await Promise.resolve();
+                statusMirrorResolved = true;
             }),
         };
 
-        await SourcesModule.shutdown!(fakeContainer(poller));
+        await SourcesModule.shutdown!(fakeContainer(sourcePoller, statusMirrorPoller));
 
-        expect(poller.stop).toHaveBeenCalledTimes(1);
-        expect(resolved).toBe(true);
+        expect(sourcePoller.stop).toHaveBeenCalledTimes(1);
+        expect(statusMirrorPoller.stop).toHaveBeenCalledTimes(1);
+        expect(sourceResolved).toBe(true);
+        expect(statusMirrorResolved).toBe(true);
     });
 });
 

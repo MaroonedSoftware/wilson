@@ -1,7 +1,7 @@
 import { GITHUB_LABEL } from '#modules/settings/github.label.setting.js';
 import { GITHUB_REPO } from '#modules/settings/github.repo.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
-import type { CardSource, CardSourceFetchResult, CardSourceItem } from './card.source.js';
+import type { CardSource, CardSourceFetchResult, CardSourceItem, MirrorStatus } from './card.source.js';
 
 /** How long one page fetch waits before it is abandoned. Follows `UrlContextProvider`'s
  * `FETCH_TIMEOUT_MS` (`#modules/context/url.context.provider.js`) — a fixed number, not an unbounded
@@ -42,6 +42,26 @@ type GitHubIssuePayload = {
  * name may contain — this card's Constraints ask only that the string be safe to interpolate into a
  * URL path, not that it accept everything GitHub itself would. */
 const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+/** `owner/name#number` — the exact shape `changedSince` composes for `externalId`
+ * (`${repo}#${issue.number}`, above) — parsed back apart for `mirrorStatus`. */
+const ISSUE_REF_PATTERN = /^(.+)#(\d+)$/;
+
+/**
+ * One short, fixed sentence per `MirrorMoment` (card 0201's Constraints): the comment text stays
+ * generic on purpose, since this is the first thing in the whole card-sources design that writes to a
+ * third party, potentially public, surface. Never interpolates `status.reason` — a `needsHuman`
+ * reason may name a file path, a budget figure, or `source-closed` itself, none of which belongs
+ * here — and never a deep link back to the board, which binds to localhost with no authentication
+ * (PROJECT.md). The card id and title are enough for the ticket's own audience.
+ */
+const MIRROR_COMMENTS: Record<MirrorStatus['moment'], (status: MirrorStatus) => string> = {
+    started: status => `Card ${status.cardId} ("${status.title}") has started implementation.`,
+    ready: status => `Card ${status.cardId} ("${status.title}") is ready for review.`,
+    merged: status => `Card ${status.cardId} ("${status.title}") has been merged.`,
+    dropped: status => `Card ${status.cardId} ("${status.title}") was dropped.`,
+    'needs-human': status => `Card ${status.cardId} ("${status.title}") needs a person to look at it before it can continue.`,
+};
 
 /**
  * The first `CardSource` (`#modules/sources/card.source.js`, card 0196) that talks to anything real:
@@ -121,6 +141,62 @@ export class GitHubIssuesSource implements CardSource {
         // reason to exist. `since` itself (not `undefined`) is what "reported none" falls back to,
         // satisfying `CardSourceFetchResult`'s `cursor: string` even on the very first call.
         return { ok: true, items, cursor: latestUpdatedAt ?? since ?? '' };
+    }
+
+    /**
+     * Card 0201. Post `status`'s fixed comment (`MIRROR_COMMENTS`) to the issue `externalId` names.
+     * Same token/timeout/refusal shape `changedSince`'s own `fetchPage` already uses — never throws,
+     * and never puts `this.token` in the reason it returns.
+     */
+    async mirrorStatus(externalId: string, status: MirrorStatus): Promise<{ ok: true } | { ok: false; reason: string }> {
+        const parsed = this.parseIssueRef(externalId);
+        if (!parsed.ok) return parsed;
+
+        const url = `${GITHUB_API_BASE}/repos/${parsed.repo}/issues/${parsed.number}/comments`;
+        const body = MIRROR_COMMENTS[status.moment](status);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+        try {
+            const response = await this.fetchImpl(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.token}`,
+                    Accept: 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                    'User-Agent': 'wilson-card-sources',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ body }),
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                return { ok: false, reason: `GitHub issue comment on "${externalId}" returned ${response.status}` };
+            }
+            return { ok: true };
+        } catch (error) {
+            if ((error as Error).name === 'AbortError') {
+                return { ok: false, reason: `GitHub issue comment on "${externalId}" timed out after ${this.timeoutMs}ms` };
+            }
+            return { ok: false, reason: `GitHub issue comment on "${externalId}" failed: ${(error as Error).message}` };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /** `externalId` back apart into the `owner/name` repo and issue number `changedSince` composed it
+     * from, refusing anything that does not match `owner/name#number` before a request is ever
+     * built — the same posture `validateRepo` already takes for `GITHUB_REPO` itself. */
+    private parseIssueRef(externalId: string): { ok: true; repo: string; number: string } | { ok: false; reason: string } {
+        const match = ISSUE_REF_PATTERN.exec(externalId);
+        if (!match) {
+            return { ok: false, reason: `"${externalId}" is not a valid GitHub issue ref ("owner/name#number")` };
+        }
+        const [, repo, number] = match;
+        const repoCheck = this.validateRepo(repo!);
+        if (!repoCheck.ok) return repoCheck;
+        return { ok: true, repo: repo!, number: number! };
     }
 
     /** `owner/name` only. Called before any request is built — a bad repo string must never reach a

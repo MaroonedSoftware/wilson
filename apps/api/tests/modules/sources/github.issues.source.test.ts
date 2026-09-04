@@ -354,3 +354,99 @@ describe('GitHubIssuesSource.changedSince — pagination', () => {
         expect(callCount).toBeGreaterThan(1);
     });
 });
+
+/**
+ * Card 0201: `mirrorStatus` posts a comment to the issue `externalId` names, without ever touching
+ * `changedSince`'s own `GITHUB_REPO`/`GITHUB_LABEL` settings — the repo is entirely reconstructed from
+ * `externalId` itself, the exact `owner/repo#number` shape `changedSince` composed it in.
+ */
+describe('GitHubIssuesSource.mirrorStatus', () => {
+    const status = (moment: 'started' | 'ready' | 'merged' | 'dropped' | 'needs-human', extra: { reason?: string } = {}) => ({
+        moment,
+        cardId: '0201',
+        title: 'Mirror the stage back to the ticket',
+        ...extra,
+    });
+
+    it('POSTs to the right comments endpoint for the issue externalId names', async () => {
+        const { fetchImpl, calls } = scriptedFetch([jsonResponse({ id: 1 }, { status: 201 })]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.mirrorStatus('octocat/hello-world#42', status('started'));
+
+        expect(result).toEqual({ ok: true });
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.url).toBe('https://api.github.com/repos/octocat/hello-world/issues/42/comments');
+        expect(calls[0]!.init.method).toBe('POST');
+    });
+
+    it.each([
+        ['started', 'started implementation'],
+        ['ready', 'ready for review'],
+        ['merged', 'has been merged'],
+        ['dropped', 'was dropped'],
+        ['needs-human', 'needs a person'],
+    ] as const)('sends a fixed comment body for the %s moment', async (moment, expectedFragment) => {
+        const { fetchImpl, calls } = scriptedFetch([jsonResponse({ id: 1 }, { status: 201 })]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        await source.mirrorStatus('octocat/hello-world#42', status(moment));
+
+        const body = JSON.parse(String(calls[0]!.init.body)) as { body: string };
+        expect(body.body).toContain('0201');
+        expect(body.body).toContain(expectedFragment);
+    });
+
+    it('never forwards a needsHuman reason verbatim into the comment body', async () => {
+        const { fetchImpl, calls } = scriptedFetch([jsonResponse({ id: 1 }, { status: 201 })]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+        const secretReason = '/etc/passwd budget $47.32 exceeded';
+
+        await source.mirrorStatus('octocat/hello-world#42', status('needs-human', { reason: secretReason }));
+
+        const body = JSON.parse(String(calls[0]!.init.body)) as { body: string };
+        expect(body.body).not.toContain(secretReason);
+    });
+
+    it('refuses a non-2xx response rather than throwing', async () => {
+        const { fetchImpl } = scriptedFetch([new Response('nope', { status: 404 })]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.mirrorStatus('octocat/hello-world#42', status('ready'));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toContain('404');
+    });
+
+    it('refuses an externalId that is not "owner/name#number", with no request made', async () => {
+        const { fetchImpl } = scriptedFetch([jsonResponse({ id: 1 }, { status: 201 })]);
+        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
+
+        const result = await source.mirrorStatus('not-a-ref', status('ready'));
+
+        expect(result.ok).toBe(false);
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('sends the token in the Authorization header, never in a refusal reason', async () => {
+        const secret = 'ghp_super-secret-token';
+        const { fetchImpl, calls } = scriptedFetch([new Response('unauthorized', { status: 401 })]);
+        const source = new GitHubIssuesSource(withRepo(), secret, fetchImpl);
+
+        const result = await source.mirrorStatus('octocat/hello-world#42', status('ready'));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).not.toContain(secret);
+        const headers = new Headers(calls[0]!.init.headers);
+        expect(headers.get('authorization')).toBe(`Bearer ${secret}`);
+    });
+
+    it('a timeout produces { ok: false } instead of hanging the caller', async () => {
+        const source = new GitHubIssuesSource(withRepo(), 'tok', hangingFetch(), 20);
+
+        const result = await source.mirrorStatus('octocat/hello-world#42', status('ready'));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toContain('timed out');
+    });
+});
