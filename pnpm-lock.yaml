@@ -45,7 +45,7 @@ importers:
         specifier: ^4.0.43
         version: 4.0.43(zod@4.4.3)
       '@anthropic-ai/claude-agent-sdk':
-        specifier: ^0.3.241
+        specifier: 0.3.241
         version: 0.3.241(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(zod@4.4.3)
       '@maroonedsoftware/appconfig':
         specifier: ^2.5.1
