@@ -36,6 +36,7 @@ import stagesVersionsCommand from './commands/stages/versions.command.js';
 
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
+import { claudeBinaryCurrent } from './checks/claude.binary.current.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
 import { providerKeySet } from './checks/provider.key.js';
@@ -88,6 +89,7 @@ const app = await createCliApp({
         codeRepoReady,
         boardReady,
         daemonCurrent,
+        claudeBinaryCurrent,
     ],
 });
 
