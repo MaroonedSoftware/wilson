@@ -186,6 +186,35 @@ describe('StatusMirrorPoller — which transitions mirror', () => {
     });
 });
 
+describe('StatusMirrorPoller — source resolution', () => {
+    it('skips a registered source that implements no mirrorStatus, without throwing', async () => {
+        const readOnlySource: CardSource = {
+            name: 'github',
+            changedSince: async () => ({ ok: true, items: [], cursor: '' }),
+            // No `mirrorStatus` — Constraints: "a future source with no write access ... implements
+            // nothing and the poller skips it."
+        };
+        const { board, config, poller } = setup([readOnlySource]);
+        await board.create(card('0001', { external: { github: 'octocat/hello-world#1' } }), 'create');
+        await writeTransition(board, config, '0001', 'review', 'review', 'ready');
+
+        await expect(runTick(poller)).resolves.toBeUndefined();
+    });
+
+    it('only calls mirrorStatus on the source named by the external ref\'s own key, not every registered source', async () => {
+        const { source: githubSource, calls: githubCalls } = trackingSource('github');
+        const { source: otherSource, calls: otherCalls } = trackingSource('jira');
+        const { board, config, poller } = setup([githubSource, otherSource]);
+        await board.create(card('0001', { external: { github: 'octocat/hello-world#1' } }), 'create');
+        await writeTransition(board, config, '0001', 'review', 'review', 'ready');
+
+        await runTick(poller);
+
+        expect(githubCalls).toHaveLength(1);
+        expect(otherCalls).toHaveLength(0);
+    });
+});
+
 describe('StatusMirrorPoller — cursor advancement', () => {
     it('advances the cursor past a source refusal, so the same event is not retried forever', async () => {
         const refusing: CardSource = {
