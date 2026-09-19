@@ -5,8 +5,16 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baselineProvesChange, baselineRefusal, checkCounts, scratchTestFileName, TestingVerifier } from '#modules/stages/testing.verifier.js';
-import { parseTestReport } from '#modules/stages/test.report.js';
+import {
+    baselineProvesChange,
+    baselineRefusal,
+    checkCounts,
+    describeFailingTest,
+    redSuiteFailure,
+    scratchTestFileName,
+    TestingVerifier,
+} from '#modules/stages/testing.verifier.js';
+import { parseTestReport, type FailingTest, type TestReport } from '#modules/stages/test.report.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
@@ -74,6 +82,138 @@ describe('parseTestReport', () => {
 
         expect(() => parseTestReport(raw)).toThrow(/numTotalTests/);
     });
+
+    // Card 0246: naming which tests failed, added on top of the counts check above.
+    describe('failing tests (card 0246)', () => {
+        it('names a failed assertion, with the file made relative to worktreePath', () => {
+            const raw = JSON.stringify({
+                numTotalTests: 1,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: [
+                    {
+                        name: '/repo/apps/api/tests/thing.test.ts',
+                        status: 'failed',
+                        assertionResults: [{ status: 'failed', fullName: 'thing does the correct thing' }],
+                    },
+                ],
+            });
+
+            const report = parseTestReport(raw, '/repo');
+
+            expect(report.failing).toEqual([{ file: 'apps/api/tests/thing.test.ts', name: 'thing does the correct thing' }]);
+            // The counts stay exactly what they were before this card — the failing list is additive.
+            expect(report).toMatchObject({ total: 1, passed: 0, failed: 1, skipped: 0 });
+        });
+
+        it('names every failed assertion in a file with more than one', () => {
+            const raw = JSON.stringify({
+                numTotalTests: 2,
+                numPassedTests: 0,
+                numFailedTests: 2,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: [
+                    {
+                        name: '/repo/thing.test.ts',
+                        status: 'failed',
+                        assertionResults: [
+                            { status: 'failed', fullName: 'thing does the first correct thing' },
+                            { status: 'passed', fullName: 'thing does an unrelated thing' },
+                            { status: 'failed', fullName: 'thing does the second correct thing' },
+                        ],
+                    },
+                ],
+            });
+
+            expect(parseTestReport(raw, '/repo').failing).toEqual([
+                { file: 'thing.test.ts', name: 'thing does the first correct thing' },
+                { file: 'thing.test.ts', name: 'thing does the second correct thing' },
+            ]);
+        });
+
+        it('names a file that failed to load with the first line of its own message, and no test name', () => {
+            const raw = JSON.stringify({
+                numTotalTests: 0,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: [
+                    {
+                        name: '/repo/broken.test.ts',
+                        status: 'failed',
+                        assertionResults: [],
+                        message: "Cannot find module './missing.js'\n    at Object.<anonymous> (/repo/broken.test.ts:1:1)",
+                    },
+                ],
+            });
+
+            expect(parseTestReport(raw, '/repo').failing).toEqual([
+                { file: 'broken.test.ts', name: undefined, message: "Cannot find module './missing.js'" },
+            ]);
+        });
+
+        it('omits `failing` entirely when nothing failed, so an unchanged report stays structurally identical', () => {
+            const raw = JSON.stringify({
+                numTotalTests: 3,
+                numPassedTests: 3,
+                numFailedTests: 0,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: [{ name: '/repo/ok.test.ts', status: 'passed', assertionResults: [{ status: 'passed', fullName: 'ok' }] }],
+            });
+
+            expect(parseTestReport(raw, '/repo')).toEqual({ total: 3, passed: 3, failed: 0, skipped: 0 });
+        });
+
+        it('yields an empty failing list, rather than throwing, when testResults is missing or malformed', () => {
+            const withoutTestResults = JSON.stringify({
+                numTotalTests: 1,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                numTodoTests: 0,
+            });
+            expect(parseTestReport(withoutTestResults, '/repo').failing).toBeUndefined();
+
+            const malformed = JSON.stringify({
+                numTotalTests: 1,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: 'not an array',
+            });
+            expect(() => parseTestReport(malformed, '/repo')).not.toThrow();
+            expect(parseTestReport(malformed, '/repo').failing).toBeUndefined();
+
+            const entryWithoutAName = JSON.stringify({
+                numTotalTests: 1,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: [{ status: 'failed' }],
+            });
+            expect(parseTestReport(entryWithoutAName, '/repo').failing).toBeUndefined();
+        });
+
+        it('still throws on a report missing a count field, even when testResults is present (AC5)', () => {
+            const raw = JSON.stringify({
+                numTotalTests: 1,
+                numPassedTests: 0,
+                numFailedTests: 1,
+                numPendingTests: 0,
+                // numTodoTests missing
+                testResults: [{ name: '/repo/thing.test.ts', status: 'failed', assertionResults: [{ status: 'failed', fullName: 'x' }] }],
+            });
+
+            expect(() => parseTestReport(raw, '/repo')).toThrow(/numTodoTests/);
+        });
+    });
 });
 
 describe('checkCounts', () => {
@@ -98,6 +238,75 @@ describe('checkCounts', () => {
     it('skips both checks without failing when baselineCounts is absent', () => {
         expect(checkCounts(counts, undefined)).toEqual([]);
         expect(checkCounts({ ...counts, total: 0, skipped: 100 }, undefined)).toEqual([]);
+    });
+});
+
+describe('describeFailingTest', () => {
+    it('formats an ordinary failed assertion as "<file> > <fullName>"', () => {
+        expect(describeFailingTest({ file: 'apps/api/tests/thing.test.ts', name: 'thing does the correct thing' })).toBe(
+            'apps/api/tests/thing.test.ts > thing does the correct thing',
+        );
+    });
+
+    it('formats a file that failed to load as "<file> failed to load: <message>"', () => {
+        expect(describeFailingTest({ file: 'broken.test.ts', name: undefined, message: "Cannot find module './missing.js'" })).toBe(
+            "broken.test.ts failed to load: Cannot find module './missing.js'",
+        );
+    });
+
+    it('falls back to "no message" for a load failure with no message', () => {
+        expect(describeFailingTest({ file: 'broken.test.ts', name: undefined })).toBe('broken.test.ts failed to load: no message');
+    });
+});
+
+/**
+ * Card 0246: the red-suite failure's first line names which tests failed, since that first line is
+ * the only part the board's event log and card 0234's attempt record keep. `checkCounts` above is
+ * the strict exit condition; this is purely about what the message says when the suite is red.
+ */
+describe('redSuiteFailure', () => {
+    const run = { reason: '`pnpm exec vitest run` failed (exit 1)\nsome noisy console output' };
+    const report = (failing: FailingTest[]): TestReport => ({ total: failing.length, passed: 0, failed: failing.length, skipped: 0, failing });
+
+    it('AC1: names both failed assertions on the first line, and keeps the exit reason on later lines', () => {
+        const message = redSuiteFailure(
+            report([
+                { file: 'a.test.ts', name: 'a does the thing' },
+                { file: 'b.test.ts', name: 'b does the other thing' },
+            ]),
+            run,
+        );
+
+        const [firstLine, ...rest] = message.split('\n');
+        expect(firstLine).toBe('the suite is not green: 2 failing: a.test.ts > a does the thing; b.test.ts > b does the other thing');
+        expect(rest.join('\n')).toContain(run.reason);
+    });
+
+    it('AC2: names five of seven failures on the first line, and ends it with "and 2 more"', () => {
+        const failing = Array.from({ length: 7 }, (_, i) => ({ file: `f${i}.test.ts`, name: `case ${i}` }));
+
+        const [firstLine] = redSuiteFailure(report(failing), run).split('\n');
+
+        expect(firstLine).toBe(
+            'the suite is not green: 7 failing: f0.test.ts > case 0; f1.test.ts > case 1; f2.test.ts > case 2; ' +
+                'f3.test.ts > case 3; f4.test.ts > case 4 and 2 more',
+        );
+    });
+
+    it('AC3: names a file that failed to load with the first line of its message', () => {
+        const [firstLine] = redSuiteFailure(report([{ file: 'broken.test.ts', name: undefined, message: "Cannot find module './x.js'" }]), run).split(
+            '\n',
+        );
+
+        expect(firstLine).toBe("the suite is not green: 1 failing: broken.test.ts failed to load: Cannot find module './x.js'");
+    });
+
+    it('AC4: falls back to today\'s plain message when there is no report at all', () => {
+        expect(redSuiteFailure(undefined, run)).toBe(`the suite is not green: ${run.reason}`);
+    });
+
+    it('AC4: falls back to today\'s plain message when the report parsed but named no failures', () => {
+        expect(redSuiteFailure({ total: 0, passed: 0, failed: 0, skipped: 0 }, run)).toBe(`the suite is not green: ${run.reason}`);
     });
 });
 
@@ -376,6 +585,94 @@ describe('TestingVerifier — format check (card 0041)', () => {
         const outcome = await verifier.verify(verifyInput(worktree, stage));
 
         expect(outcome.failures.some(f => f.includes('bad.test.ts'))).toBe(false);
+    });
+});
+
+/**
+ * Card 0246, end to end: `TestingVerifier.verify` itself, not just `redSuiteFailure` in isolation,
+ * reads the report before it pushes the red-suite failure and builds that failure's first line from
+ * the report's named failures. `testCommand` here is a small script rather than a real vitest run —
+ * it writes a report shaped exactly like the one vitest's JSON reporter would, then exits non-zero
+ * the way a red suite does — so the test is about the wiring in `verify`, not about vitest itself.
+ */
+describe('TestingVerifier — red-suite failure names failing tests (card 0246)', () => {
+    let base: string;
+    let manager: WorktreeManager;
+    let verifier: TestingVerifier;
+
+    beforeEach(async () => {
+        base = await mkdtemp(join(tmpdir(), 'testing-verifier-redsuite-'));
+        const codeRoot = join(base, 'code');
+        await mkdir(codeRoot, { recursive: true });
+
+        await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+        await writeFile(join(codeRoot, 'README.md'), '# base\n', 'utf8');
+        await exec('git', ['add', '-A'], { cwd: codeRoot });
+        await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+        const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        manager = new WorktreeManager(config, silentLogger as never);
+        verifier = new TestingVerifier(manager, silentLogger as never);
+    });
+
+    afterEach(async () => {
+        await rm(base, { recursive: true, force: true }).catch(() => undefined);
+    });
+
+    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, stage: StageConfig) => ({
+        worktree,
+        stage,
+        cardId: '0001',
+        scope: {} as ScopeGuard,
+        result: undefined,
+    });
+
+    it('leads the red-suite failure with the failing test names, ahead of the command exit reason', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+
+        const reportPath = join(worktree.path, 'report.json');
+        const report = {
+            numTotalTests: 1,
+            numPassedTests: 0,
+            numFailedTests: 1,
+            numPendingTests: 0,
+            numTodoTests: 0,
+            testResults: [
+                {
+                    name: join(worktree.path, 'tests', 'thing.test.ts'),
+                    status: 'failed',
+                    assertionResults: [{ status: 'failed', fullName: 'thing does the correct thing' }],
+                },
+            ],
+        };
+        // No shell is involved in running a configured command (`runConfiguredCommand` execs the
+        // file directly), so the fake "suite" is a script rather than an inline `-e` string with
+        // spaces in it — those would be split apart as separate argv entries.
+        await writeFile(
+            join(worktree.path, 'fake-suite.cjs'),
+            `require('fs').writeFileSync(${JSON.stringify(reportPath)}, ${JSON.stringify(JSON.stringify(report))});\nprocess.exit(1);\n`,
+            'utf8',
+        );
+
+        const stage = makeStage({
+            testCommand: `node ${join(worktree.path, 'fake-suite.cjs')}`,
+            testReportPath: 'report.json',
+            baselineCheck: false,
+        });
+
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(false);
+        const redSuite = outcome.failures.find(f => f.startsWith('the suite is not green:'));
+        expect(redSuite).toBeDefined();
+
+        const [firstLine, ...rest] = (redSuite as string).split('\n');
+        expect(firstLine).toBe('the suite is not green: 1 failing: tests/thing.test.ts > thing does the correct thing');
+        expect(rest.join('\n')).toMatch(/failed \(exit 1\)/);
     });
 });
 

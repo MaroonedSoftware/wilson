@@ -3,10 +3,10 @@ import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
+import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
-import { parseTestReport, type TestCounts } from './test.report.js';
+import { parseTestReport, type FailingTest, type TestCounts, type TestReport } from './test.report.js';
 
 const TEST_FILE_PATTERN = /(^|\/)[^/]*\.test\.ts$/;
 
@@ -50,6 +50,38 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
         failures.push(`the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}: tests were skipped rather than fixed`);
     }
     return failures;
+};
+
+const MAX_NAMED_FAILURES = 5;
+
+/**
+ * Format one failing test — or one file that failed to load — for the red-suite failure's first
+ * line.
+ */
+export const describeFailingTest = (test: FailingTest): string =>
+    test.name === undefined ? `${test.file} failed to load: ${test.message ?? 'no message'}` : `${test.file} > ${test.name}`;
+
+/**
+ * The red-suite failure: which tests failed, named on the first line, with the command's own exit
+ * reason kept beneath it.
+ *
+ * The first line is deliberately the only thing this changes — it is the only part two readers ever
+ * see. The board's event log truncates the rest, and card 0234's `## Previous attempts` record keeps
+ * only a failure's first line, so a retried testing stage, and a human reading the card, both learn
+ * which test broke only from what lands here.
+ *
+ * Falls back to today's plain message whenever there is nothing to name: `report` is `undefined`
+ * (the report was missing, stale or unusable — already recorded as its own failure by `readReport`),
+ * or it parsed cleanly but named no failures even though the command exited non-zero — a suite that
+ * failed for a reason the report cannot see.
+ */
+export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string => {
+    const failing = report?.failing ?? [];
+    if (failing.length === 0) return `the suite is not green: ${run.reason}`;
+
+    const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailingTest);
+    const more = failing.length > MAX_NAMED_FAILURES ? ` and ${failing.length - MAX_NAMED_FAILURES} more` : '';
+    return `the suite is not green: ${failing.length} failing: ${shown.join('; ')}${more}\n${run.reason}`;
 };
 
 /**
@@ -110,12 +142,13 @@ export class TestingVerifier implements StageVerifier {
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
         const startedAt = Date.now();
-        if (stage.testCommand) {
-            const run = await runConfiguredCommand(worktree.path, stage.testCommand);
-            if (run) failures.push(`the suite is not green: ${run.reason}`);
-        }
+        const run = stage.testCommand ? await runConfiguredCommand(worktree.path, stage.testCommand) : undefined;
 
+        // Read before pushing the red-suite failure below — that failure's first line is built from
+        // this report's named failures, so the message needs the report before it can be assembled.
         const counts = await this.readReport(worktree.path, stage.testReportPath, failures, startedAt);
+
+        if (run) failures.push(redSuiteFailure(counts, run));
 
         // Formatting is an exit condition, not a habit an agent is asked to remember — this is
         // exactly how card 0032's unformatted test file reached main uncaught: nothing but a
@@ -147,13 +180,17 @@ export class TestingVerifier implements StageVerifier {
      * config turns the test command into a silent no-op. The first time the testing stage ran for
      * real, that is exactly what happened, and a missing report was the only symptom. A report left
      * over from an earlier run would have been worse — it would have been believed.
+     *
+     * Returns a `TestReport`, not just `TestCounts`, so the red-suite failure above can name which
+     * tests failed — the only reason `verify` now reads the report before pushing that failure
+     * instead of after.
      */
     private async readReport(
         worktreePath: string,
         testReportPath: string | undefined,
         failures: string[],
         notBefore?: number,
-    ): Promise<TestCounts | undefined> {
+    ): Promise<TestReport | undefined> {
         if (!testReportPath) {
             failures.push('no testReportPath configured: the test report was never checked');
             return undefined;
@@ -176,7 +213,7 @@ export class TestingVerifier implements StageVerifier {
         }
 
         try {
-            return parseTestReport(raw);
+            return parseTestReport(raw, worktreePath);
         } catch (err) {
             failures.push(`test report at ${testReportPath} is unusable: ${(err as Error).message}`);
             return undefined;
