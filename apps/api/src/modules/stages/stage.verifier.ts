@@ -25,6 +25,20 @@ export interface VerificationOutcome {
     passed: boolean;
     failures: string[];
     changedPaths: string[];
+    /**
+     * Set when every failure above is a fault in the stage's own report — a hallucinated citation, an
+     * inconsistent verdict, a reviewer that wrote files — rather than a statement about the card's
+     * code. Card 0249: `ReviewVerifier` rejected a passing review over AC7's citation of
+     * `cli.tool.guard.test.ts`, a file correctly outside the diff, and the rejection then routed
+     * through `review.onFail` to `challenge` and on to `implementing` — stages with nothing to fix,
+     * since the code was never at fault. `StageDispatcher.runAgent` folds this into `unjudged` so
+     * `kickback` retries the same stage instead, the same way a truncated run or a dropped result do;
+     * it still charges `retries[stage.name]`, so a stage that keeps producing a bad report still
+     * reaches `needsHuman` at `maxKickbacks`. Left unset (not merely `false`) when it does not apply,
+     * matching `resultDropped`/`engineStopReason`'s own optional-field convention elsewhere in this
+     * module.
+     */
+    reportRejected?: boolean;
 }
 
 export interface StageVerifier {

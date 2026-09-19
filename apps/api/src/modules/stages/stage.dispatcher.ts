@@ -1017,9 +1017,19 @@ export class StageDispatcher {
         // a judgment of what it produced. Left `false` when a verifier's own substantive checks are
         // what failed — a bad citation, an empty diff, a verdict that contradicts its severities —
         // since those are exactly the judgments `writeTransition`/`kickback` should route past.
+        //
+        // `verification.reportRejected` (card 0250) joins the same list for the same reason: a review
+        // or challenge rejected only for a fault in its own report — not a statement about the card's
+        // code — has nothing for `onFail`'s next stage to act on either, so it retries this stage
+        // instead of routing onward, the same as a truncated run or a dropped result do.
         const unjudged =
             failures.length > 0 &&
-            (reported === undefined || schemaInvalid || run.truncated || Boolean(run.budgetFailure) || Boolean(run.engineFailure));
+            (reported === undefined ||
+                schemaInvalid ||
+                run.truncated ||
+                Boolean(run.budgetFailure) ||
+                Boolean(run.engineFailure) ||
+                Boolean(verification.reportRejected));
 
         return {
             passed: failures.length === 0,
