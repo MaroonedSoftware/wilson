@@ -207,6 +207,10 @@ contract SaveDraftRequest: {
 # request — one message in that conversation.
 contract PlanTurnRequest: {
     text: string
+    # Card 0240. `chat`, the default, sends exactly `text`. `cuts` prepends `PlanService`'s
+    # `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
+    # of its own because the preamble, not the request shape, is what changes.
+    mode?: enum(chat, cuts)
 }
 
 # One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is

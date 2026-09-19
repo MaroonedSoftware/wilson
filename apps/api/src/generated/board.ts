@@ -217,6 +217,12 @@ export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
  */
 export const PlanTurnRequest = z.strictObject({
     text: z.string(),
+    mode: z
+        .enum(['chat', 'cuts'])
+        .optional()
+        .describe(
+            "Card 0240. `chat`, the default, sends exactly `text`. `cuts` prepends `PlanService`'s\n`cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields\nof its own because the preamble, not the request shape, is what changes.",
+        ),
 });
 export type PlanTurnRequest = z.infer<typeof PlanTurnRequest>;
 
@@ -224,7 +230,7 @@ export type PlanTurnRequest = z.infer<typeof PlanTurnRequest>;
  * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
- * generated from [PlanTurn](file://./../../data/contracts/board.ck#L215)
+ * generated from [PlanTurn](file://./../../data/contracts/board.ck#L219)
  */
 export const PlanTurn = z.strictObject({
     seq: z.coerce
@@ -245,7 +251,7 @@ export type PlanTurn = z.infer<typeof PlanTurn>;
  * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
  * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
  * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
- * generated from [PlanDraft](file://./../../data/contracts/board.ck#L229)
+ * generated from [PlanDraft](file://./../../data/contracts/board.ck#L233)
  */
 export const PlanDraft = z.strictObject({
     body: z.string(),
@@ -258,7 +264,7 @@ export type PlanDraft = z.infer<typeof PlanDraft>;
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
  * comment moves through, not a delete — a comment the agent addressed stays on record.
- * generated from [PlanComment](file://./../../data/contracts/board.ck#L238)
+ * generated from [PlanComment](file://./../../data/contracts/board.ck#L242)
  */
 export const PlanComment = z.strictObject({
     id: z.string(),
@@ -274,7 +280,7 @@ export type PlanComment = z.infer<typeof PlanComment>;
 /**
  * `POST .../plan/comments`'s request — the anchor a client already captured
  * (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
- * generated from [CreatePlanCommentRequest](file://./../../data/contracts/board.ck#L250)
+ * generated from [CreatePlanCommentRequest](file://./../../data/contracts/board.ck#L254)
  */
 export const CreatePlanCommentRequest = z.strictObject({
     quote: z.string(),
@@ -290,7 +296,7 @@ export type CreatePlanCommentRequest = z.infer<typeof CreatePlanCommentRequest>;
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L262)
+ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L266)
  */
 export const DivisionPiece = z.strictObject({
     title: z.string(),
@@ -312,7 +318,7 @@ export type DivisionPiece = z.infer<typeof DivisionPiece>;
  * produced it; `message` already carries whatever specifics matter (the allowlist's own refusal
  * reason, the glob this suggests, which `alwaysAllowed` entry already covers the line) rather than
  * splitting them into fields a client would have to reassemble into the same sentence.
- * generated from [LintFinding](file://./../../data/contracts/board.ck#L310)
+ * generated from [LintFinding](file://./../../data/contracts/board.ck#L314)
  */
 export const LintFinding = z.strictObject({
     kind: z.enum(['command', 'alwaysAllowed']),
@@ -334,7 +340,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../data/contracts/board.ck#L278)
+ * generated from [CardDivision](file://./../../data/contracts/board.ck#L282)
  */
 export const CardDivision = z.strictObject({
     reason: z
@@ -352,7 +358,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L290)
+ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L294)
  */
 export const SplitCardsRequest = z.strictObject({
     pieces: z.array(DivisionPiece),
@@ -396,7 +402,7 @@ export type MergeResult = z.infer<typeof MergeResult>;
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../data/contracts/board.ck#L298)
+ * generated from [SplitResult](file://./../../data/contracts/board.ck#L302)
  */
 export const SplitResult = z.strictObject({
     origin: CardDetail,

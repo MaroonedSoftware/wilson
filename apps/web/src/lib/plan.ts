@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useListState } from '@mantine/hooks';
-import type { PlanDraft, PlanTurn } from '@wilson/sdk';
+import type { PlanDraft, PlanTurn, PlanTurnRequest } from '@wilson/sdk';
 import { API_BASE, wilson } from './sdk.js';
 
 /** Whether the conversation stream is watching live, still connecting, or has dropped. */
@@ -109,6 +109,26 @@ export function usePlanTranscript(cardId: string, enabled: boolean, project?: st
     };
 
     return { turns, pendingText, status, error, commitTurn };
+}
+
+/**
+ * Sends one turn of a card's planning conversation (card 0133's `POST .../plan/turn`), card 0137's
+ * composer. Unlike most mutations in this app, a refusal is not a notification: `PlanningSession.tsx`
+ * reads `error` itself and shows the server's own sentence inline next to the composer, since a
+ * notification would vanish before an operator mid-typing necessarily saw it. Success hands back the
+ * newly appended assistant `PlanTurn` (never the user's own — the endpoint only ever returns the
+ * reply), which the caller folds into the transcript kept by `usePlanTranscript` above via its
+ * `commitTurn`.
+ *
+ * Takes the whole `PlanTurnRequest` — `text` and card 0240's optional `mode` — rather than a bare
+ * string, so a `cuts` turn (`PlanningSession.tsx`'s "Propose cuts" button) can ask for
+ * `PlanService.appendTurn`'s cuts preamble the same way an ordinary turn asks for none: by what it
+ * puts in the request, not by a second mutation.
+ */
+export function useSendPlanTurn(cardId: string) {
+    return useMutation({
+        mutationFn: (request: PlanTurnRequest): Promise<PlanTurn> => wilson.board.sendAPlanTurn(cardId, request),
+    });
 }
 
 /** How often `DraftPane` asks for `draft.md` again while its session is open. */
