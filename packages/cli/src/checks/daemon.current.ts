@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import type { Check } from '@maroonedsoftware/johnny5';
 import { DateTime } from 'luxon';
 import { apiClient } from '../api-client.js';
+import { setting } from '../settings.js';
 
 const exec = promisify(execFile);
 
@@ -37,7 +38,7 @@ const exec = promisify(execFile);
 export const daemonCurrent: Check = {
     name: 'daemon not stale',
     run: async ctx => {
-        const root = ctx.config.get('PROJECT_CODE_ROOT', '');
+        const root = setting(ctx, 'PROJECT_CODE_ROOT', '');
         if (!root) return { ok: true, message: 'PROJECT_CODE_ROOT not set; skipped' };
 
         // Unreachable means no daemon — a legitimate, passing state, not this check's business to

@@ -1,42 +1,28 @@
 import type { CliContext } from '@maroonedsoftware/johnny5';
 import { SdkError, WilsonSdk } from '@wilson/sdk';
-
-/** The port `apps/api` binds by default (apps/api/.env.example) — read from the same `PORT` config
- * key the server itself uses, so a CLI and a co-located API agree without a second variable. */
-const DEFAULT_PORT = '13100';
+import { apiSettings } from './settings.js';
 
 /**
- * Where the API lives.
- *
- * `API_URL` overrides outright, for an operator running the API somewhere other than this machine.
- * Otherwise `localhost` on `PORT` — the same config key `apps/api` binds to (loaded from the same
- * `apps/api/.env` the CLI already reads), so the common case of "API and CLI on one box" needs no
- * configuration at all.
+ * Where the API lives — `API_URL`/`PORT`, read via `apiSettings`. See `settings.ts` for the
+ * fallbacks and why this doesn't read `ctx.config`.
  */
-export const resolveApiBase = (ctx: CliContext): string => {
-    const override = ctx.config.get('API_URL', '').trim();
-    if (override) return override.replace(/\/$/, '');
-    return `http://localhost:${ctx.config.get('PORT', DEFAULT_PORT)}`;
-};
+export const resolveApiBase = (ctx: CliContext): string => apiSettings(ctx).baseUrl;
 
 /**
- * Card 0150. Which project this invocation targets — `WILSON_PROJECT`, read the same way
- * `resolveApiBase` reads `API_URL`/`PORT`, so it needs no per-command flag: every one of the 16
- * commands already builds its client through `apiClient`/`withApi` below, so setting this once here
- * reaches all of them. Unset (the common case — a single-project deployment, or an operator who
- * hasn't opted into naming one) resolves to `undefined`, which `apiClient` below treats as "send no
- * project header at all" — the server then answers for its own configured project, exactly what
- * every command typed today already gets.
+ * Card 0150. Which project this invocation targets — `WILSON_PROJECT`, read via `apiSettings` the
+ * same way `resolveApiBase` reads `API_URL`/`PORT`, so it needs no per-command flag: every one of
+ * the 16 commands already builds its client through `apiClient`/`withApi` below, so setting this
+ * once here reaches all of them. Unset (the common case — a single-project deployment, or an
+ * operator who hasn't opted into naming one) resolves to `undefined`, which `apiClient` below treats
+ * as "send no project header at all" — the server then answers for its own configured project,
+ * exactly what every command typed today already gets.
  */
-export const resolveProject = (ctx: CliContext): string | undefined => {
-    const project = ctx.config.get('WILSON_PROJECT', '').trim();
-    return project || undefined;
-};
+export const resolveProject = (ctx: CliContext): string | undefined => apiSettings(ctx).project;
 
 /** One SDK instance per invocation, pointed at wherever config says the API lives. */
 export const apiClient = (ctx: CliContext): WilsonSdk => {
-    const project = resolveProject(ctx);
-    return new WilsonSdk({ baseUrl: resolveApiBase(ctx), headers: project ? { 'X-Wilson-Project': project } : undefined });
+    const { baseUrl, project } = apiSettings(ctx);
+    return new WilsonSdk({ baseUrl, headers: project ? { 'X-Wilson-Project': project } : undefined });
 };
 
 /** True for a `fetch` failure that never reached a server — a refused or absent connection. */

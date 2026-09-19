@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppConfig } from '@maroonedsoftware/appconfig';
 // `@wilson/sdk` is not one of apps/api's own dependencies (only packages/cli and apps/web depend on
 // it), so it is not resolvable as a bare specifier from a file living under apps/api/tests — reached
 // by relative path into the package's source instead, the same way this suite already reaches into
@@ -13,9 +12,14 @@ import { apiClient, describeApiError, resolveApiBase, resolveProject, withApi } 
 // that module directly, rather than only indirectly through every command that uses it — `resolveApiBase`
 // (config → base URL), `describeApiError` (error → operator-facing string), and `withApi` (the wrapper
 // that ties the two together and turns a throw into an exit code).
+//
+// Card 0247: `apiSettings` (`packages/cli/src/settings.ts`) reads these values off `ctx.env`, not
+// `ctx.config` — `createCliApp` never gives `ctx.config` a source, so it returned the fallback for
+// every key regardless of what `apps/api/.env` set. `buildCtx` below builds a `ctx` with only `env`,
+// no `config` at all, so a reader that still reached for `ctx.config` would throw here.
 const buildCtx = (values: Record<string, string> = {}) => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    return { ctx: { config: new AppConfig(values), logger }, logger };
+    return { ctx: { env: values, logger }, logger };
 };
 
 describe('resolveApiBase', () => {

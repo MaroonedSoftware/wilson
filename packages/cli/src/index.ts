@@ -8,8 +8,10 @@ import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
 // ports it onto the planning-session API (`api.board.openAPlanningSession`/`saveAPlanDraft`/
 // `closeAPlanningSession`) the same way `wilson run`'s retirement (card 0079) and card 0078 ported
 // every other command. Nothing in this package builds a container any more, so `createCliApp` needs
-// no `config`/`modules` wiring and this file has no `@wilson/api` import left — `ctx.config` comes
-// from johnny5's own default (`buildContext`'s default `envFiles` already includes `apps/api/.env`).
+// no `config`/`modules` wiring and this file has no `@wilson/api` import left. `ctx.config` is
+// johnny5's own bare default — a resolver with no source, so it returns nothing for every key
+// regardless of `apps/api/.env`. Settings come from `ctx.env` instead (see `settings.ts`), which
+// `buildContext`'s default `envFiles` (already including `apps/api/.env`) does populate.
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';

@@ -1,5 +1,6 @@
 import pg from 'pg';
 import type { Check } from '@maroonedsoftware/johnny5';
+import { databaseSettings } from '../settings.js';
 
 /**
  * Reachability of pg-boss's schema via the discrete DATABASE_* values, the same way
@@ -9,12 +10,13 @@ import type { Check } from '@maroonedsoftware/johnny5';
 export const queueReachable: Check = {
     name: 'queue reachable',
     run: async ctx => {
+        const { host, port, user, password, database } = databaseSettings(ctx);
         const client = new pg.Client({
-            host: ctx.config.get('DATABASE_HOST', ''),
-            port: Number(ctx.config.get('DATABASE_PORT', '5432')),
-            user: ctx.config.get('DATABASE_USER', ''),
-            password: ctx.config.get('DATABASE_PASSWORD', ''),
-            database: ctx.config.get('DATABASE_NAME', ''),
+            host,
+            port: Number(port),
+            user,
+            password,
+            database,
         });
 
         try {

@@ -23,11 +23,15 @@ afterEach(() => {
 const jsonResponse = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-/** A `ctx` good enough for `apiClient(ctx)`: `fetch` is stubbed, so the exact base URL is moot. */
+/**
+ * A `ctx` good enough for `apiClient(ctx)`: `fetch` is stubbed, so the exact base URL is moot.
+ * Card 0247: `apiClient` reads `ctx.env` (via `apiSettings`), not `ctx.config` any more, so `env`
+ * must exist here even though every value in it is unset.
+ */
 const buildCtx = () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
     const config = { get: (_key: string, fallback: string) => fallback };
-    return { ctx: { config, logger }, logger };
+    return { ctx: { config, env: {}, logger }, logger };
 };
 
 const run = (ctx: unknown, cardId: string) => (command.run as unknown as Handler)({}, ctx, [cardId]);
