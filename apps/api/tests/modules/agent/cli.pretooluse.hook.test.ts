@@ -4,22 +4,17 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Card 0249. `CliStageAgent` registers the guard as a `PreToolUse` hook on `query()` — originally
- * alongside `canUseTool`, left wired to the same guard instance as a backstop, after a 2026-09-19
- * diagnostic run found host engine 2.1.266 sometimes never calls `canUseTool` at all, but does call
- * the hook unconditionally.
+ * Card 0249. `CliStageAgent` now registers the guard as a `PreToolUse` hook on `query()`, with
+ * `canUseTool` left wired to the same guard instance as a backstop — see `cli.stage.agent.ts`'s
+ * class doc comment for why: a 2026-09-19 diagnostic run found host engine 2.1.266 sometimes never
+ * calls `canUseTool` at all, but does call the hook unconditionally.
  *
- * Card 0254 went further and removed `canUseTool` from `query()`'s options entirely — see
- * `cli.stage.agent.ts`'s class doc comment for the nine further 2026-09-19 diagnostic runs, against
- * host engine 2.1.278, that found a *registered* `canUseTool` is what makes the engine skip both it
- * and the hook for some calls. The `PreToolUse` hook is now the only permission path.
- *
- * `cli.tool.unguarded.test.ts` (card 0248) originally only ever drove the call through `canUseTool`,
- * so it could not show that a call consulted solely through the hook is recognised as guarded (AC5),
- * or that `query()` is actually wired up with the hook in the first place (AC6) — this file drives
- * the same mocked-`query()` harness `cli.tool.unguarded.test.ts` and `cli.step.budget.test.ts` both
- * use, but reaches `options.hooks.PreToolUse[0].hooks[0]` — the callback `toolGuardHook` produced —
- * directly.
+ * `cli.tool.unguarded.test.ts` (card 0248) only ever drives the call through `canUseTool`, so it
+ * cannot show that a call consulted solely through the hook is recognised as guarded (AC5), or that
+ * `query()` is actually wired up with the hook in the first place (AC6). This file drives the same
+ * mocked-`query()` harness `cli.tool.unguarded.test.ts` and `cli.step.budget.test.ts` both use, but
+ * reaches `options.hooks.PreToolUse[0].hooks[0]` — the callback `toolGuardHook` produced — instead
+ * of `options.canUseTool`.
  */
 const { queryMock, mcpServerMock, toolMock } = vi.hoisted(() => ({
     queryMock: vi.fn(),
@@ -103,6 +98,7 @@ const streamOf = (messages: unknown[]) => ({
 type PreToolUseHook = (input: unknown, toolUseID: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>;
 type MockOptions = {
     hooks?: { PreToolUse?: [{ hooks: PreToolUseHook[] }] };
+    canUseTool: (n: string, i: unknown, o: unknown) => Promise<unknown>;
     allowedTools?: unknown;
 };
 
@@ -110,10 +106,11 @@ const hookInput = (toolName: string, input: Record<string, unknown>, toolUseId: 
     ({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: toolUseId }) as never;
 
 /**
- * The same shape `cli.tool.unguarded.test.ts`'s `streamConsultingThen` uses: reaching
- * `options.hooks.PreToolUse[0].hooks[0]`, the callback `toolGuardHook` produced. This is what "the
- * guard was consulted, but only through the hook" looks like from the engine's side — the only shape
- * left to test at all, since card 0254 removed `canUseTool` from `query()`'s options entirely.
+ * The same shape `cli.tool.unguarded.test.ts`'s `streamConsultingThen` uses, but reaching the
+ * engine's *other* door: `options.hooks.PreToolUse[0].hooks[0]`, the callback `toolGuardHook`
+ * produced, rather than `options.canUseTool`. This is what "the guard was consulted, but only
+ * through the hook" looks like from the engine's side — exactly the gap `canUseTool`-only coverage
+ * cannot exercise.
  */
 const streamConsultingViaHookThen = (consult: { toolName: string; input: Record<string, unknown>; toolUseID: string }, messages: unknown[]) => ({
     async *[Symbol.asyncIterator]() {
@@ -186,10 +183,7 @@ describe('CliStageAgent — PreToolUse hook (card 0249)', () => {
         expect(unguarded(recorded)).toHaveLength(0);
     });
 
-    it('AC4: consulting the same toolUseID through the hook twice — a re-sent PreToolUse, per the SDK\'s own reinitialize() doc comment — records the denial once', async () => {
-        // Card 0254 removed `canUseTool` from `query()`'s options entirely, so the hook is the only
-        // door left; the double-consultation this guards against is no longer "hook then canUseTool
-        // backstop" but a retried delivery of the same hook event after a transport gap.
+    it('AC4: consulting the same toolUseID through the hook and then through the canUseTool backstop records the denial once', async () => {
         const root = await makeWorktree();
         queryMock.mockReturnValue({
             async *[Symbol.asyncIterator]() {
@@ -197,8 +191,9 @@ describe('CliStageAgent — PreToolUse hook (card 0249)', () => {
                 const hook = options.hooks?.PreToolUse?.[0]?.hooks?.[0];
                 if (!hook) throw new Error('no PreToolUse hook registered');
                 await hook(hookInput('Bash', { command: 'rm -rf /' }, 'toolu_1'), 'toolu_1', { signal: new AbortController().signal });
-                // The retried delivery — same toolUseID, same call, the same door, consulted again.
-                await hook(hookInput('Bash', { command: 'rm -rf /' }, 'toolu_1'), 'toolu_1', { signal: new AbortController().signal });
+                // The backstop the engine falls back to when it does consult canUseTool too — same
+                // toolUseID, same call, the other door.
+                await options.canUseTool('Bash', { command: 'rm -rf /' }, { toolUseID: 'toolu_1' });
                 yield bashToolUse('toolu_1', 'rm -rf /');
                 yield toolResult('toolu_1');
                 yield successResult;

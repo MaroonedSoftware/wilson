@@ -89,31 +89,21 @@ const EXEC_TOOLS = ['Bash'];
  *
  * The engine brings its own tool loop and its own tools, so `ScopeGuard` and `CommandAllowlist` are
  * not in the path the way they are for the `api` adapter. They are put back through one guard
- * (`createToolGuard`), reached the only way `query()` is given to reach it: a `PreToolUse` hook
- * (`toolGuardHook`, registered on `query()`'s `hooks` option below). Every Write, Edit and Bash the
- * engine proposes is checked against the same guard before it runs, and a denial is returned to the
- * model as a message rather than thrown.
+ * (`createToolGuard`), reached two ways: a `PreToolUse` hook (`toolGuardHook`, registered on
+ * `query()`'s `hooks` option below) first, and `canUseTool` as a backstop for any call that still
+ * reaches it. Every Write, Edit and Bash the engine proposes is checked against the same guards
+ * before it runs, and a denial is returned to the model as a message rather than thrown.
  *
- * **The hook is the only permission path — `canUseTool` is not registered at all.** Card 0249 first
- * added the hook alongside a `canUseTool` wired to the identical guard, as a backstop: on host engine
- * 2.1.266, a diagnostic run on 2026-09-19 made one Bash call (`true`) with a `canUseTool` that refused
+ * **The hook exists because `canUseTool` alone was not enough.** Card 0249: on host engine 2.1.266,
+ * a diagnostic run on 2026-09-19 made one Bash call (`true`) with a `canUseTool` that refused
  * everything; the command ran anyway, and `canUseTool` was called zero times. The same call against a
  * `PreToolUse` hook, run the same day, was consulted once, and a `deny` from the hook did stop it —
- * the engine got "refused by PreToolUse hook" back and nothing ran. Card 0254 went further: nine more
- * live diagnostic runs on 2026-09-19, on host engine 2.1.278, found that a *registered* `canUseTool`
- * is what causes the gap, not merely an insufficient one — with `canUseTool` in the `query()` options
- * (identical guard, hook and all), the unmodified adapter's denied-bash probe still ran the command
- * unguarded (`tool.unguarded`), deterministically, across two runs; removing `canUseTool` from the
- * options alone (hook untouched) made the hook fire for that same call and refuse it. So with a
- * `canUseTool` callback registered, this engine settles some calls it classifies as safe itself,
- * skipping both the callback and the hook; without one, the hook sees them. `canUseTool` is therefore
- * not registered here at all — a backstop that itself causes the failure it was meant to catch is not
- * a backstop. See the `query()` call below for what the installed SDK's own type declarations say
- * happens to a call with no `canUseTool` under `permissionMode: 'default'`, and why it does not
- * matter for this adapter regardless. The guard's own decision logic does not change for any of
- * this: `createToolGuard`'s per-`toolUseID` idempotency (deny credit, `tool.denied`/`tool.executed`
- * events, the repeat-refusal counter, all keyed by the engine's own `tool_use` id) stays exactly as
- * it is; with one path in, it simply never sees a second consultation for the same id.
+ * the engine got "refused by PreToolUse hook" back and nothing ran. So permission comes from the hook
+ * first now, with `canUseTool` left wired to the identical guard instance rather than removed, in
+ * case a call the hook does not catch still reaches it. The guard's own decision logic does not
+ * change for any of this: a call seen through both doors records its deny credit,
+ * `tool.denied`/`tool.executed` events, and the repeat-refusal counter once, keyed by the engine's
+ * own `tool_use` id, not twice (see `createToolGuard`'s own comment on `decided`).
  *
  * **`allowedTools` is deliberately not set.** Listing a tool there marks it *pre-approved*, and the
  * engine then never consults `canUseTool` for it — so naming Write and Bash as allowed, which reads
@@ -403,10 +393,10 @@ export class CliStageAgent extends StageAgent {
             idle.unref();
         };
 
-        // Card 0254: one guard instance, reached the one way below (`hooks.PreToolUse` — see the
-        // class doc comment for why `canUseTool` is not also wired to it any more). The per-id
-        // `repeats`/`decided` state `createToolGuard` keeps is unchanged by that; it now simply
-        // never sees a second consultation for the same `tool_use` id.
+        // Card 0249: one guard instance, reached two ways below (`hooks.PreToolUse` and
+        // `canUseTool`), so a call consulted through both shares the same `repeats`/`decided`
+        // state rather than two independent copies of it — see `createToolGuard`'s own comment
+        // for why that sharing is what keeps a doubly-consulted call's side effects counted once.
         const toolGuard = createToolGuard(
             context,
             stage.worktree,
@@ -480,7 +470,7 @@ export class CliStageAgent extends StageAgent {
             ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
-                // 'default' so the `PreToolUse` hook below is consulted rather than bypassed. Never
+                // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
                 // Together these pin the tool surface to this adapter's own code — see the class
@@ -488,27 +478,14 @@ export class CliStageAgent extends StageAgent {
                 // the guard's default-deny stays exactly as it is, unmoved.
                 settingSources: [],
                 strictMcpConfig: true,
-                // Card 0254: the `PreToolUse` hook is the only permission path — the engine calls
-                // it for every tool call, unconditionally, which a registered `canUseTool` turned
-                // out to make it skip for some calls on host engine 2.1.278 (see the class doc
-                // comment's 2026-09-19 findings). `canUseTool` is deliberately not set below.
-                //
-                // What happens to a tool call that reaches this engine's own permission step with
-                // no `canUseTool` registered, under `permissionMode: 'default'`? The installed SDK
-                // (`@anthropic-ai/claude-agent-sdk@0.3.241`, `sdk.d.ts`) does not say: `Options.canUseTool`'s
-                // own doc comment ("Called before each tool execution to determine if it should be
-                // allowed, denied, or prompt the user") and `PermissionMode`'s ("'default' - Standard
-                // permission behavior, prompts for dangerous operations") describe the callback's and
-                // the mode's job, not what happens when neither the callback nor a renderer for that
-                // prompt (no `permissionPromptToolName` is set below either) exists for a call that
-                // reaches that step unmediated. That gap does not matter here regardless: `decide`
-                // inside `createToolGuard` below is total over every tool name the hook is asked
-                // about — `READ_TOOLS`/`WRITE_TOOLS`/`EXEC_TOOLS`, this adapter's own MCP tools by
-                // qualified name, and a catch-all `deny` for anything else — so `toolGuardHook` always
-                // returns an explicit `allow` or `deny` `permissionDecision` for every `PreToolUse`
-                // call. No call in this adapter can reach whatever the engine's own undocumented
-                // fallback is, because the hook never leaves one undecided for it to fall through to.
+                // Card 0249: the `PreToolUse` hook is consulted first — the engine calls it for
+                // every tool call, unconditionally, which is what `canUseTool` turned out not to
+                // be on host engine 2.1.266 (see the class doc comment's 2026-09-19 finding).
+                // `canUseTool` stays wired to the identical guard as a backstop for any call that
+                // still reaches it; both share `toolGuard`'s own state, so a call consulted
+                // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
+                canUseTool: toolGuard,
                 env: subscriptionEnv(configDir),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
@@ -952,21 +929,16 @@ export const createToolGuard = (
     // differs on repeat, not just a message that is already correct the first time.
     const repeats = new Map<string, number>();
 
-    // Card 0249 added this cache when the guard was reached two ways per call — the `PreToolUse`
-    // hook and `canUseTool` as a backstop (see `CliStageAgent.run` and `toolGuardHook` below) —
-    // so a call seen by both did not pay for a decision twice: one `tool.denied`/`tool.executed`
-    // event, one step credit, one entry in the repeat-refusal counter above. Card 0254 removed the
-    // second door (`canUseTool` is no longer registered on `query()`), but the cache stays exactly
-    // as it was rather than being unwound: it is still correct with one path in, since nothing
-    // requires a `toolUseID` to be consulted only once, and the SDK's own `reinitialize()` doc
-    // comment (`sdk.d.ts`) describes a re-sent `PreToolUse` retrying a call whose response was lost
-    // in a transport gap — exactly the kind of second consultation for the same id this cache exists
-    // to make idempotent. Decisions are cached here, keyed by the engine's own `tool_use` id, so a
+    // Card 0249: this guard is now reached two ways per call — the `PreToolUse` hook first, then
+    // `canUseTool` as a backstop for anything that still reaches it (see `CliStageAgent.run` and
+    // `toolGuardHook` below) — and a call seen by both must not pay for a decision twice: one
+    // `tool.denied`/`tool.executed` event, one step credit, one entry in the repeat-refusal
+    // counter above. Decisions are cached here, keyed by the engine's own `tool_use` id, so a
     // second consultation for an id already decided replays that `PermissionResult` without
     // running `decide` — and without touching `repeats`, `onDeny` or `context.events` — again. A
     // call with no id at all (every call in cli.tool.guard.test.ts, and the step-budget probe's
     // synthetic `WebFetch` calls) is never cached, since there is nothing to key it by; those keep
-    // running `decide` fresh on every call, exactly as before card 0249.
+    // running `decide` fresh on every call, exactly as before this card.
     const decided = new Map<string, PermissionResult>();
 
     const decide = async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
@@ -1097,9 +1069,8 @@ export const createToolGuard = (
         onActivity?.();
         // Card 0248: recorded for every call reaching this point, regardless of tool or outcome — the
         // one piece of evidence that the guard was actually asked about this `tool_use` id at all.
-        // Fires on every consultation — the `PreToolUse` hook is the only caller since card 0254 —
-        // unlike `decide` below; a set only grows, so a second consultation for the same id costs it
-        // nothing extra to record again.
+        // Fires on every consultation, hook or canUseTool alike, unlike `decide` below — a set only
+        // grows, so a second consultation for the same id costs it nothing extra to record again.
         onConsulted?.(options?.toolUseID);
 
         const toolUseID = options?.toolUseID;
@@ -1114,31 +1085,26 @@ export const createToolGuard = (
 
 /**
  * Adapts `createToolGuard`'s `CanUseTool` into a `PreToolUse` hook callback, so the guard's
- * decision runs from the one hook event the engine calls unconditionally. Card 0249 first added
- * this alongside a `canUseTool` wired to the identical guard, after a 2026-09-19 diagnostic run
- * found host engine 2.1.266 does not always call `canUseTool` at all (one Bash call ran with a
- * `canUseTool` that refused everything, and `canUseTool` was called zero times; the same call
- * against a `PreToolUse` hook was consulted once, and a `deny` from the hook did stop it). Card
- * 0254 removed `canUseTool` from `query()`'s options entirely: nine further live runs on
- * 2026-09-19, against host engine 2.1.278, found that *registering* `canUseTool` — not just
- * relying on it alone — is what makes the engine skip both it and the hook for some calls; see
- * `CliStageAgent`'s class doc comment for the full finding. This hook is now the only place the
- * guard's decision reaches the engine from. The guard's own decision logic does not change here:
- * this only reshapes its `PermissionResult` into the hook's `hookSpecificOutput` shape and carries
- * `tool_use_id` through as the `toolUseID` a `canUseTool` callback would otherwise have supplied —
- * `requestId` has no hook equivalent and the guard never reads it, so `tool_use_id` stands in for
- * that too.
+ * decision runs from the one hook event the engine calls unconditionally, not only through
+ * `canUseTool` — which a 2026-09-19 diagnostic run found host engine 2.1.266 does not always call
+ * at all (one Bash call ran with a `canUseTool` that refused everything, and `canUseTool` was
+ * called zero times; the same call against a `PreToolUse` hook was consulted once, and a `deny`
+ * from the hook did stop it — see `CliStageAgent`'s class doc comment). The guard's own decision
+ * logic does not change here: this only reshapes its `PermissionResult` into the hook's
+ * `hookSpecificOutput` shape and carries `tool_use_id` through as the `toolUseID` `canUseTool`
+ * would otherwise have supplied — `requestId` has no hook equivalent and the guard never reads
+ * it, so `tool_use_id` stands in for that too.
  *
- * Card 0249's Constraints, still true after card 0254: `permissionMode` stays `'default'` and
- * `allowedTools` stays unset, so this hook's `allow` is a per-call decision made after the guard's
- * own checks — never a pre-approval — the same as a `canUseTool` callback's `allow` always was.
+ * Card 0249's Constraints: `permissionMode` stays `'default'` and `allowedTools` stays unset, so
+ * this hook's `allow` is a per-call decision made after the guard's own checks — never a
+ * pre-approval — the same as `canUseTool`'s `allow` always was.
  *
  * `guard` is typed `CanUseTool`, whose return type is `PermissionResult | null` — `null` is the
  * SDK's own signal that the consumer already answered out-of-band (see `CanUseTool`'s doc
  * comment). `createToolGuard` never does that and never returns `null` itself, but the type is
- * honoured here rather than asserted away: a `null` is treated as `allow`, matching a `canUseTool`
- * callback's own contract, where returning `null` from a permission callback means "already
- * handled", not "denied".
+ * honoured here rather than asserted away: a `null` is treated as `allow`, matching `canUseTool`'s
+ * own contract, where returning `null` from a permission callback means "already handled", not
+ * "denied".
  */
 export const toolGuardHook =
     (guard: CanUseTool): HookCallback =>

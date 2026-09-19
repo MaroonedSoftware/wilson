@@ -73,20 +73,8 @@ const assistantMessage = () => ({ type: 'assistant', message: { content: [{ type
  * A stream that never ends on its own, yielding `turns` assistant messages and calling the adapter's
  * own permission guard `denialsPerTurn` times before each. `WebFetch` is refused unconditionally, so
  * it exercises the deny path without needing a scope guard or a command allowlist.
- *
- * Card 0254 removed `canUseTool` from `query()`'s options entirely, so the only door left to drive a
- * consultation through is the registered `PreToolUse` hook — reached off the real `options` object,
- * the same way `cli.tool.unguarded.test.ts` and `cli.pretooluse.hook.test.ts` do.
  */
-type PreToolUseHook = (input: unknown, toolUseID: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>;
-type MockOptions = {
-    hooks?: { PreToolUse?: [{ hooks: PreToolUseHook[] }] };
-    abortController: AbortController;
-    maxTurns: number;
-};
-
-const hookInput = (toolName: string, input: Record<string, unknown>) =>
-    ({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: undefined }) as never;
+type MockOptions = { canUseTool: (n: string, i: unknown) => Promise<unknown>; abortController: AbortController; maxTurns: number };
 
 const abortError = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
 
@@ -94,15 +82,13 @@ const streamOf = (turns: number, denialsPerTurn = 0) => ({
     async *[Symbol.asyncIterator]() {
         const options = (queryMock.mock.calls[0]?.[0] as { options: MockOptions }).options;
         const { signal } = options.abortController;
-        const hook = options.hooks?.PreToolUse?.[0]?.hooks?.[0];
-        if (!hook) throw new Error('no PreToolUse hook registered');
         for (let turn = 0; turn < turns; turn++) {
             // The engine's own ceiling, modelled so the backstop is exercised rather than assumed.
             if (turn >= options.maxTurns) {
                 yield { type: 'result', subtype: 'error_max_turns', usage: { input_tokens: 1, output_tokens: 1 } };
                 return;
             }
-            for (let d = 0; d < denialsPerTurn; d++) await hook(hookInput('WebFetch', {}), undefined, { signal });
+            for (let d = 0; d < denialsPerTurn; d++) await options.canUseTool('WebFetch', {});
             yield assistantMessage();
             // The engine ends the run when its abort controller fires; a mock that ignored the
             // signal would hang here instead, and prove nothing about the budget that triggered it.
