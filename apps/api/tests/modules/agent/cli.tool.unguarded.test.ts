@@ -16,9 +16,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * event for each id that completed (has a `tool_result`) without ever being consulted.
  *
  * `query` is mocked the same way `cli.empty.turn.test.ts` does: a plain array-backed stream, with
- * `canUseTool` reached — when a test needs to simulate a real consultation — via the `options`
- * object `query()` was actually called with, exactly as `cli.step.budget.test.ts` reaches it for its
- * own denial simulation.
+ * the guard reached — when a test needs to simulate a real consultation — via the registered
+ * `PreToolUse` hook off the `options` object `query()` was actually called with, exactly as
+ * `cli.step.budget.test.ts` and `cli.pretooluse.hook.test.ts` reach it for their own simulations.
+ * Card 0254 removed `canUseTool` from `query()`'s options entirely, so the hook is the only door
+ * left; before that card this test drove `options.canUseTool` directly.
  */
 const { queryMock, mcpServerMock, toolMock } = vi.hoisted(() => ({
     queryMock: vi.fn(),
@@ -99,17 +101,25 @@ const streamOf = (messages: unknown[]) => ({
     },
 });
 
+type PreToolUseHook = (input: unknown, toolUseID: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>;
+
+const hookInput = (toolName: string, input: Record<string, unknown>, toolUseId: string) =>
+    ({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: toolUseId }) as never;
+
 /**
- * The same stream, but before yielding `messages` it drives `canUseTool` itself — reached off the
- * real `options` object `query()` was invoked with, the same way `cli.step.budget.test.ts` calls
- * `options.canUseTool` directly to simulate a denial. This is what "the guard was actually
- * consulted for this id" looks like from the engine's side.
+ * The same stream, but before yielding `messages` it drives the registered `PreToolUse` hook itself
+ * — reached off the real `options` object `query()` was invoked with, the same way
+ * `cli.step.budget.test.ts` and `cli.pretooluse.hook.test.ts` reach it to simulate a consultation.
+ * Card 0254 removed `canUseTool` from `query()`'s options entirely, so the hook is the only door
+ * left to drive this through. This is what "the guard was actually consulted for this id" looks
+ * like from the engine's side now.
  */
 const streamConsultingThen = (consult: { toolName: string; input: Record<string, unknown>; toolUseID: string }, messages: unknown[]) => ({
     async *[Symbol.asyncIterator]() {
-        const options = (queryMock.mock.calls[0]?.[0] as { options: { canUseTool: (n: string, i: unknown, o: unknown) => Promise<unknown> } })
-            .options;
-        await options.canUseTool(consult.toolName, consult.input, { toolUseID: consult.toolUseID });
+        const options = (queryMock.mock.calls[0]?.[0] as { options: { hooks?: { PreToolUse?: [{ hooks: PreToolUseHook[] }] } } }).options;
+        const hook = options.hooks?.PreToolUse?.[0]?.hooks?.[0];
+        if (!hook) throw new Error('no PreToolUse hook registered');
+        await hook(hookInput(consult.toolName, consult.input, consult.toolUseID), consult.toolUseID, { signal: new AbortController().signal });
         for (const message of messages) yield message;
     },
 });
@@ -161,7 +171,7 @@ describe('CliStageAgent — tool.unguarded (card 0248)', () => {
         expect(unguarded(recorded)).toMatchObject([{ type: 'tool.unguarded', payload: { tool: 'Write', path: 'src/x.ts' } }]);
     });
 
-    it('does not append tool.unguarded when canUseTool was consulted and allowed the call', async () => {
+    it('does not append tool.unguarded when the hook was consulted and allowed the call', async () => {
         const root = await makeWorktree();
         queryMock.mockReturnValue(
             streamConsultingThen({ toolName: 'Bash', input: { command: 'true' }, toolUseID: 'toolu_1' }, [
@@ -177,7 +187,7 @@ describe('CliStageAgent — tool.unguarded (card 0248)', () => {
         expect(unguarded(recorded)).toHaveLength(0);
     });
 
-    it('does not append tool.unguarded when canUseTool was consulted and denied the call', async () => {
+    it('does not append tool.unguarded when the hook was consulted and denied the call', async () => {
         const root = await makeWorktree();
         // Not in the ['true'] allowlist, so this consultation ends in a denial rather than an allow —
         // AC2 covers both outcomes, since a skipped consultation is the gap, not the verdict.
