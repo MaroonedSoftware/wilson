@@ -515,3 +515,140 @@ stages:
         expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
     });
 });
+
+/**
+ * Card 0242. The 2026-09-19 incident: card 0240 sat in `scope-check` — a readonly stage that reads
+ * the plan and writes nothing — with a live claim, and that alone (under the pre-0242 rule of
+ * `isRunningStage` + `hasLiveClaim`) deferred card 0241's `testing`, one stage from done, on a scope
+ * neither card's tree yet contained anything of. `holdsFiles` is the fix: another card now counts
+ * toward a conflict only once something of it is actually in the tree — its current stage writes
+ * (`worktree: 'rw'`), or its branch already carries a `work.committed` event.
+ */
+describe('PostgresBoardRepository.scopeConflict — holdsFiles (card 0242)', () => {
+    let board: PostgresBoardRepository;
+    let config: StaticBoardConfig;
+    let events: EventLog;
+    let stages: ProjectStages;
+
+    beforeEach(async () => {
+        events = new EventLog(db, silentLogger);
+
+        stages = parseStages(`
+stages:
+  - name: scope-check
+    mode: agent
+    worktree: readonly
+    model: claude-opus
+    instructions: check the plan
+    onPass: implementing
+    onFail: scope-check
+  - name: implementing
+    mode: agent
+    worktree: rw
+    model: claude-opus
+    instructions: implement it
+    onPass: review
+    onFail: implementing
+  - name: review
+    mode: agent
+    worktree: readonly
+    model: claude-opus
+    instructions: review it
+    onPass: merged
+    onFail: implementing
+`);
+
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+        board = new PostgresBoardRepository(config, db, events);
+    });
+
+    const claimCard = (project: string, cardId: string, jobId = `job-${cardId}`) =>
+        db.insertInto('runner.cardJobs').values({ project, cardId, jobId }).execute();
+
+    // AC1, and the exact 0240/0241 shape: a readonly stage, claimed, with nothing committed yet.
+    // Before card 0242, `isRunningStage` + `hasLiveClaim` alone were enough, and this would defer.
+    it('does not defer against a card claimed in a readonly stage that has committed nothing yet (the 0240/0241 incident)', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/data/contracts/board.ck\n'), 'create');
+        await board.create(card('0002', { stage: 'scope-check' }, '## Files in scope\n\n- apps/api/data/contracts/board.ck\n'), 'create');
+        await claimCard(config.project, '0002');
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
+    });
+
+    // AC2: a card on its first `implementing` run has no `work.committed` event yet, but it is
+    // writing to its own worktree right now (`worktree: 'rw'`) — dropping it would let a second
+    // card write the same file concurrently, so it must still count.
+    it('defers against a card claimed in an rw stage even before its first commit', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await claimCard(config.project, '0002');
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0001'), stages);
+        expect(conflict?.cardId).toBe('0002');
+    });
+
+    // AC3: a later readonly stage (`review`) still holds what an earlier stage committed — the
+    // `hasCommitted` half of `holdsFiles`, read from the same `work.committed` event the dispatcher
+    // writes on every passing commit (stage.dispatcher.ts).
+    it('defers against a card claimed in a readonly stage once it has a work.committed event', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'review' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await events.append({
+            project: config.project,
+            cardId: '0002',
+            stage: 'implementing',
+            type: 'work.committed',
+            payload: { sha: 'deadbeef', branch: 'card/0002' },
+        });
+        await claimCard(config.project, '0002');
+
+        const conflict = await board.scopeConflict(events, config.project, await board.read('0001'), stages);
+        expect(conflict?.cardId).toBe('0002');
+    });
+
+    // AC4: card 0128's filter still runs first — no live claim at all means `holdsFiles` is never
+    // even asked, whatever the other card's stage or event history says.
+    it('still ignores a card with no live claim, even with a work.committed event and an rw stage', async () => {
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await events.append({
+            project: config.project,
+            cardId: '0002',
+            stage: 'implementing',
+            type: 'work.committed',
+            payload: { sha: 'deadbeef', branch: 'card/0002' },
+        });
+
+        expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
+    });
+
+    // AC5: a stage the config cannot resolve is treated as holding — the conservative direction.
+    // Built as the race the `holdsFiles` doc comment describes: `isRunningStage` resolves the other
+    // card's stage while the config still has it, and the config changes before `holdsFiles`'s own
+    // `findStage` call runs — simulated by mutating a plain (unfrozen — `parseStages` deep-freezes
+    // its result, so a fresh clone is used) stages object as a side effect of the very `events.tail`
+    // read `cardHistory` makes in between the two `findStage` calls.
+    it('treats a card whose stage the config stops knowing about mid-check as still holding its files', async () => {
+        const raceStages: ProjectStages = JSON.parse(JSON.stringify(stages));
+
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'scope-check' }, '## Files in scope\n\n- apps/api/src/x.ts\n'), 'create');
+        await claimCard(config.project, '0002');
+
+        const vanishingEvents = {
+            tail: async (project: string, cardId: string, limit: number) => {
+                const rows = await events.tail(project, cardId, limit);
+                // Right after reading 0002's history — the moment `scopeConflict` is about to ask
+                // `holdsFiles` to resolve its stage a second time — the stage disappears from the
+                // config it is about to be looked up against.
+                if (cardId === '0002') {
+                    raceStages.stages = raceStages.stages.filter(s => s.name !== 'scope-check');
+                }
+                return rows;
+            },
+        } as unknown as EventLog;
+
+        const conflict = await board.scopeConflict(vanishingEvents, config.project, await board.read('0001'), raceStages);
+        expect(conflict?.cardId).toBe('0002');
+    });
+});
