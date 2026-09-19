@@ -26,16 +26,21 @@ const normalize = (text: string): string => text.trim().replace(/\s+/g, ' ').toL
  *
  * The incoming blockers come from `EventLog.tail`, not the card body: `wilson card show`/the body's
  * rendered bullets print `file:undefined` for an omission finding, so parsing them back out would be
- * lossy in exactly the cases this stage most needs to get right. Specifically, the most recent event
- * on this card whose `stage` is `'review'` must be a `stage.passed` event whose `payload.result`
- * parses as `ReviewResultSchema` with `verdict: 'revise'` — that is what `review.onFail: challenge`
- * routes here in the first place (a review with no blocker never fails its own verifier's
- * `verdict`/blocker consistency check the way `shouldAdvance`, `kickback.ts`, reads it). Anything else
- * — no review event at all, the most recent one `stage.failed`, or a `verdict` other than `'revise'` —
- * means there is nothing for this stage to do, so `verify` fails with "nothing to challenge" rather
- * than running the accounting check against an empty or wrong blocker list. That failure routes
- * through `challenge.onFail` to `implementing`, which is today's behaviour for a `revise` review
- * before this card — this stage is a detour in front of it, not a replacement.
+ * lossy in exactly the cases this stage most needs to get right. Specifically, the most recent
+ * *stage-outcome* event on this card whose `stage` is `'review'` must be `stage.passed` and its
+ * `payload.result` must parse as `ReviewResultSchema` with `verdict: 'revise'` — that is what
+ * `review.onFail: challenge` routes here in the first place (a review with no blocker never fails its
+ * own verifier's `verdict`/blocker consistency check the way `shouldAdvance`, `kickback.ts`, reads
+ * it). "Stage-outcome" excludes `transition.written`: `StageDispatcher.writeTransition` stamps that
+ * event with `stage: stageName` too, and appends it right after `stage.passed`/`stage.failed`, so on
+ * a card that just kicked back it is the most recent `'review'`-tagged row of all — `incomingBlockers`
+ * skips past it rather than reading it as "the review event", or this scan would report "nothing to
+ * challenge" on every single kickback instead of the one it actually means. Anything else — no review
+ * event at all, the most recent one `stage.failed`, or a `verdict` other than `'revise'` — means there
+ * is nothing for this stage to do, so `verify` fails with "nothing to challenge" rather than running
+ * the accounting check against an empty or wrong blocker list. That failure routes through
+ * `challenge.onFail` to `implementing`, which is today's behaviour for a `revise` review before this
+ * card — this stage is a detour in front of it, not a replacement.
  *
  * Two known limitations, left for a later card:
  *
@@ -117,9 +122,10 @@ export class ChallengeVerifier implements StageVerifier {
     }
 
     /**
-     * The blocker findings from the most recent `review`-stage event, if — and only if — that event
-     * is `stage.passed` with a `verdict: 'revise'` result. `undefined` covers every other case (no
-     * review event, `stage.failed`, unparseable `payload.result`, or `verdict: 'pass'`) uniformly:
+     * The blocker findings from the most recent `review`-stage *outcome* event — `transition.written`
+     * rows sharing `stage: 'review'` are skipped, see the class doc comment — if, and only if, that
+     * event is `stage.passed` with a `verdict: 'revise'` result. `undefined` covers every other case
+     * (no review event, `stage.failed`, unparseable `payload.result`, or `verdict: 'pass'`) uniformly:
      * the caller turns any of them into the same "nothing to challenge" failure.
      */
     private async incomingBlockers(cardId: string): Promise<ReviewFinding[] | undefined> {
@@ -127,6 +133,14 @@ export class ChallengeVerifier implements StageVerifier {
         for (let i = rows.length - 1; i >= 0; i--) {
             const row = rows[i]!;
             if (row.stage !== 'review') continue;
+            // `StageDispatcher.writeTransition` stamps `transition.written` with `stage: stageName`
+            // — the stage that just ran, i.e. `'review'` — and appends it *after* that run's own
+            // `stage.passed`/`stage.failed` event. On a card that actually just kicked back from
+            // review, that transition record is therefore the most recent `'review'`-tagged row,
+            // ahead of the outcome event this scan is looking for. Skipped rather than treated as
+            // "not stage.passed", so the scan reaches the real outcome underneath it instead of
+            // reporting "nothing to challenge" on every single kickback.
+            if (row.type === 'transition.written') continue;
             if (row.type !== 'stage.passed') return undefined;
             const parsed = ReviewResultSchema.safeParse((row.payload as { result?: unknown }).result);
             if (!parsed.success || parsed.data.verdict !== 'revise') return undefined;
