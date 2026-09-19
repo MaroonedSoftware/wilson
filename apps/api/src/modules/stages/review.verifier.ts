@@ -25,6 +25,16 @@ export class ReviewVerifier implements StageVerifier {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
+        // Whether every failure pushed below is a fault in the review's own report rather than a
+        // statement about the card's code — `reportRejected` (card 0250) is `true` only when this
+        // stays `false` all the way to `return`. The empty-diff check just below is the one failure
+        // in this method that is about the code, not the report: a card with nothing to review is a
+        // fact about the card, and retrying the same review would not change it. Every other failure
+        // this method can push — a hallucinated citation, an out-of-range line, a duplicate or unknown
+        // criterion ID, a verdict inconsistent with its own severities, or (below) the reviewer having
+        // written files — is a fault in what the reviewer reported, so it leaves this `false`.
+        let codeFailure = false;
+
         // A reviewer does not edit. This asks what *this stage* wrote, not what the card changed:
         // the review stage resumes the card's branch, so `changedPaths` measures from the fork point
         // and is never empty — it is the diff under review, and the findings must cite it.
@@ -40,12 +50,13 @@ export class ReviewVerifier implements StageVerifier {
         // does not contain, and an empty findings list would sail through as a pass.
         if (changedPaths.length === 0) {
             failures.push('the card has an empty diff: there is nothing to review, so a pass here would mean nothing');
+            codeFailure = true;
         }
 
         const parsed = ReviewResultSchema.safeParse(result);
         if (!parsed.success) {
             failures.push(`the reported result does not match the review schema: ${parsed.error.message}`);
-            return { passed: false, failures, changedPaths };
+            return { passed: false, failures, changedPaths, reportRejected: failures.length > 0 && !codeFailure };
         }
 
         const { verdict, findings, criteria } = parsed.data;
@@ -117,17 +128,18 @@ export class ReviewVerifier implements StageVerifier {
                 seenIds.add(criterion.id);
 
                 if (criterion.status !== 'met') continue;
+                // Unlike a `defect` finding, a `met` criterion is not required to cite the diff: "the
+                // existing suites pass unchanged" and "this behaviour is unchanged" are legitimate
+                // criteria whose evidence is, by definition, code the card did not touch (card 0250,
+                // Constraints). What still has to be real is the citation itself — a file that exists
+                // in the worktree, and a line within it.
                 const file = criterion.file ?? '';
                 if (!lineCounts.has(file)) {
                     lineCounts.set(file, await this.countLines(worktree.path, file));
                 }
                 const lineCount = lineCounts.get(file);
-                if (!changedPaths.includes(file)) {
-                    failures.push(
-                        `criterion "${criterion.id}" cites ${file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'})`,
-                    );
-                } else if (lineCount === undefined) {
-                    failures.push(`criterion "${criterion.id}" cites ${file}, which could not be read from the worktree`);
+                if (lineCount === undefined) {
+                    failures.push(`criterion "${criterion.id}" cites ${file}, which does not exist in the worktree`);
                 } else if (criterion.line !== undefined && criterion.line > lineCount) {
                     failures.push(`criterion "${criterion.id}" cites ${file}:${criterion.line}, but the file has only ${lineCount} lines`);
                 }
@@ -155,7 +167,7 @@ export class ReviewVerifier implements StageVerifier {
             failures.push('verdict is "pass" but at least one criterion is "unmet"');
         }
 
-        return { passed: failures.length === 0, failures, changedPaths };
+        return { passed: failures.length === 0, failures, changedPaths, reportRejected: failures.length > 0 && !codeFailure };
     }
 
     private async countLines(worktreePath: string, path: string): Promise<number | undefined> {

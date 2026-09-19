@@ -461,10 +461,11 @@ describe('ChallengeVerifier', () => {
             expect(outcome.failures.some(f => f.includes('"pass"') && f.includes('unmet'))).toBe(true);
         });
 
-        // AC3: a criterion turned "met" with a file outside the diff fails through the composed
-        // ReviewVerifier provenance check, even though ChallengeVerifier's own "unmet" -> "met"
-        // transition rule allows the status change itself.
-        it('fails when a criterion turned "met" cites a file outside the diff', async () => {
+        // Card 0250: the composed ReviewVerifier provenance check no longer requires a "met"
+        // criterion to cite the diff — only that the citation be real. `src/kept.ts` is outside the
+        // diff but a genuine file in the worktree with the cited line in range, so turning AC1 "met"
+        // with that citation now verifies, where it used to fail on the old diff-only rule.
+        it('verifies when a criterion turned "met" cites a file outside the diff, so long as it exists in the worktree', async () => {
             const worktree = await manager.create(cardId, 'card/0001-thing');
             await makeDiff(worktree);
             const planCard = cardWithCriteria('- AC1: does the thing');
@@ -480,9 +481,34 @@ describe('ChallengeVerifier', () => {
 
             const outcome = await verifier.verify(verifyInput(worktree, result, planCard));
 
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        // Card 0250, AC2: the relaxed rule still requires the citation to be real — a file that
+        // exists nowhere in the worktree still fails, now with its own message rather than the old
+        // diff-membership one.
+        it('still fails when a criterion turned "met" cites a file that does not exist anywhere in the worktree', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const planCard = cardWithCriteria('- AC1: does the thing');
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([], [unmetCriterion('AC1')], 'revise')]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [],
+                criteria: [metCriterion('AC1', { file: 'src/nowhere.ts', line: 1 })],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, planCard));
+
             expect(outcome.passed).toBe(false);
             expect(
-                outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts') && f.includes("not in this card's diff")),
+                outcome.failures.some(
+                    f => f.includes('AC1') && f.includes('src/nowhere.ts') && f.includes('does not exist in the worktree'),
+                ),
             ).toBe(true);
         });
 
@@ -535,6 +561,46 @@ describe('ChallengeVerifier', () => {
 
             expect(outcome.failures).toEqual([]);
             expect(outcome.passed).toBe(true);
+        });
+    });
+
+    /**
+     * Card 0250, AC6: `reportRejected` must be true when a challenge fails only on its own
+     * accounting (this run's report), so `StageDispatcher` retries `challenge` instead of routing
+     * through `challenge.onFail`. "Nothing to challenge" is the one case that is not a report fault —
+     * there is no report to fault, the routing itself is wrong — so it must not set `reportRejected`.
+     */
+    describe('reportRejected', () => {
+        it('is true when the only failure is this run\'s own accounting fault', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([reviewPassedEvent([blocker('needs a real reason')])]);
+
+            // An empty refutation reason is purely a fault in this run's own report — the incoming
+            // blocker is real and correctly matched, only the reason text is missing.
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [{ problem: 'needs a real reason', reason: '   ' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.reportRejected).toBe(true);
+        });
+
+        it('is not set when there is nothing to challenge', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([]);
+
+            const outcome = await verifier.verify(verifyInput(worktree, { summary: 'x', verdict: 'pass', findings: [], refuted: [] }));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('nothing to challenge'))).toBe(true);
+            expect(outcome.reportRejected).toBeFalsy();
         });
     });
 });

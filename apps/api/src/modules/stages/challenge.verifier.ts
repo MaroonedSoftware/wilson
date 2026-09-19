@@ -86,6 +86,17 @@ export class ChallengeVerifier implements StageVerifier {
         const reviewOutcome = await this.reviewVerifier.verify(input);
         const failures = [...reviewOutcome.failures];
 
+        // Whether every failure is a fault in this stage's own report rather than a statement about
+        // the code — the same `reportRejected` contract `ReviewVerifier` follows (card 0250), reached
+        // here partly by composition: `reviewOutcome`'s own failures (found-diff, provenance, verdict
+        // consistency, unauthorized writes) already carry its verdict in `reviewOutcome.reportRejected`,
+        // which is `false` only when one of them was a statement about the code (an empty diff).
+        // Everything this method adds on top — a dropped or fabricated blocker, an empty refutation
+        // reason, a criterion accounting mismatch — is itself a fault in this run's *own* report, so it
+        // never flips this back to `false`. "Nothing to challenge" is the one exception: there is no
+        // report to fault, the routing itself is wrong, so that branch returns before this applies.
+        const codeFailure = reviewOutcome.failures.length > 0 && !reviewOutcome.reportRejected;
+
         const incoming = await this.incomingReview(cardId);
         if (incoming === undefined) {
             failures.push(
@@ -97,7 +108,12 @@ export class ChallengeVerifier implements StageVerifier {
         const parsed = ChallengeResultSchema.safeParse(result);
         if (!parsed.success) {
             failures.push(`the reported result does not match the challenge schema: ${parsed.error.message}`);
-            return { passed: false, failures, changedPaths: reviewOutcome.changedPaths };
+            return {
+                passed: false,
+                failures,
+                changedPaths: reviewOutcome.changedPaths,
+                reportRejected: failures.length > 0 && !codeFailure,
+            };
         }
 
         const { findings, refuted, criteria } = parsed.data;
@@ -178,7 +194,12 @@ export class ChallengeVerifier implements StageVerifier {
             }
         }
 
-        return { passed: failures.length === 0, failures, changedPaths: reviewOutcome.changedPaths };
+        return {
+            passed: failures.length === 0,
+            failures,
+            changedPaths: reviewOutcome.changedPaths,
+            reportRejected: failures.length > 0 && !codeFailure,
+        };
     }
 
     /**
