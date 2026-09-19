@@ -220,6 +220,21 @@ function AckButton({ card }: { card: CardDetail }) {
 }
 
 /**
+ * Card 0104's `dispatch.deferred` event carries why in its payload (`recordDeferral`,
+ * jobs/dispatch.deferred.ts: `{ outstanding?: string[]; reason: string }`) — until now the only place
+ * that reason was visible was the server log, so an operator reading the web timeline saw a bare
+ * event type with no way to tell a scope conflict from any other deferral. `payload` arrives typed as
+ * generic JSON (there is no per-`type` payload union on the wire), so this reads `reason` back out by
+ * hand rather than trusting a type that does not exist; anything that is not a string is treated as
+ * "nothing to show" rather than rendered as `[object Object]` or similar.
+ */
+function deferredReason(payload: unknown): string | undefined {
+    if (typeof payload !== 'object' || payload === null) return undefined;
+    const reason = (payload as { reason?: unknown }).reason;
+    return typeof reason === 'string' ? reason : undefined;
+}
+
+/**
  * The timeline an operator reads to answer "why is this card not moving" — newest event first,
  * each tagged with the stage it happened in, favouring legibility over density.
  */
@@ -247,20 +262,28 @@ function EventsTimeline({ events, limit, error }: { events: CardEvent[] | undefi
     return (
         <Stack gap="xs">
             <Timeline active={newestFirst.length} bulletSize={14} lineWidth={2}>
-                {newestFirst.map(event => (
-                    <Timeline.Item key={event.id} title={event.type}>
-                        <Group gap={6}>
-                            {event.stage && (
-                                <Badge size="xs" color={TONE[event.stage] ?? 'gray'} variant="light">
-                                    {event.stage}
-                                </Badge>
+                {newestFirst.map(event => {
+                    const reason = event.type === 'dispatch.deferred' ? deferredReason(event.payload) : undefined;
+                    return (
+                        <Timeline.Item key={event.id} title={event.type}>
+                            <Group gap={6}>
+                                {event.stage && (
+                                    <Badge size="xs" color={TONE[event.stage] ?? 'gray'} variant="light">
+                                        {event.stage}
+                                    </Badge>
+                                )}
+                                <Text size="xs" c="dimmed">
+                                    {formatTimestamp(event.createdAt)}
+                                </Text>
+                            </Group>
+                            {reason && (
+                                <Text size="xs" c="dimmed">
+                                    {reason}
+                                </Text>
                             )}
-                            <Text size="xs" c="dimmed">
-                                {formatTimestamp(event.createdAt)}
-                            </Text>
-                        </Group>
-                    </Timeline.Item>
-                ))}
+                        </Timeline.Item>
+                    );
+                })}
             </Timeline>
             {events.length >= limit && (
                 <Text size="xs" c="dimmed">
