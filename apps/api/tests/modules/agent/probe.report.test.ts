@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { stepsExceeded } from '#modules/agent/budget.js';
-import { describeProbeRun, DENIED_BASH_PROBE_STEPS } from './probe.report.js';
+import { describeProbeRun, describeTurns, DENIED_BASH_PROBE_STEPS } from './probe.report.js';
 
 /**
  * Card 0252. `describeProbeRun` is the helper `cli.engine.contract.probe.ts` now passes as the
@@ -81,6 +81,42 @@ describe('describeProbeRun', () => {
         const message = describeProbeRun({ attempted: [], events: [] });
 
         expect(message).toContain('no events were recorded');
+    });
+});
+
+/**
+ * Card 0255. `describeTurns` reads from every assistant message the engine actually produced —
+ * recorded off the raw SDK stream by `cli.engine.contract.probe.ts`'s `vi.mock`, not reconstructed
+ * from the guard's view `describeProbeRun`'s `attempted` list is built from. These tests exercise the
+ * pure formatting function directly, exactly AC1 through AC3 of this card: given recorded turns, does
+ * the returned string name each message's tool with its path or command, in order (AC1); list a
+ * text-only message by its block type with no tool (AC2); and say plainly when no assistant messages
+ * were recorded at all (AC3).
+ */
+describe('describeTurns', () => {
+    it('AC1: names a tool_use Read by its path and a tool_use Bash by its command, in order', () => {
+        const message = describeTurns([
+            { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/fixture/plan.md' } }] },
+            { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'true' } }] },
+        ]);
+
+        expect(message).toContain('Read(/tmp/fixture/plan.md)');
+        expect(message).toContain('Bash(true)');
+        expect(message.indexOf('Read(/tmp/fixture/plan.md)')).toBeLessThan(message.indexOf('Bash(true)'));
+        expect(message.indexOf('0:')).toBeLessThan(message.indexOf('1:'));
+    });
+
+    it('AC2: lists a text-only message by its block type, with no tool named', () => {
+        const message = describeTurns([{ content: [{ type: 'text' }] }]);
+
+        expect(message).toContain('0: text');
+        expect(message).not.toContain('(');
+    });
+
+    it('AC3: says no assistant messages were recorded when the list is empty', () => {
+        const message = describeTurns([]);
+
+        expect(message).toBe('no assistant messages were recorded');
     });
 });
 
