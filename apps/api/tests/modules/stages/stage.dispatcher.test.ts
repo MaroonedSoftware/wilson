@@ -905,6 +905,37 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
         expect(result.failures.some(f => f.includes(`used all ${stage.maxSteps} of its steps`))).toBe(true);
     });
 
+    /**
+     * Card 0250: `verification.reportRejected` joins the same `unjudged` list as `run.truncated`,
+     * `run.budgetFailure` and `run.engineFailure` — a review or challenge rejected only for a fault in
+     * its own report has nothing for `onFail`'s next stage to act on, so the dispatcher should treat
+     * the run as unjudged even though the run itself finished cleanly (a real report, not truncated,
+     * no budget or engine failure).
+     */
+    it('treats the outcome as unjudged when the verifier sets reportRejected, even though the run itself finished cleanly', async () => {
+        const dispatcher = buildDispatcher(
+            { result: { summary: 'reviewed' }, usage: { inputTokens: 10 }, truncated: false },
+            { passed: false, failures: ['criterion "AC1" is reported more than once'], changedPaths: [], reportRejected: true },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.unjudged).toBe(true);
+    });
+
+    it('leaves the outcome judged when the verifier fails without setting reportRejected', async () => {
+        const dispatcher = buildDispatcher(
+            { result: { summary: 'reviewed' }, usage: { inputTokens: 10 }, truncated: false },
+            { passed: false, failures: ['the card has an empty diff: there is nothing to review'], changedPaths: [] },
+        );
+
+        const result = await runAgent(dispatcher);
+
+        expect(result.passed).toBe(false);
+        expect(result.unjudged).toBe(false);
+    });
+
     // Card 0024: `AgentRunInput.baseSha` is what lets a stage's prompt name the sha a `git diff`
     // must be run against to reproduce the card's whole diff. `runAgent` is the one place that reads
     // `worktree.baseSha` off the worktree it already holds and hands it to the adapter — a value the

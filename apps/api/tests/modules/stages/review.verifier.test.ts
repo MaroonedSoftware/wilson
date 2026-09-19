@@ -246,7 +246,11 @@ describe('ReviewVerifier', () => {
             expect(outcome.failures.some(f => f.includes('AC1') && f.includes('more than once'))).toBe(true);
         });
 
-        it('fails a "met" criterion citing a file outside the diff', async () => {
+        // Card 0250: a "met" criterion no longer has to cite the diff — "the existing suites pass
+        // unchanged" is legitimate evidence a card never touched. What still has to be real is the
+        // citation: `src/kept.ts` is outside the diff but is a real file in the worktree, with the
+        // cited line within it, so this now verifies instead of failing.
+        it('passes a "met" criterion citing a file outside the diff, so long as it exists in the worktree with the line in range', async () => {
             const worktree = await manager.create('0001', 'card/0001-thing');
             await makeDiff(worktree);
             const card = cardWithCriteria('- AC1: does the thing');
@@ -260,8 +264,51 @@ describe('ReviewVerifier', () => {
 
             const outcome = await verifier.verify(verifyInput(worktree, result, card));
 
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        // Card 0250, AC2: the relaxed rule still requires the citation to be real. Unlike the old
+        // diff-only check, a file that is outside the diff *and* nowhere in the worktree now fails
+        // with its own message rather than the diff-membership one.
+        it('still fails a "met" criterion citing a file that does not exist anywhere in the worktree', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/nowhere.ts', line: 1, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
             expect(outcome.passed).toBe(false);
-            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts') && f.includes('not in this card\'s diff'))).toBe(
+            expect(
+                outcome.failures.some(f => f.includes('AC1') && f.includes('src/nowhere.ts') && f.includes('does not exist in the worktree')),
+            ).toBe(true);
+        });
+
+        // Card 0250, AC2: a real file outside the diff with a line past its end still fails, now with
+        // the "has only N lines" message rather than the old diff-membership one.
+        it('still fails a "met" criterion citing a file outside the diff whose line is past the end of the file', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/kept.ts', line: 99, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts:99') && f.includes('has only 3 lines'))).toBe(
                 true,
             );
         });
@@ -370,6 +417,50 @@ describe('ReviewVerifier', () => {
 
             expect(outcome.passed).toBe(false);
             expect(outcome.failures.some(f => f.includes('AC1') && f.toLowerCase().includes('missing'))).toBe(true);
+        });
+    });
+
+    /**
+     * Card 0250, AC4/AC5: `reportRejected` tells `StageDispatcher.runAgent` whether a failing review
+     * has anything for `onFail`'s next stage to act on. It must be `true` when every failure is a
+     * fault in the review's own report, and stay falsy when the empty-diff check — a statement about
+     * the card's code, not the report — is among the failures.
+     */
+    describe('reportRejected', () => {
+        it('is true when every failure is a fault in the review\'s own report', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            // A duplicate criterion ID is purely a report-accounting fault: the diff is real, the
+            // criterion's own citation is fine, and nothing here is a statement about the code.
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 2, note: 'again' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.reportRejected).toBe(true);
+        });
+
+        it('is false when the card has an empty diff, since that is a statement about the code, not the report', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            // No `makeDiff` call: the worktree's diff from the fork point is empty.
+
+            const result = { summary: 'reviewed', verdict: 'pass', findings: [], criteria: [] };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('empty diff'))).toBe(true);
+            expect(outcome.reportRejected).toBe(false);
         });
     });
 });
