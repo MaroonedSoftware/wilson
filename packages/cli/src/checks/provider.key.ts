@@ -1,4 +1,5 @@
 import type { Check } from '@maroonedsoftware/johnny5';
+import { setting } from '../settings.js';
 
 /**
  * At least one provider key must be present.
@@ -10,7 +11,7 @@ export const providerKeySet: Check = {
     name: 'model provider key set',
     run: async ctx => {
         const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY'];
-        const present = keys.filter(key => ctx.config.get(key, ''));
+        const present = keys.filter(key => setting(ctx, key, ''));
         if (present.length === 0) {
             return {
                 ok: false,

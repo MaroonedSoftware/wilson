@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Check } from '@maroonedsoftware/johnny5';
+import { setting } from '../settings.js';
 
 const exec = promisify(execFile);
 
@@ -21,7 +22,7 @@ const exec = promisify(execFile);
 export const codeRepoReady: Check = {
     name: 'code repo ready',
     run: async ctx => {
-        const root = ctx.config.get('PROJECT_CODE_ROOT', '');
+        const root = setting(ctx, 'PROJECT_CODE_ROOT', '');
         if (!root) {
             return { ok: false, message: 'PROJECT_CODE_ROOT is not set', fixHint: 'Set it in apps/api/.env.' };
         }

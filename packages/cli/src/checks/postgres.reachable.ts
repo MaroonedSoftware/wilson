@@ -1,5 +1,6 @@
 import pg from 'pg';
 import type { Check } from '@maroonedsoftware/johnny5';
+import { databaseSettings } from '../settings.js';
 
 /**
  * Reachability via the discrete DATABASE_* values, exactly the way the data module connects — so a
@@ -8,18 +9,17 @@ import type { Check } from '@maroonedsoftware/johnny5';
 export const postgresReachable: Check = {
     name: 'postgres reachable',
     run: async ctx => {
-        const required = ['DATABASE_HOST', 'DATABASE_PORT', 'DATABASE_USER', 'DATABASE_PASSWORD', 'DATABASE_NAME'];
-        const missing = required.filter(key => !ctx.config.get(key, ''));
+        const { host, port, user, password, database, missing } = databaseSettings(ctx);
         if (missing.length > 0) {
             return { ok: false, message: `missing DB config: ${missing.join(', ')}`, fixHint: 'Set the DATABASE_* values in apps/api/.env.' };
         }
 
         const client = new pg.Client({
-            host: ctx.config.get('DATABASE_HOST', ''),
-            port: Number(ctx.config.get('DATABASE_PORT', '5432')),
-            user: ctx.config.get('DATABASE_USER', ''),
-            password: ctx.config.get('DATABASE_PASSWORD', ''),
-            database: ctx.config.get('DATABASE_NAME', ''),
+            host,
+            port: Number(port),
+            user,
+            password,
+            database,
         });
 
         try {
