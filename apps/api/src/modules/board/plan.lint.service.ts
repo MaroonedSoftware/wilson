@@ -8,7 +8,7 @@ import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
-import { filesInScope, type Card } from './card.js';
+import { acceptanceCriteria, filesInScope, type Card } from './card.js';
 import type { LintFinding } from '../../generated/board.js';
 
 /**
@@ -141,6 +141,49 @@ const alwaysAllowedFindings = (card: Card, stages: ProjectStages): LintFinding[]
 };
 
 /**
+ * Card 0245. Every way `acceptanceCriteria(card)` — 0236's own parser, reused rather than
+ * re-derived here — cannot trace a plan's criteria cleanly back to the review that is meant to
+ * account for each one:
+ *
+ * - Two bullets whose ID collides. In practice this is almost always two bullets both explicitly
+ *   labelled the same (`AC1:` on both) — a purely positional ID (`AC<n>` from a bullet's own place
+ *   in the list) is unique by construction and can only collide when an explicit label reuses its
+ *   number.
+ * - An `Acceptance criteria` section that has prose but no bullets `acceptanceCriteria` can find —
+ *   it parses to an empty list silently, which reads as "no criteria" rather than "criteria nobody
+ *   could parse".
+ *
+ * Both leave `ReviewVerifier`'s own criteria reconciliation (`review.verifier.ts`) with either two
+ * IDs to argue over or nothing to check at all; this surfaces it at plan-lint time instead of only
+ * at review.
+ */
+const acceptanceCriteriaFindings = (card: Card): LintFinding[] => {
+    const findings: LintFinding[] = [];
+    const raw = card.sections['Acceptance criteria'];
+    const criteria = acceptanceCriteria(card);
+
+    if (raw && raw.trim().length > 0 && criteria.length === 0) {
+        findings.push({
+            kind: 'acceptanceCriteria',
+            message: 'the "Acceptance criteria" section has text but no bullets — a review has nothing to check off against.',
+        });
+    }
+
+    const counts = new Map<string, number>();
+    for (const { id } of criteria) counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const [id, count] of counts) {
+        if (count > 1) {
+            findings.push({
+                kind: 'acceptanceCriteria',
+                message: `"${id}" labels ${count} acceptance criteria bullets — give each its own ID so a review can point at exactly one.`,
+            });
+        }
+    }
+
+    return findings;
+};
+
+/**
  * Every pattern pair in `card`'s effective scope that collides with a card already in flight
  * elsewhere on the board — `BoardRepository.scopeConflict` (card 0104), reused rather than
  * reimplemented per this card's own Constraints: it already combines declared scope, `request_scope`
@@ -213,6 +256,7 @@ export class PlanLintService {
         return [
             ...commandFindings(card, stages),
             ...alwaysAllowedFindings(card, stages),
+            ...acceptanceCriteriaFindings(card),
             ...(await scopeConflictFindings(this.boardRepository, this.eventLog, this.boardConfig.project, card, stages)),
         ];
     }
