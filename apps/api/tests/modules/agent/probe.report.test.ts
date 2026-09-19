@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describeProbeRun } from './probe.report.js';
+import { stepsExceeded } from '#modules/agent/budget.js';
+import { describeProbeRun, DENIED_BASH_PROBE_STEPS } from './probe.report.js';
 
 /**
  * Card 0252. `describeProbeRun` is the helper `cli.engine.contract.probe.ts` now passes as the
@@ -80,5 +81,24 @@ describe('describeProbeRun', () => {
         const message = describeProbeRun({ attempted: [], events: [] });
 
         expect(message).toContain('no events were recorded');
+    });
+});
+
+/**
+ * Card 0253. `DENIED_BASH_PROBE_STEPS` is the single budget `cli.engine.contract.probe.ts`'s
+ * denied-bash `describe` block uses for both of its runs' `maxSteps`. It has to be 3 — the plan
+ * read every stage agent is told to do first, plus the Bash call and the report — because a
+ * tighter budget spends its only steps before ever reaching the Bash call the probe exists to
+ * exercise (card 0252's own diagnostics: a run that read the plan and then ran out, having
+ * attempted no other tool call at all).
+ */
+describe('DENIED_BASH_PROBE_STEPS', () => {
+    it('AC1: is 3 — the plan read, the bash call, and the report', () => {
+        expect(DENIED_BASH_PROBE_STEPS).toBe(3);
+    });
+
+    it('AC2: stepsExceeded(DENIED_BASH_PROBE_STEPS, 0) reads as a 3-step budget, not the old 2-step one', () => {
+        expect(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0)).toBe('step budget exceeded: 3 steps');
+        expect(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0)).not.toBe('step budget exceeded: 2 steps');
     });
 });

@@ -7,8 +7,9 @@ import { join } from 'node:path';
 import { CliStageAgent, createToolGuard, subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { stepsExceeded } from '#modules/agent/budget.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
-import { describeProbeRun, type AttemptedToolCall } from './probe.report.js';
+import { describeProbeRun, DENIED_BASH_PROBE_STEPS, type AttemptedToolCall } from './probe.report.js';
 
 /**
  * Card 0231. `cli.tool.surface.test.ts` (card 0096) drives a real engine and reads the `init`
@@ -425,9 +426,11 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
      * charge refused calls" case. What a live engine can add is that a *real* denied Bash call is
      * still routed through the same credit mechanism, not just a canned stream. Both runs below give
      * the model the same one instruction — call `true` once, then report — and differ only in
-     * whether `true` is on the stage's allowlist. `REPORT_RESULT_PATH` is pre-written so the only
-     * two steps a compliant model needs are the bash call and the report call, keeping the step
-     * count small enough that the credit's effect is actually observable at maxSteps: 2.
+     * whether `true` is on the stage's allowlist. `REPORT_RESULT_PATH` is pre-written so a compliant
+     * model needs three steps: the plan read every stage agent is told to do first, the bash call,
+     * and the report call. Card 0253: `DENIED_BASH_PROBE_STEPS` is that count, not two — a tight
+     * two-step budget left no step for the Bash call at all once the read was spent, which is what
+     * made the denied run fail without ever reaching the guard (see that constant's own doc comment).
      */
     const resultSchema = z.object({ summary: z.string() });
 
@@ -446,7 +449,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         worktreeFrom: 'base',
         extraScope: [],
         baselineCheck: true,
-        maxSteps: 2,
+        maxSteps: DENIED_BASH_PROBE_STEPS,
         maxOutputTokens: 16000,
         maxInputTokens: 2_000_000,
         maxWallClockMs: 120_000,
@@ -548,7 +551,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
     );
 
     it(
-        // The inversion: the same budget, the same two steps, but nothing was ever refused — so
+        // The inversion: the same budget, the same three steps, but nothing was ever refused — so
         // there is no credit to grow the ceiling, and it is exceeded. This is what proves the pass
         // above came from the credit, not from a budget that was generous enough regardless.
         'control: the same tight budget is exceeded when that one bash call is allowed instead of denied',
@@ -557,7 +560,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
             if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
 
             expect(output.truncated).toBe(true);
-            expect(output.budgetFailure).toBe('step budget exceeded: 2 steps');
+            expect(output.budgetFailure).toBe(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0));
         },
         60000,
     );
