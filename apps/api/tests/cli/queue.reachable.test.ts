@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppConfig } from '@maroonedsoftware/appconfig';
 
 // `queue.reachable.ts` talks to Postgres through the `pg` driver directly (the same way
 // `postgres.reachable.ts` does). Mocking `pg.Client` lets these tests exercise the check's own
@@ -33,7 +32,10 @@ type RunFn = (ctx: unknown) => Promise<CheckResult>;
 
 const run = queueReachable.run as unknown as RunFn;
 
-const buildCtx = (values: Record<string, string>) => ({ config: new AppConfig(values) });
+// Card 0247: `databaseSettings` reads the `DATABASE_*` values off `ctx.env`, not `ctx.config` —
+// this `ctx` carries only `env`, no `config` at all, so a reader that still reached for
+// `ctx.config` would throw here rather than merely treat the DB as unconfigured.
+const buildCtx = (values: Record<string, string>) => ({ env: values });
 
 describe('queueReachable', () => {
     beforeEach(() => {

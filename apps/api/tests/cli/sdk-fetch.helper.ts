@@ -40,14 +40,16 @@ export const reasonResponse = (status: number, reason: string): Response => json
 export const connectionRefused = (): Promise<never> => Promise.reject(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
 
 /**
- * A `ctx` good enough for `apiClient(ctx)`: `resolveApiBase` reads `API_URL`/`PORT` off it and falls
- * back to `http://localhost:13100` when neither is set. The exact base is irrelevant here since
- * `fetch` itself is stubbed — these tests assert on the path each call was made with, not the host.
+ * A `ctx` good enough for `apiClient(ctx)`: `apiSettings` (card 0247) reads `API_URL`/`PORT` off
+ * `ctx.env`, falling back to `http://localhost:13100` when neither is set. The exact base is
+ * irrelevant here since `fetch` itself is stubbed — these tests assert on the path each call was
+ * made with, not the host. `config` stays for any caller that still reads it directly; `env` must
+ * exist because `apiClient` throws on a `ctx` with no `env` at all.
  */
 export const buildCtx = () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
     const config = { get: (_key: string, fallback: string) => fallback };
-    return { ctx: { config, logger }, logger };
+    return { ctx: { config, env: {}, logger }, logger };
 };
 
 export type Handler<Opts = unknown> = (opts: Opts, ctx: unknown, args: unknown[]) => Promise<number | void>;

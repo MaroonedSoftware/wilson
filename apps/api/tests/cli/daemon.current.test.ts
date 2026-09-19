@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { AppConfig } from '@maroonedsoftware/appconfig';
 import { DateTime } from 'luxon';
 import { connectionRefused, fetchMock, jsonResponse, urlOf } from './sdk-fetch.helper.js';
 
@@ -20,7 +19,10 @@ type CheckResult = { ok: boolean; message: string; fixHint?: string };
 type RunFn = (ctx: unknown) => Promise<CheckResult>;
 const run = daemonCurrent.run as unknown as RunFn;
 
-const buildCtx = (values: Record<string, string>) => ({ config: new AppConfig(values) });
+// Card 0247: `PROJECT_CODE_ROOT` is read via `setting(ctx, ...)` off `ctx.env`, not `ctx.config` —
+// this `ctx` carries only `env`, no `config` at all, so a reader that still reached for
+// `ctx.config` would throw here rather than merely mis-report "skipped".
+const buildCtx = (values: Record<string, string>) => ({ env: values });
 
 /** A throwaway git repo whose one commit is stamped with `committerIso`, for `%cI` to report back. */
 const repoWithCommitAt = async (committerIso: string): Promise<string> => {
@@ -36,6 +38,13 @@ const repoWithCommitAt = async (committerIso: string): Promise<string> => {
 };
 
 describe('daemonCurrent', () => {
+    it('reports "skipped" and never calls the API when PROJECT_CODE_ROOT is genuinely unset (AC6)', async () => {
+        const result = await run(buildCtx({}));
+
+        expect(result).toEqual({ ok: true, message: 'PROJECT_CODE_ROOT not set; skipped' });
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('asks the API for its health rather than shelling out to pgrep', async () => {
         fetchMock.mockImplementationOnce(connectionRefused);
 

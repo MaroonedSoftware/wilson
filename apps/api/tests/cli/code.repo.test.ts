@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { AppConfig } from '@maroonedsoftware/appconfig';
 
 // Card 0071: `WorktreeManager.commit` now passes `--no-verify`, so a project's `core.hooksPath`
 // hooks never run on a stage's commit. Silently bypassing something an operator configured on
@@ -18,7 +17,10 @@ type CheckResult = { ok: boolean; message: string; fixHint?: string };
 type RunFn = (ctx: unknown) => Promise<CheckResult>;
 const run = codeRepoReady.run as unknown as RunFn;
 
-const buildCtx = (values: Record<string, string>) => ({ config: new AppConfig(values) });
+// Card 0247: `PROJECT_CODE_ROOT` is read via `setting(ctx, ...)` off `ctx.env`, not `ctx.config` —
+// this `ctx` carries only `env`, no `config` at all, so a reader that still reached for
+// `ctx.config` would throw here rather than merely mis-report.
+const buildCtx = (values: Record<string, string>) => ({ env: values });
 
 const initRepo = async (): Promise<string> => {
     const root = await mkdtemp(join(tmpdir(), 'code-repo-'));
