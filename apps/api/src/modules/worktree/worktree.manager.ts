@@ -353,6 +353,43 @@ export class WorktreeManager {
     }
 
     /**
+     * Card 0238. Whether `main` moved, since the card's review last ran, under files the card
+     * itself changed — the gap that lets a merge land a combined diff nobody has read.
+     *
+     * `git merge-base branch targetRef` is the fork point every dispatch rebases onto, and review
+     * is the last stage before `ready`, so that merge-base is exactly the commit review saw
+     * (`BoardWriteService.merge`'s Constraints). `movedUnder` is the intersection of what changed
+     * on `targetRef` since that point and what changed on `branch` since that point: paths both
+     * sides touched, which is what a combined diff would show and a single-sided review would not.
+     *
+     * Pure git against `codeRoot`'s object database, same as {@link computeMerge} beside it —
+     * nothing here reads or writes `codeRoot`'s working tree or index. `targetRef` is a ref name,
+     * not necessarily what is checked out (`main` for a real merge, or
+     * {@link ensureIntegrationBranch}'s branch under dry run, which descends from `main` the same
+     * way), matching every other merge-time git call in this file.
+     */
+    async overlapSinceFork(branch: string, targetRef: string): Promise<{ base: string; movedUnder: string[] }> {
+        const base = (await git(this.config.codeRoot, ['merge-base', branch, targetRef])).stdout.trim();
+
+        const targetChanged = await this.pathsChangedSince(base, targetRef);
+        const branchChanged = await this.pathsChangedSince(base, branch);
+
+        const targetSet = new Set(targetChanged);
+        const movedUnder = branchChanged.filter(path => targetSet.has(path)).sort();
+
+        return { base, movedUnder };
+    }
+
+    /** Paths changed between `base` and `ref`, relative to `codeRoot`. Shared by {@link overlapSinceFork}. */
+    private async pathsChangedSince(base: string, ref: string): Promise<string[]> {
+        const { stdout } = await git(this.config.codeRoot, ['diff', '--name-only', base, ref, '--']);
+        return stdout
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+    }
+
+    /**
      * Create the merge commit object from {@link computeMerge}'s result. This alone does not move
      * `targetRef` — the commit is unreferenced until {@link landMerge} points the branch at it, which
      * is deliberate: the caller runs the suite against this commit first and only lands it if that
