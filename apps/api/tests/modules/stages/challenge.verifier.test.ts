@@ -13,6 +13,7 @@ import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import type { CardEventRow, EventLog } from '#modules/events/event.log.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
+import type { Card } from '#modules/board/card.js';
 
 const exec = promisify(execFile);
 
@@ -34,11 +35,21 @@ describe('ChallengeVerifier', () => {
     const stage = {} as StageConfig;
     const cardId = '0001';
 
+    // No `Acceptance criteria` section — `ReviewVerifier.verify` (which `ChallengeVerifier` composes
+    // by forwarding this same input) skips its card-0236 criteria-accounting block entirely, so this
+    // file's pre-existing challenge-accounting checks run exactly as they did before that block existed.
+    const card: Card = {
+        frontmatter: { id: cardId, title: 'thing', stage: 'challenge', dependsOn: [], retries: {} },
+        sections: {},
+        body: '## Goal\n\nDo the thing.',
+    };
+
     const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, result: unknown) => ({
         worktree,
         stage,
         cardId,
         scope: {} as ScopeGuard,
+        card,
         result,
     });
 

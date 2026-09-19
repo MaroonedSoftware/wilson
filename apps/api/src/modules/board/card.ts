@@ -136,3 +136,36 @@ export const filesInScope = (card: Card): string[] => {
         )
         .filter(line => line.length > 0 && !line.startsWith('<!--'));
 };
+
+/** A leading `AC1:`, `AC-1:` or `AC1.` token on a bullet, normalized to `AC<n>`. */
+const ACCEPTANCE_CRITERION_ID = /^AC-?(\d+)[:.]\s*(.*)$/;
+
+/**
+ * The plan's acceptance criteria, each with a stable ID and its text.
+ *
+ * ID rule: a leading `AC1:`, `AC-1:` or `AC1.` token on a bullet is its ID, normalized to `AC<n>`.
+ * A bullet without one gets a positional `AC<n>` from its order among the section's bullets — so
+ * every plan written before this card, none of which carry bullet IDs, still gets stable IDs
+ * without being rewritten.
+ *
+ * Same bullet stripping as `filesInScope`: markers and inline code backticks are stripped, and
+ * blank lines and HTML comments are dropped, before IDs are assigned.
+ */
+export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
+    const raw = card.sections['Acceptance criteria'];
+    if (!raw) return [];
+    const bullets = raw
+        .split('\n')
+        .map(line =>
+            line
+                .replace(/^\s*[-*+]\s*/, '')
+                .replace(/`/g, '')
+                .trim(),
+        )
+        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+
+    return bullets.map((bulletText, index) => {
+        const match = ACCEPTANCE_CRITERION_ID.exec(bulletText);
+        return match ? { id: `AC${match[1]}`, text: match[2]!.trim() } : { id: `AC${index + 1}`, text: bulletText };
+    });
+};

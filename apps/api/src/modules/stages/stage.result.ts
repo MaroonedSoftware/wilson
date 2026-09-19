@@ -46,10 +46,41 @@ export const ReviewFindingSchema = z
         path: ['line'],
     });
 
+/**
+ * Whether a review accounted for one acceptance criterion from the pinned plan: checked it and
+ * found it done (`met`), checked it and found it not done (`unmet`), or could not check it at all
+ * (`unverifiable`) — the plan asked for something the diff cannot settle either way, e.g. a manual
+ * QA step. `unmet` is deliberately not folded into `findings`: a criterion is identified by the
+ * plan's own ID, not discovered by the reviewer the way a defect or omission is, and the runner's
+ * provenance check (`ReviewVerifier`) needs that ID to reconcile against `acceptanceCriteria(card)`.
+ */
+export const ReviewCriterionStatus = z.enum(['met', 'unmet', 'unverifiable']);
+
+export const ReviewCriterionSchema = z
+    .object({
+        id: z.string().describe('The criterion’s ID from the plan’s Acceptance criteria section, e.g. "AC2".'),
+        status: ReviewCriterionStatus,
+        file: z.string().optional().describe('For status "met", a path from this card’s diff that satisfies the criterion.'),
+        line: z.number().int().min(1).optional().describe('For status "met", a line in that file. Required when status is "met".'),
+        note: z.string().describe('Why this status — what was checked, or why it could not be checked.'),
+    })
+    .refine(criterion => criterion.status !== 'met' || (criterion.file !== undefined && criterion.line !== undefined), {
+        message: 'a "met" criterion must cite a file and line',
+        path: ['file'],
+    });
+
+export type ReviewCriterion = z.infer<typeof ReviewCriterionSchema>;
+
 export const ReviewResultSchema = z.object({
     summary: z.string(),
     verdict: z.enum(['pass', 'revise']),
     findings: z.array(ReviewFindingSchema).max(20),
+    /**
+     * Defaults to `[]` so a plan with no acceptance criteria bullets, and a result reported before
+     * this field existed, both still parse — `ReviewVerifier` skips its whole criteria check on an
+     * empty plan-side list, matching what a review verified before this field existed.
+     */
+    criteria: z.array(ReviewCriterionSchema).default([]),
 });
 
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;

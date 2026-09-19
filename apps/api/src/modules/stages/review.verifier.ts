@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
+import { acceptanceCriteria } from '#modules/board/card.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { ReviewResultSchema } from './stage.result.js';
 import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
@@ -20,7 +21,7 @@ export class ReviewVerifier implements StageVerifier {
         private readonly logger: Logger,
     ) {}
 
-    async verify({ worktree, result }: VerificationInput): Promise<VerificationOutcome> {
+    async verify({ worktree, result, card }: VerificationInput): Promise<VerificationOutcome> {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
@@ -47,7 +48,7 @@ export class ReviewVerifier implements StageVerifier {
             return { passed: false, failures, changedPaths };
         }
 
-        const { verdict, findings } = parsed.data;
+        const { verdict, findings, criteria } = parsed.data;
         const lineCounts = new Map<string, number | undefined>();
 
         for (const finding of findings) {
@@ -95,12 +96,63 @@ export class ReviewVerifier implements StageVerifier {
             }
         }
 
+        // Provenance, not merit: every ID the pinned plan named must be accounted for exactly once,
+        // and a "met" citation is checked the same way a defect finding's is, just above. A plan with
+        // no acceptance criteria bullets skips this whole block, so a card written before this field
+        // existed — and every review of it — verifies exactly as it did before this card.
+        const planCriteria = acceptanceCriteria(card);
+        if (planCriteria.length > 0) {
+            const planIds = new Set(planCriteria.map(c => c.id));
+            const seenIds = new Set<string>();
+
+            for (const criterion of criteria) {
+                if (!planIds.has(criterion.id)) {
+                    failures.push(`criterion "${criterion.id}" is not among the pinned plan's acceptance criteria`);
+                    continue;
+                }
+                if (seenIds.has(criterion.id)) {
+                    failures.push(`criterion "${criterion.id}" is reported more than once`);
+                    continue;
+                }
+                seenIds.add(criterion.id);
+
+                if (criterion.status !== 'met') continue;
+                const file = criterion.file ?? '';
+                if (!lineCounts.has(file)) {
+                    lineCounts.set(file, await this.countLines(worktree.path, file));
+                }
+                const lineCount = lineCounts.get(file);
+                if (!changedPaths.includes(file)) {
+                    failures.push(
+                        `criterion "${criterion.id}" cites ${file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'})`,
+                    );
+                } else if (lineCount === undefined) {
+                    failures.push(`criterion "${criterion.id}" cites ${file}, which could not be read from the worktree`);
+                } else if (criterion.line !== undefined && criterion.line > lineCount) {
+                    failures.push(`criterion "${criterion.id}" cites ${file}:${criterion.line}, but the file has only ${lineCount} lines`);
+                }
+            }
+
+            for (const id of planIds) {
+                if (!seenIds.has(id)) {
+                    failures.push(`the pinned plan's criterion "${id}" is missing from the reported criteria`);
+                }
+            }
+        }
+
+        // `unmet` counts like a blocker for this same consistency check, regardless of whether the
+        // plan itself has criteria bullets: a "pass" that admits an unmet criterion, or a "revise"
+        // backed by neither a blocker nor an unmet criterion, is internally inconsistent on its face.
         const hasBlocker = findings.some(finding => finding.severity === 'blocker');
-        if (verdict === 'revise' && !hasBlocker) {
-            failures.push('verdict is "revise" but no finding has severity "blocker"');
+        const hasUnmet = criteria.some(criterion => criterion.status === 'unmet');
+        if (verdict === 'revise' && !hasBlocker && !hasUnmet) {
+            failures.push('verdict is "revise" but no finding has severity "blocker" and no criterion is "unmet"');
         }
         if (verdict === 'pass' && hasBlocker) {
             failures.push('verdict is "pass" but at least one finding has severity "blocker"');
+        }
+        if (verdict === 'pass' && hasUnmet) {
+            failures.push('verdict is "pass" but at least one criterion is "unmet"');
         }
 
         return { passed: failures.length === 0, failures, changedPaths };

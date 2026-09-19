@@ -271,6 +271,59 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(stored.body).toContain('src/y.ts:10');
     });
 
+    /**
+     * Card 0236, AC6: `writeTransition` folds a passing review's `criteria` into the body via
+     * `criteriaFrom`/`withFindings`, the same "only a passed outcome's data is trustworthy" path
+     * `findings` already takes above.
+     */
+    it('folds a passing review’s criteria into a "### Criteria" sub-block under Review findings', async () => {
+        const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing' });
+        const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
+
+        const { target } = await writeTransition(
+            stage,
+            card,
+            outcome({
+                passed: true,
+                result: {
+                    verdict: 'revise',
+                    findings: [{ severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' }],
+                    criteria: [{ id: 'AC2', status: 'unmet', note: 'never implemented' }],
+                },
+            }),
+        );
+
+        expect(target).toBe('implementing');
+        const stored = await board.read('0001');
+        expect(stored.body).toContain('### Criteria');
+        expect(stored.body).toContain('AC2 unmet: never implemented');
+    });
+
+    it('drops criteria too, alongside findings, from a review outcome the verifier itself rejected', async () => {
+        const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
+        const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
+
+        const { target } = await writeTransition(
+            stage,
+            card,
+            outcome({
+                passed: false,
+                failures: ['the reported result does not match the review schema'],
+                result: {
+                    verdict: 'revise',
+                    findings: [{ severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' }],
+                    criteria: [{ id: 'AC2', status: 'unmet', note: 'never implemented' }],
+                },
+            }),
+        );
+
+        expect(target).toBe('implementing');
+        const stored = await board.read('0001');
+        expect(stored.body).not.toContain('Review findings');
+        expect(stored.body).not.toContain('Criteria');
+        expect(stored.body).not.toContain('AC2');
+    });
+
     it('records a transition.written event describing where the card came from and where it went', async () => {
         const stage = makeStage({ onPass: 'review' });
 

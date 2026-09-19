@@ -27,7 +27,7 @@ import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import { StageResultSchemaMap, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 
 /**
@@ -113,6 +113,12 @@ const describe = (result: unknown): string => {
 const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
     const findings = (result as { findings?: unknown } | undefined)?.findings;
     return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
+};
+
+/** The criteria statuses a review carries, when its result carries any. Other stages report none. */
+const criteriaFrom = (result: unknown): ReviewCriterion[] | undefined => {
+    const criteria = (result as { criteria?: unknown } | undefined)?.criteria;
+    return Array.isArray(criteria) ? (criteria as ReviewCriterion[]) : undefined;
 };
 
 /**
@@ -604,6 +610,9 @@ export class StageDispatcher {
         // still carry findings, and writing those into the body would hand the next retry a rejected
         // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
         const findings = outcome.passed ? findingsFrom(outcome.result) : undefined;
+        // Same "only a passed outcome's data is trustworthy" reasoning as `findings` above: criteria
+        // from a result the verifier rejected are not evidence either.
+        const criteria = outcome.passed ? criteriaFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
@@ -650,7 +659,7 @@ export class StageDispatcher {
                 // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
                 // leaves the section exactly as it stands.
                 const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
-                const nextBody = findings ? withFindings(body, findings) : body;
+                const nextBody = findings ? withFindings(body, findings, criteria) : body;
                 bodyChanged = nextBody !== current.body;
                 return {
                     ...current,
@@ -953,7 +962,7 @@ export class StageDispatcher {
             );
         }
         const reported = run.result;
-        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, result: reported });
+        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
         const failures = [...verification.failures];
 
         // A result that never parsed against the stage's own schema carries no judgment about the

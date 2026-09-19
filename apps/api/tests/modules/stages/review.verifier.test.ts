@@ -9,6 +9,7 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import type { Card } from '#modules/board/card.js';
 
 const exec = promisify(execFile);
 
@@ -29,11 +30,29 @@ describe('ReviewVerifier', () => {
     let verifier: ReviewVerifier;
     let warnCalls: string[];
     const stage = {} as StageConfig;
-    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, result: unknown) => ({
+
+    // A pinned card with no `Acceptance criteria` section — every pre-existing test in this file
+    // exercises the defect/finding checks that predate card 0236, and must see exactly the same
+    // behaviour a plan with no criteria bullets always got: `planCriteria.length === 0` skips the
+    // whole criteria-accounting block in `ReviewVerifier.verify`.
+    const blankCard: Card = {
+        frontmatter: { id: '0001', title: 'thing', stage: 'review', dependsOn: [], retries: {} },
+        sections: {},
+        body: '## Goal\n\nDo the thing.',
+    };
+
+    /** A pinned card whose `Acceptance criteria` section is exactly `raw`, for the criteria tests below. */
+    const cardWithCriteria = (raw: string): Card => ({
+        ...blankCard,
+        sections: { 'Acceptance criteria': raw },
+    });
+
+    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, result: unknown, card: Card = blankCard) => ({
         worktree,
         stage,
         cardId: '0001',
         scope: {} as ScopeGuard,
+        card,
         result,
     });
 
@@ -139,5 +158,218 @@ describe('ReviewVerifier', () => {
         expect(outcome.failures[0]).toContain('src/changed.ts:50');
         expect(outcome.failures[0]).toMatch(/has only 3 lines/);
         expect(warnCalls).toEqual([]);
+    });
+
+    // Card 0236: the criteria-accounting block reconciles a review's `criteria` against
+    // `acceptanceCriteria(card)`. These are the runner's new checks; the rest of this file's tests
+    // above prove the pre-existing defect/finding checks still work unchanged when the pinned card
+    // has no `Acceptance criteria` section at all.
+    describe('acceptance criteria accounting', () => {
+        it('passes when a review accounts for every criterion the plan named, citing real lines', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing\n- AC2: does the other thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'AC2', status: 'met', file: 'src/changed.ts', line: 2, note: 'implemented' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        it('fails and names the ID when a review omits a criterion the pinned plan named', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing\n- AC2: does the other thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC2') && f.toLowerCase().includes('missing'))).toBe(true);
+        });
+
+        it('fails an ID the review reports that the pinned plan never named', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'AC9', status: 'met', file: 'src/changed.ts', line: 1, note: 'made up' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC9') && f.includes('not among'))).toBe(true);
+        });
+
+        it('fails a criterion ID reported more than once', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 2, note: 'again' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('more than once'))).toBe(true);
+        });
+
+        it('fails a "met" criterion citing a file outside the diff', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/kept.ts', line: 1, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts') && f.includes('not in this card\'s diff'))).toBe(
+                true,
+            );
+        });
+
+        it('fails a "met" criterion citing a line past the end of the file', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/changed.ts', line: 99, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/changed.ts:99') && f.includes('has only 3 lines'))).toBe(
+                true,
+            );
+        });
+
+        it('fails "pass" when any criterion is "unmet"', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'unmet', note: 'never implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('"pass"') && f.includes('unmet'))).toBe(true);
+        });
+
+        it('fails "revise" when there is no blocker finding and no "unmet" criterion', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'revise',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('"revise"') && f.includes('blocker') && f.includes('unmet'))).toBe(true);
+        });
+
+        it('passes "revise" backed only by an "unmet" criterion, with no blocker finding', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'revise',
+                findings: [],
+                criteria: [{ id: 'AC1', status: 'unmet', note: 'never implemented' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        it('skips the whole criteria check when the pinned plan has no Acceptance criteria bullets, even if the result reports one', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [{ id: 'AC9', status: 'met', file: 'src/kept.ts', line: 999, note: 'a criterion for a plan with none' }],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, blankCard));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        it('parses and verifies a result that omits the criteria field entirely, exactly as before this field existed', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('- AC1: does the thing');
+
+            // No `criteria` key at all — `ReviewResultSchema` defaults it to `[]`, which then reads
+            // as "every plan criterion missing" once the plan actually has one.
+            const result = { summary: 'reviewed', verdict: 'pass', findings: [] };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.toLowerCase().includes('missing'))).toBe(true);
+        });
     });
 });
