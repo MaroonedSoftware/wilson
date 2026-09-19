@@ -189,7 +189,13 @@ export class PlanService {
     private async appendTurn(id: string, request: PlanTurnRequest): Promise<StoredPlanTurn> {
         const card = await this.readOrThrow(id);
         await this.assertPlannable(id, card);
-        const text = request.text;
+
+        // Card 0240's Constraints: the stored turn is the person's own text, or the literal
+        // `[propose cuts]` when a `cuts` turn carries none — a `chat` turn (or one with no `mode`
+        // at all, `request.mode`'s default) never falls back, since only `cuts` mode ever sends the
+        // agent looking for cuts with nothing else to go on.
+        const mode = request.mode ?? 'chat';
+        const text = mode === 'cuts' && request.text.trim().length === 0 ? '[propose cuts]' : request.text;
 
         const priorTurns = await this.planTurns.since(id, 0);
         const isFirstTurn = priorTurns.length === 0;
@@ -215,6 +221,13 @@ export class PlanService {
         const openComments = await this.planComments.open(id);
         const commentsPreamble = commentsBlock(openComments);
 
+        // Card 0240's Constraints: `cuts` mode prepends the same fixed `cutsPreamble` (below, next
+        // to `commentsBlock`) on every turn it is sent on, not only the first — unlike
+        // `contextPreamble`/`commentsPreamble`, which each carry state that is naturally empty once
+        // seen, asking for cuts is never "already asked", so there is no equivalent one-shot
+        // condition to fall back to.
+        const cuts = mode === 'cuts' ? cutsPreamble : '';
+
         // Two branches rather than one ternary assigning a shared variable: `cutSession` and
         // `existingSession` return different shapes (only the first carries `instructions`, which
         // only the first turn ever needs), and keeping them apart here is what lets the compiler
@@ -226,12 +239,12 @@ export class PlanService {
             const session = await this.cutSession(id, card);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${session.instructions}\n\n${contextPreamble}${commentsPreamble}${text}`;
+            prompt = `${session.instructions}\n\n${contextPreamble}${commentsPreamble}${cuts}${text}`;
         } else {
             const session = await this.existingSession(id);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${contextPreamble}${commentsPreamble}${text}`;
+            prompt = `${contextPreamble}${commentsPreamble}${cuts}${text}`;
         }
 
         await this.planTurns.append(id, 'user', text);
@@ -437,6 +450,36 @@ function toGeneratedComment(stored: StoredPlanComment): PlanComment {
         createdAt: stored.createdAt,
     };
 }
+
+/**
+ * Card 0240. The fixed block `appendTurn` prepends to a `cuts` turn's prompt, after
+ * `contextPreamble`/`commentsPreamble` and before the person's own text — unlike those two, this
+ * never depends on what the card carries, so it is a constant rather than a function of one.
+ *
+ * Asks the agent to read the draft, weigh each task against the Goal, and propose the smallest
+ * plan that still meets it as concrete edits — the agent proposes, it does not touch the draft file
+ * itself in this mode (this card's Constraints: applying the result stays the person's own draft
+ * edit, through the flow that already exists for that). The one thing named as evidence for "too
+ * big" is breadth — the same kind of work repeated across many tasks — because that is what this
+ * board's own `scope-check` stage already measures (`ScopeCheckVerifier`'s `BREADTH_THRESHOLD`):
+ * file count and plan length are deliberately not offered as substitutes for it.
+ */
+const cutsPreamble = [
+    'Propose cuts to shrink this plan while it is still a draft. Read the current draft first, then,',
+    'for each task in its "Tasks" section, say what the Goal loses if that task is cut. Propose the',
+    'smallest plan that still meets the Goal, as concrete edits to the draft — name the exact change,',
+    'not just the idea of one. For every cut, say whether it belongs in "Out of scope" or a follow-up',
+    'card.',
+    '',
+    'On this board, breadth — the same kind of work repeated across many tasks, not file count or',
+    'plan length — is what predicts a plan too big for one pass; weigh cuts with that in mind.',
+    '',
+    'You are proposing, not rewriting: do not edit the draft file in this mode. Whatever is accepted',
+    'gets applied to the draft the normal way, through the existing draft editing flow.',
+    '',
+    '---',
+    '',
+].join('\n');
 
 /**
  * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each

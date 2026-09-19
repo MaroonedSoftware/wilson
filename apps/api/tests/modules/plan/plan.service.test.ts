@@ -717,6 +717,100 @@ describe('PlanService', () => {
             }
         });
 
+        /**
+         * Card 0240: a `cuts` turn prepends `PlanService`'s own `cutsPreamble` to the prompt — after
+         * the context and comments preambles, before the operator's own text — so this mirrors the
+         * comments-preamble ordering test above, but for `mode: 'cuts'` instead of an open comment.
+         */
+        it('cuts mode prepends the cuts preamble to the prompt, after the comments preamble and before the operator\'s own text', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.addComment(id, { quote: 'Ship the thing.', prefix: '## Goal\n', suffix: '\n\n## Constraints', text: 'please clarify this' });
+
+                const result = await service.turn(id, { text: 'hello there', mode: 'cuts' });
+
+                const instructionsIdx = result.content.indexOf('Write a plan for this card');
+                const commentIdx = result.content.indexOf('please clarify this');
+                const cutsIdx = result.content.indexOf('Propose cuts to shrink this plan');
+                const textIdx = result.content.indexOf('hello there');
+
+                expect(instructionsIdx).toBeGreaterThanOrEqual(0);
+                expect(commentIdx).toBeGreaterThan(instructionsIdx);
+                expect(cutsIdx).toBeGreaterThan(commentIdx);
+                expect(textIdx).toBeGreaterThan(cutsIdx);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a chat turn\'s prompt, and a turn sent with no mode at all, never carry the cuts preamble', async () => {
+            const { board, service } = await freshEnv();
+            const chatId = randomUUID();
+            const noModeId = randomUUID();
+            try {
+                await board.create(card(chatId, { stage: 'planning' }, FULL_BODY), 'seed');
+                await board.create(card(noModeId, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                const chatResult = await service.turn(chatId, { text: 'hello there', mode: 'chat' });
+                const noModeResult = await service.turn(noModeId, { text: 'hello there' });
+
+                expect(chatResult.content).not.toContain('Propose cuts to shrink this plan');
+                expect(noModeResult.content).not.toContain('Propose cuts to shrink this plan');
+            } finally {
+                planSessions.dispose(chatId);
+                planSessions.dispose(noModeId);
+            }
+        });
+
+        it('a cuts turn with empty text is stored as "[propose cuts]"; a cuts turn with text is stored as the text', async () => {
+            const { board, service, config } = await freshEnv();
+            const emptyId = randomUUID();
+            const textId = randomUUID();
+            try {
+                await board.create(card(emptyId, { stage: 'planning' }, FULL_BODY), 'seed');
+                await board.create(card(textId, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                const emptyResult = await service.turn(emptyId, { text: '', mode: 'cuts' });
+                const textResult = await service.turn(textId, { text: 'cut the CLI flag', mode: 'cuts' });
+
+                // The stored-fallback also reaches the prompt itself, since `appendTurn` builds both
+                // from the same substituted `text` — the agent still gets asked for something.
+                expect(emptyResult.content.endsWith('[propose cuts]')).toBe(true);
+                expect(textResult.content.endsWith('cut the CLI flag')).toBe(true);
+
+                const repo = new PlanTurnRepository(config, db);
+                const emptyStored = await repo.since(emptyId, 0);
+                const textStored = await repo.since(textId, 0);
+                expect(emptyStored[0]!.content).toBe('[propose cuts]');
+                expect(textStored[0]!.content).toBe('cut the CLI flag');
+            } finally {
+                planSessions.dispose(emptyId);
+                planSessions.dispose(textId);
+            }
+        });
+
+        it('sends the cuts preamble again on a later cuts turn in the same conversation, unlike the context and comments preambles which are naturally one-shot', async () => {
+            const { board, service } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                const first = await service.turn(id, { text: 'first look', mode: 'cuts' });
+                expect(first.content).toContain('Propose cuts to shrink this plan');
+                expect(first.content.endsWith('first look')).toBe(true);
+
+                const second = await service.turn(id, { text: 'now the follow-up', mode: 'cuts' });
+                expect(second.content.startsWith('Propose cuts to shrink this plan')).toBe(true);
+                expect(second.content.endsWith('now the follow-up')).toBe(true);
+
+                expect(sessionAgentCalls).toHaveLength(1);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
         it('holds one conversation across two turns: the first prompt carries the planning stage\'s own instructions, the second carries only the raw text, and only one engine session is ever constructed', async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();

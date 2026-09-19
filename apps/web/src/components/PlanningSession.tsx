@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useScrollIntoView } from '@mantine/hooks';
-import { ActionIcon, Alert, Badge, Group, Loader, Paper, ScrollArea, Skeleton, Stack, Text, Textarea } from '@mantine/core';
-import { IconSend } from '@tabler/icons-react';
-import type { CardDetail, PlanTurn } from '@wilson/sdk';
+import { ActionIcon, Alert, Badge, Button, Group, Loader, Paper, ScrollArea, Skeleton, Stack, Text, Textarea } from '@mantine/core';
+import { IconScissors, IconSend } from '@tabler/icons-react';
+import type { CardDetail, PlanTurn, PlanTurnRequest } from '@wilson/sdk';
 import { Markdown } from '#src/components/Markdown.js';
 import { formatTimestamp } from '#src/lib/card.js';
-import { reasonFor, useSendPlanTurn } from '#src/lib/mutations.js';
-import { usePlanTranscript } from '#src/lib/plan.js';
+import { reasonFor } from '#src/lib/mutations.js';
+import { usePlanTranscript, useSendPlanTurn } from '#src/lib/plan.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 /** One persisted turn: a role badge and timestamp header over its content, run through the app's
@@ -79,10 +79,15 @@ function OutgoingTurn({ text }: { text: string }) {
 }
 
 /**
- * The textarea and send control. Disabled while a turn is already in flight or the session has not
- * finished opening. A refusal shows the server's own sentence beneath the control (`reasonFor`,
- * `mutations.ts`) rather than a generic message, and leaves the typed text in place so it can be
- * edited and resent instead of retyped.
+ * The textarea, send control and — card 0240 — the "Propose cuts" control that sends the same
+ * textarea contents as a `mode: 'cuts'` turn instead of an ordinary one. Both are disabled while a
+ * turn is already in flight or the session has not finished opening. A refusal shows the server's
+ * own sentence beneath the controls (`reasonFor`, `mutations.ts`) rather than a generic message, and
+ * leaves the typed text in place so it can be edited and resent instead of retyped.
+ *
+ * Ordinary send stays gated on non-empty text, exactly as before; "Propose cuts" is not — this
+ * card's Constraints send `[propose cuts]` for an empty box (`PlanService.appendTurn`), so the
+ * button asking for that has nothing to require the box hold first.
  */
 function Composer({
     sendTurn,
@@ -95,16 +100,23 @@ function Composer({
 }) {
     const [text, setText] = useState('');
 
-    const send = () => {
-        const trimmed = text.trim();
-        if (!trimmed || sendTurn.isPending) return;
-        sendTurn.mutate(trimmed, {
+    const sendRequest = (request: PlanTurnRequest) => {
+        if (sendTurn.isPending) return;
+        sendTurn.mutate(request, {
             onSuccess: turn => {
                 setText('');
                 onSent(turn);
             },
         });
     };
+
+    const send = () => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        sendRequest({ text: trimmed });
+    };
+
+    const proposeCuts = () => sendRequest({ text: text.trim(), mode: 'cuts' });
 
     return (
         <Paper withBorder p="xs" radius="sm">
@@ -138,6 +150,17 @@ function Composer({
                         <IconSend size={16} />
                     </ActionIcon>
                 </Group>
+                <Button
+                    size="xs"
+                    variant="light"
+                    leftSection={<IconScissors size={14} />}
+                    disabled={disabled || sendTurn.isPending}
+                    loading={sendTurn.isPending}
+                    onClick={proposeCuts}
+                    style={{ alignSelf: 'flex-start' }}
+                >
+                    Propose cuts
+                </Button>
                 {sendTurn.isError && (
                     <Text size="xs" c="red">
                         {reasonFor(sendTurn.error)}
@@ -179,7 +202,7 @@ export function PlanningSessionPane({ card, project }: { card: CardDetail; proje
     const sendTurn = useSendPlanTurn(card.id);
     const { scrollableRef, targetRef, scrollIntoView } = useScrollIntoView<HTMLDivElement, HTMLDivElement>();
 
-    const outgoingText = sendTurn.isPending ? sendTurn.variables : undefined;
+    const outgoingText = sendTurn.isPending ? sendTurn.variables?.text : undefined;
     const empty = transcript.turns.length === 0 && !outgoingText && !transcript.pendingText;
 
     useEffect(() => {
