@@ -12,7 +12,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import type { CardEventRow, EventLog } from '#modules/events/event.log.js';
-import type { ReviewFinding } from '#modules/stages/stage.result.js';
+import type { ReviewCriterion, ReviewFinding } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 
 const exec = promisify(execFile);
@@ -44,14 +44,22 @@ describe('ChallengeVerifier', () => {
         body: '## Goal\n\nDo the thing.',
     };
 
-    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, result: unknown) => ({
+    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, result: unknown, cardOverride: Card = card) => ({
         worktree,
         stage,
         cardId,
         scope: {} as ScopeGuard,
-        card,
+        card: cardOverride,
         result,
     });
+
+    /**
+     * A pinned card whose `Acceptance criteria` section is exactly `raw` — only needed for the tests
+     * below that exercise the composed `ReviewVerifier`'s "met" provenance check on a criterion,
+     * which reads the *plan's own* section (`acceptanceCriteria(card)`), not the incoming review's
+     * `criteria` list that `ChallengeVerifier` itself carries forward.
+     */
+    const cardWithCriteria = (raw: string): Card => ({ ...card, sections: { 'Acceptance criteria': raw } });
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'challenge-verifier-'));
@@ -106,6 +114,35 @@ describe('ChallengeVerifier', () => {
         line: 3,
         problem,
         suggestion: 'consider it',
+        ...overrides,
+    });
+
+    /** One `stage.passed` review event carrying both findings and criteria, as `EventLog.tail` would return it. */
+    const reviewPassedEventWithCriteria = (
+        findings: unknown[],
+        criteria: unknown[],
+        verdict: 'pass' | 'revise' = 'revise',
+    ): CardEventRow => ({
+        id: '1',
+        stage: 'review',
+        type: 'stage.passed',
+        payload: { result: { summary: 'reviewed', verdict, findings, criteria } },
+        createdAt: DateTime.now(),
+    });
+
+    const metCriterion = (id: string, overrides: Partial<ReviewCriterion> = {}) => ({
+        id,
+        status: 'met' as const,
+        file: 'src/changed.ts',
+        line: 2,
+        note: 'implemented',
+        ...overrides,
+    });
+
+    const unmetCriterion = (id: string, overrides: Partial<ReviewCriterion> = {}) => ({
+        id,
+        status: 'unmet' as const,
+        note: 'not yet implemented',
         ...overrides,
     });
 
@@ -353,5 +390,151 @@ describe('ChallengeVerifier', () => {
 
         expect(outcome.passed).toBe(false);
         expect(outcome.failures.some(f => f.includes('double counted') && f.includes('more than once'))).toBe(true);
+    });
+
+    /**
+     * Card 0243: challenge carries every incoming criterion ID forward, may only turn an `unmet` into
+     * `met` with evidence, and its verdict rule counts an `unmet` criterion the same as an upheld
+     * blocker — the same rule `ReviewVerifier` applies post-0236, reached here purely through
+     * composition (`ChallengeVerifier.verify` never states a verdict rule of its own).
+     */
+    describe('carrying acceptance criteria forward', () => {
+        // AC1
+        it('verifies when every incoming blocker is refuted and the one unmet criterion is turned met with evidence', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const planCard = cardWithCriteria('- AC1: does the thing');
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([blocker('needs work')], [unmetCriterion('AC1')])]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [{ problem: 'needs work', reason: 'already handled' }],
+                criteria: [metCriterion('AC1')],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, planCard));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        // AC2: blockers refuted, one criterion still unmet, verdict revise verifies...
+        it('verifies a "revise" verdict when every blocker is refuted but a criterion is still unmet', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([blocker('needs work')], [unmetCriterion('AC1')])]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'revise',
+                findings: [],
+                refuted: [{ problem: 'needs work', reason: 'already handled' }],
+                criteria: [unmetCriterion('AC1')],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        // AC2: ...the same with verdict "pass" fails, since the composed ReviewVerifier's post-0236
+        // consistency check counts an unmet criterion the same as an upheld blocker.
+        it('fails a "pass" verdict when a criterion is still unmet, even with every blocker refuted', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([blocker('needs work')], [unmetCriterion('AC1')])]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [{ problem: 'needs work', reason: 'already handled' }],
+                criteria: [unmetCriterion('AC1')],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('"pass"') && f.includes('unmet'))).toBe(true);
+        });
+
+        // AC3: a criterion turned "met" with a file outside the diff fails through the composed
+        // ReviewVerifier provenance check, even though ChallengeVerifier's own "unmet" -> "met"
+        // transition rule allows the status change itself.
+        it('fails when a criterion turned "met" cites a file outside the diff', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const planCard = cardWithCriteria('- AC1: does the thing');
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([], [unmetCriterion('AC1')], 'revise')]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [],
+                criteria: [metCriterion('AC1', { file: 'src/kept.ts', line: 1 })],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, planCard));
+
+            expect(outcome.passed).toBe(false);
+            expect(
+                outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts') && f.includes("not in this card's diff")),
+            ).toBe(true);
+        });
+
+        // AC4
+        it('fails, naming the ID, when a criterion review reported "met" comes back "unmet"', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([], [metCriterion('AC1')])]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'revise',
+                findings: [],
+                refuted: [],
+                criteria: [unmetCriterion('AC1')],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('"met"') && f.includes('"unmet"'))).toBe(true);
+        });
+
+        // AC5
+        it('fails, naming the ID, when a challenge result drops a criterion the review reported', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([], [unmetCriterion('AC1')])]);
+
+            const result = { summary: 'challenged', verdict: 'pass', findings: [], refuted: [], criteria: [] };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('missing from this run'))).toBe(true);
+        });
+
+        // AC6: an incoming review with no criteria at all leaves the whole accounting block off, so a
+        // challenge result carrying no `criteria` field either (`ChallengeResultSchema` defaults it to
+        // `[]`, same as `ReviewResultSchema`) verifies exactly as it did before this card.
+        it('verifies exactly as before when the incoming review reported no criteria', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const theBlocker = blocker('genuinely still wrong');
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([theBlocker], [])]);
+
+            const result = { summary: 'challenged', verdict: 'revise', findings: [theBlocker], refuted: [] };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
     });
 });
