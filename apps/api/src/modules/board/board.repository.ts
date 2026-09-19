@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import type { DateTime } from 'luxon';
 import type { AppendableCardEvent, EventLog } from '#modules/events/event.log.js';
-import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
+import { findStage, StageConfigError, type ProjectStages } from '#modules/stages/stage.config.js';
 import { isTerminal } from '#modules/stages/terminal.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { filesInScope, type Card } from './card.js';
@@ -15,23 +15,31 @@ export interface CardVersionSummary {
 }
 
 /**
- * Cap on how much of a card's event history {@link scopeConflict} scans for `scope.granted` rows.
+ * Cap on how much of a card's event history {@link cardHistory} scans for `scope.granted` and
+ * `work.committed` rows.
  *
  * `EventLog.tail` only ever returns the most recent `limit` rows (event.log.ts), and there is no
  * type-filtered query to fall back to — `event.log.ts` is outside this card's (0104) "Files in
- * scope". Generous rather than exact: a card whose event history runs past this before a grant would
- * still miss it, but that is the same shape of best-effort every other caller of `tail` already
- * accepts, not a new kind of gap.
+ * scope". Generous rather than exact: a card whose event history runs past this before a grant, or
+ * past it before its one commit, would still miss it, but that is the same shape of best-effort
+ * every other caller of `tail` already accepts, not a new kind of gap.
  */
 const GRANTED_PATHS_LOOKBACK = 2000;
 
 /**
- * Every path granted to `cardId` via `request_scope`, across whatever of its history {@link
- * GRANTED_PATHS_LOOKBACK} reaches — the `scope.granted` events card 0069's `ScopeGuard` records.
+ * One tail read of `cardId`'s event history, answering the two questions {@link scopeConflict}
+ * needs from it: every path granted via `request_scope` (the `scope.granted` events card 0069's
+ * `ScopeGuard` records), and whether a `work.committed` event (`stage.dispatcher.ts`, written on
+ * every passing commit) exists anywhere in that history. One `events.tail` call rather than two —
+ * both answers come from the same rows, and the card 0240/0241 incident this card fixes is exactly
+ * about not affording a second query per card per dispatch.
  */
-const grantedPaths = async (events: EventLog, project: string, cardId: string): Promise<string[]> => {
+const cardHistory = async (events: EventLog, project: string, cardId: string): Promise<{ grantedPaths: string[]; hasCommitted: boolean }> => {
     const rows = await events.tail(project, cardId, GRANTED_PATHS_LOOKBACK);
-    return rows.filter(row => row.type === 'scope.granted').map(row => String((row.payload as { path?: unknown }).path));
+    return {
+        grantedPaths: rows.filter(row => row.type === 'scope.granted').map(row => String((row.payload as { path?: unknown }).path)),
+        hasCommitted: rows.some(row => row.type === 'work.committed'),
+    };
 };
 
 /**
@@ -61,6 +69,13 @@ export const effectiveScope = (card: Card, granted: readonly string[]): string[]
  * {@link BoardRepository.hasLiveClaim}, the real question. A card sitting here holds nothing unless
  * something is actually carrying it: the gridlock this card fixed was exactly a parked card (deferred,
  * or its chain stopped) sitting in an agent stage with no job, being treated as if it did.
+ *
+ * Card 0242: sitting here with a live claim is *also* not enough on its own. On 2026-09-19, card
+ * 0240's `scope-check` — a readonly stage that reads the plan and writes nothing — held a live claim
+ * and an agent-stage `isRunningStage` result, and that alone deferred card 0241's `testing`, one
+ * stage from done, over a scope overlap neither card's tree yet contained anything of. See {@link
+ * holdsFiles} for the further filter this added: a card counts only once something of it is actually
+ * in the tree, not merely because it is being worked on.
  */
 const isRunningStage = (card: Card, stages: ProjectStages): boolean => {
     const stageName = card.frontmatter.stage;
@@ -69,6 +84,35 @@ const isRunningStage = (card: Card, stages: ProjectStages): boolean => {
         return findStage(stages, stageName).mode === 'agent';
     } catch {
         return false;
+    }
+};
+
+/**
+ * Card 0242. Whether `other` — already past the `isRunningStage` and `hasLiveClaim` filters —
+ * actually holds any of its files: something of it is in the tree, not merely a claim sitting on
+ * top of a stage that has not touched anything yet.
+ *
+ * True when either half holds: its *current* stage's worktree is `'rw'` (it is writing to its
+ * worktree right now, even before its first commit — a card on its first `implementing` run has no
+ * `work.committed` event yet, and dropping it would let a second card write the same file
+ * concurrently), or `hasCommitted` (its branch already carries at least one passing commit, so a
+ * later readonly stage — `scope-check`, `review` — still holds what an earlier stage wrote, even
+ * though its own worktree is read-only). The 0240/0241 incident this card fixes was a card in
+ * `scope-check`, readonly and with no commit yet: neither half held, and today's code had no way to
+ * tell.
+ *
+ * A stage `findStage` cannot resolve — not configured, or the config itself invalid — is treated as
+ * holding: the conservative direction, since `isRunningStage` already returned `true` for the same
+ * card only when `findStage` *did* resolve it as an agent stage, so this can only diverge from that
+ * on a config that changed in between the two reads. Refusing to dispatch anything into that
+ * uncertainty is cheaper than being wrong about whether a card holds its files.
+ */
+const holdsFiles = (other: Card, stages: ProjectStages, hasCommitted: boolean): boolean => {
+    try {
+        return findStage(stages, other.frontmatter.stage).worktree === 'rw' || hasCommitted;
+    } catch (err) {
+        if (err instanceof StageConfigError) return true;
+        throw err;
     }
 };
 
@@ -205,11 +249,20 @@ export abstract class BoardRepository {
      *
      * Compares `effectiveScope` — declared plus granted — on both sides, via `scopeOverlap`
      * (card 0069's proven matcher, reused rather than reimplemented) against every other card that
-     * both `isRunningStage` and `hasLiveClaim` count as in flight — sitting in an agent stage is
-     * necessary but not sufficient (card 0128): a card can sit there with nothing carrying it, and
-     * only a live claim means something actually is. Returns the first collision found, not every
-     * one: "which card and which files" is enough to act on, and a card can only be deferred once per
-     * dispatch anyway.
+     * `isRunningStage`, `hasLiveClaim` *and* {@link holdsFiles} all count as in flight — sitting in an
+     * agent stage with a live claim is necessary but not sufficient (card 0128, sharpened by card
+     * 0242): a card can sit there, claimed, with nothing of it actually in the tree yet. Returns the
+     * first collision found, not every one: "which card and which files" is enough to act on, and a
+     * card can only be deferred once per dispatch anyway.
+     *
+     * Card 0242: `holdsFiles` is the third filter, added after `isRunningStage` and `hasLiveClaim`
+     * proved not enough on their own. On 2026-09-19, card 0240 sat in `scope-check` — a readonly stage
+     * that reads the plan and writes nothing — with a live claim, and that alone made this method
+     * treat 0240 as holding its whole declared scope; card 0241's `testing`, one stage from done and
+     * genuinely colliding on nothing 0240's tree yet contained, deferred on it anyway, and kept
+     * deferring as 0240's claim carried on into `implementing`. Only the *other* card's side gets this
+     * check — `card`, the one being dispatched, still compares its full effective scope regardless of
+     * what it holds, matching card 0128's existing asymmetry below.
      *
      * Card 0128: this is deliberately asymmetric in time, not merely in itself. If A is parked (no
      * claim) and B is then dispatched, B's own call here sees no conflict and proceeds — A is not
@@ -225,14 +278,17 @@ export abstract class BoardRepository {
         card: Card,
         stages: ProjectStages,
     ): Promise<{ cardId: string; overlap: OverlappingPatterns[] } | undefined> {
-        const mine = effectiveScope(card, await grantedPaths(events, project, card.frontmatter.id));
+        const mine = effectiveScope(card, (await cardHistory(events, project, card.frontmatter.id)).grantedPaths);
 
         for (const other of await this.list()) {
             if (other.frontmatter.id === card.frontmatter.id) continue;
             if (!isRunningStage(other, stages)) continue;
             if (!(await this.hasLiveClaim(project, other.frontmatter.id))) continue;
 
-            const theirs = effectiveScope(other, await grantedPaths(events, project, other.frontmatter.id));
+            const theirHistory = await cardHistory(events, project, other.frontmatter.id);
+            if (!holdsFiles(other, stages, theirHistory.hasCommitted)) continue;
+
+            const theirs = effectiveScope(other, theirHistory.grantedPaths);
             const overlap = scopeOverlap(mine, theirs);
             if (overlap.length > 0) return { cardId: other.frontmatter.id, overlap };
         }
