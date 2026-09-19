@@ -172,6 +172,18 @@ export class CliStageAgent extends StageAgent {
         // this flag tells them apart. Sticky for the same reason `reportToolSeen` is: a later
         // message carrying only text must not erase that a tool ran earlier in this run.
         let anyToolSeen = false;
+        // Card 0248. The three collections a skipped `canUseTool` consultation is detected from: the
+        // `tool_use` id and detail (command or path) of every guarded call (Write, Edit, Bash) the
+        // engine proposed, the ids `canUseTool` was actually asked about (allowed or denied — see
+        // `onConsulted` below), and the ids that reached a `tool_result` in a later `user` message,
+        // the SDK's own evidence the call actually completed rather than being cut off mid-run. A
+        // guarded id present in the third set but absent from the second is exactly what the
+        // 2026-09-19 finding against host engine 2.1.266 looked like: one Bash call ran, and the
+        // guard was never consulted for it. Compared once, in the `finally` block below, so this
+        // fires whatever way the run ends.
+        const guardedToolCalls = new Map<string, { tool: string; detail: Record<string, unknown> }>();
+        const consultedToolUseIds = new Set<string>();
+        const completedToolUseIds = new Set<string>();
         // The api adapter's buildTools only exposes request_scope when worktreeMode === 'rw' — a
         // readonly or none stage can never write, so granting it the tool would let it log
         // scope.requested/granted events (or trip ScopeKickbackError under the kickback policy) for a
@@ -444,6 +456,9 @@ export class CliStageAgent extends StageAgent {
                         denied += 1;
                     },
                     beat,
+                    toolUseID => {
+                        if (toolUseID) consultedToolUseIds.add(toolUseID);
+                    },
                 ),
                 env: subscriptionEnv(configDir),
                 // Captured independent of how the read loop ends — the only way to see what the
@@ -528,6 +543,19 @@ export class CliStageAgent extends StageAgent {
                         anyToolSeen = message.message.content.some(part => part.type === 'tool_use');
                     }
 
+                    // Card 0248: every Write, Edit and Bash tool_use block, by id, so a completed one
+                    // whose id `canUseTool` was never asked about can be named at the end of the run.
+                    for (const part of message.message.content) {
+                        if (part.type !== 'tool_use') continue;
+                        if (!WRITE_TOOLS.includes(part.name) && !EXEC_TOOLS.includes(part.name)) continue;
+                        const input = (part.input ?? {}) as Record<string, unknown>;
+                        const detail =
+                            part.name === 'Bash'
+                                ? { command: String(input.command ?? '') }
+                                : { path: String(input.file_path ?? input.path ?? '') };
+                        guardedToolCalls.set(part.id, { tool: part.name, detail });
+                    }
+
                     turns += 1;
                     // The credit a denial buys is capped at the budget itself. Uncapped, a run that
                     // is refused on every turn raises its own ceiling as fast as it consumes it and
@@ -538,6 +566,19 @@ export class CliStageAgent extends StageAgent {
                         stoppedBecause ??= 'steps';
                         this.logger.warn(`cli stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
                         abortController.abort();
+                    }
+                }
+                if (message.type === 'user') {
+                    // Card 0248: a `tool_result` here is the SDK's own evidence that the `tool_use`
+                    // it answers actually completed, as opposed to one still pending when the run was
+                    // cut off — the distinction the "not counted" half of this card's detection
+                    // depends on. `message.content` mirrors `SDKAssistantMessage`'s own array-of-
+                    // blocks shape; a bare string carries no tool_result and is skipped.
+                    const content = message.message.content;
+                    if (Array.isArray(content)) {
+                        for (const part of content) {
+                            if (part.type === 'tool_result') completedToolUseIds.add(part.tool_use_id);
+                        }
                     }
                 }
                 if (message.type === 'result') {
@@ -700,6 +741,27 @@ export class CliStageAgent extends StageAgent {
                 ...droppedField(),
             };
         } finally {
+            // Card 0248: whatever way the run ended — passed, failed, or truncated — a guarded call
+            // that completed (has a `tool_result`) but whose id never reached `consultedToolUseIds`
+            // is exactly the gap the 2026-09-19 finding against host engine 2.1.266 named: the engine
+            // ran a Bash call with a `canUseTool` that refused everything, and the guard was never
+            // called for it at all. An id still pending when the run was cut off — absent from
+            // `completedToolUseIds` — is not counted; this card is detection only, not a rule that
+            // ends the run any differently than it already would have.
+            for (const [toolUseId, { tool: toolName, detail }] of guardedToolCalls) {
+                if (!completedToolUseIds.has(toolUseId) || consultedToolUseIds.has(toolUseId)) continue;
+                this.logger.warn(`cli stage ran ${toolName} without consulting canUseTool (tool_use ${toolUseId})`);
+                await context.events
+                    .append({
+                        project: context.project,
+                        cardId: context.cardId,
+                        stage: context.stage,
+                        type: 'tool.unguarded',
+                        payload: { tool: toolName, ...detail },
+                    })
+                    .catch(() => {});
+            }
+
             clearTimeout(wallClock);
             clearTimeout(idle);
             // Every exit from this method abandons the stream, including the successful one. Abort so
@@ -743,6 +805,10 @@ export class CliStageAgent extends StageAgent {
  *
  * `onDeny` fires for every refusal. It is the one choke point every denial passes through, which is
  * what makes refused calls cheap to exclude from the step budget.
+ *
+ * `onConsulted` fires for every call this callback is asked about at all, allowed or denied, with
+ * the `toolUseID` the SDK's `options` carries — card 0248's `CliStageAgent.run` uses it to tell a
+ * guarded tool call the guard actually saw from one it never got a chance to.
  */
 /**
  * What the read loses to when a timer fires first.
@@ -819,7 +885,13 @@ const denialShapeFor = (toolName: string, detail: Record<string, unknown>): stri
     return toolName;
 };
 
-export const createToolGuard = (context: ToolContext, writable: string, onDeny?: () => void, onActivity?: () => void): CanUseTool => {
+export const createToolGuard = (
+    context: ToolContext,
+    writable: string,
+    onDeny?: () => void,
+    onActivity?: () => void,
+    onConsulted?: (toolUseID: string | undefined) => void,
+): CanUseTool => {
     // How many times each denial shape has fired in this run. Scoped to this call, which the
     // dispatcher makes fresh per stage run, so it never sees a shape from a different stage or a
     // different card. The denial message already names the right tool on the first refusal — card
@@ -831,11 +903,14 @@ export const createToolGuard = (context: ToolContext, writable: string, onDeny?:
     // differs on repeat, not just a message that is already correct the first time.
     const repeats = new Map<string, number>();
 
-    return async (toolName, input): Promise<PermissionResult> => {
+    return async (toolName, input, options): Promise<PermissionResult> => {
         // Every tool call is a sign of life, refused or not. The engine emits nothing on the stream
         // for the duration of a tool call, so this is the only evidence the adapter gets that a long
         // `pnpm test` is a working stage rather than a dead one.
         onActivity?.();
+        // Card 0248: recorded for every call reaching this point, regardless of tool or outcome — the
+        // one piece of evidence that the guard was actually asked about this `tool_use` id at all.
+        onConsulted?.(options?.toolUseID);
 
         const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
             const shape = denialShapeFor(toolName, detail);

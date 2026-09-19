@@ -69,8 +69,15 @@ const buildFixture = async (): Promise<string> => {
     return root;
 };
 
-/** A `ToolContext` built from the real `ScopeGuard`/`CommandAllowlist` — no mock of either. */
-const buildContext = (root: string, allow: string[], commands: string[]): ToolContext =>
+/**
+ * A `ToolContext` built from the real `ScopeGuard`/`CommandAllowlist` — no mock of either.
+ *
+ * `events`, when given, receives every event `context.events.append` records — card 0248's
+ * denied-bash probe below reads it back to prove `canUseTool` was actually consulted for the Bash
+ * call, the same way `CliStageAgent.run` itself now tells a guarded call the guard saw from one it
+ * never got a chance to.
+ */
+const buildContext = (root: string, allow: string[], commands: string[], events: { type: string; payload?: Record<string, unknown> }[] = []): ToolContext =>
     ({
         project: 'p',
         cardId: '0231',
@@ -79,7 +86,7 @@ const buildContext = (root: string, allow: string[], commands: string[]): ToolCo
         scope: new ScopeGuard({ worktreeRoot: root, allow, alwaysAllowed: [] }),
         commands: new CommandAllowlist(commands),
         scopeViolationPolicy: 'widen',
-        events: { append: async () => {} },
+        events: { append: async (e: { type: string; payload?: Record<string, unknown> }) => void events.push(e) },
         logger: silentLogger,
     }) as unknown as ToolContext;
 
@@ -407,23 +414,36 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         const root = await buildFixture();
         await assertEngineReachable(root);
         await writeFile(join(root, REPORT_RESULT_PATH), JSON.stringify({ summary: 'ok' }), 'utf8');
-        const context = buildContext(root, ['src/runner/**'], allowedCommands);
+        const events: { type: string; payload?: Record<string, unknown> }[] = [];
+        const context = buildContext(root, ['src/runner/**'], allowedCommands, events);
         const agent = new CliStageAgent(silentLogger as never);
-        return agent.run({
+        const output = (await agent.run({
             stage: makeStage(allowedCommands),
             context,
             planPath: join(root, 'plan.md'),
             title: 'probe',
             resultSchema,
             baseSha: 'HEAD',
-        } as never) as Promise<{ truncated: boolean; result?: unknown; budgetFailure?: string; engineFailure?: string }>;
+        } as never)) as { truncated: boolean; result?: unknown; budgetFailure?: string; engineFailure?: string };
+        return { output, events };
     };
 
     it(
         'still reports cleanly at a tight step budget when the one bash call is denied',
         async () => {
-            const output = await runReal([]);
+            const { output, events } = await runReal([]);
             if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
+
+            // Card 0248: on 2026-09-19, against this same host engine, this exact call — one denied
+            // Bash command — ran without `canUseTool` ever being consulted for it: no `tool.denied`,
+            // no `tool.executed`, nothing. `deny()` inside `createToolGuard` appends `tool.denied` for
+            // Bash only when the guard was actually asked, so its presence here is direct evidence the
+            // consultation happened this time — checked before the truncation assertions below, which
+            // would pass the same way whether or not the guard was ever in the loop at all.
+            expect(
+                events.some(e => e.type === 'tool.denied' && (e.payload as { tool?: string } | undefined)?.tool === 'Bash'),
+                'the engine ran Bash without consulting canUseTool: see card 0248',
+            ).toBe(true);
 
             // cli.stage.agent.ts: "Refused calls do not spend the budget... The ceiling grows by
             // one per refusal, so a run keeps its full allowance of productive steps."
@@ -439,7 +459,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         // above came from the credit, not from a budget that was generous enough regardless.
         'control: the same tight budget is exceeded when that one bash call is allowed instead of denied',
         async () => {
-            const output = await runReal(['true']);
+            const { output } = await runReal(['true']);
             if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
 
             expect(output.truncated).toBe(true);
