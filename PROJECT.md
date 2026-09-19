@@ -200,8 +200,21 @@ was built the day the API credits ran out mid-card.
 #### What the cli adapter costs
 
 The engine brings its own loop and its own tools, so `ScopeGuard` and
-`CommandAllowlist` are not the tools themselves. They are put back through
-`canUseTool`, which every Write, Edit and Bash passes before it runs.
+`CommandAllowlist` are not the tools themselves. They are put back through one guard
+(`createToolGuard`), reached two ways: a `PreToolUse` hook first, and `canUseTool` as
+a backstop for any call that still reaches it.
+
+The hook exists because `canUseTool` alone was found not to be enough. On host engine
+2.1.266, a diagnostic run on 2026-09-19 made one Bash call (`true`) with a `canUseTool`
+that refused everything; the command ran anyway, and `canUseTool` was called zero
+times. The same call against a `PreToolUse` hook, run the same day, was consulted
+once, and a `deny` from the hook did stop it — the engine got "refused by PreToolUse
+hook" back and nothing ran. So permission now comes from the hook first, with
+`canUseTool` left wired to the identical guard rather than removed, since a call the
+hook does not catch for whatever reason must still have somewhere to be checked. The
+guard's own decision logic is unchanged by any of this; a call seen through both doors
+records its deny credit, `tool.denied`/`tool.executed` events, and the repeat-refusal
+counter once, keyed by the engine's own `tool_use` id, not twice.
 
 **`allowedTools` must not be set.** Listing a tool there marks it _pre-approved_ and
 the engine never consults `canUseTool` for it — so naming Write and Bash as allowed,
