@@ -34,9 +34,13 @@ export interface VerificationOutcome {
      * since the code was never at fault. `StageDispatcher.runAgent` folds this into `unjudged` so
      * `kickback` retries the same stage instead, the same way a truncated run or a dropped result do;
      * it still charges `retries[stage.name]`, so a stage that keeps producing a bad report still
-     * reaches `needsHuman` at `maxKickbacks`. Left unset (not merely `false`) when it does not apply,
-     * matching `resultDropped`/`engineStopReason`'s own optional-field convention elsewhere in this
-     * module.
+     * reaches `needsHuman` at `maxKickbacks`. Optional because most verifiers never draw this
+     * distinction and so never set it at all; `ReviewVerifier` and `ChallengeVerifier`, which do,
+     * always compute it as an explicit `true` or `false` once they reach a `return` — unlike
+     * `resultDropped`/`engineStopReason` elsewhere in this module, there is no "does not apply" case
+     * partway through their own checks, only "review found a code fact" (`false`) versus "every
+     * failure was about the report" (`true`). Every read site uses `Boolean(...)`, so an unset field
+     * and an explicit `false` are indistinguishable to a consumer either way.
      */
     reportRejected?: boolean;
 }
