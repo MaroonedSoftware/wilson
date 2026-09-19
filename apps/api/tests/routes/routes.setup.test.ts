@@ -7,6 +7,7 @@ import { FeedRouter, PlanStreamRouter, routers } from '#src/routes/routes.setup.
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
+import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { StagesRouter } from '#src/routes/stages.router.js';
@@ -31,7 +32,8 @@ import { uniqueProject } from '#tests/support/test.db.js';
  * same way again: generated from `projects.ck`, mounted right after `SettingsRouter`, and
  * `StagesRouter` (stage config in Postgres) after that, generated from `stages.ck`. `ContextRouter`
  * (card 0187) joined the same way too, generated from `context.ck`, mounted right after
- * `BoardRouter` — the ordering `routes.setup.ts` itself uses.
+ * `BoardRouter`. `LearningsRouter` (card 0239) joined the same way again, generated from
+ * `learnings.ck`, mounted right after `StagesRouter` — the ordering `routes.setup.ts` itself uses.
  */
 describe('routers', () => {
     // Card 0150: `ProjectContextRouter` is mounted first, ahead of the routers that were the whole
@@ -39,22 +41,25 @@ describe('routers', () => {
     // actually does; this test only pins its position. Card 0162 added `ProjectsRouter` as the
     // fifth entry, after `SettingsRouter`, and `StagesRouter` follows it as the sixth, both before
     // the two hand-written SSE routers. Card 0187 added `ContextRouter` right after `BoardRouter`,
-    // pushing every entry from `SettingsRouter` on down one place later.
-    it('mounts the project-context router first, then the generated health, board, context, settings, projects and stages routers plus the two hand-written SSE routers, and nothing else', () => {
+    // pushing every entry from `SettingsRouter` on down one place later. Card 0239 added
+    // `LearningsRouter` right after `StagesRouter`, pushing the two hand-written SSE routers one
+    // place later again.
+    it('mounts the project-context router first, then the generated health, board, context, settings, projects, stages and learnings routers plus the two hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(9);
+        expect(mounted).toHaveLength(10);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
         expect(mounted[4]).toBe(SettingsRouter);
         expect(mounted[5]).toBe(ProjectsRouter);
         expect(mounted[6]).toBe(StagesRouter);
+        expect(mounted[7]).toBe(LearningsRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[7].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[8].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[8].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[9].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -66,15 +71,16 @@ describe('routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(9);
+        expect(mounted).toHaveLength(10);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
         expect(mounted[4]).toBe(SettingsRouter);
         expect(mounted[5]).toBe(ProjectsRouter);
         expect(mounted[6]).toBe(StagesRouter);
-        expect(mounted[7].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[8].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[7]).toBe(LearningsRouter);
+        expect(mounted[8].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[9].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
@@ -285,6 +291,23 @@ describe('routers', () => {
         expect(ContextRouter.match('/api/cards/0001/context', 'DELETE').route).toBe(false);
         expect(ContextRouter.match('/api/cards/0001/context/0002', 'GET').route).toBe(false);
         expect(ContextRouter.match('/api/cards/0001/context/0002', 'POST').route).toBe(false);
+    });
+
+    // Card 0239: the human-approved learnings document, generated from learnings.ck and mounted as
+    // LearningsRouter right after StagesRouter.
+    it.each([
+        ['GET', '/api/learnings'],
+        ['PUT', '/api/learnings'],
+        ['GET', '/api/learnings/versions'],
+    ])('routes %s %s to the learnings router', (method, path) => {
+        expect(LearningsRouter.match(path, method).route).toBe(true);
+    });
+
+    it('does not route an undeclared method to either learnings path', () => {
+        expect(LearningsRouter.match('/api/learnings', 'POST').route).toBe(false);
+        expect(LearningsRouter.match('/api/learnings', 'DELETE').route).toBe(false);
+        expect(LearningsRouter.match('/api/learnings/versions', 'PUT').route).toBe(false);
+        expect(LearningsRouter.match('/api/learnings/versions', 'POST').route).toBe(false);
     });
 });
 

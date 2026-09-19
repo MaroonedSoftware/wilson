@@ -7,6 +7,7 @@ import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
+import { LearningsModule } from './learnings/learnings.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SourcesModule } from './sources/sources.module.js';
 import { StagesModule } from './stages/stages.module.js';
@@ -34,6 +35,10 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  *
  * Sources is listed right after Board (card 0203): `InboundCardWriter` takes `BoardWriteService` and
  * `BoardRepository`, both registered by Board's own `setup`.
+ *
+ * Learnings is listed beside Stages (card 0239): `PostgresLearningsStore` takes `BoardConfig` and
+ * `Kysely<DB>`, the same two dependencies `PostgresStageConfigStore` does, both already registered
+ * by the time either module's turn comes (Board and Data are earlier in this list).
  */
 export const modules: ServerKitModule[] = [
     DataModule,
@@ -46,6 +51,7 @@ export const modules: ServerKitModule[] = [
     WorktreeModule,
     AgentModule,
     StagesModule,
+    LearningsModule,
     SettingsModule,
     JobsModule,
 ];
