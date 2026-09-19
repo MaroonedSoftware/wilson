@@ -4,6 +4,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/append.attempts.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
@@ -585,19 +586,55 @@ export class StageDispatcher {
         const findings = outcome.passed ? findingsFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
 
+        // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
+        // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
+        // stage did report and the transport lost it) are both infrastructure, not a statement about
+        // the work — retrying repeats the same attempt, so there is nothing here worth telling the next
+        // attempt about. `decision.retries[stageName]` is safe to read unconditionally here: a judged
+        // failure is exactly the branch of `kickback` that sets it, to the attempt count this failure
+        // just reached.
+        const judgedFailure = !outcome.passed && !outcome.unjudged && !outcome.resultDropped;
+        const attempt: Attempt | undefined = judgedFailure
+            ? {
+                  stage: stageName,
+                  attempt: decision.retries[stageName] ?? 0,
+                  maxKickbacks: stage.maxKickbacks,
+                  date: new Date().toISOString(),
+                  failures: outcome.failures,
+                  summary: describe(outcome.result),
+                  engineStopReason: outcome.engineStopReason,
+                  patchPath: this.worktrees.failedAttemptPatchPath(cardId),
+              }
+            : undefined;
+
+        // Tracked across the mutate below so the pin-advance check further down compares the body
+        // this transition actually wrote against the body it actually read, not against `head`'s
+        // snapshot from before the write — `writeIn` locks the row and reads `current` fresh inside
+        // the same transaction, so `current.body` is the one true "body it read".
+        let bodyChanged = false;
+
         const writtenVersionId = await this.board.writeWithEvent(
             cardId,
             `${cardId}: ${stageName} -> ${decision.target}`,
-            current => ({
-                ...current,
-                frontmatter: {
-                    ...current.frontmatter,
-                    stage: decision.target,
-                    retries: decision.retries,
-                    ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
-                },
-                body: findings ? withFindings(current.body, findings) : current.body,
-            }),
+            current => {
+                // On a pass, the section this stage may have accumulated while it kept failing is
+                // shed (the same "shed on pass" rule findings use); on a judged failure, one more
+                // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
+                // leaves the section exactly as it stands.
+                const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                const nextBody = findings ? withFindings(body, findings) : body;
+                bodyChanged = nextBody !== current.body;
+                return {
+                    ...current,
+                    frontmatter: {
+                        ...current.frontmatter,
+                        stage: decision.target,
+                        retries: decision.retries,
+                        ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                    },
+                    body: nextBody,
+                };
+            },
             {
                 project: this.config.project,
                 cardId,
@@ -613,23 +650,25 @@ export class StageDispatcher {
             },
         );
 
-        // The write above just rewrote the plan contract, not just runner state: a non-empty
-        // `findings` means `withFindings` folded a `## Review findings` section into the body of
-        // the version `writtenVersionId` now names. A pinned card's `planVersionId` otherwise holds
-        // still against everything that lands on the board — that is the whole point of pinning
-        // (see the "Two reads" comment at the top of `run`, above) — and a human editing the card
-        // body must keep not moving it. But the runner rewriting its
-        // own contract is the one case where the pin legitimately advances: left where it was, the
-        // pin would keep pointing at a version that predates the very findings this stage was kicked
-        // back to fix, which is card 0091's bug — three implementing passes reading a plan with no
-        // findings section because the pin still named the version from before the kickback wrote
-        // them. Gated on `head.frontmatter.planVersionId`, not `current`'s: a card with no pin coming
-        // in gets none out (117 of 128 cards read live `head` today and must keep doing so), and the
-        // inner check against `current.frontmatter.planVersionId` mirrors the branch-recording guard
-        // above — `write`'s re-read inside its own transaction is what actually guards the race, this
-        // is only the common-case short-circuit.
-        if (findings && findings.length > 0 && head.frontmatter.planVersionId) {
-            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName} findings`, current =>
+        // The write above just rewrote the plan contract, not just runner state: `bodyChanged` means
+        // `withFindings`, `withAttempt` or `withoutAttempts` actually changed the body of the version
+        // `writtenVersionId` now names — findings folded in, an attempt bullet added, or the section
+        // shed on a pass. A pinned card's `planVersionId` otherwise holds still against everything
+        // that lands on the board — that is the whole point of pinning (see the "Two reads" comment
+        // at the top of `run`, above) — and a human editing the card body must keep not moving it. But
+        // the runner rewriting its own contract is the one case where the pin legitimately advances:
+        // left where it was, the pin would keep pointing at a version that predates the very findings
+        // this stage was kicked back to fix, which is card 0091's bug — three implementing passes
+        // reading a plan with no findings section because the pin still named the version from before
+        // the kickback wrote them. This card generalizes that same fix to the attempts section: a
+        // retried stage reading the pinned plan must see the bullet this failure just added, not a
+        // version from before it existed. Gated on `head.frontmatter.planVersionId`, not `current`'s:
+        // a card with no pin coming in gets none out (117 of 128 cards read live `head` today and must
+        // keep doing so), and the inner check against `current.frontmatter.planVersionId` mirrors the
+        // branch-recording guard above — `write`'s re-read inside its own transaction is what actually
+        // guards the race, this is only the common-case short-circuit.
+        if (bodyChanged && head.frontmatter.planVersionId) {
+            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName}`, current =>
                 current.frontmatter.planVersionId
                     ? { ...current, frontmatter: { ...current.frontmatter, planVersionId: writtenVersionId } }
                     : current,
