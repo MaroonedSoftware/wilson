@@ -92,11 +92,16 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 
+        // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
+        // building its attempts bullet, so the worktrees stub needs a real function here — the
+        // "still judged" tests below hit exactly that branch.
+        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+
         dispatcher = new StageDispatcher(
             config as BoardConfig,
             {} as StageConfigStore,
             board,
-            {} as WorktreeManager,
+            worktrees as unknown as WorktreeManager,
             {} as StageAgentMap,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,

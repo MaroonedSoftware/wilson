@@ -104,11 +104,15 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         const events = { append: vi.fn(async () => {}) };
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+        // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
+        // building its attempts bullet, so the worktrees stub needs a real function here — the
+        // "no findings" test below hits exactly that branch (`passed: false`, judged).
+        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
         dispatcher = new StageDispatcher(
             config as BoardConfig,
             {} as StageConfigStore,
             board,
-            {} as WorktreeManager,
+            worktrees as unknown as WorktreeManager,
             {} as StageAgentMap,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
@@ -172,16 +176,21 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
         expect(stored.body).toContain('## Review findings');
     });
 
-    it('leaves planVersionId untouched when the kickback carries no findings', async () => {
+    // Card 0234 widened this from "no findings" to "no bullet either": a judged failure with no
+    // findings still writes a `## Previous attempts` bullet and legitimately advances the pin now
+    // (see `stage.dispatcher.attempts.test.ts`) — the one outcome that still changes nothing in the
+    // body is an unjudged failure, which `writeTransition` deliberately records no bullet for.
+    it('leaves planVersionId untouched when the kickback is unjudged and the body does not change', async () => {
         await setUp();
         const created = await board.create(baseCard, 'initial');
         await board.write('0001', 'approve', c => ({ ...c, frontmatter: { ...c.frontmatter, planVersionId: created } }));
         const head = await board.read('0001');
 
-        await writeTransition(makeStage(), head, outcome({ passed: false }));
+        await writeTransition(makeStage(), head, outcome({ passed: false, unjudged: true }));
 
         const stored = await board.read('0001');
         expect(stored.frontmatter.planVersionId).toBe(created);
+        expect(stored.body).toBe(baseCard.body);
     });
 
     it('leaves a pinned card’s planVersionId untouched when review passes cleanly (no findings section at all)', async () => {
