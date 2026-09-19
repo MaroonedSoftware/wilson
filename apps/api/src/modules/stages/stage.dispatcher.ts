@@ -15,6 +15,7 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
@@ -236,6 +237,13 @@ export class StageDispatcher {
         private readonly logger: Logger,
         private readonly settings?: SettingsStore,
         private readonly portAllocator?: DevServerPortAllocator,
+        // Optional for the same reason `settings`/`portAllocator` above are: most of this class's
+        // own tests construct it directly, one positional argument at a time, and a new required
+        // param would break every one of those at the type level. Left undefined, the newest
+        // document resolves to `''` below — the same "no learnings" outcome an empty document
+        // reaches — so a test that supplies none behaves exactly as it did before this card.
+        // Production wiring (`stages.module.ts`'s `useClass`) always supplies the real one.
+        private readonly learnings?: LearningsStore,
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
@@ -397,6 +405,16 @@ export class StageDispatcher {
 
         const planPath = await this.materializePlan(card, pinnedSha, stages, stage);
 
+        // Card 0244: the project's human-approved learnings document, materialized outside the
+        // worktree the same way the plan is — so it can never be committed to the card's branch
+        // either. Empty (`load()`'s own contract: no document yet reads the same as an empty one,
+        // PROJECT.md decision 8) or `this.learnings` altogether unset (see the constructor's own
+        // comment) both mean no file is written and no path reaches the adapter at all — an empty
+        // document means "no learnings", not an empty file to hand the agent.
+        const learningsMarkdown = (await this.learnings?.load()) ?? '';
+        const learningsPath =
+            learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
+
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
         // for the file defining a type it is already using because something in scope imports it.
         const scoped = [...filesInScope(card), ...stage.extraScope];
@@ -421,7 +439,9 @@ export class StageDispatcher {
             // The plan and every card's preserved patch live outside the worktree so neither can be
             // committed to the card's branch. Without this both are also unreadable, and the agent
             // either infers its own contract or is refused the one artifact its plan told it to read.
-            readableExtras: [planPath, ...preservedPatchPaths],
+            // `learningsPath` joins them on the same footing, present only when the document is
+            // non-empty — see its own comment above.
+            readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
         });
 
         await this.events.append({
@@ -433,7 +453,7 @@ export class StageDispatcher {
         });
 
         try {
-            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, stages, port });
+            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, learningsPath, stages, port });
 
             // A write is allowed as collateral without a `request_scope` round trip, but it is still
             // a widening — reported here, always, so the review sees it and a stage can never widen
@@ -859,17 +879,33 @@ export class StageDispatcher {
         return path;
     }
 
+    /**
+     * Write the project's learnings document where the agent can read it — outside the worktree,
+     * for the identical reason `materializePlan` above lives there: so it can never be committed to
+     * the card's branch. Called only when `run` already knows the document is non-empty, so unlike
+     * `materializePlan` this has no "absent" case of its own to handle.
+     */
+    private async materializeLearnings(cardId: string, markdown: string): Promise<string> {
+        const dir = join(this.config.runRoot, 'cards', cardId);
+        await mkdir(dir, { recursive: true });
+        const path = join(dir, 'learnings.md');
+        await writeFile(path, markdown, 'utf8');
+        return path;
+    }
+
     private async runAgent(input: {
         card: Card;
         stage: StageConfig;
         worktree: Awaited<ReturnType<WorktreeManager['create']>>;
         scope: ScopeGuard;
         planPath: string;
+        /** Set only when the project's learnings document is non-empty — see `materializeLearnings`. */
+        learningsPath?: string;
         stages: ProjectStages;
         /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
         port?: number;
     }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, stages, port } = input;
+        const { card, stage, worktree, scope, planPath, learningsPath, stages, port } = input;
 
         const context: ToolContext = {
             project: this.config.project,
@@ -900,7 +936,15 @@ export class StageDispatcher {
             );
         }
 
-        const run = await adapter.run({ stage, context, planPath, title: card.frontmatter.title, resultSchema, baseSha: worktree.baseSha });
+        const run = await adapter.run({
+            stage,
+            context,
+            planPath,
+            learningsPath,
+            title: card.frontmatter.title,
+            resultSchema,
+            baseSha: worktree.baseSha,
+        });
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
         if (!verifier) {

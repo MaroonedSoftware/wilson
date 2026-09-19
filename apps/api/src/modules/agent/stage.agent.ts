@@ -6,6 +6,14 @@ export interface AgentRunInput {
     context: ToolContext;
     /** Absolute path to the card's plan, outside the worktree. */
     planPath: string;
+    /**
+     * Absolute path to the project's learnings document, outside the worktree — present only when
+     * `StageDispatcher.run` found the document non-empty (card 0244). An empty or absent document
+     * means "no learnings" (PROJECT.md decision 8), so this is left unset rather than pointed at a
+     * file with nothing in it; an adapter must add no prompt line at all when this is unset, the
+     * same way it says nothing about a card with no preserved patch.
+     */
+    learningsPath?: string;
     /** The card's title, for the prompt. */
     title: string;
     /** Zod schema the stage's result must satisfy. */
