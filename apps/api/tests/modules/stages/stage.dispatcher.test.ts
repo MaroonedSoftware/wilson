@@ -185,6 +185,76 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         expect(stored.body).not.toContain('Review findings');
     });
 
+    /**
+     * Card 0235: `outcome.passed` is the verifier's own judgment on the result — a hallucinated
+     * file, a line past the end of a file, a verdict contradicting its severities all fail
+     * verification even though the result still carries a `findings` array. Those findings are not
+     * evidence, and must not reach the body a kicked-back retry reads, nor advance the plan pin past
+     * a version the runner itself refused to trust.
+     */
+    it('drops findings from a review outcome the verifier itself rejected, and leaves the pin where it was', async () => {
+        const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
+        const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
+
+        const initialVersion = await board.currentVersion('0001');
+        // Actually persist the pin, not just the in-memory `head`/`card` passed below: the pin-advance
+        // check inside `writeTransition` re-reads `current.frontmatter.planVersionId` from the stored
+        // row, so a pin that only exists on the local object would never engage that branch at all.
+        await board.write('0001', 'pin plan version', current => ({
+            ...current,
+            frontmatter: { ...current.frontmatter, planVersionId: initialVersion! },
+        }));
+        const pinned: Card = { ...card, frontmatter: { ...card.frontmatter, planVersionId: initialVersion! } };
+
+        const { target } = await writeTransition(
+            stage,
+            pinned,
+            outcome({
+                passed: false,
+                result: {
+                    verdict: 'revise',
+                    findings: [{ severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' }],
+                },
+            }),
+        );
+
+        expect(target).toBe('implementing');
+        const stored = await board.read('0001');
+        expect(stored.body).toBe(baseCard.body);
+        expect(stored.body).not.toContain('Review findings');
+        // The pin only legitimately advances past findings this stage actually wrote; a rejected
+        // outcome writes none, so the pin must hold exactly where it was.
+        expect(stored.frontmatter.planVersionId).toBe(initialVersion);
+    });
+
+    /**
+     * Card 0235, AC3: `outcome.passed` and `verdict` answer different questions. A review can pass
+     * verification (the runner trusts the result) while still reporting non-blocking concerns
+     * (`verdict: 'pass'`) — those findings are real evidence and must still land in the body even
+     * though the stage advances rather than kicks back.
+     */
+    it('still writes concerns from a passing review even though the verdict is "pass"', async () => {
+        const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing' });
+        const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
+
+        const { target } = await writeTransition(
+            stage,
+            card,
+            outcome({
+                passed: true,
+                result: {
+                    verdict: 'pass',
+                    findings: [{ severity: 'concern', file: 'src/y.ts', line: 10, problem: 'naming', suggestion: 'rename' }],
+                },
+            }),
+        );
+
+        expect(target).toBe('merge');
+        const stored = await board.read('0001');
+        expect(stored.body).toContain('## Review findings');
+        expect(stored.body).toContain('src/y.ts:10');
+    });
+
     it('records a transition.written event describing where the card came from and where it went', async () => {
         const stage = makeStage({ onPass: 'review' });
 
