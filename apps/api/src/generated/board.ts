@@ -311,19 +311,21 @@ export const DivisionPiece = z.strictObject({
 export type DivisionPiece = z.infer<typeof DivisionPiece>;
 
 /**
- * Card 0193, extended by card 0241's `scopeConflict` kind. One thing `PlanLintService` found wrong
- * with a plan when checked against the config the runner will actually enforce — never a judgement
- * on the plan's prose (that stays a human's job, or `review`'s), only what a stage's own
- * `CommandAllowlist`, a project's `alwaysAllowed` list, the literal shape of a `Files in scope` line,
- * or (card 0241) whether that scope overlaps a card already in flight actually decide. `kind` names
- * which of the checks produced it; `message` already carries whatever specifics matter (the
- * allowlist's own refusal reason, the glob this suggests, which `alwaysAllowed` entry already covers
- * the line, which patterns and card an overlap was found against) rather than splitting them into
- * fields a client would have to reassemble into the same sentence.
- * generated from [LintFinding](file://./../../data/contracts/board.ck#L316)
+ * Card 0193, extended by card 0241's `scopeConflict` kind and card 0245's `acceptanceCriteria` kind.
+ * One thing `PlanLintService` found wrong with a plan when checked against the config the runner will
+ * actually enforce — never a judgement on the plan's prose (that stays a human's job, or `review`'s),
+ * only what a stage's own `CommandAllowlist`, a project's `alwaysAllowed` list, the literal shape of a
+ * `Files in scope` line, (card 0241) whether that scope overlaps a card already in flight, or (card
+ * 0245) whether the plan's own `Acceptance criteria` section is one `acceptanceCriteria(card)` cannot
+ * trace cleanly, actually decide. `kind` names which of the checks produced it; `message` already
+ * carries whatever specifics matter (the allowlist's own refusal reason, the glob this suggests, which
+ * `alwaysAllowed` entry already covers the line, which patterns and card an overlap was found against,
+ * which criterion IDs collide or which section had text but no bullets) rather than splitting them
+ * into fields a client would have to reassemble into the same sentence.
+ * generated from [LintFinding](file://./../../data/contracts/board.ck#L318)
  */
 export const LintFinding = z.strictObject({
-    kind: z.enum(['command', 'alwaysAllowed', 'scopeConflict']),
+    kind: z.enum(['command', 'alwaysAllowed', 'scopeConflict', 'acceptanceCriteria']),
     message: z.string(),
 });
 export type LintFinding = z.infer<typeof LintFinding>;

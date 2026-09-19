@@ -92,14 +92,15 @@ class ScopeConflictBoardRepository extends OneCardBoardRepository {
     }
 }
 
-/** A card with just enough shape for `PlanLintService` to read — frontmatter plus the two sections it inspects. */
-const card = (overrides: { tasks?: string; constraints?: string; filesInScope?: string }): Card => ({
+/** A card with just enough shape for `PlanLintService` to read — frontmatter plus the sections it inspects. */
+const card = (overrides: { tasks?: string; constraints?: string; filesInScope?: string; acceptanceCriteria?: string }): Card => ({
     frontmatter: { id: 'c1', title: 'Test card', stage: 'planning', dependsOn: [], retries: {} },
     body: '',
     sections: {
         Tasks: overrides.tasks ?? '',
         Constraints: overrides.constraints ?? '',
         'Files in scope': overrides.filesInScope ?? '',
+        ...(overrides.acceptanceCriteria !== undefined ? { 'Acceptance criteria': overrides.acceptanceCriteria } : {}),
     },
 });
 
@@ -426,5 +427,76 @@ describe('PlanLintService scopeConflict findings', () => {
         expect(events).toBe(fakeEventLog);
         expect(project).toBe('a-specific-project');
         expect(passedCard.frontmatter.id).toBe('c1');
+    });
+});
+
+/**
+ * Card 0245. `PlanLintService.lint` now also calls `acceptanceCriteriaFindings`, which runs
+ * `acceptanceCriteria(card)` (0236's own parser, reused rather than re-derived) over the plan and
+ * reports the two ways it can fail to trace criteria back to a review: two bullets whose explicit ID
+ * collides, and an `Acceptance criteria` section with prose but no bullets the parser could find.
+ * Every case here fails on the pre-change tree: `acceptanceCriteriaFindings` did not exist yet, so
+ * `lint` never returned an `acceptanceCriteria` finding no matter what the section looked like.
+ */
+describe('PlanLintService acceptanceCriteria findings', () => {
+    it('reports duplicate explicit IDs on a plan with two bullets both labelled AC1:', async () => {
+        const c = card({
+            filesInScope: 'apps/api/src/modules/board/**',
+            acceptanceCriteria: '- AC1: first thing works.\n- AC1: second thing also works.',
+        });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']), fakeEventLog, boardConfig);
+
+        const findings = await service.lint('c1');
+
+        const criteriaFindings = findings.filter(f => f.kind === 'acceptanceCriteria');
+        expect(criteriaFindings).toHaveLength(1);
+        expect(criteriaFindings[0]!.message).toContain('AC1');
+        expect(criteriaFindings[0]!.message).toContain('2');
+    });
+
+    it('reports a section that has text but no bullets the parser can find', async () => {
+        // `acceptanceCriteria` treats every non-blank, non-comment line as a bullet — even one with
+        // no marker at all (the same rule `filesInScope` follows) — so the only way a non-empty
+        // section parses to zero criteria is when everything in it is an HTML comment: text a human
+        // reading the plan sees, but nothing `acceptanceCriteria` can turn into a criterion.
+        const c = card({
+            filesInScope: 'apps/api/src/modules/board/**',
+            acceptanceCriteria: '<!-- TODO: fill these in before this leaves planning -->',
+        });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']), fakeEventLog, boardConfig);
+
+        const findings = await service.lint('c1');
+
+        const criteriaFindings = findings.filter(f => f.kind === 'acceptanceCriteria');
+        expect(criteriaFindings).toHaveLength(1);
+        expect(criteriaFindings[0]!.message).toContain('no bullets');
+    });
+
+    it('reports nothing for well-formed criteria, and leaves the existing lint kinds unchanged', async () => {
+        const c = card({
+            filesInScope: 'apps/api/src/generated/board.ts',
+            tasks: 'Run `pnpm migrate:up` first.',
+            acceptanceCriteria: '- AC1: first thing works.\n- AC2: second thing also works.',
+        });
+        const service = new PlanLintService(
+            new OneCardBoardRepository(c),
+            stageConfig(['pnpm build'], ['apps/api/src/generated/*.ts']),
+            fakeEventLog,
+            boardConfig,
+        );
+
+        const findings = await service.lint('c1');
+
+        expect(findings.filter(f => f.kind === 'acceptanceCriteria')).toHaveLength(0);
+        // The other two checks still fire exactly as before — this finding is additive, not a replacement.
+        expect(findings.some(f => f.kind === 'command')).toBe(true);
+        expect(findings.some(f => f.kind === 'alwaysAllowed')).toBe(true);
+    });
+
+    it('stays quiet when the section is empty, positional IDs collide with nothing', async () => {
+        const c = card({ filesInScope: 'apps/api/src/modules/board/**' });
+        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']), fakeEventLog, boardConfig);
+
+        expect((await service.lint('c1')).filter(f => f.kind === 'acceptanceCriteria')).toHaveLength(0);
     });
 });

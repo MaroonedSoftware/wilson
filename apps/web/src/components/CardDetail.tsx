@@ -6,10 +6,11 @@ import type { BoardColumns, CardDetail, CardEvent, CardVersion, ContextSnapshot 
 import { TONE } from '#src/components/Board.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
+import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
-import { filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { acceptanceCriteria, filesInScope, formatTimestamp } from '#src/lib/card.js';
 import { invalidateCard, invalidateCardsList, reasonFor, useAckCard, useMoveCard, useReleaseCard, useStartCard } from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -374,6 +375,7 @@ export function CardDetailView({
     project: string;
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
+    const criteria = acceptanceCriteria(card.sections['acceptance-criteria']);
 
     return (
         <Stack gap="lg">
@@ -432,6 +434,8 @@ export function CardDetailView({
                     </List>
                 </Stack>
             )}
+
+            {criteria.length > 0 && <CriteriaPanel criteria={criteria} events={events} />}
 
             {card.stage === 'planning' || card.stage === 'parking-lot' ? (
                 <PlanningPanes card={card} project={project} />
