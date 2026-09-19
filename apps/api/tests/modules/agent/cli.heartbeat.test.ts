@@ -68,8 +68,15 @@ const runInput = (stage: ReturnType<typeof makeStage>) => ({
     resultSchema: z.object({ summary: z.string().optional() }),
 });
 
-type MockOptions = { canUseTool: (n: string, i: unknown) => Promise<unknown> };
+// Card 0254 removed `canUseTool` from `query()`'s options entirely, so a tool-call consultation is
+// driven through the registered `PreToolUse` hook instead — the same door `cli.step.budget.test.ts`
+// and `cli.tool.unguarded.test.ts` use for their own simulations.
+type PreToolUseHook = (input: unknown, toolUseID: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>;
+type MockOptions = { hooks?: { PreToolUse?: [{ hooks: PreToolUseHook[] }] } };
 const options = (): MockOptions => (queryMock.mock.calls[0]?.[0] as { options: MockOptions }).options;
+
+const hookInput = (toolName: string, input: Record<string, unknown>) =>
+    ({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: undefined }) as never;
 
 const assistantMessage = () => ({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } });
 
@@ -90,7 +97,9 @@ const toolingStream = (calls: number, gapMs: number) => ({
         yield assistantMessage();
         for (let i = 0; i < calls; i++) {
             await new Promise(r => setTimeout(r, gapMs));
-            await options().canUseTool('WebFetch', {});
+            const hook = options().hooks?.PreToolUse?.[0]?.hooks?.[0];
+            if (!hook) throw new Error('no PreToolUse hook registered');
+            await hook(hookInput('WebFetch', {}), undefined, { signal: new AbortController().signal });
         }
         yield { type: 'result', subtype: 'success', usage: { input_tokens: 1, output_tokens: 1 } };
     },
