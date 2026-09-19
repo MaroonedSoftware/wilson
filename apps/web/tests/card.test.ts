@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
 describe('filesInScope', () => {
     it('returns an empty list when the section is missing', () => {
@@ -33,6 +33,63 @@ describe('filesInScope', () => {
 
     it('preserves order and duplicates as written in the plan', () => {
         expect(filesInScope('- apps/web/**\n- apps/web/**')).toEqual(['apps/web/**', 'apps/web/**']);
+    });
+});
+
+/**
+ * Card 0245. The web's own deliberate copy of 0236's `acceptanceCriteria` parser
+ * (`apps/api/src/modules/board/card.ts`) — the same pattern `filesInScope` above already follows.
+ * Same ID rule, same bullet stripping; these cases mirror the API parser's own tests
+ * (`apps/api/tests/modules/board/acceptance.criteria.test.ts`) one-for-one so the two copies stay
+ * pinned to the same behaviour.
+ */
+describe('acceptanceCriteria', () => {
+    it('returns an empty list when the section is missing', () => {
+        expect(acceptanceCriteria(undefined)).toEqual([]);
+    });
+
+    it('returns an empty list for an empty or blank section', () => {
+        expect(acceptanceCriteria('')).toEqual([]);
+        expect(acceptanceCriteria('   \n  \n')).toEqual([]);
+    });
+
+    it('assigns positional AC<n> IDs to bullets with no explicit label', () => {
+        expect(acceptanceCriteria('- Widget renders.\n- Widget updates.')).toEqual([
+            { id: 'AC1', text: 'Widget renders.' },
+            { id: 'AC2', text: 'Widget updates.' },
+        ]);
+    });
+
+    it('reads an explicit AC1: label as the ID and strips it from the text', () => {
+        expect(acceptanceCriteria('- AC1: Widget renders.')).toEqual([{ id: 'AC1', text: 'Widget renders.' }]);
+    });
+
+    it('accepts AC-1: and AC1. as the same ID form, normalized to AC<n>', () => {
+        expect(acceptanceCriteria('- AC-1: Widget renders.\n- AC2. Widget updates.')).toEqual([
+            { id: 'AC1', text: 'Widget renders.' },
+            { id: 'AC2', text: 'Widget updates.' },
+        ]);
+    });
+
+    it('strips bullet markers and inline-code backticks before assigning IDs', () => {
+        expect(acceptanceCriteria('* `AC1:` uses `lib/card.ts`.')).toEqual([{ id: 'AC1', text: 'uses lib/card.ts.' }]);
+    });
+
+    it('drops blank lines and HTML comment lines, like filesInScope does', () => {
+        expect(acceptanceCriteria('- AC1: first.\n\n<!-- note -->\n- AC2: second.')).toEqual([
+            { id: 'AC1', text: 'first.' },
+            { id: 'AC2', text: 'second.' },
+        ]);
+    });
+
+    it("does not fold an explicit label into the following positional bullet's numbering", () => {
+        // A mixed plan: one bullet explicitly labelled AC1, the next left positional. The positional
+        // bullet is the second bullet in the section, so it gets AC2 from its own order — not from
+        // continuing after whatever number the explicit label used.
+        expect(acceptanceCriteria('- AC1: first.\n- second, unlabelled.')).toEqual([
+            { id: 'AC1', text: 'first.' },
+            { id: 'AC2', text: 'second, unlabelled.' },
+        ]);
     });
 });
 
