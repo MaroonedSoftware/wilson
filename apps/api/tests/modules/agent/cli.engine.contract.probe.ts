@@ -8,6 +8,7 @@ import { CliStageAgent, createToolGuard, subscriptionEnv } from '#modules/agent/
 import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
+import { describeProbeRun, type AttemptedToolCall } from './probe.report.js';
 
 /**
  * Card 0231. `cli.tool.surface.test.ts` (card 0096) drives a real engine and reads the `init`
@@ -91,6 +92,62 @@ const buildContext = (root: string, allow: string[], commands: string[], events:
     }) as unknown as ToolContext;
 
 /**
+ * Card 0252. A `ToolContext` built the same way `buildContext` is, but with `scope`/`commands`
+ * wrapped to record every attempted call, in order — the seam this file already uses to build the
+ * context handed to `CliStageAgent.run()`. That adapter builds its own `canUseTool` internally from
+ * this context (see `createToolGuard` in `cli.stage.agent.ts`), so nothing outside it can wrap
+ * `canUseTool` itself the way `watchGuard` does for the raw `query()` probes above; `scope.checkRead`,
+ * `scope.check` and `commands.check` are what `createToolGuard`'s own `decide()` calls for every tool
+ * it is asked about, guarded or not — including a Read, Glob or Grep, which `decide()` allows without
+ * ever appending an event. That is exactly the gap the "still reports cleanly..." probe's own failure
+ * could not close: no events recorded says nothing about whether the model's steps went to a read or
+ * to nothing at all. The label is coarser than the engine's own tool name — `checkRead` cannot say
+ * whether the call came from Read, Glob or Grep, and `scope.check` cannot say Write from Edit —
+ * because only `CliStageAgent.run()` itself sees the real tool name, and changing it is out of scope
+ * for this card. A `checkRead` of `REPORT_RESULT_PATH` is labelled `report_result` rather than `read`:
+ * it is the report tool's own handler reading back what it wrote, not the model reaching for Read.
+ */
+const watchToolContext = (
+    root: string,
+    allow: string[],
+    commands: string[],
+    events: { type: string; payload?: Record<string, unknown> }[] = [],
+): { context: ToolContext; attempted: AttemptedToolCall[] } => {
+    const attempted: AttemptedToolCall[] = [];
+    const scope = new ScopeGuard({ worktreeRoot: root, allow, alwaysAllowed: [] });
+    const commandAllowlist = new CommandAllowlist(commands);
+    const context = {
+        project: 'p',
+        cardId: '0231',
+        stage: 'implementing',
+        worktreeRoot: root,
+        scope: {
+            checkRead: async (path: string) => {
+                attempted.push({ tool: path === REPORT_RESULT_PATH ? 'report_result' : 'read', detail: path });
+                return scope.checkRead(path);
+            },
+            check: async (path: string) => {
+                attempted.push({ tool: 'write', detail: path });
+                return scope.check(path);
+            },
+            grant: (path: string) => scope.grant(path),
+            grants: () => scope.grants(),
+            collateralHits: () => scope.collateralHits(),
+        },
+        commands: {
+            check: (command: string) => {
+                attempted.push({ tool: 'bash', detail: command });
+                return commandAllowlist.check(command);
+            },
+        },
+        scopeViolationPolicy: 'widen',
+        events: { append: async (e: { type: string; payload?: Record<string, unknown> }) => void events.push(e) },
+        logger: silentLogger,
+    } as unknown as ToolContext;
+    return { context, attempted };
+};
+
+/**
  * An error the SDK's own process lifecycle tags with `errorClass` (per `cli.stage.agent.ts`'s own
  * catch block) means the engine itself never came up — no credentials, a rate limit, a network
  * failure — not that the behaviour under test failed. Rethrown with that named as the cause, so a
@@ -124,6 +181,24 @@ const throwOnFailedResult = (message: { type: string; subtype?: string; is_error
         );
     }
 };
+
+/**
+ * Card 0252. Every `tool_use` block in one assistant message's content, as an `AttemptedToolCall` —
+ * what the model attempted, independent of whether `canUseTool`/the guard was ever consulted for it.
+ * That independence is the point for the "is never consulted at all" probe below: `allowedTools`
+ * bypasses the guard entirely, so `watchGuard`'s own `calls` stays empty there whether or not the
+ * model ever proposed the write, and only reading the stream's own `tool_use` blocks can tell those
+ * two cases apart. Detail mirrors `cli.stage.agent.ts`'s own `guardedToolCalls` extraction: the
+ * command for Bash, the path otherwise.
+ */
+const attemptedFromContent = (content: { type: string; name?: string; input?: unknown }[]): AttemptedToolCall[] =>
+    content
+        .filter((part): part is { type: 'tool_use'; name: string; input?: unknown } => part.type === 'tool_use')
+        .map(part => {
+            const input = (part.input ?? {}) as Record<string, unknown>;
+            const detail = part.name === 'Bash' ? String(input.command ?? '') : String(input.file_path ?? input.path ?? '');
+            return { tool: part.name, detail };
+        });
 
 /** Wraps a real `canUseTool` so every call and its resolved decision is recorded, without changing what it decides. */
 const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolName: string; result: PermissionResult }[] } => {
@@ -191,9 +266,14 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a write outside scope really is checked by 
         'is never consulted at all — and the write actually lands — once allowedTools bypasses it, reproducing PROJECT.md’s own defect',
         async () => {
             const root = await buildFixture();
-            const context = buildContext(root, ['src/runner/**'], []);
+            const events: { type: string; payload?: Record<string, unknown> }[] = [];
+            const context = buildContext(root, ['src/runner/**'], [], events);
             const { canUseTool, calls } = watchGuard(createToolGuard(context, 'rw'));
             const abortController = new AbortController();
+            // Card 0252: collected independent of `calls` above — `allowedTools` bypasses the guard
+            // entirely, so `calls` cannot tell "the model never attempted the write" from "the write
+            // was attempted and something else about the engine changed". This is what can.
+            const attempted: AttemptedToolCall[] = [];
 
             try {
                 const stream = query({
@@ -213,6 +293,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a write outside scope really is checked by 
                 });
                 for await (const message of stream) {
                     throwOnFailedResult(message);
+                    if (message.type === 'assistant') attempted.push(...attemptedFromContent(message.message.content));
                     if (message.type === 'result') break;
                 }
             } catch (err) {
@@ -221,8 +302,11 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a write outside scope really is checked by 
                 abortController.abort();
             }
 
-            expect(calls.some(c => c.toolName === 'Write')).toBe(false);
-            await expect(readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8')).resolves.toBe('leak');
+            expect(calls.some(c => c.toolName === 'Write'), describeProbeRun({ attempted, events })).toBe(false);
+            await expect(
+                readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8'),
+                describeProbeRun({ attempted, events }),
+            ).resolves.toBe('leak');
         },
         60000,
     );
@@ -415,7 +499,10 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         await assertEngineReachable(root);
         await writeFile(join(root, REPORT_RESULT_PATH), JSON.stringify({ summary: 'ok' }), 'utf8');
         const events: { type: string; payload?: Record<string, unknown> }[] = [];
-        const context = buildContext(root, ['src/runner/**'], allowedCommands, events);
+        // Card 0252: `watchToolContext` rather than `buildContext` — its `scope`/`commands` are
+        // wrapped so `attempted` below carries every tool call the model attempted, in order, not
+        // just the ones a guard consultation happened to record an event for.
+        const { context, attempted } = watchToolContext(root, ['src/runner/**'], allowedCommands, events);
         const agent = new CliStageAgent(silentLogger as never);
         const output = (await agent.run({
             stage: makeStage(allowedCommands),
@@ -424,15 +511,22 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
             title: 'probe',
             resultSchema,
             baseSha: 'HEAD',
-        } as never)) as { truncated: boolean; result?: unknown; budgetFailure?: string; engineFailure?: string };
-        return { output, events };
+        } as never)) as {
+            truncated: boolean;
+            result?: unknown;
+            budgetFailure?: string;
+            engineFailure?: string;
+            engineStopReason?: string;
+        };
+        return { output, events, attempted };
     };
 
     it(
         'still reports cleanly at a tight step budget when the one bash call is denied',
         async () => {
-            const { output, events } = await runReal([]);
+            const { output, events, attempted } = await runReal([]);
             if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
+            const message = describeProbeRun({ attempted, events, output });
 
             // Card 0248: on 2026-09-19, against this same host engine, this exact call — one denied
             // Bash command — ran without `canUseTool` ever being consulted for it: no `tool.denied`,
@@ -442,13 +536,13 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
             // would pass the same way whether or not the guard was ever in the loop at all.
             expect(
                 events.some(e => e.type === 'tool.denied' && (e.payload as { tool?: string } | undefined)?.tool === 'Bash'),
-                'the engine ran Bash without consulting canUseTool: see card 0248',
+                message,
             ).toBe(true);
 
             // cli.stage.agent.ts: "Refused calls do not spend the budget... The ceiling grows by
             // one per refusal, so a run keeps its full allowance of productive steps."
-            expect(output.truncated).toBe(false);
-            expect(output.result).toEqual({ summary: 'ok' });
+            expect(output.truncated, message).toBe(false);
+            expect(output.result, message).toEqual({ summary: 'ok' });
         },
         60000,
     );
