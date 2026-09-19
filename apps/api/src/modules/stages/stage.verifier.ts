@@ -12,8 +12,9 @@ export interface VerificationInput {
     cardId: string;
     /**
      * The pinned card whose plan this stage ran against — `run`'s own `card`, at `planVersionId`,
-     * not the live board row. Only `ReviewVerifier` reads it, to reconcile a review's `criteria`
-     * against `acceptanceCriteria(card)`; every other verifier ignores it.
+     * not the live board row. `ReviewVerifier` reads it to reconcile a review's `criteria` against
+     * `acceptanceCriteria(card)`, and `TestingVerifier` reads it to honor a declared
+     * `expectedSkippedTests(card)` ceiling; every other verifier ignores it.
      */
     card: Card;
     /** The stage's reported result, exactly as read off the report tool call. Unparsed until a verifier validates it against its own schema. */
