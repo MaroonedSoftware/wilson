@@ -19,6 +19,7 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { DRY_RUN_INTEGRATION_BRANCH } from '#modules/worktree/worktree.manager.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
@@ -1638,18 +1639,33 @@ describe('BoardWriteService', () => {
             // that isn't about dry run itself ignore them entirely.
             ensureIntegrationBranch: vi.fn(async () => DRY_RUN_INTEGRATION_BRANCH),
             headSha: vi.fn(async () => 'main-sha-before'),
+            // Card 0238: `merge` calls this before `computeMerge` whenever `RE_REVIEW_ON_MERGE` is
+            // on. A default answering "nothing moved" lets every test that isn't about the re-review
+            // check itself ignore it entirely, the same posture the other defaults above take.
+            overlapSinceFork: vi.fn(async () => ({ base: 'base-sha', movedUnder: [] })),
             ...overrides,
         });
 
         /**
-         * Card 0144. `merge` reads `DRY_RUN_ENABLED` through `SettingsStore` fresh on every call —
-         * this fake stands in for it. Defaults to dry run *off* so every test that predates card 0144
-         * keeps exercising exactly the behaviour it always has (card 0143's, landing on `main`); the
-         * dry-run-specific tests below pass `true` explicitly rather than relying on this default.
+         * Card 0144, extended by card 0238. `merge` reads two independent settings through
+         * `SettingsStore` fresh on every call: `DRY_RUN_ENABLED` and (as of card 0238)
+         * `RE_REVIEW_ON_MERGE`. This fake distinguishes them by key rather than answering one boolean
+         * for every `get` — a single shared boolean would make turning dry run on silently turn
+         * re-review on too (and vice versa), which is not what either setting's own default does in
+         * production. Both default off so every test that predates card 0238 keeps exercising exactly
+         * the behaviour it always has; the tests that care about either pass it explicitly.
          */
-        const fakeSettings = (dryRun: boolean): SettingsStore => ({ get: vi.fn(async () => dryRun) }) as unknown as SettingsStore;
+        const fakeSettings = (dryRun: boolean, reReviewOnMerge = false): SettingsStore =>
+            ({
+                get: vi.fn(async (setting: { key: string }) => (setting.key === RE_REVIEW_ON_MERGE.key ? reReviewOnMerge : dryRun)),
+            }) as unknown as SettingsStore;
 
-        const freshMergeBoard = (worktrees: ReturnType<typeof mergeWorktrees>, stages: StaticStageConfigStore, dryRun = false) => {
+        const freshMergeBoard = (
+            worktrees: ReturnType<typeof mergeWorktrees>,
+            stages: StaticStageConfigStore,
+            dryRun = false,
+            reReviewOnMerge = false,
+        ) => {
             const events = { append: vi.fn(async () => {}) };
             const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
@@ -1666,10 +1682,10 @@ describe('BoardWriteService', () => {
                 cardJobs,
                 broker as unknown as JobBroker,
                 runningCards,
-                fakeSettings(dryRun),
+                fakeSettings(dryRun, reReviewOnMerge),
                 stages,
             );
-            return { board, service };
+            return { board, events, service };
         };
 
         it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
@@ -1766,6 +1782,104 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.stage).toBe('ready');
             expect(stored.frontmatter.needsHuman).toBe(true);
             expect(stored.frontmatter.needsHumanReason).toBe('main did not move: update-ref refused the compare-and-swap');
+        });
+
+        /**
+         * Card 0238. `merge` asks `overlapSinceFork` before it ever touches `computeMerge` — these
+         * tests exercise that ordering and the send-back/cap/off-switch decisions built on top of it,
+         * with `worktrees.overlapSinceFork` doubled (real git behind it is `worktree.manager.test.ts`'s
+         * own `overlapSinceFork` describe block, AC6).
+         */
+        describe('re-review on merge — card 0238', () => {
+            it('sends the card back to review instead of computing the merge, when main moved under a file the card changed (AC1)', async () => {
+                const worktrees = mergeWorktrees({
+                    overlapSinceFork: vi.fn(async () => ({ base: 'base-sha', movedUnder: ['src/index.ts'] })),
+                });
+                const { board, events, service } = freshMergeBoard(worktrees, stageConfigs, false, true);
+                await board.create(card('0101', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0101');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('src/index.ts');
+                expect(result.reason).toContain('round 1 of 2');
+                expect(worktrees.computeMerge).not.toHaveBeenCalled();
+
+                const stored = await board.read('0101');
+                expect(stored.frontmatter.stage).toBe('review');
+                expect(stored.frontmatter.retries['review:re-review']).toBe(1);
+
+                // AC5: the transition is a runner-authored send-back, not an ordinary human move —
+                // `by: 'runner'`, carrying the reason, not `move`'s shape.
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        cardId: '0101',
+                        stage: 'review',
+                        type: 'transition.written',
+                        payload: { from: 'ready', to: 'review', by: 'runner', reason: result.reason },
+                    }),
+                    expect.anything(),
+                );
+            });
+
+            it('proceeds to computeMerge as usual when overlapSinceFork finds nothing under the card’s own files (AC2)', async () => {
+                const passing = await scriptExiting(0);
+                const mergeStages = mergeStageConfigs(`node ${passing}`);
+                const worktrees = mergeWorktrees({
+                    overlapSinceFork: vi.fn(async () => ({ base: 'base-sha', movedUnder: [] })),
+                });
+                const { board, service } = freshMergeBoard(worktrees, mergeStages, false, true);
+                await board.create(card('0102', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0102');
+
+                expect(worktrees.overlapSinceFork).toHaveBeenCalled();
+                expect(worktrees.computeMerge).toHaveBeenCalled();
+                expect(result.merged).toBe(true);
+                const stored = await board.read('0102');
+                expect(stored.frontmatter.stage).toBe('merged');
+            });
+
+            it('never calls overlapSinceFork and proceeds to computeMerge when the setting is off, even though main moved under the card’s files (AC3)', async () => {
+                const passing = await scriptExiting(0);
+                const mergeStages = mergeStageConfigs(`node ${passing}`);
+                const worktrees = mergeWorktrees({
+                    overlapSinceFork: vi.fn(async () => ({ base: 'base-sha', movedUnder: ['src/index.ts'] })),
+                });
+                const { board, service } = freshMergeBoard(worktrees, mergeStages, false, false);
+                await board.create(card('0103', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0103');
+
+                expect(worktrees.overlapSinceFork).not.toHaveBeenCalled();
+                expect(worktrees.computeMerge).toHaveBeenCalled();
+                expect(result.merged).toBe(true);
+                const stored = await board.read('0103');
+                expect(stored.frontmatter.stage).toBe('merged');
+            });
+
+            it('flags a human instead of sending back again once review:re-review has already reached its cap (AC4)', async () => {
+                const worktrees = mergeWorktrees({
+                    overlapSinceFork: vi.fn(async () => ({ base: 'base-sha', movedUnder: ['src/index.ts', 'src/other.ts'] })),
+                });
+                const { board, service } = freshMergeBoard(worktrees, stageConfigs, false, true);
+                await board.create(card('0104', { stage: 'ready', retries: { 'review:re-review': 2 } }), 'seed');
+
+                const result = await service.merge('0104');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('src/index.ts');
+                expect(result.reason).toContain('src/other.ts');
+                expect(worktrees.computeMerge).not.toHaveBeenCalled();
+
+                const stored = await board.read('0104');
+                expect(stored.frontmatter.stage).toBe('ready');
+                expect(stored.frontmatter.needsHuman).toBe(true);
+                expect(stored.frontmatter.needsHumanReason).toContain('src/index.ts');
+                expect(stored.frontmatter.needsHumanReason).toContain('src/other.ts');
+                // The cap check spends no further round — this is the same count it already found.
+                expect(stored.frontmatter.retries['review:re-review']).toBe(2);
+            });
         });
 
         /**

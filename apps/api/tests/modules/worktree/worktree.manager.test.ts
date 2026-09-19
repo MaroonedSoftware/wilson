@@ -848,6 +848,75 @@ describe('WorktreeManager', () => {
         });
     });
 
+    /**
+     * Card 0238. `overlapSinceFork` is the git behind `merge`'s re-review check: the merge-base of
+     * `branch` and `targetRef`, plus the intersection of what each side changed since it — the paths
+     * a combined diff would show that a single-sided review would not. `board.write.service.test.ts`
+     * doubles this method for its own re-review decision tests; these exercise the real git behind it.
+     */
+    describe('overlapSinceFork', () => {
+        it('returns the merge-base and only the paths both sides changed since it, sorted', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            const base = worktree.baseSha;
+
+            // The branch touches three files — two out of alphabetical order, to prove the
+            // intersection comes back sorted — plus one only it touches.
+            await writeFile(join(worktree.path, 'src', 'zeta.ts'), 'export const zeta = 1;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'alpha.ts'), 'export const alpha = 1;\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'only-branch.ts'), 'export const onlyBranch = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // main moves too: the same two files (differently), plus one the branch never touched.
+            await writeFile(join(codeRoot, 'src', 'zeta.ts'), 'export const zeta = 2;\n', 'utf8');
+            await writeFile(join(codeRoot, 'src', 'alpha.ts'), 'export const alpha = 2;\n', 'utf8');
+            await writeFile(join(codeRoot, 'src', 'only-main.ts'), 'export const onlyMain = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'main moved'], { cwd: codeRoot });
+
+            const result = await manager.overlapSinceFork('card/0001-thing', 'main');
+
+            expect(result.base).toBe(base);
+            expect(result.movedUnder).toEqual(['src/alpha.ts', 'src/zeta.ts']);
+        });
+
+        it('returns an empty intersection when the branch has changes but main has not moved at all', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            const result = await manager.overlapSinceFork('card/0001-thing', 'main');
+
+            expect(result.movedUnder).toEqual([]);
+        });
+
+        it('returns an empty intersection when main moved only in files the branch never touched', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            await writeFile(join(codeRoot, 'src', 'only-main.ts'), 'export const onlyMain = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'main moved elsewhere'], { cwd: codeRoot });
+
+            const result = await manager.overlapSinceFork('card/0001-thing', 'main');
+
+            expect(result.movedUnder).toEqual([]);
+        });
+
+        it('reads against codeRoot without moving its checkout or dirtying its working tree', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            await manager.overlapSinceFork('card/0001-thing', 'main');
+
+            const branch = (await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            expect(branch).toBe('main');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('');
+        });
+    });
+
     describe('headSha', () => {
         // Card 0103: a caller that gets `{ ok: false }` back from `rebaseOntoHead` needs the exact
         // commit the rebase was attempted against, without `rebaseOntoHead` itself having to return
