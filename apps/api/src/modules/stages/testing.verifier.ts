@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
+import { expectedSkippedTests } from '#modules/board/card.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
@@ -38,16 +39,30 @@ export const scratchTestFileName = (path: string): string | undefined => {
  * A missing baseline is not "no regressions" — it is a check that never ran — so it returns no
  * failures at all rather than either passing or failing the comparison; the verifier records that
  * distinction separately instead of folding it into pass/fail.
+ *
+ * `allowedSkipRise` is a ceiling, not an exact count, and defaults to 0 — today's rule, unchanged,
+ * for every caller that does not pass it. A plan may declare it via `expectedSkippedTests`
+ * (card.ts) to let a skip it named on purpose through; a declaration never permits removing
+ * tests, so the total-count check above is untouched by it (card 0232).
  */
-export const checkCounts = (counts: TestCounts, baseline: { total: number; skipped: number } | undefined): string[] => {
+export const checkCounts = (
+    counts: TestCounts,
+    baseline: { total: number; skipped: number } | undefined,
+    allowedSkipRise = 0,
+): string[] => {
     if (!baseline) return [];
 
     const failures: string[] = [];
     if (counts.total < baseline.total) {
         failures.push(`the test count dropped from ${baseline.total} to ${counts.total}: tests were removed`);
     }
-    if (counts.skipped > baseline.skipped) {
-        failures.push(`the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}: tests were skipped rather than fixed`);
+    const skipRise = counts.skipped - baseline.skipped;
+    if (skipRise > allowedSkipRise) {
+        failures.push(
+            allowedSkipRise > 0
+                ? `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}, more than the ${allowedSkipRise} this plan declares`
+                : `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}: tests were skipped rather than fixed`,
+        );
     }
     return failures;
 };
@@ -137,7 +152,7 @@ export class TestingVerifier implements StageVerifier {
         private readonly logger: Logger,
     ) {}
 
-    async verify({ worktree, stage, cardId }: VerificationInput): Promise<VerificationOutcome> {
+    async verify({ worktree, stage, cardId, card }: VerificationInput): Promise<VerificationOutcome> {
         const failures: string[] = [];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
@@ -165,7 +180,7 @@ export class TestingVerifier implements StageVerifier {
         }
 
         if (stage.baselineCheck) {
-            failures.push(...(await this.checkBaseline(cardId, worktree, stage, changedPaths, counts)));
+            failures.push(...(await this.checkBaseline(cardId, worktree, stage, changedPaths, counts, expectedSkippedTests(card) ?? 0)));
         } else {
             this.logger.warn('baselineCheck disabled: the baseline and test-count checks were skipped, not passed');
         }
@@ -245,6 +260,7 @@ export class TestingVerifier implements StageVerifier {
         stage: StageConfig,
         changedPaths: string[],
         counts: TestCounts | undefined,
+        allowedSkipRise: number,
     ): Promise<string[]> {
         // `changedPaths` is every path the diff touches, deletions included — and a card that
         // deletes a test file has a path here that no longer exists in the worktree. Copying it into
@@ -297,7 +313,7 @@ export class TestingVerifier implements StageVerifier {
             await runConfiguredCommand(baseline.path, stage.testCommand);
             const baselineCounts = await this.readReport(baseline.path, stage.testReportPath, failures, baselineStartedAt);
             if (counts && baselineCounts) {
-                failures.push(...checkCounts(counts, baselineCounts));
+                failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
             }
 
             for (const path of testPaths) {

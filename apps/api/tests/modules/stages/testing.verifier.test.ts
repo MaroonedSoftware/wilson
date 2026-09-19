@@ -239,6 +239,38 @@ describe('checkCounts', () => {
         expect(checkCounts(counts, undefined)).toEqual([]);
         expect(checkCounts({ ...counts, total: 0, skipped: 100 }, undefined)).toEqual([]);
     });
+
+    /**
+     * Card 0232: `checkCounts` takes an optional `allowedSkipRise`, a ceiling on how much the
+     * skipped count may rise rather than an exact match, sourced from the plan's declared
+     * `expectedSkippedTests` (card.ts). Every case above calls `checkCounts` with only two
+     * arguments, so `allowedSkipRise` defaults to 0 — today's rule, unchanged.
+     */
+    describe('allowedSkipRise (card 0232)', () => {
+        it('AC2: a rise up to the declared ceiling produces no failure', () => {
+            const failures = checkCounts({ ...counts, skipped: 6 }, { total: 10, skipped: 0 }, 6);
+            expect(failures).toEqual([]);
+        });
+
+        it('AC3: a rise past the declared ceiling fails, naming both counts and the declared ceiling', () => {
+            const failures = checkCounts({ ...counts, skipped: 7 }, { total: 10, skipped: 0 }, 6);
+            expect(failures).toHaveLength(1);
+            expect(failures[0]).toMatch(/rose from 0 to 7/);
+            expect(failures[0]).toMatch(/more than the 6/);
+            expect(failures[0]).toMatch(/this plan declares/);
+        });
+
+        it('AC4: with no ceiling passed, a rise from 0 to 1 fails with exactly today\'s message', () => {
+            const failures = checkCounts({ ...counts, skipped: 1 }, { total: 10, skipped: 0 });
+            expect(failures).toEqual(['the skipped-test count rose from 0 to 1: tests were skipped rather than fixed']);
+        });
+
+        it('AC5: a declared ceiling never excuses a drop in the total test count', () => {
+            const failures = checkCounts({ ...counts, total: 8, skipped: 6 }, { total: 10, skipped: 0 }, 6);
+            expect(failures).toHaveLength(1);
+            expect(failures[0]).toMatch(/dropped from 10 to 8/);
+        });
+    });
 });
 
 describe('describeFailingTest', () => {

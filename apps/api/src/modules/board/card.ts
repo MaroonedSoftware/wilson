@@ -151,6 +151,43 @@ const ACCEPTANCE_CRITERION_ID = /^AC-?(\d+)[:.]\s*(.*)$/;
  * Same bullet stripping as `filesInScope`: markers and inline code backticks are stripped, and
  * blank lines and HTML comments are dropped, before IDs are assigned.
  */
+/** A `Expected skipped tests: N` bullet, matched case-insensitively, `N` captured as digits. */
+const EXPECTED_SKIPPED_TESTS = /^Expected skipped tests:\s*(\d+)\b/i;
+
+/**
+ * The plan's declared ceiling on how much the skipped-test count may rise, from a `Constraints`
+ * bullet naming it explicitly: `Expected skipped tests: N`, optionally followed by a reason in
+ * parentheses. `N` must be a positive integer — no declaration, `0`, or anything that is not a
+ * number is `undefined`, which callers treat as "no ceiling declared" rather than "ceiling of
+ * zero". More than one declaration uses the first.
+ *
+ * Lets `checkCounts` (testing.verifier.ts) tell a plan's deliberately skipped suite, named as such
+ * in its own Constraints, apart from an agent turning a red test yellow — the distinction card
+ * 0232 added after it caught card 0231's deliberately skipped suite in the same net as the rule it
+ * exists to enforce.
+ */
+export const expectedSkippedTests = (card: Card): number | undefined => {
+    const raw = card.sections['Constraints'];
+    if (!raw) return undefined;
+    const bullets = raw
+        .split('\n')
+        .map(line =>
+            line
+                .replace(/^\s*[-*+]\s*/, '')
+                .replace(/`/g, '')
+                .trim(),
+        )
+        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+
+    for (const bullet of bullets) {
+        const match = EXPECTED_SKIPPED_TESTS.exec(bullet);
+        if (!match) continue;
+        const n = Number(match[1]);
+        return n > 0 ? n : undefined;
+    }
+    return undefined;
+};
+
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
     const raw = card.sections['Acceptance criteria'];
     if (!raw) return [];
