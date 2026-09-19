@@ -145,7 +145,7 @@ export class CliStageAgent extends StageAgent {
         super();
     }
 
-    async run({ stage, context, planPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
+    async run({ stage, context, planPath, learningsPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
         // Resolved once, up front — a setting read while a card is in flight must not change what
         // this run uses partway through (this card's Constraints: "a change applies to stages
         // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
@@ -375,6 +375,13 @@ export class CliStageAgent extends StageAgent {
                 `Your plan is at ${planPath}. Read it before anything else. Its "Files in scope" is what`,
                 `you may change and its "Out of scope" is binding even where you could make the change.`,
                 '',
+                ...(learningsPath
+                    ? [
+                          `Before you start, also read the project's learnings at ${learningsPath}. They are`,
+                          `human-approved guidance for this project — follow them like the plan, not material to weigh.`,
+                          '',
+                      ]
+                    : []),
                 `You are in a git worktree at ${context.worktreeRoot}.`,
                 '',
                 `\`git diff ${baseSha}\` is the card's whole diff across every stage — this is what the`,
