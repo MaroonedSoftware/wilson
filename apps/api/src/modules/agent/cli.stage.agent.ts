@@ -2,7 +2,7 @@ import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool, type CanUseTool, type HookCallback, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
@@ -88,9 +88,22 @@ const EXEC_TOOLS = ['Bash'];
  * when the API balance is empty — which is exactly why it exists.
  *
  * The engine brings its own tool loop and its own tools, so `ScopeGuard` and `CommandAllowlist` are
- * not in the path the way they are for the `api` adapter. `canUseTool` is where they are put back:
- * every Write, Edit and Bash the engine proposes is checked against the same guards before it runs,
- * and a denial is returned to the model as a message rather than thrown.
+ * not in the path the way they are for the `api` adapter. They are put back through one guard
+ * (`createToolGuard`), reached two ways: a `PreToolUse` hook (`toolGuardHook`, registered on
+ * `query()`'s `hooks` option below) first, and `canUseTool` as a backstop for any call that still
+ * reaches it. Every Write, Edit and Bash the engine proposes is checked against the same guards
+ * before it runs, and a denial is returned to the model as a message rather than thrown.
+ *
+ * **The hook exists because `canUseTool` alone was not enough.** Card 0249: on host engine 2.1.266,
+ * a diagnostic run on 2026-09-19 made one Bash call (`true`) with a `canUseTool` that refused
+ * everything; the command ran anyway, and `canUseTool` was called zero times. The same call against a
+ * `PreToolUse` hook, run the same day, was consulted once, and a `deny` from the hook did stop it —
+ * the engine got "refused by PreToolUse hook" back and nothing ran. So permission comes from the hook
+ * first now, with `canUseTool` left wired to the identical guard instance rather than removed, in
+ * case a call the hook does not catch still reaches it. The guard's own decision logic does not
+ * change for any of this: a call seen through both doors records its deny credit,
+ * `tool.denied`/`tool.executed` events, and the repeat-refusal counter once, keyed by the engine's
+ * own `tool_use` id, not twice (see `createToolGuard`'s own comment on `decided`).
  *
  * **`allowedTools` is deliberately not set.** Listing a tool there marks it *pre-approved*, and the
  * engine then never consults `canUseTool` for it — so naming Write and Bash as allowed, which reads
@@ -380,6 +393,22 @@ export class CliStageAgent extends StageAgent {
             idle.unref();
         };
 
+        // Card 0249: one guard instance, reached two ways below (`hooks.PreToolUse` and
+        // `canUseTool`), so a call consulted through both shares the same `repeats`/`decided`
+        // state rather than two independent copies of it — see `createToolGuard`'s own comment
+        // for why that sharing is what keeps a doubly-consulted call's side effects counted once.
+        const toolGuard = createToolGuard(
+            context,
+            stage.worktree,
+            () => {
+                denied += 1;
+            },
+            beat,
+            toolUseID => {
+                if (toolUseID) consultedToolUseIds.add(toolUseID);
+            },
+        );
+
         const stream = query({
             prompt: [
                 `Card: ${title}`,
@@ -449,17 +478,14 @@ export class CliStageAgent extends StageAgent {
                 // the guard's default-deny stays exactly as it is, unmoved.
                 settingSources: [],
                 strictMcpConfig: true,
-                canUseTool: createToolGuard(
-                    context,
-                    stage.worktree,
-                    () => {
-                        denied += 1;
-                    },
-                    beat,
-                    toolUseID => {
-                        if (toolUseID) consultedToolUseIds.add(toolUseID);
-                    },
-                ),
+                // Card 0249: the `PreToolUse` hook is consulted first — the engine calls it for
+                // every tool call, unconditionally, which is what `canUseTool` turned out not to
+                // be on host engine 2.1.266 (see the class doc comment's 2026-09-19 finding).
+                // `canUseTool` stays wired to the identical guard as a backstop for any call that
+                // still reaches it; both share `toolGuard`'s own state, so a call consulted
+                // through both is only credited/recorded once (see `createToolGuard`).
+                hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
+                canUseTool: toolGuard,
                 env: subscriptionEnv(configDir),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
@@ -903,15 +929,19 @@ export const createToolGuard = (
     // differs on repeat, not just a message that is already correct the first time.
     const repeats = new Map<string, number>();
 
-    return async (toolName, input, options): Promise<PermissionResult> => {
-        // Every tool call is a sign of life, refused or not. The engine emits nothing on the stream
-        // for the duration of a tool call, so this is the only evidence the adapter gets that a long
-        // `pnpm test` is a working stage rather than a dead one.
-        onActivity?.();
-        // Card 0248: recorded for every call reaching this point, regardless of tool or outcome — the
-        // one piece of evidence that the guard was actually asked about this `tool_use` id at all.
-        onConsulted?.(options?.toolUseID);
+    // Card 0249: this guard is now reached two ways per call — the `PreToolUse` hook first, then
+    // `canUseTool` as a backstop for anything that still reaches it (see `CliStageAgent.run` and
+    // `toolGuardHook` below) — and a call seen by both must not pay for a decision twice: one
+    // `tool.denied`/`tool.executed` event, one step credit, one entry in the repeat-refusal
+    // counter above. Decisions are cached here, keyed by the engine's own `tool_use` id, so a
+    // second consultation for an id already decided replays that `PermissionResult` without
+    // running `decide` — and without touching `repeats`, `onDeny` or `context.events` — again. A
+    // call with no id at all (every call in cli.tool.guard.test.ts, and the step-budget probe's
+    // synthetic `WebFetch` calls) is never cached, since there is nothing to key it by; those keep
+    // running `decide` fresh on every call, exactly as before this card.
+    const decided = new Map<string, PermissionResult>();
 
+    const decide = async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
         const deny = async (reason: string, detail: Record<string, unknown>): Promise<PermissionResult> => {
             const shape = denialShapeFor(toolName, detail);
             const count = (repeats.get(shape) ?? 0) + 1;
@@ -1031,4 +1061,70 @@ export const createToolGuard = (
         // naming the tool right before the model ever has to guess — is what actually prevents it.
         return deny(`${toolName} is not available to this stage`, {});
     };
+
+    return async (toolName, input, options): Promise<PermissionResult> => {
+        // Every tool call is a sign of life, refused or not. The engine emits nothing on the stream
+        // for the duration of a tool call, so this is the only evidence the adapter gets that a long
+        // `pnpm test` is a working stage rather than a dead one.
+        onActivity?.();
+        // Card 0248: recorded for every call reaching this point, regardless of tool or outcome — the
+        // one piece of evidence that the guard was actually asked about this `tool_use` id at all.
+        // Fires on every consultation, hook or canUseTool alike, unlike `decide` below — a set only
+        // grows, so a second consultation for the same id costs it nothing extra to record again.
+        onConsulted?.(options?.toolUseID);
+
+        const toolUseID = options?.toolUseID;
+        const cached = toolUseID !== undefined ? decided.get(toolUseID) : undefined;
+        if (cached) return cached;
+
+        const result = await decide(toolName, input);
+        if (toolUseID !== undefined) decided.set(toolUseID, result);
+        return result;
+    };
 };
+
+/**
+ * Adapts `createToolGuard`'s `CanUseTool` into a `PreToolUse` hook callback, so the guard's
+ * decision runs from the one hook event the engine calls unconditionally, not only through
+ * `canUseTool` — which a 2026-09-19 diagnostic run found host engine 2.1.266 does not always call
+ * at all (one Bash call ran with a `canUseTool` that refused everything, and `canUseTool` was
+ * called zero times; the same call against a `PreToolUse` hook was consulted once, and a `deny`
+ * from the hook did stop it — see `CliStageAgent`'s class doc comment). The guard's own decision
+ * logic does not change here: this only reshapes its `PermissionResult` into the hook's
+ * `hookSpecificOutput` shape and carries `tool_use_id` through as the `toolUseID` `canUseTool`
+ * would otherwise have supplied — `requestId` has no hook equivalent and the guard never reads
+ * it, so `tool_use_id` stands in for that too.
+ *
+ * Card 0249's Constraints: `permissionMode` stays `'default'` and `allowedTools` stays unset, so
+ * this hook's `allow` is a per-call decision made after the guard's own checks — never a
+ * pre-approval — the same as `canUseTool`'s `allow` always was.
+ */
+export const toolGuardHook =
+    (guard: CanUseTool): HookCallback =>
+    async (input, _toolUseID, { signal }) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+
+        const result = await guard(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>, {
+            signal,
+            toolUseID: input.tool_use_id,
+            requestId: input.tool_use_id,
+        });
+
+        if (!result || result.behavior === 'allow') {
+            return {
+                hookSpecificOutput: {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: 'allow',
+                    updatedInput: result?.updatedInput,
+                },
+            };
+        }
+
+        return {
+            hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: result.message,
+            },
+        };
+    };
