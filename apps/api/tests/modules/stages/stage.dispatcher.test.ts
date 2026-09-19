@@ -93,11 +93,15 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
 
+        // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
+        // building its attempts bullet, so the worktrees stub needs a real function here.
+        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+
         dispatcher = new StageDispatcher(
             config as BoardConfig,
             {} as StageConfigStore,
             board,
-            {} as WorktreeManager,
+            worktrees as unknown as WorktreeManager,
             {} as ModelRegistry,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
@@ -189,10 +193,16 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
      * Card 0235: `outcome.passed` is the verifier's own judgment on the result — a hallucinated
      * file, a line past the end of a file, a verdict contradicting its severities all fail
      * verification even though the result still carries a `findings` array. Those findings are not
-     * evidence, and must not reach the body a kicked-back retry reads, nor advance the plan pin past
-     * a version the runner itself refused to trust.
+     * evidence, and must not reach the body a kicked-back retry reads.
+     *
+     * Card 0234 changes what else is true here: `outcome.passed: false` is exactly a judged failure
+     * (the verifier evaluated the reported result and rejected it — nothing about `unjudged` or
+     * `resultDropped` applies), so it still earns a `## Previous attempts` bullet even though its
+     * `findings` are dropped, and the pin now advances past that bullet the same way it does past
+     * findings — `writeTransition`'s pin-advance check is "did this write change the body," not
+     * "were there findings."
      */
-    it('drops findings from a review outcome the verifier itself rejected, and leaves the pin where it was', async () => {
+    it('drops findings from a review outcome the verifier itself rejected, but still records the attempt and advances the pin', async () => {
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
         const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
 
@@ -211,6 +221,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
             pinned,
             outcome({
                 passed: false,
+                failures: ['the reported result does not match the review schema'],
                 result: {
                     verdict: 'revise',
                     findings: [{ severity: 'blocker', file: 'src/x.ts', line: 3, problem: 'wrong', suggestion: 'fix it' }],
@@ -220,11 +231,16 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
 
         expect(target).toBe('implementing');
         const stored = await board.read('0001');
-        expect(stored.body).toBe(baseCard.body);
         expect(stored.body).not.toContain('Review findings');
-        // The pin only legitimately advances past findings this stage actually wrote; a rejected
-        // outcome writes none, so the pin must hold exactly where it was.
-        expect(stored.frontmatter.planVersionId).toBe(initialVersion);
+        expect(stored.body).not.toContain('src/x.ts');
+        // The rejected result's findings never reach the body, but the failure itself is still an
+        // attempt worth recording.
+        expect(stored.body).toContain('## Previous attempts');
+        expect(stored.body).toContain('the reported result does not match the review schema');
+        // Card 0234: the pin advances past this write too, since it changed the body — not only past
+        // a write that folded in findings.
+        expect(stored.frontmatter.planVersionId).toBeDefined();
+        expect(stored.frontmatter.planVersionId).not.toBe(initialVersion);
     });
 
     /**
@@ -436,11 +452,15 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         const boardRepo = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await boardRepo.create(baseCard, 'initial');
 
+        // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
+        // building its attempts bullet, so the worktrees stub needs a real function here.
+        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+
         const dispatcher = new StageDispatcher(
             config as BoardConfig,
             {} as StageConfigStore,
             boardRepo,
-            {} as WorktreeManager,
+            worktrees as unknown as WorktreeManager,
             {} as ModelRegistry,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
@@ -610,14 +630,16 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
 describe('StageDispatcher writeTransition reclaims the worktree on a terminal transition', () => {
     let board: BoardRepository;
     let events: { append: ReturnType<typeof vi.fn> };
-    let worktrees: { reclaim: ReturnType<typeof vi.fn> };
+    let worktrees: { reclaim: ReturnType<typeof vi.fn>; failedAttemptPatchPath: ReturnType<typeof vi.fn> };
     let dispatcher: StageDispatcher;
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-terminal-'));
 
         events = { append: vi.fn(async () => {}) };
-        worktrees = { reclaim: vi.fn(async () => {}) };
+        // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
+        // building its attempts bullet, so this spy needs a real function alongside `reclaim`.
+        worktrees = { reclaim: vi.fn(async () => {}), failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/${cardId}.patch`) };
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
