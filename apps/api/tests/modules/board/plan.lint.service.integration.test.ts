@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository, type CardVersionSummary } from '#modules/board/board.repository.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { PlanLintService } from '#modules/board/plan.lint.service.js';
 import { sectionsOf, type Card } from '#modules/board/card.js';
+import type { EventLog } from '#modules/events/event.log.js';
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 
 /**
@@ -118,12 +120,24 @@ const parsedCard = (id = 'c1'): Card => ({
     sections: sectionsOf(PLAN_BODY),
 });
 
+/**
+ * Card 0241 added `EventLog`/`BoardConfig` constructor dependencies to `PlanLintService`, for its
+ * new `scopeConflictFindings`. Neither test below is about that finding, so a fake `EventLog` that
+ * has no methods is enough — `BoardRepository.scopeConflict`'s own `cardHistory` call throws
+ * reaching for one, and `scopeConflictFindings` treats that as "no finding" (see its own doc
+ * comment, and `plan.lint.service.test.ts`'s dedicated describe block for the finding itself).
+ */
+const fakeEventLog = {} as unknown as EventLog;
+const boardConfig = new StaticBoardConfig('plan-lint-integration-test', '/tmp/code', '/tmp/wt', '/tmp/run');
+
 describe('PlanLintService, driven from a real plan.md-shaped body', () => {
     it('parses Files in scope past its bullet markers, backticks and leading comment, and Tasks/Constraints past their bullet markers', async () => {
         const service = new PlanLintService(
             new OneCardBoardRepository(parsedCard()),
             // `pnpm build` (Tasks) is explicitly permitted; `pnpm migrate:up` (Constraints) is not.
             stageConfig(['pnpm build'], ['apps/api/src/generated/*.ts']),
+            fakeEventLog,
+            boardConfig,
         );
 
         const findings = await service.lint('c1');
@@ -148,6 +162,8 @@ describe('PlanLintService, driven from a real plan.md-shaped body', () => {
         const service = new PlanLintService(
             new OneCardBoardRepository(parsedCard()),
             stageConfig(['pnpm build', 'pnpm migrate:up', 'pnpm migrate:create'], ['apps/api/src/generated/*.ts']),
+            fakeEventLog,
+            boardConfig,
         );
 
         const findings = await service.lint('c1');

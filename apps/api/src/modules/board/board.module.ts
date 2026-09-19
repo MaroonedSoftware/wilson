@@ -101,8 +101,14 @@ export const BoardModule: ServerKitModule = {
         // `WorktreeModule` registers `WorktreeManager` this service depends on — order doesn't matter
         // here, `setup` only registers tokens, it does not resolve them.
         registry.register(PlanService).useClass(PlanService).asTransient();
-        // Card 0193. `GET /api/cards/{id}/lint`'s service — `BoardRepository` and `StageConfigStore`
-        // are already registered above, the same two tokens every other service resolved here shares.
+        // Card 0193, extended by card 0241. `GET /api/cards/{id}/lint`'s service — `BoardRepository`
+        // and `StageConfigStore` are already registered above, the same two tokens every other
+        // service resolved here shares; `BoardConfig` (card 0241's `scopeConflictFindings`) is too,
+        // registered a few lines up in this same `setup`. `EventLog` (also card 0241) is
+        // `EventsModule`'s own token, registered by a different module's `setup` rather than "above"
+        // here — safe regardless, since every module's `setup` only registers tokens and all of them
+        // run to completion before the container that resolves any of them is built (see the doc
+        // comment on `resolveProjectRow` above).
         registry.register(PlanLintService).useClass(PlanLintService).asTransient();
         // Card 0149: unregistered at `setup` time for the same reason `ProjectRepository`'s own doc
         // comment gives — no container to inject a `Kysely<DB>` into yet. Registered here so `Poller`

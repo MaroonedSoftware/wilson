@@ -2,8 +2,10 @@ import picomatch from 'picomatch';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { CommandAllowlist, hasShellSyntax, isKnownBinary } from '#modules/agent/command.allowlist.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { findStage, StageConfigError, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
+import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { filesInScope, type Card } from './card.js';
@@ -139,6 +141,43 @@ const alwaysAllowedFindings = (card: Card, stages: ProjectStages): LintFinding[]
 };
 
 /**
+ * Every pattern pair in `card`'s effective scope that collides with a card already in flight
+ * elsewhere on the board — `BoardRepository.scopeConflict` (card 0104), reused rather than
+ * reimplemented per this card's own Constraints: it already combines declared scope, `request_scope`
+ * grants and the live-claim check into the one yes/no `deferOnScopeConflict` acts on at dispatch, and
+ * this surfaces that same answer before approval instead of only after (card 0241's whole point —
+ * today the overlap is only discovered at dispatch, and the resulting `dispatch.deferred` event is
+ * easy to miss).
+ *
+ * Overlap, not subsumption — unlike {@link alwaysAllowedFindings} above, whose doc comment records
+ * why subsumption was the right test there and overlap was a bug. A `Files in scope` line either can
+ * or cannot collide with what another card holds; there is no "reaches past it" reading the way an
+ * `alwaysAllowed` pattern has.
+ *
+ * Reports, never refuses, like every finding this service produces ({@link PlanLintService}'s own
+ * doc comment) — approving now is not blocked, only explained, so the message says what approving
+ * now means rather than telling an operator what to do about it.
+ *
+ * `scopeConflict` failing is treated as "no finding", the same best-effort rule
+ * `deferOnScopeConflict` itself already follows for the identical call.
+ */
+const scopeConflictFindings = async (
+    boardRepository: BoardRepository,
+    eventLog: EventLog,
+    project: string,
+    card: Card,
+    stages: ProjectStages,
+): Promise<LintFinding[]> => {
+    const conflict = await boardRepository.scopeConflict(eventLog, project, card, stages).catch(() => undefined);
+    if (!conflict) return [];
+
+    return conflict.overlap.map(({ ours, theirs }) => ({
+        kind: 'scopeConflict' as const,
+        message: `"${ours}" overlaps ${theirs} on ${conflict.cardId} (in flight): this card will wait for it`,
+    }));
+};
+
+/**
  * Checks a plan against the config the runner will actually enforce, and reports what it finds.
  *
  * The whole argument for building this rather than writing it down as a document: a document
@@ -160,13 +199,22 @@ export class PlanLintService {
     constructor(
         private readonly boardRepository: BoardRepository,
         private readonly stageConfigs: StageConfigStore,
+        // Card 0241, for `scopeConflictFindings`: `EventLog` is `scopeConflict`'s own `events`
+        // parameter, and `BoardConfig.project` is its `project` — the same two the identical call in
+        // `deferOnScopeConflict` (jobs/predispatch/scope.conflict.ts) already gets from its own deps.
+        private readonly eventLog: EventLog,
+        private readonly boardConfig: BoardConfig,
     ) {}
 
     async lint(id: string): Promise<LintFinding[]> {
         const card = await this.readOrThrow(id);
         const stages = await this.stageConfigs.load();
 
-        return [...commandFindings(card, stages), ...alwaysAllowedFindings(card, stages)];
+        return [
+            ...commandFindings(card, stages),
+            ...alwaysAllowedFindings(card, stages),
+            ...(await scopeConflictFindings(this.boardRepository, this.eventLog, this.boardConfig.project, card, stages)),
+        ];
     }
 
     private async readOrThrow(id: string): Promise<Card> {

@@ -725,3 +725,65 @@ describe('the dependencies section', () => {
         expect(input.value).toBe('0099');
     });
 });
+
+// Card 0241: `dispatch.deferred`'s payload (card 0104, `recordDeferral`) has always carried a
+// `reason` string, but until now `EventsTimeline` only ever rendered `event.type` and a timestamp —
+// an operator reading the web timeline saw a bare "dispatch.deferred" with no way to tell a scope
+// conflict from any other deferral without going to the server log. These assertions fail on the
+// pre-change tree: no reason text is rendered there for any event, deferred or otherwise.
+describe('the events timeline', () => {
+    it('shows the reason on a dispatch.deferred event', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([
+            {
+                id: 'ev-1',
+                type: 'dispatch.deferred',
+                stage: 'implementing',
+                payload: { reason: '"apps/api/src/modules/board/**" overlaps apps/api/src/** on 0099 (in flight): this card will wait for it' },
+                createdAt: '2026-09-19T00:00:00.000Z',
+            },
+        ]);
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('dispatch.deferred')).toBeTruthy();
+        expect(
+            await screen.findByText('"apps/api/src/modules/board/**" overlaps apps/api/src/** on 0099 (in flight): this card will wait for it'),
+        ).toBeTruthy();
+    });
+
+    it('renders no reason text for an event type other than dispatch.deferred, even carrying a reason-shaped payload', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([
+            {
+                id: 'ev-1',
+                type: 'stage.poisoned',
+                stage: 'implementing',
+                payload: { reason: 'should not render — wrong event type' },
+                createdAt: '2026-09-19T00:00:00.000Z',
+            },
+        ]);
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('stage.poisoned')).toBeTruthy();
+        expect(screen.queryByText('should not render — wrong event type')).toBeNull();
+    });
+
+    it('renders no reason text for a dispatch.deferred event whose payload carries no reason', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
+        vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([
+            { id: 'ev-1', type: 'dispatch.deferred', stage: 'implementing', payload: { outstanding: ['0099'] }, createdAt: '2026-09-19T00:00:00.000Z' },
+        ]);
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByText('dispatch.deferred')).toBeTruthy();
+        // No crash, and nothing rendered from `outstanding` either — a non-string `reason` (here,
+        // absent entirely) is "nothing to show", not a stringified object.
+        expect(screen.queryByText(/0099/)).toBeNull();
+    });
+});
