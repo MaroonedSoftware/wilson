@@ -141,6 +141,35 @@ describe('StageDispatcher writeTransition records why a stage’s previous attem
         expect(stored.body).toContain('build failed: type error');
     });
 
+    it('omits the patch-preserved sentence and never calls failedAttemptPatchPath when the judged failure left nothing uncommitted', async () => {
+        // The review-finding blocker this card fixed: the Goal's own motivating example — the review
+        // verifier's "the card has an empty diff" failure — leaves `changedPaths` empty, so
+        // `preserveUncommitted` will never actually write a patch file at reclaim time. The bullet must
+        // not assert a patch exists that never will.
+        const stage = makeStage();
+        const head = await board.read('0001');
+
+        await writeTransition(stage, head, outcome({ passed: false, failures: ['the card has an empty diff'], changedPaths: [] }));
+
+        const stored = await board.read('0001');
+        expect(stored.body).toContain('the card has an empty diff');
+        expect(stored.body).not.toContain('Uncommitted work preserved');
+        expect(stored.body).not.toContain('last-failed-attempt.patch');
+        expect(worktrees.failedAttemptPatchPath).not.toHaveBeenCalled();
+    });
+
+    it('names the readable patch path when the judged failure left uncommitted work behind', async () => {
+        const stage = makeStage();
+        const head = await board.read('0001');
+
+        await writeTransition(stage, head, outcome({ passed: false, failures: ['build failed: type error'], changedPaths: ['src/x.ts'] }));
+
+        const stored = await board.read('0001');
+        expect(worktrees.failedAttemptPatchPath).toHaveBeenCalledWith('0001');
+        expect(stored.body).toContain('Uncommitted work preserved at `');
+        expect(stored.body).toContain('cards/0001/last-failed-attempt.patch');
+    });
+
     it('adds a second bullet on a second judged failure, keeping the first (AC2)', async () => {
         const stage = makeStage({ maxKickbacks: 5 });
         const head1 = await board.read('0001');
