@@ -1098,6 +1098,13 @@ export const createToolGuard = (
  * Card 0249's Constraints: `permissionMode` stays `'default'` and `allowedTools` stays unset, so
  * this hook's `allow` is a per-call decision made after the guard's own checks — never a
  * pre-approval — the same as `canUseTool`'s `allow` always was.
+ *
+ * `guard` is typed `CanUseTool`, whose return type is `PermissionResult | null` — `null` is the
+ * SDK's own signal that the consumer already answered out-of-band (see `CanUseTool`'s doc
+ * comment). `createToolGuard` never does that and never returns `null` itself, but the type is
+ * honoured here rather than asserted away: a `null` is treated as `allow`, matching `canUseTool`'s
+ * own contract, where returning `null` from a permission callback means "already handled", not
+ * "denied".
  */
 export const toolGuardHook =
     (guard: CanUseTool): HookCallback =>
