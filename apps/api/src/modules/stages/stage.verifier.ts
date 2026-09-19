@@ -1,4 +1,5 @@
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
+import type { Card } from '#modules/board/card.js';
 import type { Worktree } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
@@ -9,6 +10,12 @@ export interface VerificationInput {
     stage: StageConfig;
     /** The card being verified. Only the testing verifier's baseline check uses it. */
     cardId: string;
+    /**
+     * The pinned card whose plan this stage ran against — `run`'s own `card`, at `planVersionId`,
+     * not the live board row. Only `ReviewVerifier` reads it, to reconcile a review's `criteria`
+     * against `acceptanceCriteria(card)`; every other verifier ignores it.
+     */
+    card: Card;
     /** The stage's reported result, exactly as read off the report tool call. Unparsed until a verifier validates it against its own schema. */
     result: unknown;
 }
