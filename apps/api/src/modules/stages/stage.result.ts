@@ -57,6 +57,37 @@ export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
 
 /**
+ * One incoming blocker the challenge stage decided does not hold.
+ *
+ * `problem` is matched back to the review finding it refutes by `ChallengeVerifier`'s own
+ * whitespace-normalised, case-folded comparison — not by `file`/`line`, which can shift between the
+ * review run and the challenge run once the dispatcher rebases the card's branch onto head. `reason`
+ * is why: an empty one is indistinguishable from a blocker the model skipped rather than refuted, so
+ * `ChallengeVerifier` rejects it the same way a missing refutation is rejected.
+ */
+export const RefutedFindingSchema = z.object({
+    problem: z.string().describe('The blocker’s `problem` text, verbatim from the review finding being refuted.'),
+    reason: z.string().describe('Why this blocker does not hold, citing the diff or the plan.'),
+});
+
+export type RefutedFinding = z.infer<typeof RefutedFindingSchema>;
+
+/**
+ * What the challenge stage reports: `ReviewResultSchema` extended with `refuted`, the incoming
+ * blockers it talked itself out of.
+ *
+ * `findings` carries the upheld blockers plus the incoming concerns, unchanged — challenge does not
+ * touch concerns (only blockers are challenged); `ChallengeVerifier` does not verify that concerns
+ * survive untouched, only that every incoming *blocker* is accounted for. `verdict` follows `findings`
+ * the same way it does in `ReviewResultSchema`: `'revise'` iff a blocker survived.
+ */
+export const ChallengeResultSchema = ReviewResultSchema.extend({
+    refuted: z.array(RefutedFindingSchema).default([]),
+});
+
+export type ChallengeResult = z.infer<typeof ChallengeResultSchema>;
+
+/**
  * A bucket of the plan's Tasks-section items the scope-check stage judges to be "the same kind of
  * thing" — card 0105's calibration finding: breadth (how many times a plan repeats one kind of
  * work), not file count or plan length, is what predicts a card too big for one pass. Every item in
