@@ -247,6 +247,67 @@ describe('a card in planning', () => {
         expect(await screen.findByText('Sure — here is a plan.')).toBeTruthy();
     });
 
+    /**
+     * Card 0240: a "Propose cuts" control sends the same textarea contents as an ordinary turn, but
+     * as `{ text, mode: 'cuts' }` instead of `{ text }` — and its reply folds into the transcript the
+     * same way, since it is still just a turn.
+     */
+    it('sends a "Propose cuts" turn with mode "cuts", and its reply folds into the transcript like any other turn', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
+        let resolveTurn: ((turn: PlanTurn) => void) | undefined;
+        const sendAPlanTurn = vi.spyOn(wilson.board, 'sendAPlanTurn').mockImplementation(
+            () =>
+                new Promise<PlanTurn>(resolve => {
+                    resolveTurn = resolve;
+                }),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalled());
+
+        const textarea = await screen.findByRole('textbox', { name: 'Message' });
+        const proposeCuts = screen.getByRole('button', { name: 'Propose cuts' });
+        fireEvent.change(textarea, { target: { value: 'Trim task 3' } });
+        await act(async () => {
+            fireEvent.click(proposeCuts);
+        });
+
+        expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: 'Trim task 3', mode: 'cuts' });
+        expect(await screen.findByText('Trim task 3')).toBeTruthy();
+        expect((proposeCuts as HTMLButtonElement).disabled).toBe(true);
+
+        await act(async () => {
+            resolveTurn?.(turn(1, { role: 'assistant', content: 'Here are the cuts I would propose.' }));
+        });
+
+        expect(await screen.findByText('Here are the cuts I would propose.')).toBeTruthy();
+    });
+
+    it('"Propose cuts" sends even with an empty composer, unlike "Send" which stays gated on non-empty text', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
+        const sendAPlanTurn = vi
+            .spyOn(wilson.board, 'sendAPlanTurn')
+            .mockResolvedValue(turn(1, { role: 'assistant', content: 'Here are some cuts.' }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalled());
+
+        const send = screen.getByRole('button', { name: 'Send' });
+        await act(async () => {
+            fireEvent.click(send);
+        });
+        expect(sendAPlanTurn).not.toHaveBeenCalled();
+
+        const proposeCuts = screen.getByRole('button', { name: 'Propose cuts' });
+        await act(async () => {
+            fireEvent.click(proposeCuts);
+        });
+
+        expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: '', mode: 'cuts' });
+    });
+
     it("shows the server's own refusal sentence inline next to the composer, not a generic message", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         vi.spyOn(wilson.board, 'sendAPlanTurn').mockRejectedValue(
