@@ -222,6 +222,21 @@ export interface CacheEntries {
     expiresAt: ColumnType<DateTime, DateTime | string, DateTime | string>;
 }
 
+/**
+ * A project's human-approved learnings document (card 0239). Append-only, the same shape as
+ * {@link StageConfigs}: the newest row per project is the current document and the rest are its
+ * history. Agents read it and never write it; an empty `markdown` means "no learnings".
+ */
+export interface Learnings {
+    id: Generated<string>;
+    project: string;
+    /** The document verbatim. */
+    markdown: string;
+    /** Why this version was saved — the audit narrative, as on `StageConfigs.message`. */
+    message: string;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -237,4 +252,5 @@ export interface DB {
     'runner.cardContext': CardContext;
     'runner.sourceCursors': SourceCursors;
     'runner.cacheEntries': CacheEntries;
+    'runner.learnings': Learnings;
 }
