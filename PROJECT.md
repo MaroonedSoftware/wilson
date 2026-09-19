@@ -217,6 +217,27 @@ which the review verifier rightly refuses, and the runner cannot tell an adapter
 defect from bad work — it kicks the card back to implementing for something no amount
 of re-implementing can fix.
 
+#### Proving it against a live engine
+
+What this adapter assumes about the engine (the guard is consulted, a denied command costs no step,
+`report_result` reaches its MCP handler) is asserted by probes that drive a real engine:
+`apps/api/tests/modules/agent/cli.engine.contract.probe.ts` (card 0231). The default test run never
+collects them, so no stage runs them. An operator runs them by hand, and they spend real turns on
+the operator's subscription:
+
+```bash
+WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test:engine
+```
+
+Starting an engine from inside another engine works. Card 0233 suspected otherwise: on 2026-09-04
+all six probes failed inside a `testing` stage in about 500ms each, and it blamed the host session's
+`ANTHROPIC_BASE_URL` and `CLAUDE_CODE_*` variables leaking into the nested engine. On 2026-09-19 a
+probe run from inside a Claude Code session passed both with those variables present and with all
+27 of them removed. The 09-04 failure was most likely the credential itself: the same note records
+that the CLI, run by hand in that environment, failed with "OAuth session expired and could not be
+refreshed". So `subscriptionEnv` still removes only the two provider keys. Whether a probe passes
+when run from inside a real stage, under the stage's own config directory, is still unmeasured.
+
 ## Stage model
 
 Each stage declares: input, mode, adapter, provider, model, prompt, allowed tools,
