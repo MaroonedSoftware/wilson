@@ -578,7 +578,11 @@ export class StageDispatcher {
             decision = { target: stageName, retries: decision.retries, needsHuman: { reason: 'source-closed' } };
         }
 
-        const findings = findingsFrom(outcome.result);
+        // Findings from a result the verifier rejected (`outcome.passed === false`) are not evidence:
+        // a hallucinated file, an out-of-range line, or a verdict contradicting its severities can all
+        // still carry findings, and writing those into the body would hand the next retry a rejected
+        // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
+        const findings = outcome.passed ? findingsFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
 
         const writtenVersionId = await this.board.writeWithEvent(
