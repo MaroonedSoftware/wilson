@@ -201,20 +201,51 @@ was built the day the API credits ran out mid-card.
 
 The engine brings its own loop and its own tools, so `ScopeGuard` and
 `CommandAllowlist` are not the tools themselves. They are put back through one guard
-(`createToolGuard`), reached two ways: a `PreToolUse` hook first, and `canUseTool` as
-a backstop for any call that still reaches it.
+(`createToolGuard`), reached the only way the engine now offers: a `PreToolUse` hook.
+`canUseTool` is not registered at all.
 
-The hook exists because `canUseTool` alone was found not to be enough. On host engine
-2.1.266, a diagnostic run on 2026-09-19 made one Bash call (`true`) with a `canUseTool`
-that refused everything; the command ran anyway, and `canUseTool` was called zero
-times. The same call against a `PreToolUse` hook, run the same day, was consulted
-once, and a `deny` from the hook did stop it — the engine got "refused by PreToolUse
-hook" back and nothing ran. So permission now comes from the hook first, with
-`canUseTool` left wired to the identical guard rather than removed, since a call the
-hook does not catch for whatever reason must still have somewhere to be checked. The
-guard's own decision logic is unchanged by any of this; a call seen through both doors
-records its deny credit, `tool.denied`/`tool.executed` events, and the repeat-refusal
-counter once, keyed by the engine's own `tool_use` id, not twice.
+Card 0249 first put the hook in place because `canUseTool` alone was found not to be
+enough. On host engine 2.1.266, a diagnostic run on 2026-09-19 made one Bash call
+(`true`) with a `canUseTool` that refused everything; the command ran anyway, and
+`canUseTool` was called zero times. The same call against a `PreToolUse` hook, run the
+same day, was consulted once, and a `deny` from the hook did stop it — the engine got
+"refused by PreToolUse hook" back and nothing ran. That card left `canUseTool` wired to
+the identical guard as a backstop, reasoning that a call the hook does not catch must
+still have somewhere to be checked.
+
+Card 0254 found the backstop was the problem. On host engine 2.1.278, the unmodified
+adapter's own denied-bash engine probe still recorded `tool.unguarded
+{"tool":"Bash","command":"true"}` — the call ran with the guard never consulted, same
+shape as the original 0249 finding, deterministic across two runs. Nine further live
+diagnostic runs against a scratch copy of `CliStageAgent` that logged every hook call
+isolated the cause: with a `canUseTool` callback registered, this engine settles some
+calls it classifies as safe itself, skipping both the callback and the hook. Removing
+`canUseTool` from `query()`'s options — hook untouched — made the hook fire for the
+same Bash call and refuse it. Removing `mcpServers`, `stderr` or `maxTurns`, or
+stripping every `CLAUDE*` variable from `env`, changed nothing; removing `env`
+entirely also made the hook fire, for a reason no probe run explained (recorded here
+as an open question, not a conclusion — see below).
+
+So `canUseTool` is not registered at all now: a backstop that itself causes the
+failure it exists to catch is not a backstop. Every decision comes from the hook,
+which is exhaustive over every tool name the guard recognises — `createToolGuard`'s
+final branch denies anything it does not — so no call can reach whatever the engine's
+own undocumented behavior is for a call with no `canUseTool` registered; the installed
+SDK's type declarations (`sdk.d.ts`) describe `canUseTool`'s and `permissionMode:
+'default'`'s jobs but not that fallback. The guard's own decision logic is unchanged
+by any of this: the per-`toolUseID` idempotency card 0249 added (deny credit,
+`tool.denied`/`tool.executed` events, the repeat-refusal counter) stays exactly as it
+is; with one path in, it simply never sees a second consultation for the same id.
+
+**Open question: why removing `env` also made the hook fire, with `canUseTool` still
+registered.** One diagnostic run stripped every `CLAUDE*` variable from `env` and saw
+no change (the call still ran unguarded), but removing the `env` option from `query()`
+altogether — letting the subprocess inherit `process.env` rather than the adapter's
+own scrubbed copy — made the hook fire correctly, same as removing `canUseTool` did.
+Card 0254 did not chase this further: it is not required to explain why the engine's
+internal "handle this one myself" shortcut fires, only to stop relying on a path that
+shortcut can bypass. Recorded here so a future diagnostic does not have to
+rediscover it.
 
 **`allowedTools` must not be set.** Listing a tool there marks it _pre-approved_ and
 the engine never consults `canUseTool` for it — so naming Write and Bash as allowed,
