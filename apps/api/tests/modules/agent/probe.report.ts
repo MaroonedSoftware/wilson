@@ -72,6 +72,43 @@ export const DENIED_BASH_PROBE_STEPS = 3;
  * `output` carries. Meant to be passed as the message of every `expect` in a probe whose failure
  * needs to say what the model did, not just that the assertion did not hold.
  */
+/** One assistant message the engine produced, as recorded off the raw SDK stream — content blocks in order, untouched. */
+export interface RecordedAssistantTurn {
+    content: { type: string; name?: string; input?: unknown }[];
+}
+
+/**
+ * Card 0255. `attempted` above is built inside the guard's own tool context (card 0252), so by
+ * construction it cannot see a call the guard never received. On 2026-09-19 that hid the key fact:
+ * the denied-bash probe reported "tool calls attempted: read(plan.md)" while the run's only event
+ * was `tool.unguarded` for a Bash call the list never showed. The same day, even in a diagnostic run
+ * where the hook did refuse that Bash call, the probe still ended `truncated` at its 3-step budget,
+ * and nothing in its output said how the three steps were used.
+ *
+ * `describeTurns` reads from every assistant message the engine actually produced instead — recorded
+ * by wrapping the SDK's own `query()` stream (`cli.engine.contract.probe.ts`'s `vi.mock`), not
+ * reconstructed from the guard's view — and lists them one line per message, in order: its index, its
+ * content block types, and, for a `tool_use` block, the tool name with its command or path. This sits
+ * beside `describeProbeRun`'s guard-side view rather than replacing it, since the gap between the two
+ * is exactly what the 2026-09-19 failures could not show.
+ */
+export const describeTurns = (turns: RecordedAssistantTurn[]): string => {
+    if (!turns.length) return 'no assistant messages were recorded';
+    return turns
+        .map((turn, index) => {
+            const blockTypes = turn.content.map(part => part.type).join(', ');
+            const tools = turn.content
+                .filter((part): part is { type: 'tool_use'; name: string; input?: unknown } => part.type === 'tool_use')
+                .map(part => {
+                    const input = (part.input ?? {}) as Record<string, unknown>;
+                    const detail = part.name === 'Bash' ? String(input.command ?? '') : String(input.file_path ?? input.path ?? '');
+                    return `${part.name}(${detail})`;
+                });
+            return `${index}: ${blockTypes}${tools.length ? ` — ${tools.join(', ')}` : ''}`;
+        })
+        .join('\n');
+};
+
 export const describeProbeRun = ({ attempted, events, output }: ProbeRun): string => {
     const parts: string[] = [
         attempted.length

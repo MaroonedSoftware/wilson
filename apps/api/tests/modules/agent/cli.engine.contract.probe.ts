@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -9,7 +9,58 @@ import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { stepsExceeded } from '#modules/agent/budget.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
-import { describeProbeRun, DENIED_BASH_PROBE_STEPS, type AttemptedToolCall } from './probe.report.js';
+import { describeProbeRun, describeTurns, DENIED_BASH_PROBE_STEPS, type AttemptedToolCall, type RecordedAssistantTurn } from './probe.report.js';
+
+/**
+ * Card 0255. `query()`'s own stream is the engine's ground truth for what it attempted — the guard
+ * (`watchToolContext` below) only ever sees the subset it was consulted about, card 0252's own gap.
+ * Wrapping the SDK's `query` export here, rather than instrumenting `CliStageAgent` itself (out of
+ * scope — the plan's Constraints keep this probe-side only), means every assistant message it emits
+ * is recorded before `CliStageAgent.run()`'s own import of `query` — the same module specifier, so
+ * the same mock — ever sees it: `vi.mock` replaces the module for every importer in this file's graph,
+ * this adapter's included. Every other export is re-exported from the real module untouched, and
+ * every message this wraps is passed through unmodified — only the recording is new. `engineTurns`
+ * is reset to a fresh array on each `query()` call, so a second run in the same test file starts
+ * clean rather than accumulating the previous run's turns.
+ */
+const { engineTurns } = vi.hoisted(() => ({ engineTurns: { current: [] as RecordedAssistantTurn[] } }));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => {
+    const actual = await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>();
+    return {
+        ...actual,
+        query: (...args: Parameters<typeof actual.query>) => {
+            const real = actual.query(...args);
+            const turns: RecordedAssistantTurn[] = [];
+            engineTurns.current = turns;
+            // A `Proxy` over the real `Query` rather than a fresh async generator, so methods like
+            // `getContextUsage()` (which `CliStageAgent.run`'s own idle/context beat calls directly
+            // on the stream) stay wired to the real engine. Only `Symbol.asyncIterator` is
+            // overridden, to record each assistant message as it passes through — every other
+            // property, bound to the real object, is untouched.
+            return new Proxy(real, {
+                get(target, prop, receiver) {
+                    if (prop === Symbol.asyncIterator) {
+                        return () =>
+                            (async function* () {
+                                for (;;) {
+                                    const next = await target.next();
+                                    if (next.done) return next.value;
+                                    const message = next.value as { type: string; message?: { content?: unknown } };
+                                    if (message.type === 'assistant') {
+                                        turns.push({ content: (message.message?.content ?? []) as RecordedAssistantTurn['content'] });
+                                    }
+                                    yield next.value;
+                                }
+                            })();
+                    }
+                    const value = Reflect.get(target, prop, receiver);
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+            });
+        },
+    };
+});
 
 /**
  * Card 0231. `cli.tool.surface.test.ts` (card 0096) drives a real engine and reads the `init`
@@ -521,15 +572,21 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
             engineFailure?: string;
             engineStopReason?: string;
         };
-        return { output, events, attempted };
+        // Card 0255: the mocked `query()` above reset `engineTurns.current` to a fresh array for
+        // this run's own call, so this is exactly the assistant messages this run's engine produced
+        // — not a leftover from a previous run in this file.
+        return { output, events, attempted, engineTurns: engineTurns.current };
     };
 
     it(
         'still reports cleanly at a tight step budget when the one bash call is denied',
         async () => {
-            const { output, events, attempted } = await runReal([]);
+            const { output, events, attempted, engineTurns: turns } = await runReal([]);
             if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
-            const message = describeProbeRun({ attempted, events, output });
+            // Card 0255: `describeTurns` alongside `describeProbeRun` — the engine's own view of what
+            // it attempted, beside the guard's view of what it was asked about. The gap between the
+            // two is what a failure here needs to say, not just that the assertion did not hold.
+            const message = `${describeProbeRun({ attempted, events, output })} | ${describeTurns(turns)}`;
 
             // Card 0248: on 2026-09-19, against this same host engine, this exact call — one denied
             // Bash command — ran without `canUseTool` ever being consulted for it: no `tool.denied`,
