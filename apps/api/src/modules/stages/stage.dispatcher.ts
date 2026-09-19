@@ -594,6 +594,14 @@ export class StageDispatcher {
         // failure is exactly the branch of `kickback` that sets it, to the attempt count this failure
         // just reached.
         const judgedFailure = !outcome.passed && !outcome.unjudged && !outcome.resultDropped;
+        // `preserveUncommitted` (worktree.manager.ts) only ever writes a patch when the worktree is
+        // actually dirty at reclaim time — a judged failure that left nothing uncommitted (the review
+        // verifier's own "the card has an empty diff", the Goal's motivating example) has no patch to
+        // point the next attempt at. `outcome.changedPaths` is `git diff baseSha` plus untracked files,
+        // computed against the same working tree `preserveUncommitted` will later `git status` before
+        // this stage has committed anything (only a pass commits, so a failing stage's branch never
+        // moves between attempts) — so an empty list here means an empty `git status` there too, and a
+        // non-empty one means the patch this bullet names will actually exist.
         const attempt: Attempt | undefined = judgedFailure
             ? {
                   stage: stageName,
@@ -603,7 +611,7 @@ export class StageDispatcher {
                   failures: outcome.failures,
                   summary: describe(outcome.result),
                   engineStopReason: outcome.engineStopReason,
-                  patchPath: this.worktrees.failedAttemptPatchPath(cardId),
+                  ...(outcome.changedPaths.length > 0 ? { patchPath: this.worktrees.failedAttemptPatchPath(cardId) } : {}),
               }
             : undefined;
 
