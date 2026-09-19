@@ -6,6 +6,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
+import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import { findStage, validTargets } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
@@ -570,6 +571,15 @@ export class BoardWriteService {
      * says, and both flag the card for a human the same way [[0103]]'s rebase-conflict handling does:
      * `needsHuman` set, the card left exactly where it was, no retry touched (`ready` is a `manual`
      * stage; nothing here is a kickback to consume one from).
+     *
+     * Card 0238: before any of that, when {@link RE_REVIEW_ON_MERGE} is on, checks whether `main`
+     * moved under files the card itself changed since the card's review ran
+     * ({@link WorktreeManager.overlapSinceFork} — review is the last stage before `ready`, so its
+     * merge-base against `targetRef` is exactly the commit review saw). A nobody-has-read-the-
+     * combined-diff overlap sends the card back to `review` (see {@link reReviewOnOverlap}) rather
+     * than proceeding to `computeMerge` — the dispatcher rebases on re-entry, so the reviewer reads
+     * the card's diff over whatever merged since. A human rebasing the branch by hand after review
+     * moves the merge-base and skips this check; that gap is accepted, not fixed here.
      */
     async merge(id: string): Promise<MergeResult> {
         const card = await this.readOrThrow(id);
@@ -586,6 +596,15 @@ export class BoardWriteService {
         const mainShaBefore = dryRun ? await this.worktrees.headSha() : undefined;
 
         const branch = this.worktrees.resolveBranch(card);
+
+        const reReviewOnMerge = await this.settings.get(RE_REVIEW_ON_MERGE);
+        if (reReviewOnMerge) {
+            const overlap = await this.worktrees.overlapSinceFork(branch, targetRef);
+            if (overlap.movedUnder.length > 0) {
+                return this.reReviewOnOverlap(id, card, overlap.movedUnder);
+            }
+        }
+
         const computed = await this.worktrees.computeMerge(branch, targetRef);
         if (!computed.ok) {
             const reason = `${branch} conflicts with ${targetRef}: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
@@ -659,6 +678,49 @@ export class BoardWriteService {
                 payload: { from: stage, to: stage, by: 'human', needsHuman: true, reason },
             },
         );
+    }
+
+    /**
+     * Card 0238. Send a card back to `review` because `main` moved under files it changed since its
+     * review ran, or — once that has happened {@link RE_REVIEW_CAP} times already — give up and flag
+     * it for a human instead, the same bounded shape `kickback.ts`'s `droppedRetryKey` pattern gives
+     * a stage's own retry counting: `retries['review:re-review']` is spent by *this* check alone,
+     * never by review's own `maxKickbacks` counter, so a card that needed two genuine review cycles
+     * before ever reaching `ready` still gets its full re-review allowance here.
+     *
+     * Not `move`: `move` records `by: 'human'`, clears `needsHuman`, and carries no `reason` field —
+     * none of which is true of a send-back the runner itself decided on. `writeWithEvent` directly,
+     * the same door {@link flagMergeFailure} already uses for a runner-authored transition that is
+     * not an ordinary kickback either.
+     */
+    private async reReviewOnOverlap(id: string, card: Card, movedUnder: string[]): Promise<MergeResult> {
+        const paths = movedUnder.join(', ');
+        const attempted = card.frontmatter.retries[RE_REVIEW_RETRY_KEY] ?? 0;
+
+        if (attempted >= RE_REVIEW_CAP) {
+            const reason = `re-review: main moved under ${paths} since review, reaching its re-review cap of ${RE_REVIEW_CAP} — a human must ack and merge`;
+            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
+        }
+
+        const round = attempted + 1;
+        const reason = `re-review: main moved under ${paths} since review (round ${round} of ${RE_REVIEW_CAP})`;
+        const retries = { ...card.frontmatter.retries, [RE_REVIEW_RETRY_KEY]: round };
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Send ${id} back to review: main moved under its files`,
+            stored => ({ ...stored, frontmatter: { ...stored.frontmatter, stage: 'review', retries } }),
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: 'review',
+                type: 'transition.written',
+                payload: { from: 'ready', to: 'review', by: 'runner', reason },
+            },
+        );
+
+        return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
     }
 
     /**
@@ -866,6 +928,22 @@ const nextCardId = (cards: Card[]): string => {
  * event history runs past it before the refusal it should find.
  */
 const DIVISION_LOOKBACK = 2000;
+
+/**
+ * The `retries` key {@link BoardWriteService.reReviewOnOverlap} counts its send-backs under —
+ * distinct from `review`, the stage name itself, so this check's bookkeeping never touches
+ * `review`'s own `maxKickbacks` counter. Follows `kickback.ts`'s `droppedRetryKey` naming: `<the
+ * stage it routes to>:<what this counter is>`.
+ */
+const RE_REVIEW_RETRY_KEY = 'review:re-review';
+
+/**
+ * How many times {@link BoardWriteService.reReviewOnOverlap} sends a card back to `review` for the
+ * same reason before giving up and flagging a human. Small and fixed, the same posture
+ * `RESULT_DROPPED_ALLOWANCE` (`kickback.ts`) takes for its own bounded allowance: a card whose
+ * files keep colliding with what lands on `main` is not making progress by retrying forever.
+ */
+const RE_REVIEW_CAP = 2;
 
 /**
  * A stub body for a card created from one division piece: what it would deliver, the tasks it

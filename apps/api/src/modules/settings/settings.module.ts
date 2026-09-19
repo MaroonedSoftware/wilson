@@ -15,8 +15,11 @@ import { DryRunSettingService } from './dry.run.setting.service.js';
 /**
  * Operational settings backed by `runner.settings` — the poller's on/off switch, its interval,
  * `card.stage`'s concurrency (card 0115), the notify webhook and base URL (card 0107), the engine's
- * Claude config directory (card 0141), and whether a merge rehearses instead of writing `main`
- * (card 0144).
+ * Claude config directory (card 0141), whether a merge rehearses instead of writing `main`
+ * (card 0144), and whether a merge sends a card back to `review` when `main` moved under its files
+ * since review ran (`RE_REVIEW_ON_MERGE`, card 0238 — read straight from `SettingsStore` by
+ * `BoardWriteService.merge`, the same as `DRY_RUN_ENABLED`, so it has no `*SettingService` of its
+ * own registered below).
  *
  * Listed before Jobs in `modules.ts` so a reader sees `PollerSettingService` (which needs `Poller`)
  * exist before the module that consumes it — `setup` only registers tokens, though, so the actual
