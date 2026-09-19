@@ -111,6 +111,23 @@ export type CardEventType =
     // board, for rows nobody asks "what did this stage do" about. Do not "complete" this type by
     // wiring reads up to it.
     | 'tool.executed'
+    // Card 0248. `CliStageAgent`'s enforcement lives entirely inside `canUseTool`
+    // (`createToolGuard`) — every Write, Edit and Bash the engine proposes is supposed to pass
+    // through it before it runs — but nothing previously checked that the engine actually asked. On
+    // 2026-09-19, against host engine 2.1.266, a diagnostic run made one Bash call (`true`) with a
+    // `canUseTool` that refused everything, and the guard was never called at all: the command ran,
+    // and neither `tool.denied` nor `tool.executed` landed for it. Appended once per guarded tool
+    // call — Write, Edit or Bash — whose `tool_use` id reached a matching `tool_result` in a later
+    // `user` message (the SDK's own evidence the call actually completed) without a `canUseTool`
+    // consultation for that same id anywhere in the run; a `tool_use` still pending when the run is
+    // cut off is not counted, matched by id rather than by name or ordering, so an id that was
+    // merely denied or allowed never appears here. Payload carries `tool` and, mirroring
+    // `tool.denied`'s shape, `command` for Bash or `path` for Write/Edit. Detection only — this card
+    // does not make the engine consult the guard for a call it auto-approves; on the live board the
+    // guard still sees most Bash calls (19 read-only commands such as `ls` and `cat` were refused
+    // inside stages the same day), so this is not a wholesale bypass, just the calls that leave no
+    // trace, which this event now records (`cli.stage.agent.ts`).
+    | 'tool.unguarded'
     | 'scope.requested'
     | 'scope.granted'
     | 'scope.refused'
