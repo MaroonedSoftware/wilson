@@ -46,6 +46,7 @@ import { daemonCurrent } from './checks/daemon.current.js';
 import { claudeBinaryCurrent } from './checks/claude.binary.current.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
+import { testDbMigrated } from './checks/test.db.migrated.js';
 import { providerKeySet } from './checks/provider.key.js';
 import { queueReachable } from './checks/queue.reachable.js';
 
@@ -96,6 +97,7 @@ const app = await createCliApp({
         envFile({ path: 'apps/api/.env', required: ['DATABASE_HOST', 'DATABASE_NAME', 'PROJECT_CODE_ROOT'] }),
         dockerServicesUp({ autoStart: true }),
         postgresReachable,
+        testDbMigrated,
         queueReachable,
         providerKeySet,
         codeRepoReady,
