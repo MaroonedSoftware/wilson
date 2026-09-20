@@ -29,6 +29,22 @@ export type CardEventType =
     | 'stage.poisoned'
     | 'stage.dead'
     | 'stage.stale'
+    // Card 0261. A red run is not necessarily a regression: on 2026-09-19, card 0241's testing
+    // attempt failed on a web test that passed on retry, and cards 0250 and 0253 each failed their
+    // merge check on `project-switcher.test.ts`, which then passed 3 of 3 runs alone on the same
+    // merge commit — three rounds that cost a stage run or a human apiece. `TestingVerifier` and
+    // `BoardWriteService.proveMerge` (`testing.verifier.ts`, `board.write.service.ts`) both now
+    // rerun, once, only the files a red run's report names as failing; a rerun that comes back
+    // green appends this event instead of failing the run, carrying `tests` (the failing tests'
+    // names, `describeFailingTest`-formatted), the stage the rerun happened in (the event's own
+    // `stage` field), and `run` (`'testing'` or `'merge-check'`) naming which of the two reran them.
+    // Recorded on the card, not folded into `stage.passed`'s own payload, so a *later* red run can
+    // search for it: `TestingVerifier` fails outright, without a second rerun, when the card already
+    // carries a `test.flaky` event naming one of the same tests — a recurring flake, not a one-off.
+    // That is deliberately not a direct flag: a verifier cannot set `needsHuman` itself, so a
+    // recurring flake only reaches a human the ordinary way, through `testing.onFail: testing` and
+    // then `maxKickbacks`.
+    | 'test.flaky'
     // Card 0100. Appended by `CardStageJob` at the moment it is about to dispatch a stage, when the
     // commit this process is running is behind the commit the card's worktree is about to be cut
     // from — never when the daemon is current, and never when it is merely *ahead* (a daemon ahead

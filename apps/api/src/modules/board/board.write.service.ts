@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { Logger } from '@maroonedsoftware/logger';
@@ -7,9 +9,11 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
-import { findStage, validTargets } from '#modules/stages/stage.config.js';
+import { findStage, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
-import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
+import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
+import { describeFailingTest } from '#modules/stages/testing.verifier.js';
+import { parseTestReport } from '#modules/stages/test.report.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
@@ -752,12 +756,75 @@ export class BoardWriteService {
             if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
 
             const run = await runConfiguredCommand(worktree.path, stage.testCommand);
-            if (run) return { ok: false, reason: run.reason };
+            if (!run) return { ok: true };
 
-            return { ok: true };
+            return await this.judgeFailedMergeSuite(id, worktree.path, stage, run);
         } finally {
             await this.worktrees.reclaim(scratchId);
             await git(this.boardConfig.codeRoot, ['branch', '-D', scratchBranch]).catch(() => undefined);
+        }
+    }
+
+    /**
+     * Card 0261. The same one-rerun rule `TestingVerifier.judgeRedRun` applies to the testing stage
+     * itself, applied here before a merge-check failure is believed — for the reason the card's Goal
+     * names: on 2026-09-19, cards 0250 and 0253 each failed their merge check on
+     * `project-switcher.test.ts`, which then passed 3 of 3 runs alone on the same merge commit,
+     * costing a human each time. `stage.testReportPath` is read the same way
+     * `TestingVerifier.readReport` reads it, but a missing or unusable report is not pushed as a
+     * fault here — it just means there is nothing to rerun, exactly like a report that parsed
+     * cleanly but named no failures.
+     *
+     * No named failures means the run is judged red exactly as it always has been (`run.reason`,
+     * unchanged). A rerun of just the failing files that comes back red too is judged red the same
+     * way, with `run`'s own reason, not the rerun's — this was not a flake. A rerun that comes back
+     * green appends a `test.flaky` event naming the tests and lets the merge proceed, `run:
+     * 'merge-check'` distinguishing it in the card's history from a `test.flaky` event
+     * `TestingVerifier` itself might have appended.
+     */
+    private async judgeFailedMergeSuite(
+        id: string,
+        worktreePath: string,
+        stage: StageConfig,
+        run: CommandFailure,
+    ): Promise<{ ok: true } | { ok: false; reason: string }> {
+        const report = await this.readTestReport(worktreePath, stage.testReportPath);
+        const failing = report?.failing ?? [];
+        if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: run.reason };
+
+        const files = [...new Set(failing.map(test => test.file))];
+        const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
+        if (rerun) return { ok: false, reason: run.reason };
+
+        await this.eventLog.append({
+            project: this.boardConfig.project,
+            cardId: id,
+            // `proveMerge` only ever runs against a card in `ready` (`merge`'s own guard, above) —
+            // named literally rather than threaded through as a parameter for a value that can only
+            // ever be this one.
+            stage: 'ready',
+            type: 'test.flaky',
+            payload: { tests: failing.map(describeFailingTest), run: 'merge-check' },
+        });
+        return { ok: true };
+    }
+
+    /**
+     * Card 0261. Read the test report `proveMerge`'s run just wrote, mirroring
+     * `TestingVerifier.readReport` but with no `failures` array to push onto: an absent
+     * `testReportPath`, an unreadable file, or one that fails to parse are all read the same way —
+     * as "nothing to rerun" — rather than as a fault this method reports itself.
+     * `judgeFailedMergeSuite` already has the real failure to fall back to (`run.reason`) when that
+     * happens.
+     */
+    private async readTestReport(worktreePath: string, testReportPath: string | undefined) {
+        if (!testReportPath) return undefined;
+        const raw = await readFile(join(worktreePath, testReportPath), 'utf8').catch(() => undefined);
+        if (raw === undefined) return undefined;
+        try {
+            return parseTestReport(raw, worktreePath);
+        } catch {
+            return undefined;
         }
     }
 
