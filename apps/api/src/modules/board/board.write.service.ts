@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
+import { DateTime } from 'luxon';
 import { httpError } from '@maroonedsoftware/errors';
 import { Logger } from '@maroonedsoftware/logger';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -9,6 +10,7 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { findStage, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
@@ -469,9 +471,26 @@ export class BoardWriteService {
      * hand because johnny5's bootstrap never runs module `start` hooks, so nothing has connected it.
      * The server does run `start` hooks (`JobsModule.start`, see `setup.server.ts`), so `JobBroker` is
      * already connected by the time a request reaches this service.
+     *
+     * Card 0264: refuses before any of that, naming both figures, once this project has spent its
+     * `daily-output-token-ceiling` for the day — the same refusal shape (`httpError(400)`, a `reason`
+     * in `details`) every other guard below already throws, so this reads as one more of them rather
+     * than a different kind of failure. `Poller.tickProject` checks the identical setting the same
+     * way before it ever enqueues on its own, so a project at its ceiling refuses this the same way
+     * whether a human or the poller is asking.
      */
     async start(id: string): Promise<CardDetail> {
         const card = await this.readOrThrow(id);
+
+        const ceiling = await this.settings.get(DAILY_OUTPUT_TOKEN_CEILING);
+        if (ceiling > 0) {
+            const spent = await this.eventLog.outputTokensSince(this.boardConfig.project, DateTime.now().startOf('day'));
+            if (spent >= ceiling) {
+                throw httpError(400).withDetails({
+                    reason: `cannot enqueue ${id}: ${this.boardConfig.project} has spent ${spent} output tokens today, at or over its daily ceiling of ${ceiling}`,
+                });
+            }
+        }
 
         const stages = await this.stageConfigs.load();
         const notDispatchable = whyNotDispatchable(card, stages);
