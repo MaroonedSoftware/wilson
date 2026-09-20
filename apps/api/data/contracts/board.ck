@@ -161,6 +161,32 @@ contract CardVersion: {
     createdAt: datetime
 }
 
+# Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
+# summed. `attempts` counts the passed and failed events themselves, including one whose payload
+# carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
+# events did carry, so the two can never disagree with the event log.
+contract CardStageUsage: {
+    stage: string
+    attempts: int
+    inputTokens: int
+    outputTokens: int
+}
+
+# `GET /api/cards/{id}/usage`'s response: what a card has cost, read from `EventLog.usageByStage`
+# rather than tracked as a separate running total (`card_events` stays the one record — this card's
+# Constraints). `total` sums every stage; `stages` breaks that down one row per stage, in the order
+# each stage was first run, not alphabetically. Tokens only, never a dollar figure: every stage on
+# this board runs through the subscription-billed `cli` adapter, which reports no cost to sum, and
+# these numbers are for a human reading what a card spent, not a bill (Out of scope: capturing one).
+contract CardUsage: {
+    total: {
+        attempts: int
+        inputTokens: int
+        outputTokens: int
+    }
+    stages: array(CardStageUsage)
+}
+
 # Shared by both history endpoints — a named contract so the generator takes the schema path
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
@@ -847,6 +873,27 @@ operation /api/cards/{id}/events: {
             200: {
                 application/json: array(CardEvent)
             }
+        }
+    }
+}
+
+# Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+# it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+# record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+# run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+# surface gives.
+operation /api/cards/{id}/usage: {
+    params: {
+        id: string
+    }
+    get: {
+        name: Get card usage
+        service: BoardService.usage
+        response: {
+            200: {
+                application/json: CardUsage
+            }
+            404:
         }
     }
 }

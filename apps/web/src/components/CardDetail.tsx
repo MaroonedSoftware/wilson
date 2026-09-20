@@ -1,8 +1,8 @@
-import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Table, Tabs, Text, Timeline, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardColumns, CardDetail, CardEvent, CardVersion, ContextSnapshot } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
@@ -295,6 +295,63 @@ function EventsTimeline({ events, limit, error }: { events: CardEvent[] | undefi
     );
 }
 
+/**
+ * Card 0263: what the card has cost so far, one row per stage (in the order `usageByStage` returns
+ * them — first run, not alphabetical) plus a total row. Tokens only, never a dollar figure — the
+ * numbers this reads (`GET .../usage`) are read for a human, not billed against anything, since
+ * every stage on this board runs through the subscription-billed `cli` adapter.
+ */
+function UsagePanel({ usage, error }: { usage: CardUsage | undefined; error: Error | null | undefined }) {
+    if (error) {
+        return (
+            <Text size="sm" c="red">
+                Could not load usage: {error.message}
+            </Text>
+        );
+    }
+    if (!usage) return <Loader size="xs" />;
+    if (usage.stages.length === 0) {
+        return (
+            <Text size="sm" c="dimmed">
+                No usage recorded yet.
+            </Text>
+        );
+    }
+
+    return (
+        <Table>
+            <Table.Thead>
+                <Table.Tr>
+                    <Table.Th>Stage</Table.Th>
+                    <Table.Th>Attempts</Table.Th>
+                    <Table.Th>Input tokens</Table.Th>
+                    <Table.Th>Output tokens</Table.Th>
+                </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+                {usage.stages.map(stage => (
+                    <Table.Tr key={stage.stage}>
+                        <Table.Td>
+                            <Badge size="sm" color={TONE[stage.stage] ?? 'gray'} variant="light">
+                                {stage.stage}
+                            </Badge>
+                        </Table.Td>
+                        <Table.Td>{stage.attempts}</Table.Td>
+                        <Table.Td>{stage.inputTokens.toLocaleString()}</Table.Td>
+                        <Table.Td>{stage.outputTokens.toLocaleString()}</Table.Td>
+                    </Table.Tr>
+                ))}
+                <Table.Tr style={{ fontWeight: 700 }}>
+                    <Table.Td>Total</Table.Td>
+                    <Table.Td>{usage.total.attempts}</Table.Td>
+                    <Table.Td>{usage.total.inputTokens.toLocaleString()}</Table.Td>
+                    <Table.Td>{usage.total.outputTokens.toLocaleString()}</Table.Td>
+                </Table.Tr>
+            </Table.Tbody>
+        </Table>
+    );
+}
+
 /** The card's history from `card_versions` — the message that used to be a git commit message, and when. */
 function VersionsList({ versions, limit, error }: { versions: CardVersion[] | undefined; limit: number; error: Error | null | undefined }) {
     if (error) {
@@ -351,6 +408,8 @@ export function CardDetailView({
     versionsError,
     context,
     contextError,
+    usage,
+    usageError,
     columns,
     columnsError,
     project,
@@ -366,6 +425,10 @@ export function CardDetailView({
      * mounts alongside `events`/`versions`. */
     context: ContextSnapshot[] | undefined;
     contextError: Error | null | undefined;
+    /** Card 0263: what the card has cost so far, from the query `ProjectCardDetailRoute` mounts
+     * alongside `events`/`versions`/`context`. */
+    usage: CardUsage | undefined;
+    usageError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
     /** Card 0153: the project this card was reached under, threaded to `PlanningPanes` so the
@@ -465,6 +528,13 @@ export function CardDetailView({
             <Stack gap={6}>
                 <Title order={4}>Events</Title>
                 <EventsTimeline events={events} limit={eventsLimit} error={eventsError} />
+            </Stack>
+
+            <Divider />
+
+            <Stack gap={6}>
+                <Title order={4}>Usage</Title>
+                <UsagePanel usage={usage} error={usageError} />
             </Stack>
 
             <Divider />

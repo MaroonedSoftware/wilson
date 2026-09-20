@@ -48,6 +48,12 @@ function ProjectCardDetailRoute() {
         queryKey: ['project', project, 'card', cardId, 'context'],
         queryFn: () => client.context.listCardContext(cardId),
     });
+    // Card 0263: `[..., cardId, 'usage']`, the same one-segment-longer shape `context` above uses —
+    // there is no mutation that writes usage, so nothing needs to invalidate this key by name.
+    const usage = useQuery({
+        queryKey: ['project', project, 'card', cardId, 'usage'],
+        queryFn: () => client.board.getCardUsage(cardId),
+    });
 
     if (card.error) {
         return (
@@ -76,6 +82,8 @@ function ProjectCardDetailRoute() {
                 versionsError={versions.error}
                 context={context.data}
                 contextError={context.error}
+                usage={usage.data}
+                usageError={usage.error}
                 columns={columns.data}
                 columnsError={columns.error}
                 project={project}

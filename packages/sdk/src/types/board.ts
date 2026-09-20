@@ -160,9 +160,23 @@ export interface CardVersion {
 }
 
 /**
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
+ * summed. `attempts` counts the passed and failed events themselves, including one whose payload
+ * carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
+ * events did carry, so the two can never disagree with the event log.
+ * generated from [CardStageUsage](file://./../../../../apps/api/data/contracts/board.ck#L168)
+ */
+export interface CardStageUsage {
+    stage: string;
+    attempts: number;
+    inputTokens: number;
+    outputTokens: number;
+}
+
+/**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L166)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L192)
  */
 export interface ListQuery {
     limit?: number;
@@ -175,7 +189,7 @@ export interface ListQuery {
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L176)
+ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L202)
  */
 export interface PlanSession {
     /**
@@ -207,7 +221,7 @@ export interface PlanSession {
 }
 
 /**
- * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L199)
+ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L225)
  */
 export interface SaveDraftRequest {
     /**
@@ -221,7 +235,7 @@ export interface SaveDraftRequest {
 /**
  * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
  * request — one message in that conversation.
- * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L208)
+ * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L234)
  */
 export interface PlanTurnRequest {
     text: string;
@@ -237,7 +251,7 @@ export interface PlanTurnRequest {
  * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
- * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L219)
+ * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L245)
  */
 export interface PlanTurn {
     /**
@@ -256,7 +270,7 @@ export interface PlanTurn {
  * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
  * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
  * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
- * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L233)
+ * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L259)
  */
 export interface PlanDraft {
     body: string;
@@ -268,7 +282,7 @@ export interface PlanDraft {
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
  * comment moves through, not a delete — a comment the agent addressed stays on record.
- * generated from [PlanComment](file://./../../../../apps/api/data/contracts/board.ck#L242)
+ * generated from [PlanComment](file://./../../../../apps/api/data/contracts/board.ck#L268)
  */
 export interface PlanComment {
     id: string;
@@ -283,7 +297,7 @@ export interface PlanComment {
 /**
  * `POST .../plan/comments`'s request — the anchor a client already captured
  * (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
- * generated from [CreatePlanCommentRequest](file://./../../../../apps/api/data/contracts/board.ck#L254)
+ * generated from [CreatePlanCommentRequest](file://./../../../../apps/api/data/contracts/board.ck#L280)
  */
 export interface CreatePlanCommentRequest {
     quote: string;
@@ -298,7 +312,7 @@ export interface CreatePlanCommentRequest {
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L266)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L292)
  */
 export interface DivisionPiece {
     title: string;
@@ -326,7 +340,7 @@ export interface DivisionPiece {
  * `alwaysAllowed` entry already covers the line, which patterns and card an overlap was found against,
  * which criterion IDs collide or which section had text but no bullets) rather than splitting them
  * into fields a client would have to reassemble into the same sentence.
- * generated from [LintFinding](file://./../../../../apps/api/data/contracts/board.ck#L318)
+ * generated from [LintFinding](file://./../../../../apps/api/data/contracts/board.ck#L344)
  */
 export interface LintFinding {
     kind: 'command' | 'alwaysAllowed' | 'scopeConflict' | 'acceptanceCriteria';
@@ -342,11 +356,25 @@ export interface CardDetail extends CardSummary {
 }
 
 /**
+ * `GET /api/cards/{id}/usage`'s response: what a card has cost, read from `EventLog.usageByStage`
+ * rather than tracked as a separate running total (`card_events` stays the one record — this card's
+ * Constraints). `total` sums every stage; `stages` breaks that down one row per stage, in the order
+ * each stage was first run, not alphabetically. Tokens only, never a dollar figure: every stage on
+ * this board runs through the subscription-billed `cli` adapter, which reports no cost to sum, and
+ * these numbers are for a human reading what a card spent, not a bill (Out of scope: capturing one).
+ * generated from [CardUsage](file://./../../../../apps/api/data/contracts/board.ck#L181)
+ */
+export interface CardUsage {
+    total: { attempts: number; inputTokens: number; outputTokens: number };
+    stages: CardStageUsage[];
+}
+
+/**
  * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L282)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L308)
  */
 export interface CardDivision {
     /**
@@ -363,7 +391,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L294)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L320)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -406,7 +434,7 @@ export interface MergeResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L302)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L328)
  */
 export interface SplitResult {
     origin: CardDetail;
