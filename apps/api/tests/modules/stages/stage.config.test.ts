@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
+import { StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage } from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
@@ -176,5 +176,86 @@ describe('StageConfigSchema scopeViolation override', () => {
     it('rejects an unknown scopeViolation value with the same clarity the project-wide field already gives', () => {
         expect(() => StageConfigSchema.parse({ ...minimalStage, scopeViolation: 'bogus' })).toThrow();
         expect(() => ProjectStagesSchema.shape.scopeViolation.parse('bogus')).toThrow();
+    });
+});
+
+/**
+ * Card 0260: a cli stage can run inside the engine's own OS-level sandbox, off by default. The
+ * project-wide `sandbox` block (`ProjectStagesSchema`) carries `enabled` and `allowedDomains`; a
+ * stage's own `sandbox` (`StageConfigSchema`) overrides `enabled` alone, resolved by `findStage`
+ * exactly the way a stage's own `scopeViolation` already overrides the project-wide value above.
+ */
+describe('ProjectStagesSchema sandbox block', () => {
+    it('defaults to disabled with no allowed domains when omitted entirely', () => {
+        const parsed = ProjectStagesSchema.parse({ stages: [] });
+        expect(parsed.sandbox).toEqual({ enabled: false, allowedDomains: [] });
+    });
+
+    it('accepts an explicit enabled: true with a configured domain list', () => {
+        const parsed = ProjectStagesSchema.parse({ stages: [], sandbox: { enabled: true, allowedDomains: ['example.com'] } });
+        expect(parsed.sandbox).toEqual({ enabled: true, allowedDomains: ['example.com'] });
+    });
+
+    it('rejects an unknown key inside the sandbox block, like every other unknown key (AC6)', () => {
+        // Strict, unlike the rest of ProjectStagesSchema's own blocks: a typo here is almost
+        // certainly meant to be `enabled` or `allowedDomains`, and silently dropping it would leave
+        // an operator believing they had turned sandboxing on.
+        const result = ProjectStagesSchema.safeParse({ stages: [], sandbox: { enabled: true, allowdDomains: ['typo.example.com'] } });
+        expect(result.success).toBe(false);
+    });
+});
+
+describe('StageConfigSchema sandbox override', () => {
+    it('leaves the stage-level sandbox override unset when omitted, matching scopeViolation’s "defer to project" pattern', () => {
+        const stage = StageConfigSchema.parse(minimalStage);
+        expect(stage.sandbox).toBeUndefined();
+    });
+
+    it('defaults sandboxAllowedDomains to an empty array on the stage schema itself', () => {
+        const stage = StageConfigSchema.parse(minimalStage);
+        expect(stage.sandboxAllowedDomains).toEqual([]);
+    });
+
+    it('accepts an explicit sandbox: true override', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, sandbox: true });
+        expect(stage.sandbox).toBe(true);
+    });
+
+    it('accepts an explicit sandbox: false override', () => {
+        const stage = StageConfigSchema.parse({ ...minimalStage, sandbox: false });
+        expect(stage.sandbox).toBe(false);
+    });
+});
+
+describe('findStage sandbox resolution (AC5)', () => {
+    const projectStages = (overrides: Partial<ReturnType<typeof ProjectStagesSchema.parse>> = {}) =>
+        ProjectStagesSchema.parse({ stages: [minimalStage], ...overrides });
+
+    it('resolves sandbox to false with neither the stage nor the project configuring it', () => {
+        const stage = findStage(projectStages(), 'implementing');
+        expect(stage.sandbox).toBe(false);
+        expect(stage.sandboxAllowedDomains).toEqual([]);
+    });
+
+    it('falls back to the project-wide default, domains included, when the stage sets nothing', () => {
+        const stage = findStage(
+            projectStages({ sandbox: { enabled: true, allowedDomains: ['example.com'] } }),
+            'implementing',
+        );
+        expect(stage.sandbox).toBe(true);
+        expect(stage.sandboxAllowedDomains).toEqual(['example.com']);
+    });
+
+    it('a stage’s own sandbox: true wins even when the project default is off', () => {
+        const stage = findStage(projectStages({ stages: [{ ...minimalStage, sandbox: true }] }), 'implementing');
+        expect(stage.sandbox).toBe(true);
+    });
+
+    it('a stage’s own sandbox: false wins even when the project default is on', () => {
+        const stage = findStage(
+            projectStages({ stages: [{ ...minimalStage, sandbox: false }], sandbox: { enabled: true, allowedDomains: [] } }),
+            'implementing',
+        );
+        expect(stage.sandbox).toBe(false);
     });
 });
