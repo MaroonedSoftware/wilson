@@ -17,6 +17,10 @@ export const StagesModule: ServerKitModule = {
     name: 'Stages',
     setup: async (registry: Registry, _: AppConfig) => {
         registry.register(ImplementingVerifier).useClass(ImplementingVerifier).asTransient();
+        // Card 0261: `TestingVerifier` now takes `EventLog` and `BoardConfig` too, to read and write
+        // `test.flaky` events — resolved from the registry by constructor type the same way
+        // `ChallengeVerifier`'s own `events`/`config` already are, so `useClass` alone is enough;
+        // nothing here has to change to thread them through.
         registry.register(TestingVerifier).useClass(TestingVerifier).asTransient();
         registry.register(ReviewVerifier).useClass(ReviewVerifier).asTransient();
         registry.register(ChallengeVerifier).useClass(ChallengeVerifier).asTransient();

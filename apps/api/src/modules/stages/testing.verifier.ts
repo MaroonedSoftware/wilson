@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { expectedSkippedTests } from '#modules/board/card.js';
+import { BoardConfig } from '#modules/board/board.config.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
@@ -150,6 +152,8 @@ export class TestingVerifier implements StageVerifier {
     constructor(
         private readonly worktrees: WorktreeManager,
         private readonly logger: Logger,
+        private readonly events: EventLog,
+        private readonly config: BoardConfig,
     ) {}
 
     async verify({ worktree, stage, cardId, card }: VerificationInput): Promise<VerificationOutcome> {
@@ -163,7 +167,10 @@ export class TestingVerifier implements StageVerifier {
         // this report's named failures, so the message needs the report before it can be assembled.
         const counts = await this.readReport(worktree.path, stage.testReportPath, failures, startedAt);
 
-        if (run) failures.push(redSuiteFailure(counts, run));
+        if (run) {
+            const redFailure = await this.judgeRedRun(cardId, worktree.path, stage, counts, run);
+            if (redFailure) failures.push(redFailure);
+        }
 
         // Formatting is an exit condition, not a habit an agent is asked to remember — this is
         // exactly how card 0032's unformatted test file reached main uncaught: nothing but a
@@ -233,6 +240,73 @@ export class TestingVerifier implements StageVerifier {
             failures.push(`test report at ${testReportPath} is unusable: ${(err as Error).message}`);
             return undefined;
         }
+    }
+
+    /**
+     * Card 0261. A red run is not necessarily a regression — see the Goal this card records: three
+     * cards on 2026-09-19 each cost a stage run or a human to a test that failed once and passed on
+     * a bare rerun. Before a red run is judged, the files the report names as failing get one rerun,
+     * and only that: `stage.testCommand` with those files' paths appended, the same narrowing the
+     * baseline check already does (`checkBaseline` below), never a broader command.
+     *
+     * No named failures at all — a crash, an unusable report — means there is nothing to rerun, and
+     * the run is judged red exactly as it always has been (`redSuiteFailure`, unchanged). A rerun
+     * that comes back red too is judged red with today's message, built from the *first* run's
+     * report and reason, not the rerun's — this was not a flake, so nothing about it needs to be
+     * re-described. A rerun that comes back green appends a `test.flaky` event naming the tests and
+     * returns `undefined`, so `verify`'s other checks decide the outcome as though the suite were
+     * green — unless the card already carries a `test.flaky` event naming one of the same tests, in
+     * which case recurrence itself fails the run with `flaky: <names>` rather than passing again.
+     * That is deliberately not a direct flag: a verifier cannot set `needsHuman` itself, so a
+     * recurring flake only reaches a human the ordinary way, through `testing.onFail: testing` and
+     * then `maxKickbacks`.
+     */
+    private async judgeRedRun(
+        cardId: string,
+        worktreePath: string,
+        stage: StageConfig,
+        report: TestReport | undefined,
+        run: CommandFailure,
+    ): Promise<string | undefined> {
+        const failing = report?.failing ?? [];
+        if (failing.length === 0 || !stage.testCommand) return redSuiteFailure(report, run);
+
+        const files = [...new Set(failing.map(test => test.file))];
+        const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
+        if (rerun) return redSuiteFailure(report, run);
+
+        const names = failing.map(describeFailingTest);
+        const recurring = await this.recurringFlake(cardId, names);
+        if (recurring.length > 0) return `flaky: ${recurring.join(', ')}`;
+
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stage.name,
+            type: 'test.flaky',
+            payload: { tests: names, run: 'testing' },
+        });
+        return undefined;
+    }
+
+    /**
+     * Which of `names` already appears in a `test.flaky` event this card carries — the recurrence
+     * that turns "flaky, ignore it" into "flags a human" (this card's Constraints). Reads the tail
+     * the same way `ChallengeVerifier.incomingReview` and `BoardWriteService.division` already read
+     * a card's own history, rather than tracking a separate counter.
+     */
+    private async recurringFlake(cardId: string, names: string[]): Promise<string[]> {
+        const rows = await this.events.tail(this.config.project, cardId);
+        const seen = new Set<string>();
+        for (const row of rows) {
+            if (row.type !== 'test.flaky') continue;
+            const priorTests = row.payload?.tests;
+            if (!Array.isArray(priorTests)) continue;
+            for (const name of priorTests) {
+                if (typeof name === 'string' && names.includes(name)) seen.add(name);
+            }
+        }
+        return [...seen];
     }
 
     /**
