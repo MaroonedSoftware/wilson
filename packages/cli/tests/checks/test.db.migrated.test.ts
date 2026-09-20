@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -10,6 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * the check's own branching (unreachable vs. empty schema vs. behind vs. current) without a real
  * database. `node:fs/promises#readdir` is mocked too, so the "which migrations exist" side of the
  * comparison is under the test's control rather than depending on the repo's actual migration files.
+ *
+ * Card 0259: on its first real run this check threw `ENOENT` because it resolved the migrations
+ * directory relative to the process's working directory, and `wilson doctor` runs from
+ * `packages/cli`, not the repo root. Tests that exercise anything past the connect step now pass
+ * `ctx.paths.repoRoot`, and the two tests below assert the check resolves against it — not `cwd` —
+ * and fails cleanly, rather than throwing, when the resolved directory is missing.
  */
 const connectMock = vi.fn();
 const queryMock = vi.fn();
@@ -106,7 +114,7 @@ describe('testDbMigrated', () => {
         connectMock.mockResolvedValueOnce(undefined);
         readdirMock.mockResolvedValueOnce(['20260823120000_card_events.sql', '20260824120000_board_tables.sql', '20260824140000_card_jobs.sql']);
         queryMock.mockRejectedValueOnce(new Error('relation "schema_migrations" does not exist'));
-        const ctx = { env: {} } as never;
+        const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
         const result = await testDbMigrated.run(ctx);
 
@@ -127,7 +135,7 @@ describe('testDbMigrated', () => {
             '5_e.sql',
         ]);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }, { version: '2' }, { version: '3' }] });
-        const ctx = { env: {} } as never;
+        const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
         const result = await testDbMigrated.run(ctx);
 
@@ -149,7 +157,7 @@ describe('testDbMigrated', () => {
             '6_f.sql',
         ]);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }] });
-        const ctx = { env: {} } as never;
+        const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
         const result = await testDbMigrated.run(ctx);
 
@@ -161,7 +169,7 @@ describe('testDbMigrated', () => {
         connectMock.mockResolvedValueOnce(undefined);
         readdirMock.mockResolvedValueOnce(['1_a.sql', '2_b.sql']);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }, { version: '2' }] });
-        const ctx = { env: {} } as never;
+        const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
         const result = await testDbMigrated.run(ctx);
 
@@ -172,11 +180,47 @@ describe('testDbMigrated', () => {
         connectMock.mockResolvedValueOnce(undefined);
         readdirMock.mockResolvedValueOnce(['1_a.sql']);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }] });
-        const ctx = { env: {} } as never;
+        const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
         await testDbMigrated.run(ctx);
 
         expect(queryMock).toHaveBeenCalledTimes(1);
         expect(queryMock).toHaveBeenCalledWith('select version from schema_migrations order by version');
+    });
+
+    it('resolves the migrations directory from ctx.paths.repoRoot, not the process working directory (card 0259 AC1)', async () => {
+        // `wilson doctor` runs from packages/cli, not the repo root — chdir somewhere else
+        // entirely to prove the check no longer depends on cwd for finding the migrations.
+        const originalCwd = process.cwd();
+        process.chdir(tmpdir());
+        try {
+            connectMock.mockResolvedValueOnce(undefined);
+            readdirMock.mockResolvedValueOnce(['1_a.sql', '2_b.sql']);
+            queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }, { version: '2' }] });
+            const ctx = { env: {}, paths: { repoRoot: '/some/repo/root' } } as never;
+
+            const result = await testDbMigrated.run(ctx);
+
+            expect(readdirMock).toHaveBeenCalledWith(join('/some/repo/root', 'apps/api/data/migrations'));
+            expect(result).toEqual({ ok: true, message: '2 of 2 migrations applied' });
+        } finally {
+            process.chdir(originalCwd);
+        }
+    });
+
+    it('fails naming the resolved path, instead of throwing, when the migrations directory is missing (card 0259 AC2)', async () => {
+        connectMock.mockResolvedValueOnce(undefined);
+        readdirMock.mockRejectedValueOnce(new Error('ENOENT: no such file or directory, scandir \'/some/repo/root/apps/api/data/migrations\''));
+        const ctx = { env: {}, paths: { repoRoot: '/some/repo/root' } } as never;
+
+        const result = await testDbMigrated.run(ctx);
+
+        const resolvedPath = join('/some/repo/root', 'apps/api/data/migrations');
+        expect(result).toEqual({
+            ok: false,
+            message: `test database migrations directory unreadable: ${resolvedPath} (ENOENT: no such file or directory, scandir '${resolvedPath}')`,
+            fixHint: `Check that this is a full checkout of the repo — migrations should be at ${resolvedPath}.`,
+        });
+        expect(queryMock).not.toHaveBeenCalled();
     });
 });

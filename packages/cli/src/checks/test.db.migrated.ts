@@ -1,4 +1,5 @@
 import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import pg from 'pg';
 import type { Check, CliContext } from '@maroonedsoftware/johnny5';
 import { setting } from '../settings.js';
@@ -37,7 +38,22 @@ export const testDbMigrated: Check = {
         }
 
         try {
-            const fileVersions = await migrationFileVersions();
+            // Same class of bug as card 0247: a path resolved against the process's working
+            // directory rather than the repo root. `wilson doctor` runs from packages/cli (the
+            // root `wilson` script is `pnpm --filter @wilson/cli exec …`), so a path relative to
+            // cwd never finds apps/api/data/migrations — resolve against `ctx.paths.repoRoot`
+            // instead, the same anchor johnny5 uses to find apps/api/.env.
+            const migrationsDir = join(ctx.paths.repoRoot, 'apps/api/data/migrations');
+            let fileVersions: string[];
+            try {
+                fileVersions = await migrationFileVersions(migrationsDir);
+            } catch (err) {
+                return {
+                    ok: false,
+                    message: `test database migrations directory unreadable: ${migrationsDir} (${(err as Error).message})`,
+                    fixHint: `Check that this is a full checkout of the repo — migrations should be at ${migrationsDir}.`,
+                };
+            }
             const appliedVersions = await appliedMigrationVersions(client);
             const applied = new Set(appliedVersions);
             const missing = fileVersions.filter(version => !applied.has(version));
@@ -88,14 +104,13 @@ const testDbSettings = (ctx: CliContext): TestDatabaseSettings => ({
     database: setting(ctx, 'TEST_DATABASE_NAME', 'wilson_test'),
 });
 
-const MIGRATIONS_DIR = 'apps/api/data/migrations';
-
 /**
- * The version each `.sql` file under `apps/api/data/migrations` represents — the numeric prefix
- * before the first underscore, which is what dbmate records in `schema_migrations.version`.
+ * The version each `.sql` file under `dir` represents — the numeric prefix before the first
+ * underscore, which is what dbmate records in `schema_migrations.version`. `dir` is the caller's
+ * already-resolved absolute path; this function never guesses at the working directory itself.
  */
-async function migrationFileVersions(): Promise<string[]> {
-    const entries = await readdir(MIGRATIONS_DIR);
+async function migrationFileVersions(dir: string): Promise<string[]> {
+    const entries = await readdir(dir);
     return entries
         .filter(name => name.endsWith('.sql'))
         .map(name => name.split('_')[0]!)
@@ -117,4 +132,4 @@ async function appliedMigrationVersions(client: pg.Client): Promise<string[]> {
 
 /** The dbmate command that fixes what this check found, with the connection URL built in. */
 const migrateUpCommand = (settings: TestDatabaseSettings): string =>
-    `dbmate -d ${MIGRATIONS_DIR} --no-dump-schema -u postgres://${settings.user}:${settings.password}@${settings.host}:${settings.port}/${settings.database} up`;
+    `dbmate -d apps/api/data/migrations --no-dump-schema -u postgres://${settings.user}:${settings.password}@${settings.host}:${settings.port}/${settings.database} up`;
