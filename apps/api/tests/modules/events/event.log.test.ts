@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { PoolClient } from 'pg';
+import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
 import { EventLog } from '#modules/events/event.log.js';
@@ -332,5 +333,105 @@ describe('EventLog.usageByStage', () => {
         const usage = await eventLog.usageByStage(project, cardId);
 
         expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    });
+});
+
+/**
+ * Card 0264. `outputTokensSince` is `usageByStage`'s sibling rollup — a project's total, not one
+ * card's, and output tokens only — checked against real Postgres for the same reason
+ * `EventLog.usageByStage` above is: the JSONB `payload->'usage'->>'outputTokens'` extraction and the
+ * `created_at >= $1` boundary are exactly the kind of behaviour a fake `db` would only prove agrees
+ * with itself about. Each test uses its own `uniqueProject()`, so no two tests' rows can be summed
+ * together by accident.
+ */
+describe('EventLog.outputTokensSince', () => {
+    let db: Kysely<DB>;
+
+    beforeAll(() => {
+        db = testDb();
+    });
+
+    afterAll(async () => {
+        await db.destroy();
+    });
+
+    const farPast = DateTime.now().minus({ days: 1 });
+
+    // AC5: sums outputTokens (never inputTokens) across every stage.passed/stage.failed event for the
+    // project — across more than one card, unlike usageByStage's per-card scope — counts an event with
+    // no usage at all as zero rather than skipping it, ignores an event of a type other than the two
+    // named even when its payload carries something usage-shaped, and never sums in another project's
+    // events.
+    it('sums outputTokens across every stage.passed/stage.failed event for the project, counting no-usage as zero and ignoring other event types and other projects', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId: '0001',
+            stage: 'implementing',
+            type: 'stage.failed',
+            payload: { usage: { inputTokens: 900, outputTokens: 20 } },
+        });
+        await eventLog.append({
+            project,
+            cardId: '0002',
+            stage: 'review',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 900, outputTokens: 30 } },
+        });
+        // No usage at all — still counts, at zero, not skipped.
+        await eventLog.append({ project, cardId: '0003', stage: 'implementing', type: 'stage.failed', payload: {} });
+        // A different event type carrying a usage-shaped payload must not be summed in.
+        await eventLog.append({
+            project,
+            cardId: '0004',
+            stage: 'implementing',
+            type: 'stage.dispatched',
+            payload: { usage: { inputTokens: 1, outputTokens: 5000 } },
+        });
+        // A different project entirely, with real usage — must not leak into this project's total.
+        await eventLog.append({
+            project: uniqueProject(),
+            cardId: '0001',
+            stage: 'implementing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 1, outputTokens: 999 } },
+        });
+
+        const total = await eventLog.outputTokensSince(project, farPast);
+
+        expect(total).toBe(50);
+    });
+
+    it('returns zero for a project with no stage.passed/stage.failed history at all', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+
+        const total = await eventLog.outputTokensSince(project, farPast);
+
+        expect(total).toBe(0);
+    });
+
+    // AC6, the boundary itself: `since` is compared straight against `createdAt`, inclusively enough
+    // that an instant well before an event's own creation still finds it, while an instant after it —
+    // "tomorrow", from the event's point of view — excludes it. This is what lets a caller pass local
+    // midnight and get back only today's spend.
+    it('includes an event created after `since`, and excludes one queried with a `since` after it was created', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        await eventLog.append({
+            project,
+            cardId: '0001',
+            stage: 'implementing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 1, outputTokens: 42 } },
+        });
+
+        const includedFromThePast = await eventLog.outputTokensSince(project, farPast);
+        expect(includedFromThePast).toBe(42);
+
+        const excludedFromTomorrow = await eventLog.outputTokensSince(project, DateTime.now().plus({ days: 1 }));
+        expect(excludedFromTomorrow).toBe(0);
     });
 });

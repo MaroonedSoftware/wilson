@@ -20,9 +20,11 @@ import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { DRY_RUN_INTEGRATION_BRANCH } from '#modules/worktree/worktree.manager.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
+import { DateTime } from 'luxon';
 
 const card = (id: string, overrides: Partial<Card['frontmatter']> = {}, body = 'body text'): Card => ({
     frontmatter: { id, title: `card ${id}`, stage: 'implementing', dependsOn: [], retries: {}, ...overrides },
@@ -103,6 +105,21 @@ const scopeCheckRefusal = (overrides: Partial<{ reason: string; division: unknow
  * ports its behaviour from, so a divergence between the two shows up as a divergence in behaviour,
  * not in how the two test files are wired up.
  */
+/**
+ * Card 0264: `start` now reads `DAILY_OUTPUT_TOKEN_CEILING` through `SettingsStore` unconditionally,
+ * before anything else it does — every `freshBoard()` caller used to hand it
+ * `undefined as unknown as SettingsStore`, which `service.start` could survive only because nothing
+ * before this card ever called `.get()` on it. This resolves any definition to its own coded default
+ * (0 for the ceiling, meaning "no ceiling", exactly like a fresh, untouched database) so every test
+ * that predates this card keeps exercising precisely the behaviour it always did; the ceiling tests
+ * in the `start` describe block below build their own settings fake with a real ceiling instead.
+ */
+const defaultSettings = (): SettingsStore =>
+    ({
+        get: vi.fn(async (definition: { defaultValue: unknown }) => definition.defaultValue),
+        set: vi.fn(async () => undefined),
+    }) as unknown as SettingsStore;
+
 const freshBoard = (
     worktrees: {
         reclaim: ReturnType<typeof vi.fn>;
@@ -124,8 +141,15 @@ const freshBoard = (
     // double: it's a plain in-memory set, and using the real thing exercises the actual `.add`/
     // `.snapshot` contract `release` depends on rather than a stand-in for it.
     runningCards: RunningCards = new RunningCards(),
+    // Card 0264: a per-test override so the ceiling tests below can hand `start` a `SettingsStore`
+    // that answers a real ceiling for `DAILY_OUTPUT_TOKEN_CEILING`, without disturbing every other
+    // caller of `freshBoard` above, which gets `defaultSettings()` and so never sees a ceiling at all.
+    settings: SettingsStore = defaultSettings(),
 ) => {
-    const events = { append: vi.fn(async () => {}) };
+    // `outputTokensSince` is card 0264's own addition to `EventLog` — present here (answering zero)
+    // so any test can override it, but never exercised unless a test's own `settings` reports a
+    // ceiling above zero, since `start` skips the read entirely at the coded default.
+    const events = { append: vi.fn(async () => {}), outputTokensSince: vi.fn(async () => 0) };
     const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     const logger = fakeLogger();
@@ -148,7 +172,7 @@ const freshBoard = (
         cardJobs,
         broker as unknown as JobBroker,
         runningCards,
-        undefined as unknown as SettingsStore,
+        settings,
         stageConfigs,
     );
     return { board, config, events, worktrees, logger, cardJobs, broker, runningCards, service };
@@ -1177,6 +1201,69 @@ describe('BoardWriteService', () => {
             expect(sendOrder).toBeLessThan(recordOrder);
 
             expect(await cardJobs.inFlight('0063')).toBe('job-77');
+        });
+
+        /**
+         * Card 0264. `start` reads `DAILY_OUTPUT_TOKEN_CEILING` before `whyNotDispatchable` even runs
+         * — these are the ceiling's own tests, distinct from the checks above. A `SettingsStore` that
+         * answers a real ceiling for that one key (and every other definition's own coded default
+         * otherwise, so `whyNotDispatchable`'s own path is undisturbed) lets each test control exactly
+         * what `start` sees without touching `freshBoard`'s default of "no ceiling" everywhere else.
+         */
+        const settingsWithCeiling = (ceiling: number): SettingsStore =>
+            ({
+                get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+                    definition.key === DAILY_OUTPUT_TOKEN_CEILING.key ? ceiling : definition.defaultValue,
+                ),
+                set: vi.fn(async () => undefined),
+            }) as unknown as SettingsStore;
+
+        // AC1 (the other half of it, alongside the poller's own): a ceiling of 0 never queries usage
+        // at all — proven directly, not just inferred from every other test above surviving an
+        // `events.outputTokensSince` that would throw if it were ever reached.
+        it('AC1: a ceiling of 0 never calls outputTokensSince, and starts exactly as it does today', async () => {
+            const { board, broker, events, service } = freshBoard(undefined, {}, undefined, settingsWithCeiling(0));
+            await board.create(card('0064', { stage: 'implementing' }), 'seed');
+
+            const detail = await service.start('0064');
+
+            expect(detail.stage).toBe('implementing');
+            expect(events.outputTokensSince).not.toHaveBeenCalled();
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0064', stageName: 'implementing' });
+        });
+
+        // AC4, "under it": spend below a real ceiling behaves exactly as an unset one does.
+        it('AC4: spend below the ceiling starts the card exactly as it does today', async () => {
+            const { board, config, broker, events, service } = freshBoard(undefined, {}, undefined, settingsWithCeiling(1000));
+            (events.outputTokensSince as ReturnType<typeof vi.fn>).mockResolvedValue(500);
+            await board.create(card('0065', { stage: 'implementing' }), 'seed');
+
+            const detail = await service.start('0065');
+
+            expect(detail.stage).toBe('implementing');
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0065', stageName: 'implementing' });
+
+            // AC6: asked about this project's own spend, over a window starting at local midnight —
+            // the instant passed is its own start-of-day, not merely "some time in the past".
+            const [project, since] = (events.outputTokensSince as ReturnType<typeof vi.fn>).mock.calls[0] as [string, DateTime];
+            expect(project).toBe(config.project);
+            expect(since.startOf('day').toMillis()).toBe(since.toMillis());
+        });
+
+        // AC4, "over it": refuses with a 400 naming both the ceiling and today's figure, writing and
+        // enqueueing nothing — the same refusal shape whyNotDispatchable's own refusals above take.
+        it('AC4: refuses to start when today’s spend is at or over the ceiling, naming both figures, and enqueues nothing', async () => {
+            const { board, broker, cardJobs, events, service } = freshBoard(undefined, {}, undefined, settingsWithCeiling(1000));
+            (events.outputTokensSince as ReturnType<typeof vi.fn>).mockResolvedValue(1000);
+            await board.create(card('0066', { stage: 'implementing' }), 'seed');
+
+            await expect(service.start('0066')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('has spent 1000 output tokens today, at or over its daily ceiling of 1000') },
+            });
+
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(await cardJobs.inFlight('0066')).toBeUndefined();
         });
     });
 
