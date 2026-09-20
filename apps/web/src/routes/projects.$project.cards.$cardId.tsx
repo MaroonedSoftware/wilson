@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Loader, Stack } from '@mantine/core';
@@ -54,6 +54,16 @@ function ProjectCardDetailRoute() {
         queryKey: ['project', project, 'card', cardId, 'usage'],
         queryFn: () => client.board.getCardUsage(cardId),
     });
+    // Card 0265: no request until the Diff tab is actually selected (`CardDetailView`'s
+    // `onDiffTabOpen`, this card's Constraints) — opening a card page must cost no git. Once true,
+    // `diffTabOpened` never flips back; re-selecting the tab after the first open just reuses the
+    // cached, and re-fetchable, query below rather than costing a second `enabled` toggle.
+    const [diffTabOpened, setDiffTabOpened] = useState(false);
+    const diff = useQuery({
+        queryKey: ['project', project, 'card', cardId, 'diff'],
+        queryFn: () => client.board.getCardDiff(cardId),
+        enabled: diffTabOpened,
+    });
 
     if (card.error) {
         return (
@@ -86,6 +96,9 @@ function ProjectCardDetailRoute() {
                 usageError={usage.error}
                 columns={columns.data}
                 columnsError={columns.error}
+                diff={diff.data}
+                diffError={diff.error}
+                onDiffTabOpen={() => setDiffTabOpened(true)}
                 project={project}
             />
         </WilsonSdkProvider>

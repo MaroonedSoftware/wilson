@@ -477,4 +477,78 @@ describe('BoardService', () => {
             await expect(service.usage('0001')).resolves.toEqual(zeroUsage);
         });
     });
+
+    // Card 0265. `diff` is a thin translation over `WorktreeManager.patchSinceFork` — the 404 guard
+    // mirrors `getById`'s/`usage`'s own, and `patchSinceFork`'s own 400 refusal (a branch never cut)
+    // is carried through unchanged rather than re-derived here.
+    describe('diff', () => {
+        it('translates a missing card into a 404 rather than letting it become a 500', async () => {
+            const boardRepository = {
+                read: async () => {
+                    throw new CardNotFoundError('card 0001 does not exist');
+                },
+            } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            await expect(service.diff('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('leaves any other error alone, rather than folding it into a 404', async () => {
+            const boom = new Error('database is unreachable');
+            const boardRepository = {
+                read: async () => {
+                    throw boom;
+                },
+            } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            await expect(service.diff('0001')).rejects.toBe(boom);
+        });
+
+        it('resolves the branch the same way list/getById do, and diffs it against main', async () => {
+            const found = card('0002', { title: 'Fix the thing', branch: undefined });
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            let seenArgs: [string, string] | undefined;
+            const fakeWorktrees = {
+                resolveBranch: worktrees.resolveBranch.bind(worktrees),
+                patchSinceFork: async (branch: string, targetRef: string) => {
+                    seenArgs = [branch, targetRef];
+                    return { ok: true as const, base: 'base-sha', files: [], truncated: false };
+                },
+            } as unknown as WorktreeManager;
+            const service = new BoardService(boardRepository, noHistory, config, fakeWorktrees);
+
+            await service.diff('0002');
+
+            expect(seenArgs).toEqual([worktrees.resolveBranch(found), 'main']);
+        });
+
+        it("carries patchSinceFork's own 400 refusal through unchanged, for a card whose branch has never been cut", async () => {
+            const found = card('0001', { branch: 'card/0001-never-cut' });
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const fakeWorktrees = {
+                resolveBranch: () => 'card/0001-never-cut',
+                patchSinceFork: async () => ({ ok: false as const, reason: 'card/0001-never-cut has no branch yet' }),
+            } as unknown as WorktreeManager;
+            const service = new BoardService(boardRepository, noHistory, config, fakeWorktrees);
+
+            await expect(service.diff('0001')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: 'card/0001-never-cut has no branch yet' },
+            });
+        });
+
+        it("returns patchSinceFork's own result unmapped, on success", async () => {
+            const found = card('0001', { branch: 'card/0001' });
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const files = [{ path: 'src/a.ts', status: 'modified' as const, patch: '@@ -1 +1 @@\n-a\n+b\n', truncated: false }];
+            const fakeWorktrees = {
+                resolveBranch: () => 'card/0001',
+                patchSinceFork: async () => ({ ok: true as const, base: 'base-sha', files, truncated: false }),
+            } as unknown as WorktreeManager;
+            const service = new BoardService(boardRepository, noHistory, config, fakeWorktrees);
+
+            await expect(service.diff('0001')).resolves.toEqual({ base: 'base-sha', files, truncated: false });
+        });
+    });
 });

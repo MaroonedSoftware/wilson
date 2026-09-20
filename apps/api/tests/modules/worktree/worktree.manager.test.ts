@@ -939,4 +939,147 @@ describe('WorktreeManager', () => {
             expect(after).toBe(headNow);
         });
     });
+
+    /**
+     * Card 0265. The diff behind `ready`'s human gate, read without a terminal: every file `branch`
+     * changed since `merge-base(targetRef, branch)`, as unified patch text — one basis for the diff
+     * `wilson card diff` already uses. These assertions fail on the pre-change tree: `patchSinceFork`
+     * does not exist there.
+     */
+    describe('patchSinceFork', () => {
+        it("reports the merge-base and a modified file's patch, excluding a file main only gained after the fork (AC1)", async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            const base = worktree.baseSha;
+            await writeFile(join(worktree.path, 'src', 'index.ts'), 'export const x = 2;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            // main moves on with a file the branch never saw. `main..branch` would report this as a
+            // deletion the card never made; `merge-base(main, branch)..branch` must not.
+            await writeFile(join(codeRoot, 'src', 'landed.ts'), 'export const landed = 1;\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'landed on main'], { cwd: codeRoot });
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            expect(result.ok).toBe(true);
+            if (!result.ok) throw new Error('expected ok');
+            expect(result.base).toBe(base);
+            expect(result.files).toHaveLength(1);
+            expect(result.files[0].path).toBe('src/index.ts');
+            expect(result.files[0].status).toBe('modified');
+            expect(result.files[0].patch).toContain('-export const x = 1;');
+            expect(result.files[0].patch).toContain('+export const x = 2;');
+            expect(result.files.some(f => f.path === 'src/landed.ts')).toBe(false);
+            expect(result.truncated).toBe(false);
+        });
+
+        it('refuses by name, naming the branch, when it has never been cut (AC2)', async () => {
+            const result = await manager.patchSinceFork('card/9999-never-cut', 'main');
+
+            expect(result.ok).toBe(false);
+            if (result.ok) throw new Error('expected a refusal');
+            expect(result.reason).toContain('card/9999-never-cut');
+        });
+
+        it('returns an empty files array, distinct from a refusal, for a branch that exists but changed nothing (AC3)', async () => {
+            await manager.create('0001', 'card/0001-thing');
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            expect(result).toMatchObject({ ok: true, files: [] });
+        });
+
+        it('reports an added file and a deleted file with their own status', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'export const added = 1;\n', 'utf8');
+            await exec('git', ['rm', '-q', 'src/index.ts'], { cwd: worktree.path });
+            await manager.commit(worktree, '0001: implementing');
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            if (!result.ok) throw new Error('expected ok');
+            const byPath = Object.fromEntries(result.files.map(f => [f.path, f.status]));
+            expect(byPath['src/added.ts']).toBe('added');
+            expect(byPath['src/index.ts']).toBe('deleted');
+        });
+
+        // This card's Constraints: `--no-renames` throughout, so a rename reads as a delete and an
+        // add — matching what `changedPaths`/the reviewer's own basis already see.
+        it('reports a rename as a delete and an add, never as a rename', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await exec('git', ['mv', 'src/index.ts', 'src/renamed.ts'], { cwd: worktree.path });
+            await manager.commit(worktree, '0001: implementing');
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            if (!result.ok) throw new Error('expected ok');
+            const byPath = Object.fromEntries(result.files.map(f => [f.path, f.status]));
+            expect(byPath['src/index.ts']).toBe('deleted');
+            expect(byPath['src/renamed.ts']).toBe('added');
+        });
+
+        it("answers for a card whose worktree has already been reclaimed (AC7)", async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+            await manager.reclaim('0001');
+            expect(existsSync(worktree.path)).toBe(false);
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            expect(result.ok).toBe(true);
+            if (!result.ok) throw new Error('expected ok');
+            expect(result.files.map(f => f.path)).toEqual(['src/feature.ts']);
+        });
+
+        // Bounded response, this card's Constraints: a file whose own patch exceeds the per-file cap
+        // (256 KB) comes back with an empty patch and truncated: true, and does not by itself trip
+        // the response-level flag.
+        it('truncates a single file whose own patch exceeds the per-file cap, without setting the response-level flag (AC4)', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            const huge = 'x'.repeat(300 * 1024);
+            await writeFile(join(worktree.path, 'src', 'huge.ts'), `export const huge = '${huge}';\n`, 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            if (!result.ok) throw new Error('expected ok');
+            const hugeFile = result.files.find(f => f.path === 'src/huge.ts');
+            expect(hugeFile).toMatchObject({ patch: '', truncated: true });
+            expect(result.truncated).toBe(false);
+        });
+
+        it('stops adding patch text and sets the response-level flag once the total 2 MB budget is spent (AC4)', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            // Nine files, each safely under the 256 KB per-file cap on its own, but past the 2 MB
+            // total budget together — the ninth is the one that tips it over.
+            for (let i = 0; i < 9; i++) {
+                await writeFile(join(worktree.path, 'src', `big-${i}.ts`), `export const big = '${'x'.repeat(240 * 1024)}';\n`, 'utf8');
+            }
+            await manager.commit(worktree, '0001: implementing');
+
+            const result = await manager.patchSinceFork('card/0001-thing', 'main');
+
+            if (!result.ok) throw new Error('expected ok');
+            expect(result.truncated).toBe(true);
+            const cutOff = result.files.filter(f => f.truncated);
+            expect(cutOff.length).toBeGreaterThan(0);
+            cutOff.forEach(f => expect(f.patch).toBe(''));
+            // At least one file's real patch text made it in before the budget ran out.
+            expect(result.files.some(f => !f.truncated && f.patch.length > 0)).toBe(true);
+        });
+
+        it('reads against codeRoot without moving its checkout or dirtying its working tree (no worktree cut, resumed or reclaimed)', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'card.ts'), 'export const card = 1;\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            await manager.patchSinceFork('card/0001-thing', 'main');
+
+            const branch = (await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: codeRoot })).stdout.trim();
+            expect(branch).toBe('main');
+            const status = (await exec('git', ['status', '--porcelain'], { cwd: codeRoot })).stdout;
+            expect(status.trim()).toBe('');
+        });
+    });
 });

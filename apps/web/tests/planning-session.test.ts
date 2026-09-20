@@ -391,8 +391,10 @@ describe('a card outside planning', () => {
 
         expect(screen.queryByText('Conversation')).toBeNull();
         expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
-        // The plain read-only plan heading and body this stage has always rendered.
-        expect(screen.getByText('Plan')).toBeTruthy();
+        // The plain read-only plan heading and body this stage has always rendered — now inside
+        // the "Plan" tab card 0265 adds beside "Diff" for every stage outside planning/parking-lot,
+        // so plain `getByText('Plan')` is ambiguous between the tab label and this heading.
+        expect(screen.getByRole('heading', { name: 'Plan' })).toBeTruthy();
         expect(screen.getByText('the current plan body')).toBeTruthy();
 
         expect(BoardClient.prototype.openAPlanningSession).not.toHaveBeenCalled();

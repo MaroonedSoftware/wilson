@@ -187,6 +187,34 @@ contract CardUsage: {
     stages: array(CardStageUsage)
 }
 
+# Card 0265. One file changed in a card's branch since it forked from `main` —
+# `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
+# `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
+# what `changedPaths`/the reviewer already see (this card's Constraints).
+contract CardDiffFile: {
+    path: string
+    status: enum(added, modified, deleted)
+    # The unified patch text for this file alone, empty when `truncated` is true.
+    patch: string
+    # True when this file's own patch exceeded the per-file cap, or the response's total patch
+    # budget was already spent by the time this file was reached — either way `patch` is empty.
+    truncated: boolean
+}
+
+# `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
+# `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
+# (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
+# outcome — a branch that exists but changed nothing — from the 400 below, which means no branch
+# was ever cut at all.
+contract CardDiff: {
+    base: string
+    files: array(CardDiffFile)
+    # True once the response's total patch budget (2 MB) was spent and at least one later file's
+    # patch was left out — distinct from an individual file's own `truncated`, which can be true
+    # while this stays false.
+    truncated: boolean
+}
+
 # Shared by both history endpoints — a named contract so the generator takes the schema path
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
@@ -893,6 +921,33 @@ operation /api/cards/{id}/usage: {
             200: {
                 application/json: CardUsage
             }
+            404:
+        }
+    }
+}
+
+# Card 0265. The one thing `ready`'s human gate could not do without a terminal: read the code a
+# card actually changed. `merge-base(main, branch)..branch`, the same range `wilson card diff`
+# already uses (this card's Constraints) — never `main..branch`, which would report every file
+# `main` gained since the fork as a deletion this card never made. Nothing here cuts, resumes or
+# reclaims a worktree; the branch's own history in `codeRoot`'s object database is enough to answer
+# this, so the endpoint still answers for a card whose worktree was already reclaimed.
+operation /api/cards/{id}/diff: {
+    params: {
+        id: string
+    }
+    get: {
+        name: Get card diff
+        service: BoardService.diff
+        response: {
+            200: {
+                application/json: CardDiff
+            }
+            # A card whose branch has never been cut — `resolveBranch`'s derived name names no real
+            # ref yet — carried via `details`, the same convention every other refusal on this
+            # surface uses. Distinct from `CardDiff`'s own empty `files`, which is a branch that
+            # exists but changed nothing.
+            400:
             404:
         }
     }
