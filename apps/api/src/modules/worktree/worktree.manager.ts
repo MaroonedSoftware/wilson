@@ -16,6 +16,40 @@ export interface Worktree {
     baseSha: string;
 }
 
+/** Card 0265. One file changed in {@link WorktreeManager.patchSinceFork}'s range. */
+export interface DiffFileEntry {
+    path: string;
+    status: 'added' | 'modified' | 'deleted';
+    /** Unified patch text for this file alone, empty when `truncated` is true. */
+    patch: string;
+    /** True when this file's own patch exceeded the per-file cap, or the response's total patch
+     * budget was already spent by the time this file was reached. */
+    truncated: boolean;
+}
+
+/**
+ * Card 0265. Per-file cap on {@link WorktreeManager.patchSinceFork}'s patch text — "Bounded
+ * response" in this card's Constraints. Review has read a 33 file, ~2600 line diff (the reasoning
+ * recorded on `review.maxSteps` in the stage config), so this sits well above a real card and only
+ * exists to keep a lockfile or a generated file from reaching the browser whole.
+ */
+const MAX_FILE_PATCH_BYTES = 256 * 1024;
+
+/** Card 0265. Total cap across every file's patch text in one {@link WorktreeManager.patchSinceFork} response. */
+const MAX_TOTAL_PATCH_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Card 0265. Maps `git diff --name-status`'s single-letter status to the wire enum.
+ * `patchSinceFork` always diffs `--no-renames`, so only `A`/`D`/`M` are ever seen in practice —
+ * anything else (a type change, say) reads as `modified` rather than growing the enum for a case
+ * this board has never hit.
+ */
+const diffStatus = (letter: string): DiffFileEntry['status'] => {
+    if (letter === 'A') return 'added';
+    if (letter === 'D') return 'deleted';
+    return 'modified';
+};
+
 /**
  * Card 0144. The one throwaway branch every dry-run merge lands on, across every card — not
  * per-card, so a dependent card's dry-run merge sees its dependency's dry-run result on it (see
@@ -387,6 +421,88 @@ export class WorktreeManager {
             .split('\n')
             .map(line => line.trim())
             .filter(Boolean);
+    }
+
+    /**
+     * Card 0265. The diff behind `ready`'s human gate, read without a terminal: every file `branch`
+     * changed since `merge-base(targetRef, branch)`, as unified patch text — one basis for the diff
+     * `wilson card diff` already uses (`packages/cli/src/commands/card/diff.command.ts`, this card's
+     * Constraints), so a branch forked from an older `targetRef` never reports a file `targetRef`
+     * gained since the fork as a deletion this card never made.
+     *
+     * Pure git against `codeRoot`'s object database, the same shape {@link overlapSinceFork} beside
+     * this already establishes: nothing here reads or writes a working tree or index, so this
+     * answers for a card whose worktree was already reclaimed.
+     *
+     * `branch` not existing at all — a card whose branch has never been cut — is the one case this
+     * refuses outright, naming it in `reason` rather than answering with an empty `files`: an empty
+     * diff would read as "this card changed nothing", a different and false claim (this card's
+     * Constraints). `--no-renames` throughout: a rename reads as a delete and an add, exactly what
+     * `changedPaths` and the reviewer's own basis already see.
+     *
+     * Bounded, per this card's Constraints: a file whose own patch exceeds
+     * {@link MAX_FILE_PATCH_BYTES} comes back with an empty `patch` and `truncated: true`; once the
+     * running total of patch text already included passes {@link MAX_TOTAL_PATCH_BYTES}, every file
+     * from that point on gets the same empty-and-truncated treatment and the response-level
+     * `truncated` flag is set.
+     */
+    async patchSinceFork(
+        branch: string,
+        targetRef: string,
+    ): Promise<{ ok: true; base: string; files: DiffFileEntry[]; truncated: boolean } | { ok: false; reason: string }> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', '--quiet', branch]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) {
+            return { ok: false, reason: `${branch} has no branch yet — it has never reached implementing, so there is nothing to diff` };
+        }
+
+        const base = (await git(this.config.codeRoot, ['merge-base', targetRef, branch])).stdout.trim();
+
+        const { stdout: nameStatus } = await git(this.config.codeRoot, ['diff', '--name-status', '--no-renames', base, branch, '--']);
+        const changed = nameStatus
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                const [letter, ...rest] = line.split('\t');
+                return { letter: letter as string, path: rest.join('\t') };
+            });
+
+        let totalBytes = 0;
+        let truncated = false;
+        const files: DiffFileEntry[] = [];
+
+        for (const { letter, path } of changed) {
+            const status = diffStatus(letter);
+
+            // Once the total budget is spent, every remaining file gets the same empty-and-truncated
+            // treatment without spending a `git diff` call finding out how big it would have been.
+            if (truncated) {
+                files.push({ path, status, patch: '', truncated: true });
+                continue;
+            }
+
+            const { stdout: patch } = await git(this.config.codeRoot, ['diff', '--no-renames', base, branch, '--', path]);
+            const bytes = Buffer.byteLength(patch, 'utf8');
+
+            if (bytes > MAX_FILE_PATCH_BYTES) {
+                files.push({ path, status, patch: '', truncated: true });
+                continue;
+            }
+
+            if (totalBytes + bytes > MAX_TOTAL_PATCH_BYTES) {
+                truncated = true;
+                files.push({ path, status, patch: '', truncated: true });
+                continue;
+            }
+
+            totalBytes += bytes;
+            files.push({ path, status, patch, truncated: false });
+        }
+
+        return { ok: true, base, files, truncated };
     }
 
     /**

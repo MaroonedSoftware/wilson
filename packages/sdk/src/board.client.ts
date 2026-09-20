@@ -1,6 +1,7 @@
 import type {
     BoardColumns,
     CardDetail,
+    CardDiff,
     CardDivision,
     CardEvent,
     CardSummary,
@@ -359,6 +360,20 @@ export class BoardClient {
     async getCardUsage(id: string): Promise<CardUsage> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/usage`, { method: 'GET' });
         return await parseJson<CardUsage>(result);
+    }
+
+    /**
+     * @name Get card diff
+     * @description Card 0265. The one thing `ready`'s human gate could not do without a terminal: read the code a
+     * card actually changed. `merge-base(main, branch)..branch`, the same range `wilson card diff`
+     * already uses (this card's Constraints) — never `main..branch`, which would report every file
+     * `main` gained since the fork as a deletion this card never made. Nothing here cuts, resumes or
+     * reclaims a worktree; the branch's own history in `codeRoot`'s object database is enough to answer
+     * this, so the endpoint still answers for a card whose worktree was already reclaimed.
+     */
+    async getCardDiff(id: string): Promise<CardDiff> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/diff`, { method: 'GET' });
+        return await parseJson<CardDiff>(result);
     }
 
     /** @name List card versions */

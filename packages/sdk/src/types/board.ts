@@ -174,9 +174,28 @@ export interface CardStageUsage {
 }
 
 /**
+ * Card 0265. One file changed in a card's branch since it forked from `main` —
+ * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
+ * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
+ * what `changedPaths`/the reviewer already see (this card's Constraints).
+ * generated from [CardDiffFile](file://./../../../../apps/api/data/contracts/board.ck#L194)
+ */
+export interface CardDiffFile {
+    path: string;
+    status: 'added' | 'modified' | 'deleted';
+    /** The unified patch text for this file alone, empty when `truncated` is true. */
+    patch: string;
+    /**
+     * True when this file's own patch exceeded the per-file cap, or the response's total patch
+     * budget was already spent by the time this file was reached — either way `patch` is empty.
+     */
+    truncated: boolean;
+}
+
+/**
  * Shared by both history endpoints — a named contract so the generator takes the schema path
  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L192)
+ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L220)
  */
 export interface ListQuery {
     limit?: number;
@@ -189,7 +208,7 @@ export interface ListQuery {
  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
  * `claude` with the operator's stdio against what this returns.
- * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L202)
+ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L230)
  */
 export interface PlanSession {
     /**
@@ -221,7 +240,7 @@ export interface PlanSession {
 }
 
 /**
- * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L225)
+ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L253)
  */
 export interface SaveDraftRequest {
     /**
@@ -235,7 +254,7 @@ export interface SaveDraftRequest {
 /**
  * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
  * request — one message in that conversation.
- * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L234)
+ * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L262)
  */
 export interface PlanTurnRequest {
     text: string;
@@ -251,7 +270,7 @@ export interface PlanTurnRequest {
  * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
- * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L245)
+ * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L273)
  */
 export interface PlanTurn {
     /**
@@ -270,7 +289,7 @@ export interface PlanTurn {
  * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
  * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
  * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
- * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L259)
+ * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L287)
  */
 export interface PlanDraft {
     body: string;
@@ -282,7 +301,7 @@ export interface PlanDraft {
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
  * comment moves through, not a delete — a comment the agent addressed stays on record.
- * generated from [PlanComment](file://./../../../../apps/api/data/contracts/board.ck#L268)
+ * generated from [PlanComment](file://./../../../../apps/api/data/contracts/board.ck#L296)
  */
 export interface PlanComment {
     id: string;
@@ -297,7 +316,7 @@ export interface PlanComment {
 /**
  * `POST .../plan/comments`'s request — the anchor a client already captured
  * (`captureAnchor`, apps/web/src/lib/anchor.ts) plus what the person said about it.
- * generated from [CreatePlanCommentRequest](file://./../../../../apps/api/data/contracts/board.ck#L280)
+ * generated from [CreatePlanCommentRequest](file://./../../../../apps/api/data/contracts/board.ck#L308)
  */
 export interface CreatePlanCommentRequest {
     quote: string;
@@ -312,7 +331,7 @@ export interface CreatePlanCommentRequest {
  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
  * of.
- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L292)
+ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L320)
  */
 export interface DivisionPiece {
     title: string;
@@ -340,7 +359,7 @@ export interface DivisionPiece {
  * `alwaysAllowed` entry already covers the line, which patterns and card an overlap was found against,
  * which criterion IDs collide or which section had text but no bullets) rather than splitting them
  * into fields a client would have to reassemble into the same sentence.
- * generated from [LintFinding](file://./../../../../apps/api/data/contracts/board.ck#L344)
+ * generated from [LintFinding](file://./../../../../apps/api/data/contracts/board.ck#L372)
  */
 export interface LintFinding {
     kind: 'command' | 'alwaysAllowed' | 'scopeConflict' | 'acceptanceCriteria';
@@ -370,11 +389,30 @@ export interface CardUsage {
 }
 
 /**
+ * `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
+ * `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
+ * (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
+ * outcome — a branch that exists but changed nothing — from the 400 below, which means no branch
+ * was ever cut at all.
+ * generated from [CardDiff](file://./../../../../apps/api/data/contracts/board.ck#L209)
+ */
+export interface CardDiff {
+    base: string;
+    files: CardDiffFile[];
+    /**
+     * True once the response's total patch budget (2 MB) was spent and at least one later file's
+     * patch was left out — distinct from an individual file's own `truncated`, which can be true
+     * while this stays false.
+     */
+    truncated: boolean;
+}
+
+/**
  * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a
  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
  * spend, not this endpoint's.
- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L308)
+ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L336)
  */
 export interface CardDivision {
     /**
@@ -391,7 +429,7 @@ export interface CardDivision {
  * after being shown what was reported and given the chance to add to it. The endpoint does not go
  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
  * acts on.
- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L320)
+ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L348)
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
@@ -434,7 +472,7 @@ export interface MergeResult extends CardDetail {
  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
  * sentence, not a plan with all six headings filled in.
- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L328)
+ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L356)
  */
 export interface SplitResult {
     origin: CardDetail;

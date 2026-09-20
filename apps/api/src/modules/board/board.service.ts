@@ -3,7 +3,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery } from '../../generated/board.js';
+import type { CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -145,5 +145,30 @@ export class BoardService {
             throw err;
         }
         return this.eventLog.usageByStage(this.boardConfig.project, id);
+    }
+
+    /**
+     * Card 0265. `ready`'s human gate, read without a terminal: the card's branch diffed against
+     * `merge-base(main, branch)`, the same range `wilson card diff` already uses
+     * (`WorktreeManager.patchSinceFork`'s own doc comment has the reasoning). The 404 here is "no
+     * such card", the same guard `getById` makes; the 400 is `patchSinceFork`'s own refusal — a
+     * card whose branch has never been cut — carried through unchanged rather than re-derived here.
+     */
+    async diff(id: string): Promise<CardDiff> {
+        let card: Card;
+        try {
+            card = await this.boardRepository.read(id);
+        } catch (err) {
+            if (err instanceof CardNotFoundError) throw httpError(404);
+            throw err;
+        }
+
+        const branch = this.worktrees.resolveBranch(card);
+        const result = await this.worktrees.patchSinceFork(branch, 'main');
+        if (!result.ok) {
+            throw httpError(400).withDetails({ reason: result.reason });
+        }
+
+        return { base: result.base, files: result.files, truncated: result.truncated };
     }
 }

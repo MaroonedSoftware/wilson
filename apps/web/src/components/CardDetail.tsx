@@ -2,11 +2,12 @@ import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select,
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardColumns, CardDetail, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardDiff, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
+import { DiffPane } from '#src/components/DiffPane.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
@@ -412,6 +413,9 @@ export function CardDetailView({
     usageError,
     columns,
     columnsError,
+    diff,
+    diffError,
+    onDiffTabOpen,
     project,
 }: {
     card: CardDetail;
@@ -431,6 +435,13 @@ export function CardDetailView({
     usageError: Error | null | undefined;
     columns: BoardColumns | undefined;
     columnsError: Error | null | undefined;
+    /** Card 0265: the card's branch diffed against its fork point (`GET .../diff`), from the query
+     * `ProjectCardDetailRoute` only enables once the Diff tab below is actually selected —
+     * `undefined` until then, exactly as `DiffPane` expects. */
+    diff: CardDiff | undefined;
+    diffError: Error | null | undefined;
+    /** Flips `ProjectCardDetailRoute`'s query `enabled`, the first time the Diff tab is selected. */
+    onDiffTabOpen: () => void;
     /** Card 0153: the project this card was reached under, threaded to `PlanningPanes` so the
      * planning stream (`usePlanTranscript`) names it. Card 0155: required rather than optional now
      * that `ProjectCardDetailRoute` is this view's only caller — the top-level `/cards/$cardId` route
@@ -503,13 +514,29 @@ export function CardDetailView({
             {card.stage === 'planning' || card.stage === 'parking-lot' ? (
                 <PlanningPanes card={card} project={project} />
             ) : (
-                <Stack gap={6}>
-                    <Group justify="space-between" align="center">
-                        <Title order={4}>Plan</Title>
-                        <EditBodyControl card={card} />
-                    </Group>
-                    <Markdown body={card.body} />
-                </Stack>
+                // Card 0265: a Diff tab beside the plan, on the same screen as `MergeControl` above —
+                // the whole `ready` gate in one place instead of the plan here and the code only in a
+                // terminal (`wilson card diff`). `onChange` fires `onDiffTabOpen` every time "diff" is
+                // selected, not only the first time; `ProjectCardDetailRoute`'s `enabled` flag it sets
+                // only ever turns one way, so a re-selection after it's already true is a no-op there.
+                <Tabs defaultValue="plan" onChange={value => value === 'diff' && onDiffTabOpen()}>
+                    <Tabs.List>
+                        <Tabs.Tab value="plan">Plan</Tabs.Tab>
+                        <Tabs.Tab value="diff">Diff</Tabs.Tab>
+                    </Tabs.List>
+                    <Tabs.Panel value="plan" pt="sm">
+                        <Stack gap={6}>
+                            <Group justify="space-between" align="center">
+                                <Title order={4}>Plan</Title>
+                                <EditBodyControl card={card} />
+                            </Group>
+                            <Markdown body={card.body} />
+                        </Stack>
+                    </Tabs.Panel>
+                    <Tabs.Panel value="diff" pt="sm">
+                        <DiffPane diff={diff} error={diffError} />
+                    </Tabs.Panel>
+                </Tabs>
             )}
 
             <Divider />
