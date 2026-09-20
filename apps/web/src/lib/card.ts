@@ -1,3 +1,48 @@
+/** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
+const BULLET_MARKER = /^\s*[-*+]\s*/;
+
+/**
+ * Split a plan-contract section into its bullets.
+ *
+ * Mirrors `splitBullets` in the API (`apps/api/src/modules/board/card.ts`) — the web keeps its own
+ * deliberate copy rather than importing across the app/api boundary. Same continuation rule: a
+ * non-blank line without a marker of its own continues the bullet above it, joined with a single
+ * space, so a criterion wrapped across several lines reads as one sentence. Same blank-line
+ * boundary: a blank line ends the current bullet, so two bullets separated by one never join. A
+ * section whose lines carry no bullet marker at all keeps one-item-per-line behaviour. Bullet
+ * markers and inline code backticks are stripped, and HTML comment lines dropped.
+ */
+const splitBullets = (raw: string): string[] => {
+    const lines = raw.split('\n');
+    const clean = (line: string) => line.replace(/`/g, '').trim();
+    const hasMarkers = lines.some(line => line.trim().length > 0 && BULLET_MARKER.test(line));
+
+    if (!hasMarkers) {
+        return lines.map(clean).filter(line => line.length > 0 && !line.startsWith('<!--'));
+    }
+
+    const items: string[] = [];
+    let current: string | undefined;
+
+    for (const line of lines) {
+        if (line.trim().length === 0) {
+            if (current !== undefined) items.push(current);
+            current = undefined;
+            continue;
+        }
+        if (line.trim().startsWith('<!--')) continue;
+        if (BULLET_MARKER.test(line)) {
+            if (current !== undefined) items.push(current);
+            current = clean(line.replace(BULLET_MARKER, ''));
+        } else {
+            const cleaned = clean(line);
+            current = current === undefined ? cleaned : `${current} ${cleaned}`;
+        }
+    }
+    if (current !== undefined) items.push(current);
+    return items.filter(item => item.length > 0);
+};
+
 /**
  * The globs listed under a card's "Files in scope" section, as plain strings.
  *
@@ -7,15 +52,7 @@
  */
 export const filesInScope = (sectionText: string | undefined): string[] => {
     if (!sectionText) return [];
-    return sectionText
-        .split('\n')
-        .map(line =>
-            line
-                .replace(/^\s*[-*+]\s*/, '')
-                .replace(/`/g, '')
-                .trim(),
-        )
-        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+    return splitBullets(sectionText);
 };
 
 /** A leading `AC1:`, `AC-1:` or `AC1.` token on a bullet, normalized to `AC<n>`. */
@@ -28,20 +65,12 @@ const ACCEPTANCE_CRITERION_ID = /^AC-?(\d+)[:.]\s*(.*)$/;
  * `filesInScope` above already follows: the web keeps its own deliberate copy rather than importing
  * across the app/api boundary. Same ID rule: a leading `AC1:`, `AC-1:` or `AC1.` token on a bullet is
  * its ID, normalized to `AC<n>`; a bullet without one gets a positional `AC<n>` from its order among
- * the section's bullets. Same bullet stripping as `filesInScope`: markers and inline code backticks
- * are stripped, and blank lines and HTML comments are dropped, before IDs are assigned.
+ * the section's bullets. Same bullet stripping as `filesInScope`, via `splitBullets`, before IDs are
+ * assigned.
  */
 export const acceptanceCriteria = (sectionText: string | undefined): { id: string; text: string }[] => {
     if (!sectionText) return [];
-    const bullets = sectionText
-        .split('\n')
-        .map(line =>
-            line
-                .replace(/^\s*[-*+]\s*/, '')
-                .replace(/`/g, '')
-                .trim(),
-        )
-        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+    const bullets = splitBullets(sectionText);
 
     return bullets.map((bulletText, index) => {
         const match = ACCEPTANCE_CRITERION_ID.exec(bulletText);
