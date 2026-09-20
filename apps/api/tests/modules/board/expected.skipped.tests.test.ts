@@ -61,4 +61,21 @@ describe('expectedSkippedTests', () => {
     it('strips the bullet marker and inline code backticks the same way filesInScope does', () => {
         expect(expectedSkippedTests(card('* `Expected skipped tests: 5`'))).toBe(5);
     });
+
+    /*
+     * Card 0268: Constraints now goes through the same `splitBullets` as `filesInScope` and
+     * `acceptanceCriteria`, so a declaration whose number wraps onto its own line folds onto the
+     * bullet above it before the label regex ever sees it. On the pre-change tree, the label line
+     * and its number are two separate lines the old line-per-bullet split never joins, so neither
+     * one matches the label regex and this reads undefined.
+     */
+    it('AC4: reads a declaration whose number wraps onto its own continuation line', () => {
+        expect(expectedSkippedTests(card('- Expected skipped tests:\n  5'))).toBe(5);
+    });
+
+    // AC4: a single-line declaration parses exactly as before — this card only changes what
+    // happens when a bullet wraps.
+    it('AC4: still reads a plain single-line declaration unchanged', () => {
+        expect(expectedSkippedTests(card('- Expected skipped tests: 7'))).toBe(7);
+    });
 });

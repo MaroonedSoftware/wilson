@@ -96,4 +96,71 @@ describe('acceptanceCriteria', () => {
 
         expect(result).toEqual([{ id: 'AC1', text: 'does the thing' }]);
     });
+
+    /*
+     * Card 0268: a criterion whose text wraps across lines used to parse as one bullet per line,
+     * each continuation line minting its own positional ID that could collide with a real one
+     * (the bug behind cards 0265 and 0266's false-positive review failures). `splitBullets` now
+     * folds a non-blank, markerless continuation onto the bullet above it. This fails on the
+     * pre-change tree, which reads three separate criteria here instead of one.
+     */
+    it('AC1: folds a criterion wrapped over three lines into one, its text the lines joined with single spaces', () => {
+        const result = acceptanceCriteria(card('- AC1: does the thing across\n  several lines that\n  all wrap'));
+
+        expect(result).toEqual([{ id: 'AC1', text: 'does the thing across several lines that all wrap' }]);
+    });
+
+    // AC2: seven explicitly-numbered criteria, several wrapped, still parse as exactly seven —
+    // every ID stays the explicit one on the bullet, not a positional count inflated by
+    // continuation lines. Fails on the pre-change tree, which reads more than seven bullets here.
+    it('AC2: parses seven explicitly numbered criteria as seven, whatever the wrapping, minting no positional id', () => {
+        const raw = [
+            '- AC1: first criterion that',
+            '  wraps onto a second line',
+            '- AC2: second criterion',
+            '- AC3: third criterion that',
+            '  also wraps here',
+            '- AC4: fourth criterion',
+            '- AC5: fifth criterion',
+            '- AC6: sixth criterion',
+            '- AC7: seventh criterion',
+        ].join('\n');
+
+        const result = acceptanceCriteria(card(raw));
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first criterion that wraps onto a second line' },
+            { id: 'AC2', text: 'second criterion' },
+            { id: 'AC3', text: 'third criterion that also wraps here' },
+            { id: 'AC4', text: 'fourth criterion' },
+            { id: 'AC5', text: 'fifth criterion' },
+            { id: 'AC6', text: 'sixth criterion' },
+            { id: 'AC7', text: 'seventh criterion' },
+        ]);
+    });
+
+    // AC3: a blank line always ends a bullet, even when what follows looks like it could continue
+    // one — it starts a fresh bullet instead of joining the one before the gap. Fails on the
+    // pre-change tree, which reads four criteria here (one per non-blank line) instead of two.
+    it('AC3: never joins a bullet across a blank line, even when the next lines carry no marker of their own', () => {
+        const raw = '- AC1: first bullet spans\n  two lines here\n\n  and this separate paragraph\n  should be its own item';
+
+        const result = acceptanceCriteria(card(raw));
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first bullet spans two lines here' },
+            { id: 'AC2', text: 'and this separate paragraph should be its own item' },
+        ]);
+    });
+
+    // AC3 (second half): a section with no bullet marker at all keeps one item per line — the
+    // shape `Files in scope`'s bare-path lists rely on, and unchanged by this card.
+    it('AC3: keeps one item per line when the section carries no bullet marker at all', () => {
+        const result = acceptanceCriteria(card('first line, no marker\nsecond line, no marker'));
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first line, no marker' },
+            { id: 'AC2', text: 'second line, no marker' },
+        ]);
+    });
 });
