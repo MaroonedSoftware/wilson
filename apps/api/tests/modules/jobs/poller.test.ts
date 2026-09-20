@@ -887,6 +887,135 @@ describe('Poller start/stop', () => {
         await poller.stop();
     });
 
+    /**
+     * Card 0257: on 2026-09-19 a database outage took the interval read down with it — it sat
+     * outside any `try`, so a rejected `settings.get` became an unhandled rejection that killed the
+     * daemon. These drive the real `start()`/`stop()` surface (not the private `loop()` directly) so
+     * a regression back to the old, unprotected read shows up exactly as it did in production: the
+     * loop never reaches its first `delay()` call at all, and every `vi.waitFor` below times out.
+     */
+    describe('the interval read survives a database outage (card 0257)', () => {
+        it('AC1: a settings store whose get() always rejects logs each failure, waits the default interval, and keeps calling tick', async () => {
+            const boom = new Error('ECONNREFUSED');
+            const settings = {
+                get: vi.fn(async () => {
+                    throw boom;
+                }),
+                set: vi.fn(async () => undefined),
+            } as unknown as SettingsStore;
+            const { poller, board, logger } = buildPoller([card('0001', 'implementing')], { settings });
+
+            poller.start();
+            await vi.waitFor(() =>
+                expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            );
+            expect(logger.error).toHaveBeenCalledWith(boom);
+
+            releaseTick();
+            await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
+
+            // A second failing iteration behaves exactly like the first — logs again, waits the
+            // default again — rather than busy-looping or giving up after a single retry.
+            await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+            expect(delayMock).toHaveBeenLastCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+            expect(logger.error).toHaveBeenCalledTimes(2);
+
+            releaseTick();
+            await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(2));
+
+            await poller.stop();
+        });
+
+        it('AC2: a read that fails after a successful 5000ms read falls back to that last known-good value, not the default', async () => {
+            const boom = new Error('ECONNREFUSED');
+            const settings = {
+                get: vi.fn().mockResolvedValueOnce(5_000).mockRejectedValueOnce(boom),
+                set: vi.fn(async () => undefined),
+            } as unknown as SettingsStore;
+            const { poller, logger } = buildPoller([], { settings });
+
+            poller.start();
+            await vi.waitFor(() =>
+                expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            );
+
+            // The wait elapses, the tick after it runs, and loop() reads the setting again — this
+            // time it rejects, and the fallback must be 5000 (the last known-good value), not
+            // POLLER_INTERVAL_MS_DEFAULT.
+            releaseTick();
+            await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+            expect(delayMock).toHaveBeenLastCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+            expect(logger.error).toHaveBeenCalledWith(boom);
+
+            await poller.stop();
+        });
+
+        it('AC3: a read that fails and then recovers uses the freshly read value on the very next iteration', async () => {
+            const boom = new Error('ECONNREFUSED');
+            const settings = {
+                get: vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(7_000),
+                set: vi.fn(async () => undefined),
+            } as unknown as SettingsStore;
+            const { poller } = buildPoller([], { settings });
+
+            poller.start();
+            // Never having read a good value yet, the first failure falls back to the default.
+            await vi.waitFor(() =>
+                expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            );
+
+            releaseTick();
+            await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+            expect(delayMock).toHaveBeenLastCalledWith(7_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+            await poller.stop();
+        });
+
+        it('AC4: aborting mid-wait during a failing settings read still returns from stop() immediately, without waiting out a retry cycle', async () => {
+            const settings = {
+                get: vi.fn(async () => {
+                    throw new Error('ECONNREFUSED');
+                }),
+                set: vi.fn(async () => undefined),
+            } as unknown as SettingsStore;
+            const { poller, board } = buildPoller([], { settings });
+
+            poller.start();
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+
+            // If stop() had to wait out a whole retry cycle (another failing read plus another
+            // delay) instead of returning as soon as the in-flight wait aborts, this would hang past
+            // the test's own timeout rather than resolving.
+            await expect(poller.stop()).resolves.toBeUndefined();
+
+            expect(board.list).not.toHaveBeenCalled();
+        });
+
+        it('AC5: repeated rejected settings reads across several iterations never reject the loop; stop() still resolves cleanly', async () => {
+            const settings = {
+                get: vi.fn(async () => {
+                    throw new Error('ECONNREFUSED');
+                }),
+                set: vi.fn(async () => undefined),
+            } as unknown as SettingsStore;
+            const { poller, board } = buildPoller([], { settings });
+
+            poller.start();
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            releaseTick();
+            await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(1));
+            releaseTick();
+            await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(2));
+            releaseTick();
+            await vi.waitFor(() => expect(board.list).toHaveBeenCalledTimes(3));
+
+            // Were a rejected settings read able to escape loop() as an unhandled rejection, it would
+            // have already surfaced by now — either as a rejection from stop() below, or as a process
+            // warning this run captures.
+            await expect(poller.stop()).resolves.toBeUndefined();
+        });
+    });
+
     it('a subsequent start() after stop() begins ticking again rather than staying blocked forever', async () => {
         const { poller, board } = buildPoller([card('0001', 'implementing')]);
 
