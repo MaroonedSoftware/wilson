@@ -1,5 +1,5 @@
 import { readFile, rm, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { createSdkMcpServer, query, tool, type CanUseTool, type HookCallback, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
@@ -498,6 +498,39 @@ export class CliStageAgent extends StageAgent {
                 // exists so a run still terminates if that local accounting is ever wrong.
                 maxTurns: stage.maxSteps * 2 + 5,
                 ...(stage.maxBudgetUsd !== undefined ? { maxBudgetUsd: stage.maxBudgetUsd } : {}),
+                // Card 0260: off unless `stage.sandbox` resolved true (`findStage`, `stage.config.ts`
+                // — the stage's own override or the project-wide default, whichever is set). Off is
+                // the default everywhere today, and stays byte-for-byte the same `query()` call this
+                // adapter has always made: no `sandbox` key at all, not one with `enabled: false`.
+                //
+                // On, the SDK's own OS-level sandbox bounds this process independent of the tool
+                // guard above — the reason that matters (card 0256): on some engine builds a tool
+                // call reaches the process without `canUseTool`/the `PreToolUse` hook ever being
+                // consulted, and a sandbox still bounds it regardless of why the guard was skipped.
+                // `failIfUnavailable: true` is the SDK's own default, named here so it reads as a
+                // decision this adapter relies on rather than an omission: a host without sandbox
+                // support fails the stage loudly instead of silently running it unsandboxed.
+                // `autoAllowBashIfSandboxed: false` keeps the command allowlist and the guard above
+                // deciding every Bash call exactly as they do unsandboxed — being sandboxed must not
+                // itself pre-approve a command. `filesystem.allowWrite` is exactly the two
+                // directories this run legitimately writes: the worktree, and this card's own
+                // directory under `runRoot` (`dirname(planPath)` — `stage.dispatcher.ts`'s
+                // `materializePlan`/`materializeLearnings` write `plan.md` and `learnings.md` there).
+                // `network.strictAllowlist: true` means an empty `allowedDomains` is no egress at
+                // all, not a wildcard; `stage.sandboxAllowedDomains` is the project's configured list
+                // (`ProjectStagesSchema.sandbox.allowedDomains`), copied onto this stage by
+                // `findStage` since this adapter never sees the project's own config directly.
+                ...(stage.sandbox
+                    ? {
+                          sandbox: {
+                              enabled: true,
+                              failIfUnavailable: true,
+                              autoAllowBashIfSandboxed: false,
+                              filesystem: { allowWrite: [context.worktreeRoot, dirname(planPath)] },
+                              network: { allowedDomains: stage.sandboxAllowedDomains, strictAllowlist: true },
+                          },
+                      }
+                    : {}),
                 abortController,
             },
         });
