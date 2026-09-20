@@ -26,6 +26,10 @@ const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
     scopeViolation: 'widen',
     alwaysAllowed: [],
     deny: [],
+    // Card 0260: findStage now reads stages.sandbox.enabled unconditionally when resolving a
+    // stage — this fixture predates that field, and without it every call below that reaches
+    // findStage (anything past the terminal/parking-lot/manual checks) throws on `undefined.enabled`.
+    sandbox: { enabled: false, allowedDomains: [] },
     stages: overrides.length ? overrides.map(o => makeStage(o)) : [makeStage()],
 });
 

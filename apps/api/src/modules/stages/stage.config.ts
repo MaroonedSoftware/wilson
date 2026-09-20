@@ -74,6 +74,31 @@ export const StageConfigSchema = z.object({
      */
     scopeViolation: z.enum(['widen', 'kickback']).optional(),
     /**
+     * Override of the project-wide `sandbox.enabled` (`ProjectStagesSchema`, below), for this stage
+     * alone — same "stage's own value wins when present" pattern as `scopeViolation` above. Absent
+     * means "use the project's value". `findStage` resolves the two into this very field, to a plain
+     * `boolean`, so a caller reading a stage found through it never needs the project's own
+     * `ProjectStages` on the side — in particular `cli.stage.agent.ts` (card 0260's other file in
+     * scope), which only ever sees the one `StageConfig` this function returns.
+     *
+     * Off by default everywhere: a project that never sets `sandbox` anywhere resolves every stage's
+     * `sandbox` to `false`, and `cli.stage.agent.ts`'s `query()` call stays exactly what it is today.
+     * Card 0256 is why a boundary matters at all, beyond this project's own tool guard: on some
+     * engine builds a tool call can reach the process without the guard ever being consulted, and an
+     * OS-level sandbox bounds the process regardless of why the guard was skipped.
+     */
+    sandbox: z.boolean().optional(),
+    /**
+     * The project's `sandbox.allowedDomains` (`ProjectStagesSchema`, below), copied onto every stage
+     * by `findStage`. There is no per-stage override for the domain list itself — only for whether
+     * sandboxing is on at all (`sandbox`, above) — so this is never meaningfully authored on a
+     * stage's own config; `findStage` overwrites it from the project-wide block on every load, the
+     * same way it already does for `verifier`. Read by `cli.stage.agent.ts`, which needs the
+     * project's configured domains but, like `sandbox` above, never sees the project's own
+     * `ProjectStages` to read them from directly.
+     */
+    sandboxAllowedDomains: z.array(z.string()).default([]),
+    /**
      * Run once at worktree creation, before the agent starts.
      *
      * A fresh worktree has no node_modules, and without this the agent spends its budget installing
@@ -229,6 +254,29 @@ export const ProjectStagesSchema = z.object({
     /** Machine-owned paths no plan should have to mention. */
     alwaysAllowed: z.array(z.string()).default([]),
     deny: z.array(z.string()).default([]),
+    /**
+     * Project-wide sandbox default (card 0260). `enabled` turns on the SDK's own OS-level sandbox
+     * for the `cli` engine's `query()` call in `cli.stage.agent.ts` — filesystem and network limits
+     * enforced by the OS underneath this project's own tool guard, not instead of it. Card 0256 is
+     * why that matters: on some engine builds a tool call can skip the guard's own consultation
+     * entirely, and a sandbox bounds the process regardless of why the guard was skipped.
+     *
+     * A stage's own `sandbox` (`StageConfigSchema`, above) overrides `enabled` alone, exactly as a
+     * stage's own `scopeViolation` overrides this schema's — there is no per-stage override for
+     * `allowedDomains`; every sandboxed stage in the project shares the one list.
+     *
+     * Off, with no domains, until an operator turns it on for a stage they have measured
+     * (`wilson stages edit` — this card does not touch the live config). Strict, unlike the rest of
+     * this schema's own blocks: an unrecognised key here is almost certainly a typo for one of the
+     * two real ones, and failing config validation loudly beats silently doing nothing with it.
+     */
+    sandbox: z
+        .object({
+            enabled: z.boolean().default(false),
+            allowedDomains: z.array(z.string()).default([]),
+        })
+        .strict()
+        .default({ enabled: false, allowedDomains: [] }),
     stages: z.array(StageConfigSchema),
 });
 
@@ -369,5 +417,14 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
             `no stage named "${name}" in the stage config (have: ${stages.stages.map(s => s.name).join(', ')})`,
         );
     }
-    return { ...stage, verifier: stage.verifier ?? stage.name };
+    return {
+        ...stage,
+        verifier: stage.verifier ?? stage.name,
+        // Card 0260: the stage's own `sandbox` wins when set, otherwise the project-wide default
+        // applies — resolved here, not at `stage.dispatcher.ts` the way `scopeViolation` is, because
+        // `cli.stage.agent.ts` (this card's other file in scope) only ever receives the one
+        // `StageConfig` this function returns, never the `stages: ProjectStages` this call took in.
+        sandbox: stage.sandbox ?? stages.sandbox.enabled,
+        sandboxAllowedDomains: stages.sandbox.allowedDomains,
+    };
 };
