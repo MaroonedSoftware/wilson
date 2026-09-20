@@ -40,10 +40,20 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
 // needs its own. Mirrors `list.command.test.ts`'s `columns()`.
 const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
+/**
+ * Card 0263: `run()` always fetches `GET .../usage` right after the card's recent events, whether
+ * or not the card has any dependencies to check — so every test below that runs the command to
+ * completion needs one more queued response than it did before this card. Defaults to no usage
+ * recorded, which `printUsage` renders as nothing at all, keeping every test that isn't specifically
+ * about usage output unaffected by it.
+ */
+const noUsage = () => jsonResponse({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+
 describe('wilson card show', () => {
     it('fetches the card and its recent events, and prints the plain-text view', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
         fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001');
@@ -66,6 +76,7 @@ describe('wilson card show', () => {
             jsonResponse(detail({ branch: 'card/0001', dependsOn: ['0002'], needsHuman: true, needsHumanReason: 'stuck' })),
         );
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'implementing' })])); // listCards
         fetchMock.mockResolvedValueOnce(columns()); // listBoardColumns
         const { ctx, logger } = buildCtx();
@@ -74,10 +85,10 @@ describe('wilson card show', () => {
 
         // `Promise.all([api.board.listCards(), api.board.listBoardColumns()])` calls both array
         // elements synchronously in that order, so the mock queue reflects it: cards first, columns
-        // second, after the card and its events.
-        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards');
-        expect(urlOf(fetchMock.mock.calls[2]!)).not.toContain('/api/cards/0001');
-        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/stages');
+        // second, after the card, its events and its usage.
+        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/cards');
+        expect(urlOf(fetchMock.mock.calls[3]!)).not.toContain('/api/cards/0001');
+        expect(urlOf(fetchMock.mock.calls[4]!)).toContain('/api/stages');
 
         expect(logger.info).toHaveBeenCalledWith('branch:   card/0001');
         expect(logger.info).toHaveBeenCalledWith('blocked:  0002');
@@ -87,6 +98,7 @@ describe('wilson card show', () => {
     it('names only the unmerged dependency when one dependency has merged and one has not — card 0154', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0155', '0162'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(
             jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]),
         );
@@ -105,6 +117,7 @@ describe('wilson card show', () => {
     it('shows no blocked: line at all when every dependency has merged', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'merged' })]));
         fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
@@ -118,6 +131,7 @@ describe('wilson card show', () => {
     it('shows a dropped or poisoned dependency as one that will never clear, distinct from one still waiting', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002', '0003'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(
             jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]),
         );
@@ -132,12 +146,15 @@ describe('wilson card show', () => {
     it('issues no extra request when the card names no dependencies', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: [] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage()); // usage
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001');
 
         expect(result).toBe(0);
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // Card 0263: the card, its events and its usage — three requests now, not two, since
+        // `run()` always fetches usage whether or not there is a dependency to check.
+        expect(fetchMock).toHaveBeenCalledTimes(3);
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
         expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
     });
@@ -145,6 +162,7 @@ describe('wilson card show', () => {
     it('reports zero files in scope, without throwing, when the plan genuinely has no Files in scope section', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ sections: { goal: 'do it' } })));
         fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001');
@@ -158,6 +176,7 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(
             jsonResponse([{ id: 'e1', type: 'transition.written', stage: 'backlog', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' }]),
         );
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
@@ -179,6 +198,7 @@ describe('wilson card show', () => {
                 },
             ]),
         );
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
@@ -195,6 +215,7 @@ describe('wilson card show', () => {
                 { id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' },
             ]),
         );
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
@@ -207,6 +228,7 @@ describe('wilson card show', () => {
     it('prints a single JSON object with --json, dropping retries/planVersionId (no longer on the wire contract)', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ branch: 'card/0001' })));
         fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001', { json: true });
@@ -225,6 +247,43 @@ describe('wilson card show', () => {
             needsHuman: false,
             needsHumanReason: null,
         });
+    });
+
+    // Card 0263, AC6: `wilson card show` prints the same per-stage and total token counts the
+    // card page's Usage table renders.
+    it('prints a usage line per stage plus a total, from GET .../usage', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({
+                total: { attempts: 3, inputTokens: 300, outputTokens: 50 },
+                stages: [
+                    { stage: 'implementing', attempts: 2, inputTokens: 200, outputTokens: 40 },
+                    { stage: 'testing', attempts: 1, inputTokens: 100, outputTokens: 10 },
+                ],
+            }),
+        );
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0001/usage');
+        expect(logger.info).toHaveBeenCalledWith('\nusage:');
+        expect(logger.info).toHaveBeenCalledWith('  implementing: 2 attempt(s), 200 in / 40 out');
+        expect(logger.info).toHaveBeenCalledWith('  testing: 1 attempt(s), 100 in / 10 out');
+        expect(logger.info).toHaveBeenCalledWith('  total: 3 attempt(s), 300 in / 50 out');
+    });
+
+    it('prints no usage section at all for a card with no usage recorded yet', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
+        fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
+        fetchMock.mockResolvedValueOnce(noUsage());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        expect(messages.some((m: string) => typeof m === 'string' && m.includes('usage:'))).toBe(false);
     });
 
     it('prints the API-supplied reason and exits 1 for a card that does not exist, rather than an HTTP status line', async () => {

@@ -14,6 +14,20 @@ export interface CardEventRow {
     createdAt: DateTime;
 }
 
+/** One stage's share of {@link CardUsage} — see {@link EventLog.usageByStage}. */
+export interface CardStageUsage {
+    stage: string;
+    attempts: number;
+    inputTokens: number;
+    outputTokens: number;
+}
+
+/** What a card cost, per stage and in total — see {@link EventLog.usageByStage}. */
+export interface CardUsage {
+    total: { attempts: number; inputTokens: number; outputTokens: number };
+    stages: CardStageUsage[];
+}
+
 /**
  * `card.over-budget` (card 0018) belongs in the closed `CardEventType` union alongside
  * `stage.poisoned`, but `card.event.ts` is outside this card's "Files in scope" — a conflict a
@@ -150,5 +164,53 @@ export class EventLog {
             .executeTakeFirstOrThrow();
 
         return Number(row.total);
+    }
+
+    /**
+     * What a card cost, per stage and in total — for reading, not billing. Every stage on this
+     * board runs through the subscription-billed `cli` adapter, which reports no `total_cost_usd`
+     * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
+     * price.
+     *
+     * One grouped query over `stage.passed`/`stage.failed` rows, keyed by `stage`. `stages` comes
+     * back in the order each stage was first run — `min(id)` ascending, since `id` is a `BIGSERIAL`
+     * assigned in insertion order (`append`) — not alphabetically. An event whose payload has no
+     * `usage` still counts as an attempt, at zero tokens, so `attempts` can never disagree with what
+     * `tail` shows for the same card: nothing here is silently skipped.
+     */
+    async usageByStage(project: string, cardId: string): Promise<CardUsage> {
+        const rows = await this.db
+            .selectFrom('runner.cardEvents')
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .where('type', 'in', ['stage.passed', 'stage.failed'])
+            .select([
+                'stage',
+                sql<string>`count(*)`.as('attempts'),
+                sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
+                sql<string>`min(id)`.as('firstId'),
+            ])
+            .groupBy('stage')
+            .orderBy('firstId', 'asc')
+            .execute();
+
+        const stages: CardStageUsage[] = rows.map(row => ({
+            stage: row.stage ?? '',
+            attempts: Number(row.attempts),
+            inputTokens: Number(row.inputTokens),
+            outputTokens: Number(row.outputTokens),
+        }));
+
+        const total = stages.reduce(
+            (acc, stage) => ({
+                attempts: acc.attempts + stage.attempts,
+                inputTokens: acc.inputTokens + stage.inputTokens,
+                outputTokens: acc.outputTokens + stage.outputTokens,
+            }),
+            { attempts: 0, inputTokens: 0, outputTokens: 0 },
+        );
+
+        return { total, stages };
     }
 }

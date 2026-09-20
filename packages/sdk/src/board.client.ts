@@ -4,6 +4,7 @@ import type {
     CardDivision,
     CardEvent,
     CardSummary,
+    CardUsage,
     CardVersion,
     CreateCardRequest,
     CreatePlanCommentRequest,
@@ -345,6 +346,19 @@ export class BoardClient {
             method: 'GET',
         });
         return await parseJson<CardEvent[]>(result);
+    }
+
+    /**
+     * @name Get card usage
+     * @description Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+     * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+     * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+     * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+     * surface gives.
+     */
+    async getCardUsage(id: string): Promise<CardUsage> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/usage`, { method: 'GET' });
+        return await parseJson<CardUsage>(result);
     }
 
     /** @name List card versions */

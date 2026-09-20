@@ -3,7 +3,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { CardEvent, CardDetail, CardSummary, CardVersion, ListQuery } from '../../generated/board.js';
+import type { CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -128,5 +128,22 @@ export class BoardService {
 
     async versions(id: string, query: ListQuery): Promise<CardVersion[]> {
         return this.boardRepository.versions(id, clampLimit(query.limit));
+    }
+
+    /**
+     * Card 0263. What `id` has cost, per stage and in total — `EventLog.usageByStage`'s own doc
+     * comment has the shape and why it is tokens, not dollars. The 404 here is "no such card", the
+     * same guard `getById` makes; a card that exists but has never run a stage is not that — it gets
+     * `usageByStage`'s zeros in an ordinary 200, same as `events` returns an empty array rather than
+     * refusing a card with no history yet.
+     */
+    async usage(id: string): Promise<CardUsage> {
+        try {
+            await this.boardRepository.read(id);
+        } catch (err) {
+            if (err instanceof CardNotFoundError) throw httpError(404);
+            throw err;
+        }
+        return this.eventLog.usageByStage(this.boardConfig.project, id);
     }
 }
