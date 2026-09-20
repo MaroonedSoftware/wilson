@@ -406,4 +406,75 @@ describe('BoardService', () => {
             expect(await service.versions('0001', {})).toEqual(versions);
         });
     });
+
+    // Card 0263. `usage` is a thin translation over `EventLog.usageByStage`, the same shape as
+    // `events` above — the 404 guard mirrors `getById`'s own (AC5), and a card that exists but has
+    // no usage recorded yet gets `usageByStage`'s zeros back in an ordinary 200 (AC4), not a refusal.
+    describe('usage', () => {
+        const zeroUsage = { total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] };
+
+        it('translates a missing card into a 404 rather than letting it become a 500', async () => {
+            const boardRepository = {
+                read: async () => {
+                    throw new CardNotFoundError('card 0001 does not exist');
+                },
+            } as unknown as BoardRepository;
+            const eventLog = { usageByStage: async () => zeroUsage } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await expect(service.usage('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('leaves any other error alone, rather than folding it into a 404', async () => {
+            const boom = new Error('database is unreachable');
+            const boardRepository = {
+                read: async () => {
+                    throw boom;
+                },
+            } as unknown as BoardRepository;
+            const eventLog = { usageByStage: async () => zeroUsage } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await expect(service.usage('0001')).rejects.toBe(boom);
+        });
+
+        it("reads usage for this board's project and the card that was actually found, not some other one", async () => {
+            const found = card('0007');
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            let seenArgs: [string, string] | undefined;
+            const eventLog = {
+                usageByStage: async (project: string, id: string) => {
+                    seenArgs = [project, id];
+                    return zeroUsage;
+                },
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await service.usage('0007');
+
+            expect(seenArgs).toEqual(['proj', '0007']);
+        });
+
+        it('returns whatever EventLog.usageByStage reports, unmapped, for a card with usage recorded', async () => {
+            const found = card('0001');
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const usage = {
+                total: { attempts: 3, inputTokens: 300, outputTokens: 50 },
+                stages: [{ stage: 'implementing', attempts: 3, inputTokens: 300, outputTokens: 50 }],
+            };
+            const eventLog = { usageByStage: async () => usage } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            expect(await service.usage('0001')).toEqual(usage);
+        });
+
+        it('returns zeros and an empty stages list, in a normal resolve rather than a 404, for a card with no usage events', async () => {
+            const found = card('0001');
+            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const eventLog = { usageByStage: async () => zeroUsage } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            await expect(service.usage('0001')).resolves.toEqual(zeroUsage);
+        });
+    });
 });

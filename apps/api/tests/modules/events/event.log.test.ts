@@ -220,3 +220,117 @@ describe('EventLog.append publishing', () => {
         expect(notifications.some(n => n.project === project)).toBe(false);
     });
 });
+
+/**
+ * Card 0263. `usageByStage` reads real `stage.passed`/`stage.failed` rows back out of Postgres —
+ * the JSONB `payload->'usage'->>...` extraction and the `group by stage` / `order by min(id)`
+ * ordering are exactly the kind of behaviour a fake `db` would only prove agrees with itself about,
+ * the same reasoning `EventLog.append publishing` above already follows. Each test uses its own
+ * `uniqueProject()`/cardId pair, so no two tests' rows can be summed together by accident.
+ */
+describe('EventLog.usageByStage', () => {
+    let db: Kysely<DB>;
+
+    beforeAll(() => {
+        db = testDb();
+    });
+
+    afterAll(async () => {
+        await db.destroy();
+    });
+
+    // AC1: two implementing attempts and one review attempt come back as three attempts across
+    // two stages, with the token sums of their own events.
+    it('sums attempts and tokens across two attempts of one stage and one attempt of another', async () => {
+        const project = uniqueProject();
+        const cardId = '0001';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.failed',
+            payload: { usage: { inputTokens: 100, outputTokens: 20 } },
+        });
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 200, outputTokens: 30 } },
+        });
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'review',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 50, outputTokens: 10 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.total).toEqual({ attempts: 3, inputTokens: 350, outputTokens: 60 });
+        expect(usage.stages).toEqual([
+            { stage: 'implementing', attempts: 2, inputTokens: 300, outputTokens: 50 },
+            { stage: 'review', attempts: 1, inputTokens: 50, outputTokens: 10 },
+        ]);
+    });
+
+    // AC2: stages come back in the order each was first run — here "testing" runs before
+    // "implementing" — not alphabetically, which would report the opposite order.
+    it('orders stages by when each was first run, not alphabetically', async () => {
+        const project = uniqueProject();
+        const cardId = '0002';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'testing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 1, outputTokens: 1 } },
+        });
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.failed',
+            payload: { usage: { inputTokens: 1, outputTokens: 1 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages.map(stage => stage.stage)).toEqual(['testing', 'implementing']);
+    });
+
+    // AC3: a stage.passed/stage.failed event whose payload carries no usage at all still counts as
+    // an attempt, at zero tokens — it is not skipped, so attempts can never disagree with the event
+    // log's own count of passed/failed rows.
+    it('counts an event with no usage in its payload as an attempt at zero tokens', async () => {
+        const project = uniqueProject();
+        const cardId = '0003';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.failed', payload: {} });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, outputTokens: 0 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, outputTokens: 0 });
+    });
+
+    // AC4: a card with no stage.passed/stage.failed events gets zero totals and an empty stages
+    // list — including a card that does have *some* history, just none of the two counted types.
+    it('returns zero totals and an empty stages list for a card with no passed or failed events', async () => {
+        const project = uniqueProject();
+        const cardId = '0004';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.dispatched', payload: { attempt: 1 } });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    });
+});
