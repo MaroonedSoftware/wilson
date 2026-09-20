@@ -34,6 +34,22 @@ describe('filesInScope', () => {
     it('preserves order and duplicates as written in the plan', () => {
         expect(filesInScope('- apps/web/**\n- apps/web/**')).toEqual(['apps/web/**', 'apps/web/**']);
     });
+
+    /**
+     * Card 0269, mirroring 0268's `files.in.scope.test.ts` one-for-one: `filesInScope` now reads
+     * through the same `splitBullets` helper as `acceptanceCriteria` below, so a bullet whose
+     * pattern wraps onto a continuation line folds into one entry instead of minting an extra one
+     * per line. Fails on the pre-change tree, which read the continuation line as its own entry.
+     */
+    it('AC4: folds a bullet whose pattern wraps onto a continuation line into one entry', () => {
+        const raw = 'apps/web/src/lib/card.ts is described by prose\n  that continues on a second line';
+
+        expect(filesInScope(`- ${raw}`)).toEqual(['apps/web/src/lib/card.ts is described by prose that continues on a second line']);
+    });
+
+    it('AC4: still keeps one pattern per line when the section carries no bullet marker at all', () => {
+        expect(filesInScope('apps/web/src/a.ts\napps/web/src/b.ts')).toEqual(['apps/web/src/a.ts', 'apps/web/src/b.ts']);
+    });
 });
 
 /**
@@ -89,6 +105,64 @@ describe('acceptanceCriteria', () => {
         expect(acceptanceCriteria('- AC1: first.\n- second, unlabelled.')).toEqual([
             { id: 'AC1', text: 'first.' },
             { id: 'AC2', text: 'second, unlabelled.' },
+        ]);
+    });
+
+    /**
+     * Card 0269: mirrors 0268's continuation-line cases in `acceptance.criteria.test.ts` one-for-one
+     * (AC1-AC3 there map to the same-numbered ACs here), so the web copy folds a wrapped criterion
+     * the same way the API parser the runner enforces already does. Every case here fails on the
+     * pre-change tree, which read one bullet per non-blank line regardless of a marker.
+     */
+    it('AC1/AC2: folds a criterion wrapped over three lines into one, its text the lines joined with single spaces', () => {
+        const result = acceptanceCriteria('- AC1: does the thing across\n  several lines that\n  all wrap');
+
+        expect(result).toEqual([{ id: 'AC1', text: 'does the thing across several lines that all wrap' }]);
+    });
+
+    it('AC2: parses seven explicitly numbered criteria as seven, whatever the wrapping, minting no positional id', () => {
+        const raw = [
+            '- AC1: first criterion that',
+            '  wraps onto a second line',
+            '- AC2: second criterion',
+            '- AC3: third criterion that',
+            '  also wraps here',
+            '- AC4: fourth criterion',
+            '- AC5: fifth criterion',
+            '- AC6: sixth criterion',
+            '- AC7: seventh criterion',
+        ].join('\n');
+
+        const result = acceptanceCriteria(raw);
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first criterion that wraps onto a second line' },
+            { id: 'AC2', text: 'second criterion' },
+            { id: 'AC3', text: 'third criterion that also wraps here' },
+            { id: 'AC4', text: 'fourth criterion' },
+            { id: 'AC5', text: 'fifth criterion' },
+            { id: 'AC6', text: 'sixth criterion' },
+            { id: 'AC7', text: 'seventh criterion' },
+        ]);
+    });
+
+    it('AC3: never joins a bullet across a blank line, even when the next lines carry no marker of their own', () => {
+        const raw = '- AC1: first bullet spans\n  two lines here\n\n  and this separate paragraph\n  should be its own item';
+
+        const result = acceptanceCriteria(raw);
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first bullet spans two lines here' },
+            { id: 'AC2', text: 'and this separate paragraph should be its own item' },
+        ]);
+    });
+
+    it('AC3: keeps one item per line when the section carries no bullet marker at all', () => {
+        const result = acceptanceCriteria('first line, no marker\nsecond line, no marker');
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first line, no marker' },
+            { id: 'AC2', text: 'second line, no marker' },
         ]);
     });
 });
