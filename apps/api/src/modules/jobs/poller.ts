@@ -12,6 +12,7 @@ import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
+import { POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
 import { whyNotDispatchable } from './dispatchable.js';
 import { CardJobs } from './card.jobs.js';
 
@@ -87,6 +88,9 @@ import { CardJobs } from './card.jobs.js';
 export class Poller {
     private abort: AbortController | undefined;
     private loopPromise: Promise<void> | undefined;
+    // Last interval `loop` successfully read from `settings`, so a failing read has something better
+    // than `POLLER_INTERVAL_MS_DEFAULT` to fall back to. See `loop`'s own doc comment (card 0257).
+    private lastIntervalMs: number | undefined;
 
     constructor(
         private readonly board: BoardRepository,
@@ -121,11 +125,34 @@ export class Poller {
         this.loopPromise = undefined;
     }
 
+    /**
+     * Card 0257: on 2026-09-19 the machine slept, Postgres went away, and the daemon died on
+     * `ECONNREFUSED` from the interval read below — it sat outside any `try`, so a failing read there
+     * became an unhandled rejection that took the whole process down. The containers came back on
+     * their own the next morning; the daemon did not, and the board sat idle until someone restarted
+     * it by hand.
+     *
+     * The rule this loop already follows everywhere else — `tick`'s own doc comment: "one tick fails,
+     * log it, try again next interval" — now covers the interval read too, not just `tick` itself. A
+     * failing read is logged through `logger` (the same level `tick`'s catch uses) and falls back to
+     * `lastIntervalMs`, the last interval this loop successfully read, or `POLLER_INTERVAL_MS_DEFAULT`
+     * when it has never read one — so a database outage makes the poller wait and retry, never
+     * busy-loop, and never again takes the daemon with it. No reconnection logic here: kysely's pool
+     * reconnects on the next query once Postgres is back, which is why "keep ticking" is the whole
+     * fix.
+     */
     private async loop(signal: AbortSignal): Promise<void> {
         while (!signal.aborted) {
             // Read fresh on every iteration, not once at `start()` — card 0115's whole point.
             // A row written mid-run changes the wait about to start, not just the next process.
-            const intervalMs = await this.settings.get(POLLER_INTERVAL_MS);
+            let intervalMs: number;
+            try {
+                intervalMs = await this.settings.get(POLLER_INTERVAL_MS);
+                this.lastIntervalMs = intervalMs;
+            } catch (error) {
+                this.logger.error(error);
+                intervalMs = this.lastIntervalMs ?? POLLER_INTERVAL_MS_DEFAULT;
+            }
             try {
                 await delay(intervalMs, undefined, { signal });
             } catch {
