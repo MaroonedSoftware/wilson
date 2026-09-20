@@ -116,25 +116,66 @@ export const completeSections = (body: string): string => {
     return `${body.trimEnd()}\n\n${skeleton}`;
 };
 
+/** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
+const BULLET_MARKER = /^\s*[-*+]\s*/;
+
+/**
+ * Split a plan-contract section into its bullets.
+ *
+ * A line starting with a `-`, `*` or `+` marker begins a bullet — an indented marker still starts
+ * its own bullet, so a nested list item is never folded into the one above it. A non-blank line
+ * that follows without a marker of its own continues the bullet above it, joined with a single
+ * space so a criterion wrapped across several lines reads as one sentence. A blank line ends the
+ * current bullet: two bullets separated by a blank line never join.
+ *
+ * A section whose lines carry no bullet marker at all keeps today's one-item-per-line behaviour —
+ * the shape `Files in scope` relies on for a bare list of paths.
+ *
+ * Bullet markers and inline code backticks are stripped, and HTML comment lines dropped, same as
+ * every caller did before this split existed.
+ */
+const splitBullets = (raw: string): string[] => {
+    const lines = raw.split('\n');
+    const clean = (line: string) => line.replace(/`/g, '').trim();
+    const hasMarkers = lines.some(line => line.trim().length > 0 && BULLET_MARKER.test(line));
+
+    if (!hasMarkers) {
+        return lines.map(clean).filter(line => line.length > 0 && !line.startsWith('<!--'));
+    }
+
+    const items: string[] = [];
+    let current: string | undefined;
+
+    for (const line of lines) {
+        if (line.trim().length === 0) {
+            if (current !== undefined) items.push(current);
+            current = undefined;
+            continue;
+        }
+        if (line.trim().startsWith('<!--')) continue;
+        if (BULLET_MARKER.test(line)) {
+            if (current !== undefined) items.push(current);
+            current = clean(line.replace(BULLET_MARKER, ''));
+        } else {
+            const cleaned = clean(line);
+            current = current === undefined ? cleaned : `${current} ${cleaned}`;
+        }
+    }
+    if (current !== undefined) items.push(current);
+    return items.filter(item => item.length > 0);
+};
+
 /**
  * The globs a stage may write to, read from the `Files in scope` section.
  *
  * Globs, not paths, so a plan does not have to predict every file it will create. Bullet markers,
  * inline code backticks and blank lines are all stripped; anything else on a line is taken as a
- * pattern.
+ * pattern. A bullet's text may wrap across lines: `splitBullets` folds the continuation onto it.
  */
 export const filesInScope = (card: Card): string[] => {
     const raw = card.sections['Files in scope'];
     if (!raw) return [];
-    return raw
-        .split('\n')
-        .map(line =>
-            line
-                .replace(/^\s*[-*+]\s*/, '')
-                .replace(/`/g, '')
-                .trim(),
-        )
-        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+    return splitBullets(raw);
 };
 
 /** A leading `AC1:`, `AC-1:` or `AC1.` token on a bullet, normalized to `AC<n>`. */
@@ -169,15 +210,7 @@ const EXPECTED_SKIPPED_TESTS = /^Expected skipped tests:\s*(\d+)\b/i;
 export const expectedSkippedTests = (card: Card): number | undefined => {
     const raw = card.sections['Constraints'];
     if (!raw) return undefined;
-    const bullets = raw
-        .split('\n')
-        .map(line =>
-            line
-                .replace(/^\s*[-*+]\s*/, '')
-                .replace(/`/g, '')
-                .trim(),
-        )
-        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+    const bullets = splitBullets(raw);
 
     for (const bullet of bullets) {
         const match = EXPECTED_SKIPPED_TESTS.exec(bullet);
@@ -191,15 +224,7 @@ export const expectedSkippedTests = (card: Card): number | undefined => {
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
     const raw = card.sections['Acceptance criteria'];
     if (!raw) return [];
-    const bullets = raw
-        .split('\n')
-        .map(line =>
-            line
-                .replace(/^\s*[-*+]\s*/, '')
-                .replace(/`/g, '')
-                .trim(),
-        )
-        .filter(line => line.length > 0 && !line.startsWith('<!--'));
+    const bullets = splitBullets(raw);
 
     return bullets.map((bulletText, index) => {
         const match = ACCEPTANCE_CRITERION_ID.exec(bulletText);
