@@ -19,7 +19,10 @@ import { DryRunSettingService } from './dry.run.setting.service.js';
  * (card 0144), and whether a merge sends a card back to `review` when `main` moved under its files
  * since review ran (`RE_REVIEW_ON_MERGE`, card 0238 — read straight from `SettingsStore` by
  * `BoardWriteService.merge`, the same as `DRY_RUN_ENABLED`, so it has no `*SettingService` of its
- * own registered below).
+ * own registered below), and how many output tokens a project may spend on `card.stage` attempts in
+ * one day before dispatch pauses (`DAILY_OUTPUT_TOKEN_CEILING`, card 0264 — read straight from
+ * `SettingsStore` by `Poller` and `BoardWriteService.start`, the same as `RE_REVIEW_ON_MERGE`, so it
+ * too has no `*SettingService` of its own registered below).
  *
  * Listed before Jobs in `modules.ts` so a reader sees `PollerSettingService` (which needs `Poller`)
  * exist before the module that consumes it — `setup` only registers tokens, though, so the actual

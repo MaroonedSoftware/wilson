@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { Injectable } from 'injectkit';
+import { DateTime } from 'luxon';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
@@ -12,6 +13,7 @@ import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
+import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
 import { whyNotDispatchable } from './dispatchable.js';
 import { CardJobs } from './card.jobs.js';
@@ -214,6 +216,22 @@ export class Poller {
      * nothing to do. This runs forever, so an idle tick must be cheap and silent — a line per tick is
      * a log nobody reads.
      *
+     * Card 0264: before any of that, refuses to enqueue anything at all once this project has spent
+     * its `daily-output-token-ceiling` for the day — a poller left ticking against a card that keeps
+     * failing the same way otherwise spends that card's own budget one stage attempt at a time (card
+     * 0263's Goal). Checked once per project per tick, ahead of `nextCard`/`whyNotDispatchable`,
+     * because it is a question about the whole project's spend today, not about any one candidate. A
+     * ceiling of `0` (the coded default) skips `EventLog.outputTokensSince` entirely — the one read
+     * this adds, `SettingsStore.get`, still runs, but cheaply — so a project that has never set one
+     * pays nothing extra per tick and this changes no existing behaviour. `DateTime.now().startOf('day')`
+     * (luxon, this process's local zone) is "today" the same way an operator watching this daemon
+     * would read it; `outputTokensSince` compares straight against `createdAt`, stored in UTC, so
+     * this is the one place that has to mind the difference, not that method. Logged, when reached,
+     * at the same level `tick`'s own catch uses (`error`) rather than `info` — a project sitting at
+     * its ceiling for the rest of the day is not the silent kind of idle tick this method's own first
+     * line above describes, and every other project's tick this same daemon runs logs nothing extra
+     * at all.
+     *
      * Walks `nextCard.candidates` in order rather than stopping at the first one, so one card in a
      * manual stage — `wilson card next`'s honest answer for a human — cannot silently wedge the queue
      * behind it forever. It skips a candidate only for that one reason, plus one more added by card
@@ -229,6 +247,17 @@ export class Poller {
      */
     private async tickProject(): Promise<void> {
         try {
+            const ceiling = await this.settings.get(DAILY_OUTPUT_TOKEN_CEILING);
+            if (ceiling > 0) {
+                const spent = await this.events.outputTokensSince(this.boardConfig.project, DateTime.now().startOf('day'));
+                if (spent >= ceiling) {
+                    this.logger.error(
+                        `poller: ${this.boardConfig.project} has spent ${spent} output tokens today, at or over its daily ceiling of ${ceiling} — not enqueueing`,
+                    );
+                    return;
+                }
+            }
+
             const cards = await this.board.list();
             const { candidates } = nextCard(cards);
             if (candidates.length === 0) return;

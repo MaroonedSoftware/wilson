@@ -10,8 +10,11 @@ import type { ProjectRepository, ProjectRow } from '#modules/board/project.repos
 import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
+import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import type { Logger } from '@maroonedsoftware/logger';
+import type { DateTime } from 'luxon';
 
 /**
  * Card 0049. `Poller.loop` waits on `node:timers/promises`' `setTimeout` (aliased `delay` in
@@ -163,6 +166,40 @@ const noConflict = vi.fn(async () => undefined);
 
 const fakeEvents = () => ({}) as unknown as EventLog;
 
+/**
+ * Card 0264: `tickProject` now reads a second setting, `DAILY_OUTPUT_TOKEN_CEILING`, through the same
+ * `SettingsStore.get` the "interval read survives a database outage" tests below already drive by
+ * hand-queuing a sequence of resolved/rejected values — a sequence that was written assuming exactly
+ * one `.get()` call per loop iteration, for `POLLER_INTERVAL_MS` alone. `failingIntervalSettings` and
+ * `intervalReadSequence` keep that assumption true for those tests specifically: only a
+ * `POLLER_INTERVAL_MS` read ever consults the queue or the forced failure; every other definition —
+ * the ceiling among them — resolves its own coded default (0, meaning no ceiling) so `tickProject`
+ * always finds nothing to enforce and these tests keep proving exactly what they always have about the
+ * interval read, undisturbed by the second setting `tickProject` now also asks about.
+ */
+const failingIntervalSettings = (error: Error): SettingsStore =>
+    ({
+        get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => {
+            if (definition.key === POLLER_INTERVAL_MS.key) throw error;
+            return definition.defaultValue;
+        }),
+        set: vi.fn(async () => undefined),
+    }) as unknown as SettingsStore;
+
+const intervalReadSequence = (...steps: Array<{ value: number } | { error: Error }>): SettingsStore => {
+    const queue = [...steps];
+    return {
+        get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => {
+            if (definition.key !== POLLER_INTERVAL_MS.key) return definition.defaultValue;
+            const step = queue.shift();
+            if (!step) throw new Error('intervalReadSequence exhausted — add another step');
+            if ('error' in step) throw step.error;
+            return step.value;
+        }),
+        set: vi.fn(async () => undefined),
+    } as unknown as SettingsStore;
+};
+
 const buildPoller = (
     cards: Card[],
     deps: Partial<{
@@ -171,6 +208,10 @@ const buildPoller = (
         logger: ReturnType<typeof fakeLogger>;
         settings: SettingsStore;
         scopeConflict: ReturnType<typeof vi.fn>;
+        // Card 0264: overridable so the daily-ceiling tests below can hand `tickProject` a real
+        // `outputTokensSince`; every other caller keeps `fakeEvents()`'s bare `{}`, which would throw
+        // if that method were ever reached — proof by survival that a ceiling of 0 never calls it.
+        events: EventLog;
     }> = {},
 ) => {
     const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -180,6 +221,7 @@ const buildPoller = (
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
     const settings = deps.settings ?? fakeSettingsStore();
+    const events = deps.events ?? fakeEvents();
     const poller = new Poller(
         board as unknown as BoardRepository,
         config,
@@ -188,9 +230,9 @@ const buildPoller = (
         cardJobs as unknown as CardJobs,
         logger as unknown as Logger,
         settings,
-        fakeEvents(),
+        events,
     );
-    return { poller, board, cardJobs, broker, logger, settings };
+    return { poller, board, cardJobs, broker, logger, settings, events };
 };
 
 /** Reach the private `tick()` directly: one tick, deterministically, with no interval/timer involved at all. */
@@ -766,6 +808,83 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
     });
 });
 
+/**
+ * Card 0264. `tickProject` refuses to enqueue anything at all, for the whole project, once
+ * `EventLog.outputTokensSince` says today's spend has reached `DAILY_OUTPUT_TOKEN_CEILING` — checked
+ * once per tick, ahead of `nextCard`/`whyNotDispatchable`, so it must short-circuit before the board is
+ * even listed. `buildPoller`'s own `fakeSettingsStore` already answers every definition's coded
+ * default (0, no ceiling) and `fakeEvents` is a bare `{}` that would throw if `outputTokensSince` were
+ * ever called on it — every test above this block already proves AC1 (a ceiling of 0 never queries
+ * usage) by surviving that double at all. These are the ceiling's own tests, with a real one set.
+ */
+describe('Poller tick — the daily output token ceiling (card 0264)', () => {
+    const settingsWithCeiling = (ceiling: number): SettingsStore =>
+        ({
+            get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+                definition.key === DAILY_OUTPUT_TOKEN_CEILING.key ? ceiling : definition.defaultValue,
+            ),
+            set: vi.fn(async () => undefined),
+        }) as unknown as SettingsStore;
+
+    const eventsWithSpend = (spent: number) => ({ outputTokensSince: vi.fn(async () => spent) }) as unknown as EventLog;
+
+    // AC2: spend below the ceiling enqueues exactly as it does today.
+    it('AC2: spend below the ceiling enqueues exactly as it does today, asking outputTokensSince over a window starting at local midnight (AC6)', async () => {
+        const events = eventsWithSpend(500);
+        const { poller, broker, logger } = buildPoller([card('0001', 'implementing')], { settings: settingsWithCeiling(1000), events });
+
+        await runOneTick(poller);
+
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
+        expect(logger.error).not.toHaveBeenCalled();
+
+        expect(events.outputTokensSince).toHaveBeenCalledTimes(1);
+        const [project, since] = (events.outputTokensSince as ReturnType<typeof vi.fn>).mock.calls[0] as [string, DateTime];
+        expect(project).toBe('poller-test-project');
+        // AC6: the instant passed is its own start-of-day, not merely "some time in the past".
+        expect(since.startOf('day').toMillis()).toBe(since.toMillis());
+    });
+
+    // AC3 + AC7: spend at or over the ceiling enqueues nothing for that project, logs exactly once,
+    // and never even reaches the board (proving the check runs before dispatch, not during one) — while
+    // a second, independently-ticked project under its own ceiling still enqueues normally.
+    it('AC3/AC7: spend at or over the ceiling enqueues nothing and logs once, without listing the board; a second project under its own ceiling still enqueues', async () => {
+        const overEvents = eventsWithSpend(1000);
+        const overBoard = { list: vi.fn(async () => [card('0001', 'implementing')]), writeWithEvent: vi.fn(async () => 'v1'), scopeConflict: noConflict };
+        const overConfig = new StaticBoardConfig('over-budget-project', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const overBroker = fakeBroker();
+        const overLogger = fakeLogger();
+        const overPoller = new Poller(
+            overBoard as unknown as BoardRepository,
+            overConfig,
+            stageConfigs,
+            overBroker as unknown as JobBroker,
+            statefulCardJobs() as unknown as CardJobs,
+            overLogger as unknown as Logger,
+            settingsWithCeiling(1000),
+            overEvents,
+        );
+
+        await runOneTick(overPoller);
+
+        expect(overBoard.list).not.toHaveBeenCalled();
+        expect(overBroker.send).not.toHaveBeenCalled();
+        expect(overLogger.error).toHaveBeenCalledTimes(1);
+        expect(overLogger.error.mock.calls[0][0]).toContain('over-budget-project');
+        expect(overLogger.error.mock.calls[0][0]).toContain('1000');
+
+        // A second project, ticked independently under its own ceiling, is untouched by the first's.
+        const { poller: underPoller, broker: underBroker } = buildPoller([card('0002', 'implementing')], {
+            settings: settingsWithCeiling(1000),
+            events: eventsWithSpend(10),
+        });
+
+        await runOneTick(underPoller);
+
+        expect(underBroker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
+    });
+});
+
 describe('Poller start/stop', () => {
     afterEach(async () => {
         // Belt and braces: abort anything a test left running so it cannot bleed into the next one.
@@ -868,10 +987,7 @@ describe('Poller start/stop', () => {
      * next wait, not merely the one after a restart.
      */
     it('applies a changed POLLER_INTERVAL_MS to the next wait without a restart', async () => {
-        const settings = {
-            get: vi.fn().mockResolvedValueOnce(POLLER_INTERVAL_MS_DEFAULT).mockResolvedValueOnce(5_000),
-            set: vi.fn(async () => undefined),
-        } as unknown as SettingsStore;
+        const settings = intervalReadSequence({ value: POLLER_INTERVAL_MS_DEFAULT }, { value: 5_000 });
         const { poller } = buildPoller([], { settings });
 
         poller.start();
@@ -897,12 +1013,7 @@ describe('Poller start/stop', () => {
     describe('the interval read survives a database outage (card 0257)', () => {
         it('AC1: a settings store whose get() always rejects logs each failure, waits the default interval, and keeps calling tick', async () => {
             const boom = new Error('ECONNREFUSED');
-            const settings = {
-                get: vi.fn(async () => {
-                    throw boom;
-                }),
-                set: vi.fn(async () => undefined),
-            } as unknown as SettingsStore;
+            const settings = failingIntervalSettings(boom);
             const { poller, board, logger } = buildPoller([card('0001', 'implementing')], { settings });
 
             poller.start();
@@ -928,10 +1039,7 @@ describe('Poller start/stop', () => {
 
         it('AC2: a read that fails after a successful 5000ms read falls back to that last known-good value, not the default', async () => {
             const boom = new Error('ECONNREFUSED');
-            const settings = {
-                get: vi.fn().mockResolvedValueOnce(5_000).mockRejectedValueOnce(boom),
-                set: vi.fn(async () => undefined),
-            } as unknown as SettingsStore;
+            const settings = intervalReadSequence({ value: 5_000 }, { error: boom });
             const { poller, logger } = buildPoller([], { settings });
 
             poller.start();
@@ -952,10 +1060,7 @@ describe('Poller start/stop', () => {
 
         it('AC3: a read that fails and then recovers uses the freshly read value on the very next iteration', async () => {
             const boom = new Error('ECONNREFUSED');
-            const settings = {
-                get: vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(7_000),
-                set: vi.fn(async () => undefined),
-            } as unknown as SettingsStore;
+            const settings = intervalReadSequence({ error: boom }, { value: 7_000 });
             const { poller } = buildPoller([], { settings });
 
             poller.start();
@@ -992,12 +1097,7 @@ describe('Poller start/stop', () => {
         });
 
         it('AC5: repeated rejected settings reads across several iterations never reject the loop; stop() still resolves cleanly', async () => {
-            const settings = {
-                get: vi.fn(async () => {
-                    throw new Error('ECONNREFUSED');
-                }),
-                set: vi.fn(async () => undefined),
-            } as unknown as SettingsStore;
+            const settings = failingIntervalSettings(new Error('ECONNREFUSED'));
             const { poller, board } = buildPoller([], { settings });
 
             poller.start();
