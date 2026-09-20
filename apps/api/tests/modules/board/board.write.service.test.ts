@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -1740,6 +1740,127 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0092');
             expect(stored.frontmatter.stage).toBe('ready');
             expect(stored.frontmatter.needsHuman).toBe(true);
+        });
+
+        /**
+         * Card 0261, AC6. `proveMerge` gets the same one-rerun rule `TestingVerifier.judgeRedRun`
+         * already applies to the testing stage: a red merge-check suite is reran, once, against just
+         * the files its report named as failing, before `flagMergeFailure` is believed. These two
+         * tests use a real script rather than a double, logging every invocation's extra argv to
+         * `calls.log` so the assertions can tell a genuine rerun happened from a suite that was only
+         * ever asked once — proof neither test could pass against the pre-change `proveMerge`, which
+         * never reran anything.
+         */
+        const writeFakeMergeSuite = async (
+            dir: string,
+            opts: { reportPath: string; tests: Array<{ file: string; name: string }>; rerunExit: number },
+        ): Promise<string> => {
+            const report = {
+                numTotalTests: opts.tests.length,
+                numPassedTests: 0,
+                numFailedTests: opts.tests.length,
+                numPendingTests: 0,
+                numTodoTests: 0,
+                testResults: opts.tests.map(t => ({
+                    name: join(dir, t.file),
+                    status: 'failed',
+                    assertionResults: [{ status: 'failed', fullName: t.name }],
+                })),
+            };
+            const scriptPath = join(dir, 'suite.cjs');
+            const body = [
+                "const fs = require('fs');",
+                `fs.appendFileSync(${JSON.stringify(join(dir, 'calls.log'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
+                'if (process.argv.length > 2) {',
+                `  process.exit(${opts.rerunExit});`,
+                '}',
+                `fs.writeFileSync(${JSON.stringify(join(dir, opts.reportPath))}, ${JSON.stringify(JSON.stringify(report))});`,
+                'process.exit(1);',
+            ].join('\n');
+            await writeFile(scriptPath, body, 'utf8');
+            return scriptPath;
+        };
+
+        it('AC6: merges the card when the merge-check suite fails and its rerun of the failed file is green, recording a merge-check test.flaky event', async () => {
+            const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-flaky-'));
+            const scriptPath = await writeFakeMergeSuite(dir, {
+                reportPath: 'report.json',
+                tests: [{ file: 'thing.test.ts', name: 'flaky test' }],
+                rerunExit: 0,
+            });
+            const mergeStages = new StaticStageConfigStore(
+                [
+                    'stages:',
+                    '  - name: testing',
+                    '    mode: agent',
+                    '    model: claude-opus',
+                    '    instructions: test the thing',
+                    `    testCommand: node ${scriptPath}`,
+                    '    testReportPath: report.json',
+                    '    onPass: merged',
+                    '    onFail: testing',
+                    '',
+                ].join('\n'),
+            );
+            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0197-merge-check', baseSha: 'merge-commit-sha' })) });
+            const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
+            await board.create(card('0197', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0197');
+
+            expect(result.merged).toBe(true);
+            const stored = await board.read('0197');
+            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.needsHuman).toBe(false);
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0197',
+                    type: 'test.flaky',
+                    payload: { tests: ['thing.test.ts > flaky test'], run: 'merge-check' },
+                }),
+            );
+
+            const calls = (await readFile(join(dir, 'calls.log'), 'utf8')).trim().split('\n');
+            expect(calls).toHaveLength(2);
+        });
+
+        it('AC6: leaves the card flagged, calling flagMergeFailure, when the merge-check suite fails and its rerun fails too', async () => {
+            const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-red-'));
+            const scriptPath = await writeFakeMergeSuite(dir, {
+                reportPath: 'report.json',
+                tests: [{ file: 'thing.test.ts', name: 'really broken' }],
+                rerunExit: 1,
+            });
+            const mergeStages = new StaticStageConfigStore(
+                [
+                    'stages:',
+                    '  - name: testing',
+                    '    mode: agent',
+                    '    model: claude-opus',
+                    '    instructions: test the thing',
+                    `    testCommand: node ${scriptPath}`,
+                    '    testReportPath: report.json',
+                    '    onPass: merged',
+                    '    onFail: testing',
+                    '',
+                ].join('\n'),
+            );
+            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0198-merge-check', baseSha: 'merge-commit-sha' })) });
+            const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
+            await board.create(card('0198', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0198');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('fails the suite');
+            const stored = await board.read('0198');
+            expect(stored.frontmatter.stage).toBe('ready');
+            expect(stored.frontmatter.needsHuman).toBe(true);
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'test.flaky' }));
+
+            // Proves the rerun actually ran, not just that the outcome matches today's.
+            const calls = (await readFile(join(dir, 'calls.log'), 'utf8')).trim().split('\n');
+            expect(calls).toHaveLength(2);
         });
 
         it('lands a clean merge whose suite passes, and moves the card to merged', async () => {

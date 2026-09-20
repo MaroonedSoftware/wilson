@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     baselineProvesChange,
     baselineRefusal,
@@ -17,6 +17,7 @@ import {
 import { parseTestReport, type FailingTest, type TestReport } from '#modules/stages/test.report.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { EventLog } from '#modules/events/event.log.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 
@@ -743,5 +744,243 @@ describe('baselineRefusal', () => {
 
     it('lists every path it was given', () => {
         expect(baselineRefusal(['a.test.ts', 'b.test.ts'])).toContain('a.test.ts, b.test.ts');
+    });
+});
+
+/**
+ * Card 0261. `TestingVerifier` now takes `EventLog` and `BoardConfig` too, so a red run can rerun
+ * just the files a report names as failing, append a `test.flaky` event on a green rerun, and treat
+ * the suite as green — unless the card already carries a `test.flaky` event naming one of the same
+ * tests, in which case recurrence itself fails the run. `events` here is a plain in-memory stand-in
+ * rather than a real `EventLog`: nothing under test reads from Postgres, only from `append`/`tail`'s
+ * own contract.
+ */
+describe('TestingVerifier — flaky rerun (card 0261)', () => {
+    let base: string;
+    let manager: WorktreeManager;
+    let config: StaticBoardConfig;
+    let events: {
+        rows: Array<{ project: string; cardId: string; stage?: string; type: string; payload: Record<string, unknown> }>;
+        append: ReturnType<typeof vi.fn>;
+        tail: ReturnType<typeof vi.fn>;
+    };
+    let verifier: TestingVerifier;
+
+    const fakeEvents = () => {
+        const rows: Array<{ project: string; cardId: string; stage?: string; type: string; payload: Record<string, unknown> }> = [];
+        return {
+            rows,
+            append: vi.fn(async (event: { project: string; cardId: string; stage?: string; type: string; payload?: Record<string, unknown> }) => {
+                rows.push({ ...event, payload: event.payload ?? {} });
+            }),
+            tail: vi.fn(async (project: string, cardId: string) =>
+                rows
+                    .filter(r => r.project === project && r.cardId === cardId)
+                    .map(r => ({ id: '1', stage: r.stage ?? null, type: r.type, payload: r.payload, createdAt: undefined })),
+            ),
+        };
+    };
+
+    /**
+     * A fake `stage.testCommand`: logs every invocation's extra argv to `calls.log` (one JSON line
+     * per call, so a test can prove exactly how many times — and with what file args — the command
+     * ran), writes a report naming `opts.tests` as failing on the *first* call (no extra args), then
+     * exits `opts.firstExit` (default 1). Any call made *with* extra args — the rerun — instead exits
+     * `opts.rerunExit` (default 0) without touching the report, since `judgeRedRun` never re-reads it.
+     */
+    const writeFakeSuite = async (
+        worktreePath: string,
+        opts: { reportPath: string; tests: Array<{ file: string; name: string }>; firstExit?: number; rerunExit?: number },
+    ): Promise<string> => {
+        const firstExit = opts.firstExit ?? 1;
+        const rerunExit = opts.rerunExit ?? 0;
+        const report = {
+            numTotalTests: opts.tests.length,
+            numPassedTests: 0,
+            numFailedTests: opts.tests.length,
+            numPendingTests: 0,
+            numTodoTests: 0,
+            testResults: opts.tests.map(t => ({
+                name: join(worktreePath, t.file),
+                status: 'failed',
+                assertionResults: [{ status: 'failed', fullName: t.name }],
+            })),
+        };
+        const scriptPath = join(worktreePath, 'fake-suite.cjs');
+        const body = [
+            "const fs = require('fs');",
+            `fs.appendFileSync(${JSON.stringify(join(worktreePath, 'calls.log'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
+            'if (process.argv.length > 2) {',
+            `  process.exit(${rerunExit});`,
+            '}',
+            `fs.writeFileSync(${JSON.stringify(join(worktreePath, opts.reportPath))}, ${JSON.stringify(JSON.stringify(report))});`,
+            `process.exit(${firstExit});`,
+        ].join('\n');
+        await writeFile(scriptPath, body, 'utf8');
+        return scriptPath;
+    };
+
+    beforeEach(async () => {
+        base = await mkdtemp(join(tmpdir(), 'testing-verifier-flaky-'));
+        const codeRoot = join(base, 'code');
+        await mkdir(codeRoot, { recursive: true });
+
+        await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
+        await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
+        await writeFile(join(codeRoot, 'README.md'), '# base\n', 'utf8');
+        await exec('git', ['add', '-A'], { cwd: codeRoot });
+        await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
+
+        config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
+        manager = new WorktreeManager(config, silentLogger as never);
+        events = fakeEvents();
+        verifier = new TestingVerifier(manager, silentLogger as never, events as unknown as EventLog, config);
+    });
+
+    afterEach(async () => {
+        await rm(base, { recursive: true, force: true }).catch(() => undefined);
+    });
+
+    const verifyInput = (worktree: Awaited<ReturnType<WorktreeManager['create']>>, stage: StageConfig) => ({
+        worktree,
+        stage,
+        cardId: '0001',
+        scope: {} as ScopeGuard,
+        result: undefined,
+    });
+
+    it('AC1: a red run whose rerun of the failed file is green appends one test.flaky event naming it, and the suite is judged green', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+
+        const scriptPath = await writeFakeSuite(worktree.path, {
+            reportPath: 'report.json',
+            tests: [{ file: 'tests/thing.test.ts', name: 'flaky test' }],
+        });
+
+        const stage = makeStage({ testCommand: `node ${scriptPath}`, testReportPath: 'report.json', baselineCheck: false });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
+        expect(events.append).toHaveBeenCalledTimes(1);
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: '0001',
+                stage: 'testing',
+                type: 'test.flaky',
+                payload: { tests: ['tests/thing.test.ts > flaky test'], run: 'testing' },
+            }),
+        );
+    });
+
+    it('AC2: a red run whose rerun is also red fails with today\'s message, and appends no test.flaky event', async () => {
+        const worktree = await manager.create('0002', 'card/0002-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+
+        const scriptPath = await writeFakeSuite(worktree.path, {
+            reportPath: 'report.json',
+            tests: [{ file: 'tests/thing.test.ts', name: 'still broken' }],
+            rerunExit: 1,
+        });
+
+        const stage = makeStage({ testCommand: `node ${scriptPath}`, testReportPath: 'report.json', baselineCheck: false });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(false);
+        const redSuite = outcome.failures.find(f => f.startsWith('the suite is not green:'));
+        expect(redSuite).toBeDefined();
+        expect(redSuite).toContain('tests/thing.test.ts > still broken');
+        expect(events.append).not.toHaveBeenCalled();
+
+        // Proves the rerun actually ran, not just that the outcome matches today's.
+        const calls = (await readFile(join(worktree.path, 'calls.log'), 'utf8')).trim().split('\n');
+        expect(calls).toHaveLength(2);
+    });
+
+    it('AC3: a red run whose report names no failing tests is judged red with no rerun attempted', async () => {
+        const worktree = await manager.create('0003', 'card/0003-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+
+        // Crashes before writing a report at all — nothing for `judgeRedRun` to name, so there is
+        // nothing to rerun.
+        const scriptPath = join(worktree.path, 'fake-suite.cjs');
+        await writeFile(
+            scriptPath,
+            [
+                "const fs = require('fs');",
+                `fs.appendFileSync(${JSON.stringify(join(worktree.path, 'calls.log'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
+                'process.exit(1);',
+            ].join('\n'),
+            'utf8',
+        );
+
+        const stage = makeStage({ testCommand: `node ${scriptPath}`, testReportPath: 'report.json', baselineCheck: false });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.some(f => f.startsWith('the suite is not green:'))).toBe(true);
+        expect(events.append).not.toHaveBeenCalled();
+
+        const calls = (await readFile(join(worktree.path, 'calls.log'), 'utf8')).trim().split('\n');
+        expect(calls).toHaveLength(1);
+    });
+
+    it('AC4: the rerun runs stage.testCommand with only the failing files\' paths appended, deduplicated', async () => {
+        const worktree = await manager.create('0004', 'card/0004-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+        await writeFile(join(worktree.path, 'tests', 'other.test.ts'), "it('y', () => {});\n", 'utf8');
+
+        const scriptPath = await writeFakeSuite(worktree.path, {
+            reportPath: 'report.json',
+            tests: [
+                { file: 'tests/thing.test.ts', name: 'case a' },
+                { file: 'tests/thing.test.ts', name: 'case b' },
+                { file: 'tests/other.test.ts', name: 'case c' },
+            ],
+        });
+
+        const stage = makeStage({ testCommand: `node ${scriptPath}`, testReportPath: 'report.json', baselineCheck: false });
+        await verifier.verify(verifyInput(worktree, stage));
+
+        const calls = (await readFile(join(worktree.path, 'calls.log'), 'utf8')).trim().split('\n');
+        expect(calls).toHaveLength(2);
+        expect(JSON.parse(calls[0])).toEqual([]);
+        expect(JSON.parse(calls[1])).toEqual(['tests/thing.test.ts', 'tests/other.test.ts']);
+    });
+
+    it('AC5: fails with "flaky: <names>" when the card already carries a test.flaky event naming one of the same tests', async () => {
+        const worktree = await manager.create('0005', 'card/0005-thing');
+        await mkdir(join(worktree.path, 'tests'), { recursive: true });
+        await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
+
+        await events.append({
+            project: config.project,
+            cardId: '0001',
+            stage: 'testing',
+            type: 'test.flaky',
+            payload: { tests: ['tests/thing.test.ts > flaky test'] },
+        });
+
+        const scriptPath = await writeFakeSuite(worktree.path, {
+            reportPath: 'report.json',
+            tests: [{ file: 'tests/thing.test.ts', name: 'flaky test' }],
+        });
+
+        const stage = makeStage({ testCommand: `node ${scriptPath}`, testReportPath: 'report.json', baselineCheck: false });
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(outcome.passed).toBe(false);
+        const recurrence = outcome.failures.find(f => f.startsWith('flaky:'));
+        expect(recurrence).toBeDefined();
+        expect(recurrence).toContain('tests/thing.test.ts > flaky test');
+        // The pre-existing event from setup is the only one on record — recurrence does not append a
+        // second.
+        expect(events.append).toHaveBeenCalledTimes(1);
     });
 });
