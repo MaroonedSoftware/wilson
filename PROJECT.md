@@ -826,6 +826,15 @@ statically from it, and Postgres.
   reachable only through a credential helper the runner invokes when it commits
   board state or pushes a card branch. The bash tool never sees it.
 - **Provider API keys** are injected per deployment and never enter a worktree.
+- **Nightly database backups.** The `backup` service (`docker-compose.yml`) is `postgres:17` —
+  the same image as `db`, so the dump and server versions cannot drift — and writes a
+  `pg_dump -Fc` of `db` (never `db-test`, which is tmpfs by design) once a night at 03:00 local
+  to `WILSON_BACKUP_DIR`, a host directory outside the repo and outside any container, default
+  `../.wilson-backups` relative to this file. Each dump is written to a temporary name and
+  renamed on success, so an interrupted dump is never mistaken for a good one, and anything older
+  than fourteen days is pruned after each successful dump. `wilson doctor`'s "database backed up"
+  check reads the same directory and fails when the newest dump is stale or does not read as a
+  dump. To restore: `pg_restore -d wilson <file>`.
 
 ## Build order
 

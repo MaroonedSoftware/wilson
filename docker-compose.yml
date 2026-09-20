@@ -16,6 +16,47 @@ services:
             start_period: 10s
             retries: 5
 
+    # Nightly `pg_dump -Fc` of `db` only — card 0262, decision 1: Postgres is the system of
+    # record for the board, and durability (backups, point-in-time recovery) is its problem, not
+    # a second copy this stack was otherwise never keeping. `db-test` is tmpfs by design and is
+    # deliberately not dumped here. Same image as `db` so the dump and server versions cannot
+    # drift. Dumps land on the host, outside the repo and outside this container, at
+    # `WILSON_BACKUP_DIR` (default `../.wilson-backups` relative to this file) — see PROJECT.md's
+    # Deployment section for the schedule, retention and restore command. `wilson doctor`'s
+    # "database backed up" check reads that same directory.
+    backup:
+        image: postgres:17
+        restart: always
+        container_name: wilson-backup
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            PGHOST: db
+            PGPORT: 5432
+            PGUSER: postgres
+            PGPASSWORD: postgres
+            PGDATABASE: wilson
+        volumes:
+            - ${WILSON_BACKUP_DIR:-../.wilson-backups}:/backups
+        entrypoint: ['/bin/sh', '-c']
+        command:
+            - |
+                set -eu
+                while true; do
+                    if [ "$$(date +%H:%M)" = "03:00" ]; then
+                        stamp="$$(date +%F)"
+                        target="/backups/wilson-$${stamp}.dump"
+                        if [ ! -f "$$target" ]; then
+                            tmp="$${target}.tmp"
+                            pg_dump -Fc -f "$$tmp"
+                            mv "$$tmp" "$$target"
+                            find /backups -maxdepth 1 -name 'wilson-*.dump' -mtime +14 -delete
+                        fi
+                    fi
+                    sleep 30
+                done
+
     # Dedicated Postgres for the test suite. Data lives in tmpfs and durability is
     # off — DO NOT point anything you care about at this.
     db-test:
