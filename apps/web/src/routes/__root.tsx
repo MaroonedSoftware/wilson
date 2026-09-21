@@ -5,7 +5,7 @@ import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-reac
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
-import { useCardFeed } from '#src/lib/feed.js';
+import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
@@ -57,6 +57,12 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * `ActionIcon` beside the badge calls `feed.reconnect()` (`lib/feed.ts`) instead, which invalidates
  * every query and tears down and reopens the `EventSource`; the tooltip now names the control next to
  * it rather than describing an action this screen couldn't take.
+ *
+ * Card 0274: `feed.activity`/`feed.toolLog`/`feed.now` are provided through `CardActivityContext`
+ * around everything below the header, the same "one subscription, read from wherever" shape this
+ * component already gives the feed's `status`/`reconnect` — a board tile (`Board.tsx`) and a card
+ * page's live tool list (`LiveActivity.tsx`) both read this instead of either opening its own
+ * `EventSource`.
  */
 function Root() {
     const { project } = useParams({ strict: false });
@@ -64,42 +70,44 @@ function Root() {
 
     return (
         <WilsonSdkProvider client={wilson}>
-            <AppShell header={{ height: 48 }} padding="md">
-                <Notifications />
-                <AppShell.Header>
-                    <Group h="100%" px="md" justify="space-between">
-                        <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-                            <Group gap={8} wrap="nowrap">
-                                <WilsonMark size={24} />
-                                <Title order={4}>wilson</Title>
+            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
+                <AppShell header={{ height: 48 }} padding="md">
+                    <Notifications />
+                    <AppShell.Header>
+                        <Group h="100%" px="md" justify="space-between">
+                            <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                <Group gap={8} wrap="nowrap">
+                                    <WilsonMark size={24} />
+                                    <Title order={4}>wilson</Title>
+                                </Group>
+                            </Link>
+                            <Group gap="xs">
+                                <FlaggedIndicator />
+                                <ProjectSwitcher />
+                                <Tooltip label={feed.status === 'live' ? 'Updates as cards move' : 'Not connected — see refresh'}>
+                                    <Badge color={feed.status === 'live' ? 'green' : 'gray'} variant="light" size="sm">
+                                        {feed.status === 'live' ? 'live' : 'snapshot'}
+                                    </Badge>
+                                </Tooltip>
+                                <Tooltip label="Refresh">
+                                    <ActionIcon onClick={feed.reconnect} variant="subtle" aria-label="Refresh">
+                                        <IconRefresh size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
+                                <ColorSchemeToggle />
+                                <Tooltip label="Settings">
+                                    <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
+                                        <IconSettings size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
                             </Group>
-                        </Link>
-                        <Group gap="xs">
-                            <FlaggedIndicator />
-                            <ProjectSwitcher />
-                            <Tooltip label={feed.status === 'live' ? 'Updates as cards move' : 'Not connected — see refresh'}>
-                                <Badge color={feed.status === 'live' ? 'green' : 'gray'} variant="light" size="sm">
-                                    {feed.status === 'live' ? 'live' : 'snapshot'}
-                                </Badge>
-                            </Tooltip>
-                            <Tooltip label="Refresh">
-                                <ActionIcon onClick={feed.reconnect} variant="subtle" aria-label="Refresh">
-                                    <IconRefresh size={18} />
-                                </ActionIcon>
-                            </Tooltip>
-                            <ColorSchemeToggle />
-                            <Tooltip label="Settings">
-                                <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
-                                    <IconSettings size={18} />
-                                </ActionIcon>
-                            </Tooltip>
                         </Group>
-                    </Group>
-                </AppShell.Header>
-                <AppShell.Main>
-                    <Outlet />
-                </AppShell.Main>
-            </AppShell>
+                    </AppShell.Header>
+                    <AppShell.Main>
+                        <Outlet />
+                    </AppShell.Main>
+                </AppShell>
+            </CardActivityContext.Provider>
         </WilsonSdkProvider>
     );
 }
