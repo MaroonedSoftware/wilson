@@ -145,14 +145,44 @@ describe('test.db.migrate.ts globalSetup', () => {
         30000,
     );
 
-    it('fails before any test starts when the database is unreachable', async () => {
-        process.env.TEST_DATABASE_HOST = '127.0.0.1';
-        // Port 1 is privileged; nothing an unprivileged test process could have bound is
-        // listening there, so the connection is refused rather than merely slow.
-        process.env.TEST_DATABASE_PORT = '1';
+    it(
+        "fails before any test starts when the database is unreachable, with dbmate's own output in the error",
+        async () => {
+            process.env.TEST_DATABASE_HOST = '127.0.0.1';
+            // Port 1 is privileged; nothing an unprivileged test process could have bound is
+            // listening there, so the connection is refused rather than merely slow.
+            process.env.TEST_DATABASE_PORT = '1';
+            // dbmate's own `--wait` defaults to a full minute before giving up (its README calls
+            // this out by name). DBMATE_WAIT_TIMEOUT is dbmate's own documented env var for that
+            // same timeout, and it reaches the child process because runDbmate spawns dbmate with
+            // `{ ...process.env, DATABASE_URL }` - so this shortens dbmate's real wait to a couple
+            // of seconds without touching test.db.migrate.ts, instead of the test either waiting a
+            // minute for real or mocking the spawn away.
+            process.env.DBMATE_WAIT_TIMEOUT = '2s';
 
-        await expect(setup()).rejects.toThrow(/ECONNREFUSED|connect/i);
-    });
+            try {
+                let error: unknown;
+                try {
+                    await setup();
+                } catch (caught) {
+                    error = caught;
+                }
+
+                // The bug this replaces: a bare, un-retried lockClient.connect() threw a raw pg
+                // ECONNREFUSED before dbmate was ever spawned, so dbmate's own output could never
+                // end up in the error. Now that connection retries and then falls back to running
+                // dbmate regardless, dbmate must actually run - and its own connection-refused
+                // output, not just any mention of "connect", must be what surfaces here.
+                expect(error).toBeInstanceOf(Error);
+                const message = (error as Error).message;
+                expect(message).toMatch(/dbmate exited/i);
+                expect(message).toMatch(/connection refused|unable to connect to database/i);
+            } finally {
+                delete process.env.DBMATE_WAIT_TIMEOUT;
+            }
+        },
+        20000,
+    );
 });
 
 describe('apps/api vitest project wiring', () => {
