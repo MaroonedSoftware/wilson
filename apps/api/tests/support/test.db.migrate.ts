@@ -21,13 +21,14 @@ export default async function setup(): Promise<void> {
     const lockClient = await connectLockClient(connection);
 
     if (!lockClient) {
-        // The lock connection never came up within its own short retry budget. The database may
-        // still be starting after a restart, or it may genuinely be unreachable — either way, hand
-        // off to dbmate rather than failing here: dbmate has its own, much longer `--wait` (a
-        // minute by default), so a still-starting container is tolerated there instead of this
-        // throwing a bare pg connection error before dbmate ever gets a chance to run. If no lock
-        // connection could be made, nothing else holding the lock could be connected either, so
-        // there is no concurrent run on this database to race against.
+        // The lock connection never came up within LOCK_CONNECT_BUDGET_MS, which matches dbmate's
+        // own default `--wait` timeout — so a database still starting after a restart (the
+        // motivating scenario) has already had as long to come back as dbmate itself would allow,
+        // and any concurrent suite's lock connection would have succeeded by now too if the
+        // database were reachable. Reaching this point means the database is unreachable for at
+        // least as long as dbmate would wait, so there is no concurrent run to race against: hand
+        // off to dbmate, whose own `--wait` will fail with the same, still-unreachable database and
+        // surface its output in the thrown error (AC4).
         const applied = await runDbmate(connection);
         console.log(`test database migrate: applied ${applied} migration(s)`);
         return;
@@ -44,21 +45,27 @@ export default async function setup(): Promise<void> {
 }
 
 /**
- * How many times, and how far apart, to retry the advisory-lock connection before giving up on it
- * and falling back to dbmate's own, much longer `--wait`. Short on purpose: this only needs to
- * smooth over the moment a container is mid-restart, not to duplicate dbmate's one-minute wait a
- * second time.
+ * How long, and how often, to retry the advisory-lock connection before giving up on it and
+ * falling back to running dbmate unlocked. This budget deliberately spans the same one minute
+ * dbmate's own default `--wait` would tolerate: two suites that both start while the database is
+ * still coming back up after a restart must both keep retrying the lock connection until it
+ * succeeds, so they take the locked path and serialise, rather than both giving up early and
+ * racing the same DDL unlocked — the exact failure the lock exists to prevent (AC3). A budget
+ * shorter than dbmate's own wait would let that race happen for as long as the database takes to
+ * become reachable, up to dbmate's full minute.
  */
-const LOCK_CONNECT_RETRIES = 5;
 const LOCK_CONNECT_RETRY_DELAY_MS = 500;
+const LOCK_CONNECT_BUDGET_MS = 60_000;
+const LOCK_CONNECT_RETRIES = Math.ceil(LOCK_CONNECT_BUDGET_MS / LOCK_CONNECT_RETRY_DELAY_MS);
 
 /**
  * Connect the advisory-lock client, retrying a still-starting database instead of the bare, single
  * `connect()` this used to make. That bare call threw immediately on a container restart — the
  * exact moment dbmate's own `--wait` exists to cover — so dbmate never even ran, and its output
  * could never end up in the thrown error the way a failure here is supposed to include it. Resolves
- * `undefined` if the database never accepted a connection within the retry budget, so the caller
- * can fall back to dbmate's own longer wait instead of throwing a raw pg error.
+ * `undefined` only once the database has stayed unreachable for the full retry budget — as long as
+ * dbmate's own `--wait` would tolerate — so the caller's fallback to dbmate's own wait never runs
+ * while a concurrent suite might still take the locked path.
  */
 async function connectLockClient(connection: ReturnType<typeof testDbConnection>): Promise<pg.Client | undefined> {
     for (let attempt = 0; attempt <= LOCK_CONNECT_RETRIES; attempt++) {
