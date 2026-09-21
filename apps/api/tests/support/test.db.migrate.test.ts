@@ -155,9 +155,10 @@ describe('test.db.migrate.ts globalSetup', () => {
             // dbmate's own `--wait` defaults to a full minute before giving up (its README calls
             // this out by name). DBMATE_WAIT_TIMEOUT is dbmate's own documented env var for that
             // same timeout, and it reaches the child process because runDbmate spawns dbmate with
-            // `{ ...process.env, DATABASE_URL }` - so this shortens dbmate's real wait to a couple
-            // of seconds without touching test.db.migrate.ts, instead of the test either waiting a
-            // minute for real or mocking the spawn away.
+            // `{ ...process.env, DATABASE_URL }` - so this shortens dbmate's own wait to a couple
+            // of seconds once it actually runs, instead of the test either waiting a minute for
+            // real dbmate or mocking the spawn away. It has no effect on connectLockClient's own
+            // retry budget below, which is a constant inside test.db.migrate.ts, not an env var.
             process.env.DBMATE_WAIT_TIMEOUT = '2s';
 
             try {
@@ -181,7 +182,12 @@ describe('test.db.migrate.ts globalSetup', () => {
                 delete process.env.DBMATE_WAIT_TIMEOUT;
             }
         },
-        20000,
+        // connectLockClient's own retry budget (LOCK_CONNECT_BUDGET_MS in test.db.migrate.ts) is a
+        // full minute, deliberately matching dbmate's default `--wait` (AC3), and this test's
+        // unreachable host/port makes every one of those retries fail immediately, so setup() does
+        // not give up on the lock and fall back to (the shortened) dbmate until that whole budget
+        // has elapsed. The test's own timeout has to outlast that real wait, not just dbmate's.
+        70000,
     );
 });
 
