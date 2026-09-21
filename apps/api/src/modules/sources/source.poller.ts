@@ -6,7 +6,7 @@ import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { SOURCE_POLL_ENABLED } from '#modules/settings/source.poll.enabled.setting.js';
-import { SOURCE_POLL_INTERVAL_MS } from '#modules/settings/source.poll.interval.setting.js';
+import { SOURCE_POLL_INTERVAL_MS, SOURCE_POLL_INTERVAL_MS_DEFAULT } from '#modules/settings/source.poll.interval.setting.js';
 import { CardSourceRegistry } from './card.source.registry.js';
 import { InboundCardWriter } from './inbound.card.writer.js';
 import { SourceCursorRepository } from './source.cursor.repository.js';
@@ -46,6 +46,9 @@ import { SourceCursorRepository } from './source.cursor.repository.js';
 export class SourcePoller {
     private abort: AbortController | undefined;
     private loopPromise: Promise<void> | undefined;
+    // Last interval `loop` successfully read from `settings`, so a failing read has something better
+    // than `SOURCE_POLL_INTERVAL_MS_DEFAULT` to fall back to. See `loop`'s own doc comment (card 0271).
+    private lastIntervalMs: number | undefined;
 
     constructor(
         private readonly registry: CardSourceRegistry,
@@ -77,11 +80,32 @@ export class SourcePoller {
         this.loopPromise = undefined;
     }
 
+    /**
+     * Card 0271: on 2026-09-21 the compose stack restarted and the daemon died on `ECONNREFUSED`
+     * thrown by `SettingsStore.get` from `BoundedCardStageJobRunner.watchConcurrency`
+     * (`#modules/jobs/jobs.module.js`) — the interval read there sat outside any `try`, so a failing
+     * read became an unhandled rejection that took the whole process down. Card 0257 fixed the
+     * identical shape in `Poller.loop` (`#modules/jobs/poller.js`); this loop's own interval read had
+     * the same gap, and this card closes it.
+     *
+     * A failing read is logged through `logger` and falls back to `lastIntervalMs`, the last interval
+     * this loop successfully read, or `SOURCE_POLL_INTERVAL_MS_DEFAULT` when it has never read one —
+     * so a database outage makes this loop wait and retry, never busy-loop, and never again take the
+     * daemon with it. No reconnection logic: kysely's pool reconnects on the next query once Postgres
+     * is back, which is why "keep looping" is the whole fix.
+     */
     private async loop(signal: AbortSignal): Promise<void> {
         while (!signal.aborted) {
             // Read fresh on every iteration, not once at `start()` — the same reasoning `Poller.loop`
             // gives for `POLLER_INTERVAL_MS`: a row written mid-run changes the wait about to start.
-            const intervalMs = await this.settings.get(SOURCE_POLL_INTERVAL_MS);
+            let intervalMs: number;
+            try {
+                intervalMs = await this.settings.get(SOURCE_POLL_INTERVAL_MS);
+                this.lastIntervalMs = intervalMs;
+            } catch (error) {
+                this.logger.error(error);
+                intervalMs = this.lastIntervalMs ?? SOURCE_POLL_INTERVAL_MS_DEFAULT;
+            }
             try {
                 await delay(intervalMs, undefined, { signal });
             } catch {
