@@ -11,8 +11,10 @@ import {
     type DependCardRequest,
     type PlanComment,
     type PlanTurn,
+    type RecordFindingsRequest,
 } from '@wilson/sdk';
 import { wilson } from './sdk.js';
+import { useWilsonSdk } from './sdk-context.js';
 
 /**
  * Card 0155: deleting the top-level `/` and `/cards/$cardId` routes left `['cards']`/`['card', id]`
@@ -438,6 +440,35 @@ export function useRemoveContext(id: string) {
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not remove the snapshot', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0266. Submits every pending line comment `DiffPane.tsx` collected off the Diff tab in one
+ * call (`POST .../findings`) — the endpoint folds them into the card's `## Review findings` section
+ * and moves the card to `ready`'s own configured `onFail`, the recorded equivalent of the
+ * `wilson card move` with no note a human used to make by hand.
+ *
+ * Reads its client through `useWilsonSdk()` rather than the unscoped `wilson` singleton this file's
+ * other hooks still import (card 0156's own reasoning, `useMergeCard` in `CardDetail.tsx`): the Diff
+ * tab only ever renders under `ProjectCardDetailRoute`'s `WilsonSdkProvider`, so its comments must
+ * land against that same project's client.
+ *
+ * Like `useSendPlanTurn`/`useAddPlanComment`, a refusal is not a notification: `DiffPane` reads
+ * `error` itself and keeps the pending comments exactly as typed (AC6) rather than losing them to a
+ * toast. Success invalidates the card's own query — never writes the response into the cache
+ * directly — so the page shows the card in its new stage only once the refetch actually lands
+ * (AC7), the same "runner is sole writer" rule `useMoveCard` follows for an ordinary stage change.
+ */
+export function useRecordFindings(id: string) {
+    const client = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: RecordFindingsRequest): Promise<CardDetail> => client.board.recordFindings(id, body),
+        onSuccess: () => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
         },
     });
 }

@@ -374,6 +374,29 @@ contract LintFinding: {
     message: string
 }
 
+# Card 0266. One line comment a human left on the Diff tab — always a `defect` (it comes from
+# selecting a line in the diff, so it always has a `file`/`line` to cite; `omission` findings, which
+# have no line, are out of scope for this surface), carrying the same `problem`/`suggestion` pair a
+# reviewer's own `ReviewFinding` already requires so `ReviewFindingSchema` itself needs no change.
+# `severity` is the submitter's own choice; absent defaults to `blocker` in `BoardWriteService.recordFindings`
+# — this contract does not default it itself, since a client should be able to tell "chose blocker"
+# from "said nothing" if it ever needs to, even though today's UI always sends one.
+contract HumanFinding: {
+    file: string
+    line: int
+    severity?: enum(blocker, concern)
+    problem: string
+    suggestion: string
+}
+
+# `POST /api/cards/{id}/findings`'s request: every comment left on the diff, submitted together so
+# the fold into the card body and the move to `ready`'s own `onFail` happen as one transition —
+# one request per comment would mint a card version and a transition each, and the kickback would
+# race the writes.
+contract RecordFindingsRequest: {
+    findings: array(HumanFinding)
+}
+
 operation /api/cards: {
     get: {
         name: List cards
@@ -947,6 +970,36 @@ operation /api/cards/{id}/diff: {
             # ref yet — carried via `details`, the same convention every other refusal on this
             # surface uses. Distinct from `CardDiff`'s own empty `files`, which is a branch that
             # exists but changed nothing.
+            400:
+            404:
+        }
+    }
+}
+
+# Card 0266. Turns a human's line comments on the Diff tab into the same kind of kickback a failed
+# review already produces: folds every comment into the card's `## Review findings` section
+# (`withFindings`, marked as human-written so implementing can tell the two apart) and moves the
+# card to `ready`'s own configured `onFail` — read from the live stage config, never hard-coded to
+# `implementing`, so a board that points `ready.onFail` elsewhere still routes correctly with no
+# code change. Not a runner kickback: `retries` is left untouched (this is not a stage failing, it
+# is a human's review) and the event's `by` is `'human'`, the same convention `move` uses for an
+# operator-initiated transition.
+operation /api/cards/{id}/findings: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Record findings
+        service: BoardWriteService.recordFindings
+        request: {
+            application/json: RecordFindingsRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A card outside `ready`, or an empty `findings` list — carried via `details`, the same
+            # convention every other refusal on this surface uses.
             400:
             404:
         }

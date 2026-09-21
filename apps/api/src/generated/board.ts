@@ -365,6 +365,25 @@ export const LintFinding = z.strictObject({
 export type LintFinding = z.infer<typeof LintFinding>;
 
 /**
+ * Card 0266. One line comment a human left on the Diff tab — always a `defect` (it comes from
+ * selecting a line in the diff, so it always has a `file`/`line` to cite; `omission` findings, which
+ * have no line, are out of scope for this surface), carrying the same `problem`/`suggestion` pair a
+ * reviewer's own `ReviewFinding` already requires so `ReviewFindingSchema` itself needs no change.
+ * `severity` is the submitter's own choice; absent defaults to `blocker` in `BoardWriteService.recordFindings`
+ * — this contract does not default it itself, since a client should be able to tell "chose blocker"
+ * from "said nothing" if it ever needs to, even though today's UI always sends one.
+ * generated from [HumanFinding](file://./../../data/contracts/board.ck#L384)
+ */
+export const HumanFinding = z.strictObject({
+    file: z.string(),
+    line: z.coerce.number().int(),
+    severity: z.enum(['blocker', 'concern']).optional(),
+    problem: z.string(),
+    suggestion: z.string(),
+});
+export type HumanFinding = z.infer<typeof HumanFinding>;
+
+/**
  * generated from [CardDetail](file://./../../data/contracts/board.ck#L67)
  */
 export const CardDetail = CardSummary.extend({
@@ -440,6 +459,18 @@ export const SplitCardsRequest = z.strictObject({
     pieces: z.array(DivisionPiece),
 });
 export type SplitCardsRequest = z.infer<typeof SplitCardsRequest>;
+
+/**
+ * `POST /api/cards/{id}/findings`'s request: every comment left on the diff, submitted together so
+ * the fold into the card body and the move to `ready`'s own `onFail` happen as one transition —
+ * one request per comment would mint a card version and a transition each, and the kickback would
+ * race the writes.
+ * generated from [RecordFindingsRequest](file://./../../data/contracts/board.ck#L396)
+ */
+export const RecordFindingsRequest = z.strictObject({
+    findings: z.array(HumanFinding),
+});
+export type RecordFindingsRequest = z.infer<typeof RecordFindingsRequest>;
 
 /**
  * `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel

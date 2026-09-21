@@ -24,11 +24,18 @@ const criterionBullet = (criterion: ReviewCriterion): string => `- ${criterion.i
  * bullets — omitted entirely when empty, so a review that reports no criteria (a plan with none, or
  * a result reported before this field existed) renders exactly as it did before this field existed.
  *
+ * Card 0266: `note`, when given, renders as one line directly under the heading — the one thing this
+ * section's own bullets cannot say on their own, which submitted them. `BoardWriteService.recordFindings`
+ * passes one so a human's list of line comments off the Diff tab reads as human-written, distinct
+ * from the review's own findings the very same section otherwise carries; every other caller (the
+ * runner, folding a review's or challenge's findings in) omits it, and nothing else about the
+ * section's rendering changes.
+ *
  * Everything above and below the section is the original body's lines, untouched: only the section
  * itself — from its heading up to (not including) the next top-level heading, or the end of the body
  * — is replaced.
  */
-export const withFindings = (body: string, findings: ReviewFinding[], criteria: ReviewCriterion[] = []): string => {
+export const withFindings = (body: string, findings: ReviewFinding[], criteria: ReviewCriterion[] = [], note?: string): string => {
     const lines = body.split('\n');
     const headingIndex = lines.findIndex(line => line.trim() === HEADING);
 
@@ -46,6 +53,7 @@ export const withFindings = (body: string, findings: ReviewFinding[], criteria: 
 
     const section = [
         HEADING,
+        ...(note ? [note] : []),
         '',
         ...findings.map(bullet),
         ...(criteria.length > 0 ? [...(findings.length > 0 ? [''] : []), CRITERIA_HEADING, '', ...criteria.map(criterionBullet)] : []),

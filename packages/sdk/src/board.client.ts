@@ -20,6 +20,7 @@ import type {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
     RepositionCardRequest,
@@ -374,6 +375,26 @@ export class BoardClient {
     async getCardDiff(id: string): Promise<CardDiff> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/diff`, { method: 'GET' });
         return await parseJson<CardDiff>(result);
+    }
+
+    /**
+     * @name Record findings
+     * @description Card 0266. Turns a human's line comments on the Diff tab into the same kind of kickback a failed
+     * review already produces: folds every comment into the card's `## Review findings` section
+     * (`withFindings`, marked as human-written so implementing can tell the two apart) and moves the
+     * card to `ready`'s own configured `onFail` — read from the live stage config, never hard-coded to
+     * `implementing`, so a board that points `ready.onFail` elsewhere still routes correctly with no
+     * code change. Not a runner kickback: `retries` is left untouched (this is not a stage failing, it
+     * is a human's review) and the event's `by` is `'human'`, the same convention `move` uses for an
+     * operator-initiated transition.
+     */
+    async recordFindings(id: string, body: RecordFindingsRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/findings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<CardDetail>(result);
     }
 
     /** @name List card versions */
