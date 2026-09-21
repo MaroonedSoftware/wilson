@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { testDbConnection } from './test.db.js';
@@ -17,15 +18,21 @@ import { testDbConnection } from './test.db.js';
  */
 export default async function setup(): Promise<void> {
     const connection = testDbConnection();
-    const lockClient = new pg.Client({
-        host: connection.host,
-        port: connection.port,
-        user: connection.user,
-        password: connection.password,
-        database: connection.database,
-    });
+    const lockClient = await connectLockClient(connection);
 
-    await lockClient.connect();
+    if (!lockClient) {
+        // The lock connection never came up within its own short retry budget. The database may
+        // still be starting after a restart, or it may genuinely be unreachable — either way, hand
+        // off to dbmate rather than failing here: dbmate has its own, much longer `--wait` (a
+        // minute by default), so a still-starting container is tolerated there instead of this
+        // throwing a bare pg connection error before dbmate ever gets a chance to run. If no lock
+        // connection could be made, nothing else holding the lock could be connected either, so
+        // there is no concurrent run on this database to race against.
+        const applied = await runDbmate(connection);
+        console.log(`test database migrate: applied ${applied} migration(s)`);
+        return;
+    }
+
     try {
         await lockClient.query('select pg_advisory_lock($1)', [TEST_DB_MIGRATE_LOCK_KEY]);
         const applied = await runDbmate(connection);
@@ -34,6 +41,45 @@ export default async function setup(): Promise<void> {
         await lockClient.query('select pg_advisory_unlock($1)', [TEST_DB_MIGRATE_LOCK_KEY]).catch(() => undefined);
         await lockClient.end().catch(() => undefined);
     }
+}
+
+/**
+ * How many times, and how far apart, to retry the advisory-lock connection before giving up on it
+ * and falling back to dbmate's own, much longer `--wait`. Short on purpose: this only needs to
+ * smooth over the moment a container is mid-restart, not to duplicate dbmate's one-minute wait a
+ * second time.
+ */
+const LOCK_CONNECT_RETRIES = 5;
+const LOCK_CONNECT_RETRY_DELAY_MS = 500;
+
+/**
+ * Connect the advisory-lock client, retrying a still-starting database instead of the bare, single
+ * `connect()` this used to make. That bare call threw immediately on a container restart — the
+ * exact moment dbmate's own `--wait` exists to cover — so dbmate never even ran, and its output
+ * could never end up in the thrown error the way a failure here is supposed to include it. Resolves
+ * `undefined` if the database never accepted a connection within the retry budget, so the caller
+ * can fall back to dbmate's own longer wait instead of throwing a raw pg error.
+ */
+async function connectLockClient(connection: ReturnType<typeof testDbConnection>): Promise<pg.Client | undefined> {
+    for (let attempt = 0; attempt <= LOCK_CONNECT_RETRIES; attempt++) {
+        const client = new pg.Client({
+            host: connection.host,
+            port: connection.port,
+            user: connection.user,
+            password: connection.password,
+            database: connection.database,
+        });
+        try {
+            await client.connect();
+            return client;
+        } catch {
+            await client.end().catch(() => undefined);
+            if (attempt < LOCK_CONNECT_RETRIES) {
+                await sleep(LOCK_CONNECT_RETRY_DELAY_MS);
+            }
+        }
+    }
+    return undefined;
 }
 
 /**
