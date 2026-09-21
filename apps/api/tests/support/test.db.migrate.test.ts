@@ -193,6 +193,35 @@ describe('test.db.migrate.ts globalSetup', () => {
         // variable is unset, which is every other test in this file).
         10000,
     );
+
+    it('rejects with a message naming TEST_DATABASE_LOCK_WAIT_MS when it is not a positive integer', async () => {
+        // On the pre-change tree this variable does not exist yet, so it would be silently ignored
+        // and setup() would proceed to connect with the real (reachable) test database and resolve
+        // instead of rejecting - which is exactly the typo-quietly-restores-the-one-minute-wait bug
+        // this card's validation removes (AC3). The check happens before any connection is opened
+        // (lockConnectBudgetMs() is called first inside connectLockClient), so this rejects
+        // immediately without touching the network or the real test database.
+        process.env.TEST_DATABASE_LOCK_WAIT_MS = 'not-a-number';
+        try {
+            await expect(setup()).rejects.toThrow(/TEST_DATABASE_LOCK_WAIT_MS/);
+        } finally {
+            delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
+        }
+    });
+
+    it('rejects a zero TEST_DATABASE_LOCK_WAIT_MS the same way, rather than treating it as "no wait"', async () => {
+        // Zero is an integer but not a positive one, and it's the value someone reaching for "make
+        // it instant" would most plausibly type - it must fail loudly rather than silently disabling
+        // retries (AC3 requires a named error for any non-positive-integer value, not just
+        // non-numeric ones). On the pre-change tree the variable is ignored entirely, so this
+        // resolves instead of rejecting.
+        process.env.TEST_DATABASE_LOCK_WAIT_MS = '0';
+        try {
+            await expect(setup()).rejects.toThrow(/TEST_DATABASE_LOCK_WAIT_MS/);
+        } finally {
+            delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
+        }
+    });
 });
 
 describe('apps/api vitest project wiring', () => {
