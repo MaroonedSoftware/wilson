@@ -3,23 +3,41 @@ import { Kysely, PostgresDialect } from 'kysely';
 import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from '#modules/data/db.js';
 
+export interface TestDatabaseConnection {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+}
+
+/**
+ * The five `TEST_DATABASE_*` values, resolved with their defaults — the one place both `testDb()`
+ * and `test.db.migrate.ts`'s `globalSetup` read them from, so the connection the tests use and the
+ * connection the setup migrates can never disagree.
+ */
+export const testDbConnection = (): TestDatabaseConnection => ({
+    host: process.env.TEST_DATABASE_HOST ?? 'localhost',
+    port: Number(process.env.TEST_DATABASE_PORT ?? 15533),
+    user: process.env.TEST_DATABASE_USER ?? 'postgres',
+    password: process.env.TEST_DATABASE_PASSWORD ?? 'postgres',
+    database: process.env.TEST_DATABASE_NAME ?? 'wilson_test',
+});
+
 /**
  * A connection to the tmpfs test database (`db-test` in docker-compose.yml).
  *
  * Tests that touch the board need a real one: the board is Postgres now, and a fake would only prove
  * the test agrees with itself about what a write means — the same reason these tests used a real git
- * repo before. Run `pnpm --filter @wilson/api exec dbmate ... up` against it once; the schema then
- * persists for as long as the container does.
+ * repo before. The `apps/api` project's `globalSetup` (`test.db.migrate.ts`) migrates this database
+ * itself before any test file loads, so a wiped tmpfs schema costs a second or two instead of an
+ * attempt.
  */
 export const testDb = (): Kysely<DB> =>
     new Kysely<DB>({
         dialect: new PostgresDialect({
             pool: new KyselyPool({
-                host: process.env.TEST_DATABASE_HOST ?? 'localhost',
-                port: Number(process.env.TEST_DATABASE_PORT ?? 15533),
-                user: process.env.TEST_DATABASE_USER ?? 'postgres',
-                password: process.env.TEST_DATABASE_PASSWORD ?? 'postgres',
-                database: process.env.TEST_DATABASE_NAME ?? 'wilson_test',
+                ...testDbConnection(),
                 types: KyselyPgTypeOverrides,
             }),
         }),
