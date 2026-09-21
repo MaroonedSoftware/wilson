@@ -1,18 +1,65 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card } from '#modules/board/card.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
+import { STATUS_MIRROR_INTERVAL_MS, STATUS_MIRROR_INTERVAL_MS_DEFAULT } from '#modules/settings/status.mirror.interval.setting.js';
 import type { CardSource, MirrorStatus } from '#modules/sources/card.source.js';
 import { CardSourceRegistry } from '#modules/sources/card.source.registry.js';
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
-import { STATUS_MIRROR_CURSOR_KEY, StatusMirrorPoller } from '#modules/sources/status.mirror.poller.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { DB } from '#modules/data/db.js';
+
+/**
+ * Card 0271: on 2026-09-21 a database outage took `BoundedCardStageJobRunner.watchConcurrency`'s
+ * interval read down with it, unguarded (`jobs.module.ts`). `StatusMirrorPoller.loop`'s own
+ * `STATUS_MIRROR_INTERVAL_MS` read had the same shape — outside any `try` — and this card closes it
+ * the same way card 0257 closed `Poller.loop`'s. Real `node:timers/promises` `setTimeout` is not
+ * intercepted by `vi.useFakeTimers()` (see `poller.test.ts`'s own file-level comment on the same
+ * idiom), so the module is mocked here and driven by hand. Every other test in this file reaches
+ * `tick()` directly and never touches `delay()` at all, so mocking it here changes nothing about them.
+ */
+interface PendingDelay {
+    resolve: () => void;
+}
+let pending: PendingDelay[] = [];
+
+const delayMock = vi.fn((_ms: number, _value: undefined, opts: { signal: AbortSignal }) => {
+    return new Promise<void>((resolve, reject) => {
+        const entry: PendingDelay = {
+            resolve: () => {
+                opts.signal.removeEventListener('abort', onAbort);
+                pending = pending.filter(p => p !== entry);
+                resolve();
+            },
+        };
+        const onAbort = () => {
+            pending = pending.filter(p => p !== entry);
+            reject(new Error('AbortError'));
+        };
+        if (opts.signal.aborted) {
+            onAbort();
+            return;
+        }
+        opts.signal.addEventListener('abort', onAbort, { once: true });
+        pending.push(entry);
+    });
+});
+vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
+
+// Dynamic, and after the mock above — not a static import — so `status.mirror.poller.ts`'s own
+// `import { setTimeout as delay } from 'node:timers/promises'` resolves against the mock rather than
+// the real module: a static import at the top of this file would be hoisted ahead of `vi.mock`
+// registering it, the same trap `poller.test.ts`'s own file-level comment documents.
+const { STATUS_MIRROR_CURSOR_KEY, StatusMirrorPoller } = await import('#modules/sources/status.mirror.poller.js');
+
+/** Release the oldest outstanding interval wait, letting the loop run one more tick. */
+const releaseTick = () => pending.shift()?.resolve();
 
 /**
  * Card 0201, the same idiom `source.poller.test.ts`'s own "end to end against a real board" section
@@ -37,7 +84,7 @@ const card = (id: string, overrides: Partial<Card['frontmatter']> = {}): Card =>
 
 /** Reach the private `tick()` directly — one project, one tick, deterministically, with no interval
  * or timer involved. The same idiom `source.poller.test.ts`'s `runOneTick` uses. */
-const runTick = (poller: StatusMirrorPoller): Promise<void> => (poller as unknown as { tick: () => Promise<void> }).tick();
+const runTick = (poller: InstanceType<typeof StatusMirrorPoller>): Promise<void> => (poller as unknown as { tick: () => Promise<void> }).tick();
 
 /**
  * A fresh project wired against a real `PostgresBoardRepository`/`EventLog` on the test db, and a
@@ -265,5 +312,151 @@ describe('StatusMirrorPoller — cursor advancement', () => {
 
         expect(calls).toHaveLength(0);
         expect(await cursors.get(STATUS_MIRROR_CURSOR_KEY)).toBeUndefined();
+    });
+});
+
+/**
+ * The interval-read guard itself (card 0271), driven through the real `start()`/`stop()` surface
+ * rather than `tick()` directly — a regression back to the old, unprotected read shows up exactly as
+ * it did in production: the loop never reaches its first `delay()` call at all, and every `vi.waitFor`
+ * below times out, or `stop()` itself rejects with the settings error instead of resolving cleanly.
+ * Fakes throughout, not the real `testDb()`: `STATUS_MIRROR_ENABLED` resolves to its coded default
+ * (`false`) for every settings fake below, so `tickProject` returns before ever touching the cursor
+ * repository, the board, or the pool — nothing here needs them to be real.
+ */
+describe('StatusMirrorPoller start/stop — the interval read survives a database outage (card 0271)', () => {
+    beforeEach(() => {
+        pending = [];
+        delayMock.mockClear();
+    });
+
+    afterEach(async () => {
+        // Belt and braces: abort anything a test left running so it cannot bleed into the next one.
+        for (const entry of [...pending]) entry.resolve();
+    });
+
+    const failingIntervalSettings = (error: Error): SettingsStore =>
+        ({
+            get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => {
+                if (definition.key === STATUS_MIRROR_INTERVAL_MS.key) throw error;
+                return definition.defaultValue;
+            }),
+            set: vi.fn(async () => undefined),
+        }) as unknown as SettingsStore;
+
+    const intervalReadSequence = (...steps: Array<{ value: number } | { error: Error }>): SettingsStore => {
+        const queue = [...steps];
+        return {
+            get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => {
+                if (definition.key !== STATUS_MIRROR_INTERVAL_MS.key) return definition.defaultValue;
+                const step = queue.shift();
+                if (!step) throw new Error('intervalReadSequence exhausted — add another step');
+                if ('error' in step) throw step.error;
+                return step.value;
+            }),
+            set: vi.fn(async () => undefined),
+        } as unknown as SettingsStore;
+    };
+
+    const buildTestPoller = (settings: SettingsStore) => {
+        const config = new StaticBoardConfig('status-mirror-interval-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
+        const logger = fakeLogger();
+        const poller = new StatusMirrorPoller(
+            new CardSourceRegistry([]),
+            {} as unknown as SourceCursorRepository,
+            {} as unknown as BoardRepository,
+            config,
+            settings,
+            {} as unknown as Kysely<DB>,
+            logger,
+        );
+        return { poller, logger };
+    };
+
+    it('AC1: a settings store whose get() always rejects for STATUS_MIRROR_INTERVAL_MS logs each failure, waits the default interval, and keeps ticking', async () => {
+        const boom = new Error('ECONNREFUSED');
+        const settings = failingIntervalSettings(boom);
+        const { poller, logger } = buildTestPoller(settings);
+
+        poller.start();
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
+        expect(logger.error).toHaveBeenCalledWith(boom);
+
+        // A second failing iteration behaves exactly like the first — logs again, waits the default
+        // again — rather than busy-looping or giving up after a single retry.
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+        expect(delayMock).toHaveBeenLastCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        expect(logger.error).toHaveBeenCalledTimes(2);
+
+        await poller.stop();
+    });
+
+    it('AC2: a read that fails after a successful 5000ms read falls back to that last known-good value, not the default', async () => {
+        const boom = new Error('ECONNREFUSED');
+        const settings = intervalReadSequence({ value: 5_000 }, { error: boom });
+        const { poller } = buildTestPoller(settings);
+
+        poller.start();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+
+        // The wait elapses, the tick after it runs, and loop() reads the setting again — this time it
+        // rejects, and the fallback must be 5000 (the last known-good value), not
+        // STATUS_MIRROR_INTERVAL_MS_DEFAULT.
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+        expect(delayMock).toHaveBeenLastCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+        await poller.stop();
+    });
+
+    it('AC3: a read that fails and then recovers uses the freshly read value on the very next iteration', async () => {
+        const boom = new Error('ECONNREFUSED');
+        const settings = intervalReadSequence({ error: boom }, { value: 7_000 });
+        const { poller } = buildTestPoller(settings);
+
+        poller.start();
+        // Never having read a good value yet, the first failure falls back to the default.
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
+
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+        expect(delayMock).toHaveBeenLastCalledWith(7_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+        await poller.stop();
+    });
+
+    it('AC4: aborting mid-wait during a failing settings read still returns from stop() immediately, without waiting out a retry cycle', async () => {
+        const settings = failingIntervalSettings(new Error('ECONNREFUSED'));
+        const { poller } = buildTestPoller(settings);
+
+        poller.start();
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+
+        // If stop() had to wait out a whole retry cycle (another failing read plus another delay)
+        // instead of returning as soon as the in-flight wait aborts, this would hang past the test's
+        // own timeout rather than resolving.
+        await expect(poller.stop()).resolves.toBeUndefined();
+    });
+
+    it('AC5: repeated rejected settings reads across several iterations never reject the loop; stop() still resolves cleanly', async () => {
+        const settings = failingIntervalSettings(new Error('ECONNREFUSED'));
+        const { poller } = buildTestPoller(settings);
+
+        poller.start();
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
+        releaseTick();
+        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(3));
+
+        // Were a rejected settings read able to escape loop() as an unhandled rejection, it would have
+        // already surfaced by now — either as a rejection from stop() below, or as a process warning
+        // this run captures.
+        await expect(poller.stop()).resolves.toBeUndefined();
     });
 });
