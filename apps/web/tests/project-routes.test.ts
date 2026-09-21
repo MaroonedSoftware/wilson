@@ -72,7 +72,10 @@ class FakeEventSource {
         this.closed = true;
     }
 
-    emit(type: string, data = '') {
+    // Card 0274: `useCardFeed` now parses a `card` event's `data` as `WireCardEvent` before acting on
+    // it — `'{}'` is valid JSON with no `message`, so it still exercises "the feed refetches this
+    // project's board" without an empty string being silently dropped as unparseable.
+    emit(type: string, data = '{}') {
         for (const listener of this.listeners.get(type) ?? []) listener(new MessageEvent(type, { data }));
     }
 }

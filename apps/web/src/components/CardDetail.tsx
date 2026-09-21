@@ -9,6 +9,7 @@ import { DependenciesSection, EditBodyControl, RenameControl } from '#src/compon
 import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
 import { DiffPane } from '#src/components/DiffPane.js';
 import { DraftPane } from '#src/components/DraftPane.js';
+import { LiveActivity } from '#src/components/LiveActivity.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { acceptanceCriteria, filesInScope, formatTimestamp } from '#src/lib/card.js';
@@ -398,6 +399,11 @@ function VersionsList({ versions, limit, error }: { versions: CardVersion[] | un
  * card 0159, `parking-lot` (card 0137, [[0138]]), where an operator can hold the planning
  * conversation from here, hand-edit the live draft it produces, and approve it as a new version, all
  * without a terminal.
+ *
+ * Card 0274: a "Live activity" panel (`LiveActivity.tsx`) sits above "Files in scope" — the card's
+ * tool calls as they stream in, seeded from `events`' own tail so a page opened mid-run isn't empty.
+ * `EventsTimeline` lower on the page is unchanged (AC8): this is a live view of the same kind of
+ * fact, not a replacement for the fuller history that section already gives.
  */
 export function CardDetailView({
     card,
@@ -495,6 +501,11 @@ export function CardDetailView({
                     </Stack>
                 </Paper>
             )}
+
+            <Stack gap={6}>
+                <Title order={4}>Live activity</Title>
+                <LiveActivity cardId={card.id} seedEvents={events} />
+            </Stack>
 
             {scope.length > 0 && (
                 <Stack gap={6}>

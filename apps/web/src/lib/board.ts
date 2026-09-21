@@ -1,5 +1,6 @@
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import type { CardState } from '#src/components/brand/StateIcon.js';
+import type { CardActivity } from './feed.js';
 
 /** The column cards wait in before anyone promotes them. Not a stage — dispatch excludes it. */
 export const PARKING_LOT = 'parking-lot';
@@ -122,3 +123,39 @@ export const ageInStage = (stageEnteredAt: string, now: Date): string => {
     if (elapsed < DAY_MS) return `${Math.round(elapsed / HOUR_MS)}h in stage`;
     return `${Math.round(elapsed / DAY_MS)}d in stage`;
 };
+
+const SECOND_MS = 1000;
+
+/**
+ * Card 0274. Past this age, a board tile's "last event" line renders in its stale style (AC4) — five
+ * minutes, matching card 0204's proposed idle watchdog so the two agree if that lands (this card's
+ * Constraints). One named constant, read by both `Board.tsx` (for the style) and whichever test
+ * exercises the threshold, rather than the figure copied in each place.
+ */
+export const LAST_EVENT_STALE_MS = 5 * 60_000;
+
+/**
+ * Card 0274. How long ago `ts` — a feed event's own publish time, never the browser's receipt time
+ * (AC3) — was, as of `now`. Seconds-level for the first minute (a board tile updates on
+ * `ACTIVITY_TICK_MS`'s ten-second beat, so "0m ago" would sit unchanged for most of that window),
+ * then the same "Xh"/"Xd" rounding `ageInStage` already uses above.
+ */
+export const lastEventAge = (ts: string, now: Date): string => {
+    const elapsed = Math.max(0, now.getTime() - new Date(ts).getTime());
+    if (elapsed < MINUTE_MS) return `${Math.round(elapsed / SECOND_MS)}s ago`;
+    if (elapsed < HOUR_MS) return `${Math.round(elapsed / MINUTE_MS)}m ago`;
+    if (elapsed < DAY_MS) return `${Math.round(elapsed / HOUR_MS)}h ago`;
+    return `${Math.round(elapsed / DAY_MS)}d ago`;
+};
+
+/**
+ * Card 0274's own display rule (Constraints): a board tile shows its "last event" line only while
+ * `activity` — the card's latest feed event, `useCardActivity` — is `stage.dispatched` or a `tool.*`
+ * event, and only when that event's own `stage` still matches `cardStage`. The stage check keeps a
+ * lingering event from a stage the card has since left from reading as live: `stage.dispatched`
+ * fires on entering a stage, and a `tool.*` event is always recorded in the stage it ran in
+ * (`card.event.ts`), so either naming a different stage than the card's current one means the card
+ * has since moved on and this event is stale in a way `lastEventAge` alone can't say (AC5).
+ */
+export const showsLastEventLine = (activity: CardActivity | undefined, cardStage: string): boolean =>
+    activity !== undefined && activity.stage === cardStage && (activity.type === 'stage.dispatched' || activity.type.startsWith('tool.'));

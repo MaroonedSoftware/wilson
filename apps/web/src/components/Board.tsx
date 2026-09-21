@@ -18,16 +18,20 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import {
+    LAST_EVENT_STALE_MS,
     PARKING_LOT,
     ageInStage,
     cardState,
     collapsedColumnsKey,
     columnOrder,
     groupByStage,
+    lastEventAge,
+    showsLastEventLine,
     stagesById,
     toggleCollapsed,
     unfinishedDeps,
 } from '#src/lib/board.js';
+import { useActivityNow, useCardActivity } from '#src/lib/feed.js';
 import { useMoveCard, useRepositionCard } from '#src/lib/mutations.js';
 import { StateIcon } from '#src/components/brand/StateIcon.js';
 
@@ -70,10 +74,22 @@ export const TONE: Record<string, string> = {
  * the two never show together, since a dependency counts as satisfied only once none of
  * `dependsOn` remain in `blockedBy`. A dimmed relative age line ("3d in stage") renders only when
  * `stageEnteredAt` is present (`ageInStage`) — omitted otherwise, the same "don't guess" rule.
+ *
+ * Card 0274: a second, independent line below it — "last event 20s ago" — reporting how long ago
+ * the card's latest feed event was published (`useCardActivity`, `lib/feed.ts`), shown only under
+ * `showsLastEventLine`'s rule (`lib/board.ts`: the event is `stage.dispatched` or a `tool.*` event
+ * for the card's own current stage) and otherwise omitted, the same "don't guess" rule `ageInStage`
+ * already follows. Past `LAST_EVENT_STALE_MS` it switches to a stale style (AC4) — `useActivityNow`
+ * is the one shared, app-wide ten-second clock this reads to re-render on, rather than each tile
+ * running its own interval (this card's Constraints).
  */
 function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
     const state = cardState(card);
     const satisfiedDeps = card.dependsOn.length > 0 && blockedBy.length === 0;
+    const activity = useCardActivity(card.id);
+    const now = useActivityNow();
+    const showActivity = showsLastEventLine(activity, card.stage);
+    const activityIsStale = showActivity && activity !== undefined && now.getTime() - new Date(activity.ts).getTime() >= LAST_EVENT_STALE_MS;
     return (
         <Paper withBorder p="xs" radius="sm" style={card.needsHuman ? { borderColor: 'var(--mantine-color-red-6)' } : undefined}>
             <Group gap={6} wrap="nowrap" align="baseline">
@@ -108,6 +124,11 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
             {card.stageEnteredAt && (
                 <Text size="xs" c="dimmed" mt={4}>
                     {ageInStage(card.stageEnteredAt, new Date())}
+                </Text>
+            )}
+            {showActivity && activity && (
+                <Text size="xs" c={activityIsStale ? 'orange' : 'dimmed'} mt={2}>
+                    last event {lastEventAge(activity.ts, now)}
                 </Text>
             )}
         </Paper>

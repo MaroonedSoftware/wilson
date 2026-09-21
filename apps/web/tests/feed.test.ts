@@ -36,8 +36,11 @@ class FakeEventSource {
         this.closed = true;
     }
 
-    /** Fires every listener registered for `type`, as the real EventSource would on a message. */
-    emit(type: string, data = '') {
+    /** Fires every listener registered for `type`, as the real EventSource would on a message. The
+     * default `'{}'` is valid JSON with no `message` — card 0274's `useCardFeed` now parses a `card`
+     * event's `data` (`WireCardEvent`) before doing anything with it, so an empty string here would
+     * silently drop the event instead of exercising the "any card event invalidates" rule below. */
+    emit(type: string, data = '{}') {
         for (const listener of this.listeners.get(type) ?? []) {
             listener(new MessageEvent(type, { data }));
         }
