@@ -157,9 +157,12 @@ describe('test.db.migrate.ts globalSetup', () => {
             // same timeout, and it reaches the child process because runDbmate spawns dbmate with
             // `{ ...process.env, DATABASE_URL }` - so this shortens dbmate's own wait to a couple
             // of seconds once it actually runs, instead of the test either waiting a minute for
-            // real dbmate or mocking the spawn away. It has no effect on connectLockClient's own
-            // retry budget below, which is a constant inside test.db.migrate.ts, not an env var.
+            // real dbmate or mocking the spawn away.
             process.env.DBMATE_WAIT_TIMEOUT = '2s';
+            // TEST_DATABASE_LOCK_WAIT_MS shortens connectLockClient's own retry budget to match, so
+            // this test doesn't have to sit through the real 60-second default (card 0275) before
+            // falling back to (the also-shortened) dbmate.
+            process.env.TEST_DATABASE_LOCK_WAIT_MS = '2000';
 
             try {
                 let error: unknown;
@@ -180,15 +183,45 @@ describe('test.db.migrate.ts globalSetup', () => {
                 expect(message).toMatch(/connection refused|unable to connect to database/i);
             } finally {
                 delete process.env.DBMATE_WAIT_TIMEOUT;
+                delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
             }
         },
-        // connectLockClient's own retry budget (LOCK_CONNECT_BUDGET_MS in test.db.migrate.ts) is a
-        // full minute, deliberately matching dbmate's default `--wait` (AC3), and this test's
-        // unreachable host/port makes every one of those retries fail immediately, so setup() does
-        // not give up on the lock and fall back to (the shortened) dbmate until that whole budget
-        // has elapsed. The test's own timeout has to outlast that real wait, not just dbmate's.
-        70000,
+        // The lock-connect budget above is shortened to about 2 seconds (TEST_DATABASE_LOCK_WAIT_MS),
+        // and this test's unreachable host/port makes every retry within it fail immediately, so a
+        // timeout a few times that real wait leaves a wide margin without waiting anywhere near the
+        // unshortened 60-second default (AC3 is unaffected: that default only applies when the
+        // variable is unset, which is every other test in this file).
+        10000,
     );
+
+    it('rejects with a message naming TEST_DATABASE_LOCK_WAIT_MS when it is not a positive integer', async () => {
+        // On the pre-change tree this variable does not exist yet, so it would be silently ignored
+        // and setup() would proceed to connect with the real (reachable) test database and resolve
+        // instead of rejecting - which is exactly the typo-quietly-restores-the-one-minute-wait bug
+        // this card's validation removes (AC3). The check happens before any connection is opened
+        // (lockConnectBudgetMs() is called first inside connectLockClient), so this rejects
+        // immediately without touching the network or the real test database.
+        process.env.TEST_DATABASE_LOCK_WAIT_MS = 'not-a-number';
+        try {
+            await expect(setup()).rejects.toThrow(/TEST_DATABASE_LOCK_WAIT_MS/);
+        } finally {
+            delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
+        }
+    });
+
+    it('rejects a zero TEST_DATABASE_LOCK_WAIT_MS the same way, rather than treating it as "no wait"', async () => {
+        // Zero is an integer but not a positive one, and it's the value someone reaching for "make
+        // it instant" would most plausibly type - it must fail loudly rather than silently disabling
+        // retries (AC3 requires a named error for any non-positive-integer value, not just
+        // non-numeric ones). On the pre-change tree the variable is ignored entirely, so this
+        // resolves instead of rejecting.
+        process.env.TEST_DATABASE_LOCK_WAIT_MS = '0';
+        try {
+            await expect(setup()).rejects.toThrow(/TEST_DATABASE_LOCK_WAIT_MS/);
+        } finally {
+            delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
+        }
+    });
 });
 
 describe('apps/api vitest project wiring', () => {

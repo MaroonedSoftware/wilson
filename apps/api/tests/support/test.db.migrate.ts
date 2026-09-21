@@ -21,9 +21,9 @@ export default async function setup(): Promise<void> {
     const lockClient = await connectLockClient(connection);
 
     if (!lockClient) {
-        // The lock connection never came up within LOCK_CONNECT_BUDGET_MS, which matches dbmate's
-        // own default `--wait` timeout — so a database still starting after a restart (the
-        // motivating scenario) has already had as long to come back as dbmate itself would allow,
+        // The lock connection never came up within the lock-connect budget (lockConnectBudgetMs()),
+        // which matches dbmate's own default `--wait` timeout — so a database still starting after
+        // a restart (the motivating scenario) has already had as long to come back as dbmate itself would allow,
         // and any concurrent suite's lock connection would have succeeded by now too if the
         // database were reachable. Reaching this point means the database is unreachable for at
         // least as long as dbmate would wait, so there is no concurrent run to race against: hand
@@ -53,10 +53,27 @@ export default async function setup(): Promise<void> {
  * racing the same DDL unlocked — the exact failure the lock exists to prevent (AC3). A budget
  * shorter than dbmate's own wait would let that race happen for as long as the database takes to
  * become reachable, up to dbmate's full minute.
+ *
+ * `TEST_DATABASE_LOCK_WAIT_MS` overrides it, the same way `DBMATE_WAIT_TIMEOUT` already shortens
+ * dbmate's own wait — it sits beside the other `TEST_DATABASE_*` variables `testDbConnection()`
+ * reads. Unset, the budget stays the full 60,000ms; that default does not change. Read fresh on
+ * every call, not once at module load, so a test that sets it before calling `setup()` (and
+ * restores it after) sees its own override without affecting any other test in the same file.
  */
 const LOCK_CONNECT_RETRY_DELAY_MS = 500;
-const LOCK_CONNECT_BUDGET_MS = 60_000;
-const LOCK_CONNECT_RETRIES = Math.ceil(LOCK_CONNECT_BUDGET_MS / LOCK_CONNECT_RETRY_DELAY_MS);
+const LOCK_CONNECT_BUDGET_DEFAULT_MS = 60_000;
+
+function lockConnectBudgetMs(): number {
+    const raw = process.env.TEST_DATABASE_LOCK_WAIT_MS;
+    if (raw === undefined) {
+        return LOCK_CONNECT_BUDGET_DEFAULT_MS;
+    }
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new Error(`TEST_DATABASE_LOCK_WAIT_MS must be a positive integer in milliseconds, got ${JSON.stringify(raw)}`);
+    }
+    return value;
+}
 
 /**
  * Connect the advisory-lock client, retrying a still-starting database instead of the bare, single
@@ -68,7 +85,8 @@ const LOCK_CONNECT_RETRIES = Math.ceil(LOCK_CONNECT_BUDGET_MS / LOCK_CONNECT_RET
  * while a concurrent suite might still take the locked path.
  */
 async function connectLockClient(connection: ReturnType<typeof testDbConnection>): Promise<pg.Client | undefined> {
-    for (let attempt = 0; attempt <= LOCK_CONNECT_RETRIES; attempt++) {
+    const retries = Math.ceil(lockConnectBudgetMs() / LOCK_CONNECT_RETRY_DELAY_MS);
+    for (let attempt = 0; attempt <= retries; attempt++) {
         const client = new pg.Client({
             host: connection.host,
             port: connection.port,
@@ -81,7 +99,7 @@ async function connectLockClient(connection: ReturnType<typeof testDbConnection>
             return client;
         } catch {
             await client.end().catch(() => undefined);
-            if (attempt < LOCK_CONNECT_RETRIES) {
+            if (attempt < retries) {
                 await sleep(LOCK_CONNECT_RETRY_DELAY_MS);
             }
         }
