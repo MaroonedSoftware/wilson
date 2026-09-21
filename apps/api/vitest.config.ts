@@ -9,6 +9,7 @@ export default defineProject({
         environment: 'node',
         testTimeout: 30000,
         pool: 'forks',
+        globalSetup: ['./tests/support/test.db.migrate.ts'],
         alias: {
             '#src': new URL('./src/', import.meta.url).pathname,
             '#modules': new URL('./src/modules/', import.meta.url).pathname,

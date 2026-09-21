@@ -10,11 +10,18 @@ is not — it looks predictable right up until it is wrong.
 ## Tests that need a database
 
 The board is Postgres, so the board and dispatcher suites talk to the `db-test` service in
-`docker-compose.yml` — a tmpfs Postgres on port 15533, separate from the dev database. Bring it up
-and migrate it once:
+`docker-compose.yml` — a tmpfs Postgres on port 15533, separate from the dev database. Bring it up;
+the suite migrates it itself, in a `globalSetup` (`tests/support/test.db.migrate.ts`) that runs
+before any test file loads, so a container restart that wipes the tmpfs schema costs a second or
+two instead of a testing attempt:
 
 ```
 docker compose up -d db-test
+```
+
+To run dbmate by hand instead — outside vitest, or to check the schema without running the suite:
+
+```
 cd apps/api && DATABASE_URL="postgres://postgres:postgres@localhost:15533/wilson_test?sslmode=disable" \
   pnpm exec dbmate -d ./data/migrations --no-dump-schema up
 ```
