@@ -2340,4 +2340,175 @@ describe('BoardWriteService', () => {
             expect(unsatisfiedDependencies(cardB, cards)).toEqual([]);
         });
     });
+
+    describe('recordFindings', () => {
+        // Card 0266. A `ready` stage whose `onFail` is deliberately not `implementing` — the only
+        // way a test can tell "read from the live stage config" (AC3) apart from "hard-coded to the
+        // more obvious value", the same reasoning the file-level `stageConfigs` above gives for
+        // picking `testing` as `backlog`'s own `onPass`.
+        const readyStageConfigs = new StaticStageConfigStore(
+            [
+                'stages:',
+                '  - name: implementing',
+                '    mode: agent',
+                '    model: claude-opus',
+                '    instructions: build it',
+                '    onPass: ready',
+                '    onFail: implementing',
+                '  - name: ready',
+                '    mode: manual',
+                '    model: claude-opus',
+                '    instructions: human review',
+                '    onPass: merged',
+                '    onFail: testing',
+                '  - name: testing',
+                '    mode: agent',
+                '    model: claude-opus',
+                '    instructions: test the thing',
+                '    onPass: merged',
+                '    onFail: implementing',
+                '',
+            ].join('\n'),
+        );
+
+        const freshFindingsBoard = () => {
+            const events = { append: vi.fn(async () => {}), outputTokensSince: vi.fn(async () => 0) };
+            const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+            const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+            const logger = fakeLogger();
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
+            const service = new BoardWriteService(
+                board,
+                config,
+                { reclaim: vi.fn(async () => {}) } as unknown as WorktreeManager,
+                events as unknown as EventLog,
+                logger,
+                cardJobs,
+                broker as unknown as JobBroker,
+                new RunningCards(),
+                defaultSettings(),
+                readyStageConfigs,
+            );
+            return { board, events, service };
+        };
+
+        const humanFinding = (
+            overrides: Partial<{ file: string; line: number; severity: 'blocker' | 'concern' | undefined; problem: string; suggestion: string }> = {},
+        ) => ({
+            file: 'src/thing.ts',
+            line: 12,
+            severity: 'blocker' as const,
+            problem: 'the thing is broken',
+            suggestion: 'fix the thing',
+            ...overrides,
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshFindingsBoard();
+
+            await expect(service.recordFindings('missing', { findings: [humanFinding()] })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses a card outside "ready" with a 400 naming its actual stage, writing nothing (AC4)', async () => {
+            const { board, events, service } = freshFindingsBoard();
+            await board.create(card('0200', { stage: 'implementing' }), 'seed');
+            const versionBefore = await board.currentVersion('0200');
+
+            await expect(service.recordFindings('0200', { findings: [humanFinding()] })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('it is in "implementing", not "ready"') },
+            });
+            expect(await board.currentVersion('0200')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('refuses an empty findings list with a 400, writing nothing (AC4)', async () => {
+            const { board, events, service } = freshFindingsBoard();
+            await board.create(card('0201', { stage: 'ready' }), 'seed');
+            const versionBefore = await board.currentVersion('0201');
+
+            await expect(service.recordFindings('0201', { findings: [] })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('no comments were submitted') },
+            });
+            expect(await board.currentVersion('0201')).toBe(versionBefore);
+            expect(events.append).not.toHaveBeenCalled();
+        });
+
+        it('writes exactly one card version and one transition.written event, by human, naming the count (AC1)', async () => {
+            const { board, events, service } = freshFindingsBoard();
+            await board.create(card('0202', { stage: 'ready' }), 'seed');
+            const versionsBefore = await board.versions('0202', 10);
+
+            await service.recordFindings('0202', {
+                findings: [humanFinding({ file: 'a.ts', line: 1 }), humanFinding({ file: 'b.ts', line: 2 })],
+            });
+
+            const versionsAfter = await board.versions('0202', 10);
+            expect(versionsAfter).toHaveLength(versionsBefore.length + 1);
+            expect(events.append).toHaveBeenCalledTimes(1);
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0202',
+                    type: 'transition.written',
+                    payload: expect.objectContaining({ from: 'ready', by: 'human', reason: expect.stringContaining('2') }),
+                }),
+                expect.anything(),
+            );
+        });
+
+        it("moves the card to \"ready\"'s own configured onFail, not a hard-coded \"implementing\" (AC3)", async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0203', { stage: 'ready' }), 'seed');
+
+            const detail = await service.recordFindings('0203', { findings: [humanFinding()] });
+
+            expect(detail.stage).toBe('testing');
+            const stored = await board.read('0203');
+            expect(stored.frontmatter.stage).toBe('testing');
+        });
+
+        it('folds every comment into the body\'s "## Review findings" section, one bullet each, under a human-written note (AC2)', async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0204', { stage: 'ready' }, '## Goal\n\nDo the thing.'), 'seed');
+
+            await service.recordFindings('0204', {
+                findings: [
+                    humanFinding({ file: 'a.ts', line: 1, severity: 'blocker', problem: 'p1', suggestion: 's1' }),
+                    humanFinding({ file: 'b.ts', line: 2, severity: 'concern', problem: 'p2', suggestion: 's2' }),
+                ],
+            });
+
+            const stored = await board.read('0204');
+            expect(stored.body).toBe(
+                '## Goal\n\nDo the thing.\n\n## Review findings\n' +
+                    '_A human left these comments on the diff._\n\n' +
+                    '- **blocker** `a.ts:1`: p1 — s1\n' +
+                    '- **concern** `b.ts:2`: p2 — s2',
+            );
+        });
+
+        it('defaults an omitted severity to "blocker"', async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0205', { stage: 'ready' }, '## Goal\n\nDo the thing.'), 'seed');
+
+            await service.recordFindings('0205', { findings: [humanFinding({ severity: undefined })] });
+
+            const stored = await board.read('0205');
+            expect(stored.body).toContain('- **blocker**');
+        });
+
+        it('leaves retries untouched and needsHuman unset — this is a human review, not a runner kickback (AC5)', async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0206', { stage: 'ready', retries: { ready: 2 } }), 'seed');
+
+            const detail = await service.recordFindings('0206', { findings: [humanFinding()] });
+
+            expect(detail.needsHuman).toBe(false);
+            const stored = await board.read('0206');
+            expect(stored.frontmatter.retries).toEqual({ ready: 2 });
+            expect(stored.frontmatter.needsHuman).toBe(false);
+        });
+    });
 });

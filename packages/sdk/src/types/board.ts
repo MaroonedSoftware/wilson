@@ -367,6 +367,24 @@ export interface LintFinding {
 }
 
 /**
+ * Card 0266. One line comment a human left on the Diff tab — always a `defect` (it comes from
+ * selecting a line in the diff, so it always has a `file`/`line` to cite; `omission` findings, which
+ * have no line, are out of scope for this surface), carrying the same `problem`/`suggestion` pair a
+ * reviewer's own `ReviewFinding` already requires so `ReviewFindingSchema` itself needs no change.
+ * `severity` is the submitter's own choice; absent defaults to `blocker` in `BoardWriteService.recordFindings`
+ * — this contract does not default it itself, since a client should be able to tell "chose blocker"
+ * from "said nothing" if it ever needs to, even though today's UI always sends one.
+ * generated from [HumanFinding](file://./../../../../apps/api/data/contracts/board.ck#L384)
+ */
+export interface HumanFinding {
+    file: string;
+    line: number;
+    severity?: 'blocker' | 'concern';
+    problem: string;
+    suggestion: string;
+}
+
+/**
  * generated from [CardDetail](file://./../../../../apps/api/data/contracts/board.ck#L67)
  */
 export interface CardDetail extends CardSummary {
@@ -433,6 +451,17 @@ export interface CardDivision {
  */
 export interface SplitCardsRequest {
     pieces: DivisionPiece[];
+}
+
+/**
+ * `POST /api/cards/{id}/findings`'s request: every comment left on the diff, submitted together so
+ * the fold into the card body and the move to `ready`'s own `onFail` happen as one transition —
+ * one request per comment would mint a card version and a transition each, and the kickback would
+ * race the writes.
+ * generated from [RecordFindingsRequest](file://./../../../../apps/api/data/contracts/board.ck#L396)
+ */
+export interface RecordFindingsRequest {
+    findings: HumanFinding[];
 }
 
 /**

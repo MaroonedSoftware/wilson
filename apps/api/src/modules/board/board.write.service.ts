@@ -28,6 +28,7 @@ import type {
     MoveCardRequest,
     EditCardRequest,
     DependCardRequest,
+    RecordFindingsRequest,
     RenameCardRequest,
     ReleaseResult,
     RepositionCardRequest,
@@ -38,9 +39,11 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { withFindings } from './append.findings.js';
 import { git } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
+import type { ReviewFinding } from '#modules/stages/stage.result.js';
 
 /**
  * The board's write surface — the service the generated `/api/cards*` `post`/`patch` handlers bind
@@ -207,6 +210,72 @@ export class BoardWriteService {
         if (reclaimed.error) {
             this.logger.warn(`could not reclaim worktree for ${id} after moving to "${target}": ${reclaimed.error}`);
         }
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Card 0266. Turns a human's line comments off the Diff tab into a kickback — the same
+     * `## Review findings` section a review's own findings land in (`withFindings`, reused rather
+     * than a second, human-only section: implementing already reads that section, and it is
+     * replaced rather than accumulated, so a human's list sheds on the next pass like any other),
+     * and a move to `ready.onFail` read from the live stage config, never hard-coded to
+     * `implementing` — the same reasoning `approve` above gives for reading `backlog.onPass`
+     * instead of pinning a target in code.
+     *
+     * Every comment is a `defect`: it came from selecting a line in the diff, so it always has a
+     * `file`/`line` to cite, and `severity` is the submitter's own choice — absent defaults to
+     * `blocker`, since a human who stops a merge to write a comment is blocking it.
+     *
+     * Not a runner kickback, so none of `kickback.ts`'s bookkeeping applies: `retries` is carried
+     * through untouched (bumping `retries.ready` would let three human reviews flag the card under
+     * `maxKickbacks`, which is backwards — this is not a stage failing, it is a human reviewing) and
+     * `needsHuman` is never set. The body write and the transition commit together through
+     * `writeWithEvent`, one `transition.written` event carrying `by: 'human'` and a reason naming
+     * the count, mirroring `reReviewOnOverlap`'s own runner-authored transition below.
+     */
+    async recordFindings(id: string, request: RecordFindingsRequest): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        if (before.frontmatter.stage !== 'ready') {
+            throw httpError(400).withDetails({ reason: `cannot record findings on ${id}: it is in "${before.frontmatter.stage}", not "ready"` });
+        }
+        if (request.findings.length === 0) {
+            throw httpError(400).withDetails({ reason: `cannot record findings on ${id}: no comments were submitted` });
+        }
+
+        const stages = await this.stageConfigs.load();
+        const target = findStage(stages, 'ready').onFail;
+
+        const findings: ReviewFinding[] = request.findings.map(finding => ({
+            severity: finding.severity ?? 'blocker',
+            kind: 'defect',
+            file: finding.file,
+            line: finding.line,
+            problem: finding.problem,
+            suggestion: finding.suggestion,
+        }));
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Record ${request.findings.length} human finding(s) on ${id}`,
+            current => ({
+                ...current,
+                frontmatter: { ...current.frontmatter, stage: target },
+                body: withFindings(current.body, findings, [], HUMAN_FINDINGS_NOTE),
+            }),
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: target,
+                type: 'transition.written',
+                payload: {
+                    from: 'ready',
+                    to: target,
+                    by: 'human',
+                    reason: `${request.findings.length} human finding(s) left on the diff`,
+                },
+            },
+        );
 
         return toCardDetail(await this.boardRepository.read(id));
     }
@@ -993,6 +1062,13 @@ export class BoardWriteService {
         }
     }
 }
+
+/**
+ * The note {@link BoardWriteService.recordFindings} passes to `withFindings` — the one line that
+ * tells implementing this `## Review findings` section came from a person reading the diff, not
+ * from `review`'s own agent, since the bullets underneath read identically either way.
+ */
+const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
 
 /**
  * The next id on the board. Sequential and zero-padded, matching `nextCardId` in
