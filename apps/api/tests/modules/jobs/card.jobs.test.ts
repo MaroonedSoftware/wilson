@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'kysely';
+import { DateTime } from 'luxon';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -21,6 +22,13 @@ beforeAll(async () => {
     // here instead. `IF NOT EXISTS` makes this safe to run every time the suite does.
     await sql`create schema if not exists pgboss`.execute(db);
     await sql`create table if not exists pgboss.job (id uuid primary key, state text not null)`.execute(db);
+    // Card 0272's `activeCardStageJobs` additionally reads `name`, `data` and `started_on` — added
+    // with `ADD COLUMN IF NOT EXISTS` rather than folded into the `CREATE TABLE` above, so this stays
+    // safe to run against a database where an earlier suite run already created the table in its
+    // narrower, pre-0272 shape.
+    await sql`alter table pgboss.job add column if not exists name text`.execute(db);
+    await sql`alter table pgboss.job add column if not exists data jsonb`.execute(db);
+    await sql`alter table pgboss.job add column if not exists started_on timestamptz`.execute(db);
 });
 afterAll(async () => {
     await db.destroy();
@@ -196,5 +204,121 @@ describe('CardJobs.confirmInFlightAfterStop', () => {
         await cardJobs.record(cardId, 'not-a-valid-uuid');
 
         await expect(cardJobs.confirmInFlightAfterStop(cardId)).rejects.toThrow();
+    });
+});
+
+/**
+ * Card 0272. `activeCardStageJobs` is what `BoundedCardStageJobRunner.start()`'s boot sweep reads to
+ * find every `card.stage` job orphaned by an earlier crash — see that class's own doc comment for why
+ * only `active` at boot can mean that. Unlike every other query on `CardJobs`, this one is
+ * deliberately not scoped to one project: `pgboss.job` carries no project column of its own, and a
+ * job's project (if any) lives inside its own `data` payload instead.
+ */
+describe('CardJobs.activeCardStageJobs', () => {
+    let cardJobs: CardJobs;
+
+    beforeEach(() => {
+        cardJobs = new CardJobs(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, {} as unknown as JobBroker);
+    });
+
+    const insertCardStageJob = async (
+        jobId: string,
+        state: string,
+        payload: { cardId: string; stageName: string; project?: string },
+        startedOn: Date | null = null,
+        name = 'card.stage',
+    ): Promise<void> => {
+        await sql`
+            insert into pgboss.job (id, name, state, data, started_on)
+            values (${jobId}::uuid, ${name}, ${state}, ${JSON.stringify(payload)}::jsonb, ${startedOn})
+        `.execute(db);
+    };
+
+    it("reports an active card.stage job regardless of which project this instance is configured for", async () => {
+        const jobId = randomUUID();
+        await insertCardStageJob(jobId, 'active', { cardId: '0042', stageName: 'testing', project: 'some-other-project' });
+
+        const jobs = await cardJobs.activeCardStageJobs();
+
+        expect(jobs).toContainEqual({
+            jobId,
+            payload: { cardId: '0042', stageName: 'testing', project: 'some-other-project' },
+            startedOn: undefined,
+        });
+    });
+
+    it.each(['created', 'retry'])('excludes a card.stage job in state %s — only active means orphaned at boot', async state => {
+        const jobId = randomUUID();
+        await insertCardStageJob(jobId, state, { cardId: '0043', stageName: 'testing' });
+
+        const jobs = await cardJobs.activeCardStageJobs();
+
+        expect(jobs.map(j => j.jobId)).not.toContain(jobId);
+    });
+
+    it('excludes an active job under a different job name', async () => {
+        const jobId = randomUUID();
+        await insertCardStageJob(jobId, 'active', { cardId: '0044', stageName: 'testing' }, null, 'card.stage.dead');
+
+        const jobs = await cardJobs.activeCardStageJobs();
+
+        expect(jobs.map(j => j.jobId)).not.toContain(jobId);
+    });
+
+    it("carries the job's own recorded start time", async () => {
+        const jobId = randomUUID();
+        const startedOn = new Date('2026-09-21T12:09:36.000Z');
+        await insertCardStageJob(jobId, 'active', { cardId: '0045', stageName: 'testing' }, startedOn);
+
+        const jobs = await cardJobs.activeCardStageJobs();
+        const found = jobs.find(j => j.jobId === jobId);
+
+        expect(found?.startedOn?.toUTC().toISO()).toBe(DateTime.fromJSDate(startedOn).toUTC().toISO());
+    });
+
+    it('reports startedOn as undefined when pg-boss never recorded one', async () => {
+        const jobId = randomUUID();
+        await insertCardStageJob(jobId, 'active', { cardId: '0046', stageName: 'testing' }, null);
+
+        const jobs = await cardJobs.activeCardStageJobs();
+        const found = jobs.find(j => j.jobId === jobId);
+
+        expect(found?.startedOn).toBeUndefined();
+    });
+});
+
+/**
+ * Card 0272. `claimForJob` is the boot sweep's fallback for naming a `job.orphaned` event's project
+ * when the orphaned job's own payload carries none (`BoardWriteService.start` sends no `project` —
+ * see `CardStagePayload`'s own doc comment). Deliberately not scoped by `this.config.project`: the
+ * sweep does not yet know which project a given orphaned job belongs to, which is exactly the
+ * question this answers.
+ */
+describe('CardJobs.claimForJob', () => {
+    const createCard = async (project: string, cardId: string): Promise<void> => {
+        const config = new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new PostgresBoardRepository(config, db, { append: async () => {} } as unknown as EventLog);
+        await board.create(
+            { frontmatter: { id: cardId, title: 'a card', stage: 'implementing', dependsOn: [], retries: {} }, sections: {}, body: 'x\n' },
+            'create',
+        );
+    };
+
+    it("finds the claim recorded under another project's CardJobs instance", async () => {
+        const projectA = uniqueProject();
+        await createCard(projectA, '0001');
+        const cardJobsA = new CardJobs(new StaticBoardConfig(projectA, '/tmp/code', '/tmp/wt', '/tmp/run'), db, {} as unknown as JobBroker);
+        const jobId = randomUUID();
+        await cardJobsA.record('0001', jobId);
+
+        const cardJobsB = new CardJobs(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, {} as unknown as JobBroker);
+
+        expect(await cardJobsB.claimForJob(jobId)).toEqual({ project: projectA, cardId: '0001' });
+    });
+
+    it('reports undefined for a job id no claim names at all', async () => {
+        const cardJobs = new CardJobs(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, {} as unknown as JobBroker);
+
+        expect(await cardJobs.claimForJob(randomUUID())).toBeUndefined();
     });
 });

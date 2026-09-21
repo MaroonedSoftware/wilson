@@ -137,11 +137,14 @@ export class CardJobs {
      * anything in it, can only mean a daemon that no longer exists still holds it.
      */
     async activeCardStageJobs(): Promise<ActiveCardStageJob[]> {
-        const { rows } = await sql<{ id: string; data: CardStagePayload; started_on: DateTime | null }>`
+        // Row keys come back camelCased — this pool's plugins (`KyselyDefaultPlugins`) apply
+        // `transformResult` to a raw `sql` tag's rows the same as any query-builder result, so the
+        // shape below reads `startedOn`, not the `started_on` the query itself names.
+        const { rows } = await sql<{ id: string; data: CardStagePayload; startedOn: DateTime | null }>`
             select id, data, started_on from pgboss.job where name = 'card.stage' and state = 'active'
         `.execute(this.db);
 
-        return rows.map(row => ({ jobId: row.id, payload: row.data, startedOn: row.started_on ?? undefined }));
+        return rows.map(row => ({ jobId: row.id, payload: row.data, startedOn: row.startedOn ?? undefined }));
     }
 
     /**
