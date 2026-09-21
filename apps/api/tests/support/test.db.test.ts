@@ -1,5 +1,71 @@
 import { describe, expect, it, vi } from 'vitest';
-import { uniqueProject } from '#tests/support/test.db.js';
+import { testDbConnection, uniqueProject } from '#tests/support/test.db.js';
+
+/**
+ * Card 0273 pulled the five `TEST_DATABASE_*` values `testDb()` used to read inline out into this
+ * function, specifically so `test.db.migrate.ts`'s `globalSetup` could read the exact same values
+ * and never disagree with `testDb()` about which database it migrated. Test the resolution
+ * directly, the same way `uniqueProject` is tested directly above: through the accessor both
+ * callers share, not by re-deriving what it should return.
+ */
+describe('testDbConnection', () => {
+    const keys = ['TEST_DATABASE_HOST', 'TEST_DATABASE_PORT', 'TEST_DATABASE_USER', 'TEST_DATABASE_PASSWORD', 'TEST_DATABASE_NAME'] as const;
+
+    const withEnv = (values: Partial<Record<(typeof keys)[number], string>>, run: () => void): void => {
+        const originals = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+        try {
+            for (const key of keys) {
+                if (values[key] === undefined) {
+                    delete process.env[key];
+                } else {
+                    process.env[key] = values[key];
+                }
+            }
+            run();
+        } finally {
+            for (const key of keys) {
+                if (originals[key] === undefined) {
+                    delete process.env[key];
+                } else {
+                    process.env[key] = originals[key];
+                }
+            }
+        }
+    };
+
+    it('defaults to the db-test service in docker-compose.yml when nothing is set', () => {
+        withEnv({}, () => {
+            expect(testDbConnection()).toEqual({
+                host: 'localhost',
+                port: 15533,
+                user: 'postgres',
+                password: 'postgres',
+                database: 'wilson_test',
+            });
+        });
+    });
+
+    it('reads every value from its TEST_DATABASE_* override, port coerced to a number', () => {
+        withEnv(
+            {
+                TEST_DATABASE_HOST: '127.0.0.1',
+                TEST_DATABASE_PORT: '25533',
+                TEST_DATABASE_USER: 'someone',
+                TEST_DATABASE_PASSWORD: 'secret',
+                TEST_DATABASE_NAME: 'other_db',
+            },
+            () => {
+                expect(testDbConnection()).toEqual({
+                    host: '127.0.0.1',
+                    port: 25533,
+                    user: 'someone',
+                    password: 'secret',
+                    database: 'other_db',
+                });
+            },
+        );
+    });
+});
 
 describe('uniqueProject', () => {
     it('never repeats across many calls from the same module', () => {
