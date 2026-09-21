@@ -14,10 +14,11 @@ import { PollerSettingService } from '#modules/settings/poller.setting.service.j
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CARD_STAGE_CONCURRENCY } from '#modules/settings/card.stage.concurrency.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
-import { CardJobs } from './card.jobs.js';
+import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
 import { Poller } from './poller.js';
 import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
 
@@ -307,6 +308,8 @@ export class BoundedCardStageJobRunner extends JobRunner {
         private readonly pollerSettings: PollerSettingService,
         private readonly settings: SettingsStore,
         private readonly logger: Logger,
+        private readonly pgboss: PgBoss,
+        private readonly events: EventLog,
     ) {
         super();
     }
@@ -323,6 +326,17 @@ export class BoundedCardStageJobRunner extends JobRunner {
         // instead — asked again every time `start()` runs, so a database row already in place
         // takes effect the same way a write made after boot does (PollerSettingService.set).
         await this.pollerSettings.applyCurrentValue();
+
+        // Card 0272: fail every orphaned `card.stage` job before `inner.start()` below registers
+        // this process's own `work()` handler — a job this sweep could see is always one this
+        // process could not itself be running (see `sweepOrphanedCardStageJobs`'s own doc comment for
+        // why that ordering is the whole safety argument). `pgboss.start()` must run first: `fail`
+        // asserts a live connection the same way `confirmInFlightAfterStop`'s comment describes for
+        // `getJob`. Calling it again inside `inner.start()` right after is safe — pg-boss's own
+        // `start()` returns early once already started.
+        await this.pgboss.start();
+        await this.sweepOrphanedCardStageJobs();
+
         await this.inner.start();
         this.startConcurrencyWatcher();
     }
@@ -340,6 +354,74 @@ export class BoundedCardStageJobRunner extends JobRunner {
         if (report.abandoned.length > 0 || report.unconfirmed.length > 0) {
             throw new AbandonedCardJobsError(report.abandoned, report.unconfirmed);
         }
+    }
+
+    /**
+     * Card 0272. Fails every `card.stage` job pg-boss shows as `active` before this process starts
+     * accepting work of its own — the fix for a daemon that died mid-stage leaving its job stuck
+     * `active` until pg-boss's own expiry sweep, up to `CARD_STAGE_EXPIRES_IN` (an hour) later,
+     * instead of pg-boss's ordinary ~30-second retry delay.
+     *
+     * Called from `start()`, never from `reconcileConcurrency`: only at boot is "this process's
+     * `RunningCards` is empty" the same fact as "no job this process could be running exists yet" —
+     * `reconcileConcurrency` can run that empty too, mid-uptime, with other jobs this same process
+     * ran earlier already settled, which says nothing about whether *another* process's job is
+     * genuinely still active. The API is the only daemon (card 0079), so an `active` job this sweep
+     * finds at boot was never anything this process itself could be running — it can only be one an
+     * earlier process (or this one, before restarting) crashed mid-stage on.
+     *
+     * A read that fails here (`CardJobs.activeCardStageJobs`) is logged and swallowed, same as any
+     * per-job failure below (`failOrphanedCardStageJob`) — the rule cards 0257 and 0271 already
+     * applied to `watchConcurrency`'s own interval read: a sweep that throws must not stop the
+     * daemon starting, because pg-boss's own expiry sweep is still the fallback if this one cannot
+     * run.
+     */
+    private async sweepOrphanedCardStageJobs(): Promise<void> {
+        let jobs: ActiveCardStageJob[];
+        try {
+            jobs = await this.cardJobs.activeCardStageJobs();
+        } catch (error) {
+            this.logger.error(error);
+            return;
+        }
+
+        for (const job of jobs) {
+            try {
+                await this.failOrphanedCardStageJob(job);
+            } catch (error) {
+                this.logger.error(error);
+            }
+        }
+    }
+
+    /**
+     * Fails one orphaned job through pg-boss's own `fail`, never `cancel` — see `CARD_STAGE_POLICY`'s
+     * doc comment for why only `fail` spends this job's retry budget the same way an ordinary failure
+     * would, which is what keeps a card whose stage kills the daemon every time from being redelivered
+     * forever. `runner.cardJobs`' claim is left untouched: a failed job moves to `retry`, which
+     * `CardJobs.inFlight` still counts as live, so the poller does not enqueue a second job for the
+     * same card while this one waits out its retry delay.
+     *
+     * The `job.orphaned` event is best-effort on top of that, not a condition of it: `fail` runs
+     * first and unconditionally, and only once it has succeeded does this look for a project to
+     * record the event under — the job's own payload first (`CardStagePayload.project`), the
+     * `runner.cardJobs` claim row second, for the one enqueue path (`BoardWriteService.start`) that
+     * sends no `project` at all. Neither naming one still leaves the job failed; there is simply
+     * nothing to append an event to.
+     */
+    private async failOrphanedCardStageJob(job: ActiveCardStageJob): Promise<void> {
+        await this.pgboss.fail('card.stage', job.jobId);
+
+        const project = job.payload.project ?? (await this.cardJobs.claimForJob(job.jobId))?.project;
+        if (!project) return;
+
+        await this.events.append({
+            project,
+            cardId: job.payload.cardId,
+            stage: job.payload.stageName,
+            type: 'job.orphaned',
+            payload: { jobId: job.jobId, startedOn: job.startedOn?.toISO() ?? null },
+        });
     }
 
     /**
@@ -511,6 +593,8 @@ export const JobsModule: ServerKitModule = {
                     container.get(PollerSettingService),
                     container.get(SettingsStore),
                     container.get(Logger),
+                    container.get(PgBoss),
+                    container.get(EventLog),
                 );
             })
             .asSingleton();

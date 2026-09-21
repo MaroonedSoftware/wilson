@@ -1,11 +1,25 @@
 import { Injectable } from 'injectkit';
 import { Kysely, sql } from 'kysely';
+import type { DateTime } from 'luxon';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
+import type { CardStagePayload } from './card.stage.job.js';
 
 /** The job states that mean a card is still being carried. Anything else has settled. */
 const LIVE_STATES = new Set(['created', 'retry', 'active']);
+
+/**
+ * An `active` `card.stage` job as pg-boss's own `pgboss.job` table records it — everything card
+ * 0272's boot sweep needs to fail it and explain why: `jobId` for `PgBoss.fail`, `payload` for the
+ * card and (maybe) project it belongs to, `startedOn` for the card's timeline. See
+ * {@link CardJobs.activeCardStageJobs}.
+ */
+export interface ActiveCardStageJob {
+    jobId: string;
+    payload: CardStagePayload;
+    startedOn: DateTime | undefined;
+}
 
 /**
  * Which job, if any, is carrying a card.
@@ -108,5 +122,37 @@ export class CardJobs {
 
         await this.clear(cardId);
         return undefined;
+    }
+
+    /**
+     * Every `card.stage` job pg-boss currently shows as `active`, across every registered project —
+     * `pgboss.job` carries no project column of its own; a job's project (if any) lives inside its
+     * own `data` payload instead (`CardStagePayload.project`). Read the same direct-SQL way
+     * `confirmInFlightAfterStop` reads `pgboss.job` (see that method's own doc comment for why this
+     * is sound), because this runs even earlier: `BoundedCardStageJobRunner.start()`'s boot sweep
+     * (card 0272), before pg-boss's own worker exists to ask through the broker.
+     *
+     * `created`/`retry` jobs are deliberately left out of the `where` — only `active` means a job
+     * claims to be running right now, which at boot, before this process's own `RunningCards` has
+     * anything in it, can only mean a daemon that no longer exists still holds it.
+     */
+    async activeCardStageJobs(): Promise<ActiveCardStageJob[]> {
+        const { rows } = await sql<{ id: string; data: CardStagePayload; started_on: DateTime | null }>`
+            select id, data, started_on from pgboss.job where name = 'card.stage' and state = 'active'
+        `.execute(this.db);
+
+        return rows.map(row => ({ jobId: row.id, payload: row.data, startedOn: row.started_on ?? undefined }));
+    }
+
+    /**
+     * The `runner.cardJobs` claim row for a given job id, regardless of which project recorded it —
+     * card 0272's fallback for an orphaned `card.stage` job whose own payload carries no `project`
+     * (`CardStagePayload`'s own doc comment: `BoardWriteService.start` sends none). Unlike every
+     * other query on this class, deliberately not scoped by `this.config.project`: the boot sweep
+     * that calls this does not yet know which project a given orphaned job belongs to, which is
+     * exactly the question this answers.
+     */
+    async claimForJob(jobId: string): Promise<{ project: string; cardId: string } | undefined> {
+        return this.db.selectFrom('runner.cardJobs').select(['project', 'cardId']).where('jobId', '=', jobId).executeTakeFirst();
     }
 }
