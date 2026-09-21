@@ -198,4 +198,58 @@ describe('withFindings', () => {
             expect(result.match(/### Criteria/g)).toHaveLength(1);
         });
     });
+
+    // Card 0266: `BoardWriteService.recordFindings` passes a note so a human's list of line
+    // comments off the Diff tab reads as human-written, distinct from a review's own findings the
+    // same section otherwise carries.
+    describe('note', () => {
+        it('renders the note as one line directly under the heading, above the blank line and the bullets', () => {
+            const body = '## Goal\n\nDo the thing.';
+
+            const result = withFindings(body, [finding()], [], '_A human left these comments on the diff._');
+
+            expect(result).toBe(
+                '## Goal\n\nDo the thing.\n\n## Review findings\n' +
+                    '_A human left these comments on the diff._\n\n' +
+                    '- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing',
+            );
+        });
+
+        it('omits the note line entirely when none is given, unchanged from before this parameter existed', () => {
+            const body = '## Goal\n\nDo the thing.';
+
+            const result = withFindings(body, [finding()]);
+
+            expect(result).toBe('## Goal\n\nDo the thing.\n\n## Review findings\n\n- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing');
+            expect(result).not.toContain('A human left');
+        });
+
+        it('replaces a stale note along with the rest of the section on a re-review, rather than keeping the old one', () => {
+            const body = [
+                '## Goal',
+                '',
+                'Do the thing.',
+                '',
+                '## Review findings',
+                '_A human left these comments on the diff._',
+                '',
+                '- **blocker** `old.ts:1`: stale problem — stale fix',
+            ].join('\n');
+
+            const result = withFindings(body, [finding({ file: 'new.ts', line: 5 })], [], '_A human left these comments on the diff._');
+
+            expect(result).toContain('## Review findings\n_A human left these comments on the diff._\n\n- **blocker** `new.ts:5`');
+            expect(result).not.toContain('old.ts');
+            expect(result.match(/A human left these comments on the diff\./g)).toHaveLength(1);
+        });
+
+        it('drops the note along with the whole section when a caller passes one but no findings or criteria remain', () => {
+            const body = ['## Goal', '', 'Do the thing.', '', '## Review findings', 'stale note', '', '- **blocker** `old.ts:1`: stale — stale'].join('\n');
+
+            const result = withFindings(body, [], [], 'a note with nothing to attach it to');
+
+            expect(result).toBe('## Goal\n\nDo the thing.\n');
+            expect(result).not.toContain('note');
+        });
+    });
 });
