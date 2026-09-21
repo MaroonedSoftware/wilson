@@ -157,7 +157,22 @@ export type CardEventType =
     | 'external.transition'
     | 'chain.stopped'
     | 'card.flagged'
-    | 'card.acked';
+    | 'card.acked'
+    // Card 0272. Appended once per `card.stage` job `BoundedCardStageJobRunner.start()`'s boot sweep
+    // finds `active` in pg-boss with no daemon left that could be running it — the API is the only
+    // daemon (card 0079), and a process that just started has an empty `RunningCards`, so any job the
+    // sweep sees this way was orphaned by a crash, not genuinely in flight. The sweep fails it through
+    // `PgBoss.fail` (never cancels it — see `CARD_STAGE_POLICY`'s own doc comment on why a fail, not a
+    // cancel, is what keeps a repeatedly-crashing stage's retry budget honest) so it takes pg-boss's
+    // ordinary 30-second retry path instead of waiting out `CARD_STAGE_EXPIRES_IN`'s hour. This event
+    // is what tells a human reading the card's history why there is a gap between its last event
+    // before the crash and the redelivered attempt picking back up. Payload carries `jobId` and
+    // `startedOn` (the job's own `started_on`, ISO-formatted, or null if pg-boss never recorded one);
+    // `stage` (the event's own top-level field, as every other stage-scoped event already uses it)
+    // carries the stage name the orphaned job was running. Skipped, not appended with a guessed
+    // project, when neither the job's own payload nor its `runner.cardJobs` claim names one — the job
+    // is still failed either way; see `CardJobs.activeCardStageJobs`/`claimForJob`.
+    | 'job.orphaned';
 
 export interface CardEvent {
     project: string;

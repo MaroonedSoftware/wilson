@@ -20,9 +20,22 @@ const { AbandonedCardJobsError, BoundedCardStageJobRunner, CARD_STAGE_WORKER } =
 const { RunningCards } = await import('#modules/jobs/running.cards.js');
 const { CARD_STAGE_CONCURRENCY } = await import('#modules/settings/card.stage.concurrency.setting.js');
 
-type FakeCardJobs = { confirmInFlightAfterStop: ReturnType<typeof vi.fn> };
+/**
+ * `activeCardStageJobs`/`claimForJob` are card 0272's additions, read by the boot sweep
+ * (`sweepOrphanedCardStageJobs`). Every existing test in this file constructs a runner and either
+ * never calls `start()` at all, or calls it without caring about the sweep — defaulting
+ * `activeCardStageJobs` to an empty list keeps the sweep a no-op for all of them, exactly as it would
+ * be for a real daemon that has no orphaned jobs to find.
+ */
+type FakeCardJobs = {
+    confirmInFlightAfterStop: ReturnType<typeof vi.fn>;
+    activeCardStageJobs: ReturnType<typeof vi.fn>;
+    claimForJob: ReturnType<typeof vi.fn>;
+};
 const fakeCardJobs = (outcomes: Record<string, string | undefined> = {}): FakeCardJobs => ({
     confirmInFlightAfterStop: vi.fn(async (cardId: string) => outcomes[cardId]),
+    activeCardStageJobs: vi.fn(async () => []),
+    claimForJob: vi.fn(async () => undefined),
 });
 
 const fakeInnerRunner = (order?: string[]): JobRunner =>
@@ -64,6 +77,44 @@ const fakeLogger = (): import('@maroonedsoftware/logger').Logger =>
     ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) as unknown as import('@maroonedsoftware/logger').Logger;
 
 /**
+ * Card 0272. `BoundedCardStageJobRunner` now takes the injected `PgBoss` singleton itself
+ * (`start`/`fail`) so `start()`'s boot sweep can fail an orphaned job without going through the
+ * broker or `inner`. `start` resolves immediately by default — most tests in this file only care
+ * that `start()` completes, not about the sweep — and `fail` resolves with no return value, the same
+ * shape the real pg-boss client's `fail(name, id)` has.
+ */
+const fakePgBoss = (order?: string[]) =>
+    ({
+        start: vi.fn(async () => {
+            order?.push('pgboss.start');
+        }),
+        fail: vi.fn(async () => {
+            order?.push('pgboss.fail');
+        }),
+    }) as unknown as import('pg-boss').PgBoss;
+
+/** Card 0272. Only `append` is used by the sweep (one `job.orphaned` event per failed job). */
+const fakeEvents = (order?: string[]) =>
+    ({
+        append: vi.fn(async () => {
+            order?.push('events.append');
+        }),
+    }) as unknown as import('#modules/events/event.log.js').EventLog;
+
+/**
+ * Card 0272. A `CardJobs` fake whose `activeCardStageJobs` reports specific active jobs, for tests
+ * that exercise the boot sweep itself rather than treating it as a no-op — see `fakeCardJobs`'s own
+ * doc comment for why the plain fake above always reports none. `claimForJob` stays "no claim found"
+ * unless a test overrides it, matching the case every job's own `payload.project` already answers.
+ */
+const fakeCardJobsWithSweep = (
+    jobs: Array<{ jobId: string; payload: { cardId: string; stageName: string; project?: string }; startedOn?: { toISO: () => string } }>,
+): FakeCardJobs => ({
+    ...fakeCardJobs(),
+    activeCardStageJobs: vi.fn(async () => jobs),
+});
+
+/**
  * A `SettingsStore` fake keyed by `overrides`, falling back to each definition's own coded default
  * otherwise — lets a test pin `CARD_STAGE_CONCURRENCY` to a specific "desired" value while
  * `POLLER_INTERVAL_MS` (also read by this class, for the watcher's own cadence) still resolves to
@@ -94,10 +145,14 @@ describe('BoundedCardStageJobRunner.start', () => {
             pollerSettings,
             fakeSettings(),
             fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
         );
 
         await runner.start();
 
+        // `fakeCardJobs()`'s `activeCardStageJobs` reports no orphaned jobs, so the sweep does
+        // nothing observable here — this order is unaffected by card 0272's addition.
         expect(order).toEqual(['pollerSettings.applyCurrentValue', 'inner.start']);
 
         // start() also kicks off card 0115's concurrency-watcher loop in the background — stop it
@@ -125,6 +180,8 @@ describe('BoundedCardStageJobRunner.start', () => {
             pollerSettings,
             fakeSettings(),
             fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
         );
 
         await expect(runner.start()).rejects.toThrow('settings table unreachable');
@@ -137,7 +194,17 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const order: string[] = [];
         const inner = fakeInnerRunner(order);
         const poller = fakePoller(order);
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            poller,
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+        );
 
         await runner.stop();
 
@@ -153,7 +220,17 @@ describe('BoundedCardStageJobRunner.stop', () => {
     it('always stops the poller, unconditionally — not only when something is running', async () => {
         const inner = fakeInnerRunner();
         const poller = fakePoller();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            poller,
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+        );
 
         await runner.stop();
 
@@ -172,7 +249,17 @@ describe('BoundedCardStageJobRunner.stop', () => {
         const running = new RunningCards();
         running.add('project-x', '0099');
         const cardJobs = fakeCardJobs({ '0099': 'job-77' });
-        const runner = new BoundedCardStageJobRunner(inner, running, cardJobs as never, poller, fakePollerSettings(), fakeSettings(), fakeLogger());
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            running,
+            cardJobs as never,
+            poller,
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+        );
 
         await expect(runner.stop()).rejects.toThrow(AbandonedCardJobsError);
         expect(poller.stop).toHaveBeenCalledTimes(1);
@@ -181,7 +268,17 @@ describe('BoundedCardStageJobRunner.stop', () => {
 
     it('resolves cleanly when nothing was abandoned', async () => {
         const inner = fakeInnerRunner();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, fakePoller(), fakePollerSettings(), fakeSettings(), fakeLogger());
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+        );
 
         await expect(runner.stop()).resolves.toBeUndefined();
     });
@@ -214,7 +311,17 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         running.add('project-x', '0099');
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, running, fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            running,
+            fakeCardJobs() as never,
+            poller,
+            fakePollerSettings(),
+            settings,
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
         CARD_STAGE_WORKER.concurrency = 3;
 
@@ -238,7 +345,17 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         const pollerSettings = fakePollerSettings(order);
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, pollerSettings, settings, logger);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            poller,
+            pollerSettings,
+            settings,
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
         CARD_STAGE_WORKER.concurrency = 3;
 
@@ -258,7 +375,17 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         const poller = fakePoller();
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 3 });
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            poller,
+            fakePollerSettings(),
+            settings,
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
         CARD_STAGE_WORKER.concurrency = 3;
 
@@ -293,7 +420,17 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         const pollerSettings = fakePollerSettings(order);
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, running, fakeCardJobs() as never, poller, pollerSettings, settings, logger);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            running,
+            fakeCardJobs() as never,
+            poller,
+            pollerSettings,
+            settings,
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
         CARD_STAGE_WORKER.concurrency = 3;
 
@@ -322,7 +459,17 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
             set: vi.fn(async () => undefined),
         } as unknown as import('#modules/settings/settings.store.js').SettingsStore;
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), fakeCardJobs() as never, poller, fakePollerSettings(), settings, logger);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            poller,
+            fakePollerSettings(),
+            settings,
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
 
         await expect(reconcile(runner)).resolves.toBeUndefined();
@@ -330,5 +477,232 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
         expect(logger.error).toHaveBeenCalledWith(expect.any(Error));
         expect(inner.stop).not.toHaveBeenCalled();
         expect(poller.stop).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Card 0272. `start()`'s boot sweep: every `card.stage` job `CardJobs.activeCardStageJobs` reports as
+ * `active` gets failed through the injected `PgBoss` singleton, before `inner.start()` registers this
+ * process's own `work()` handler, so a job orphaned by an earlier crash is redelivered on pg-boss's
+ * ordinary ~30s retry path instead of waiting out `CARD_STAGE_EXPIRES_IN`'s hour.
+ */
+describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', () => {
+    const orphanedJob = (overrides: { jobId?: string; project?: string; startedOn?: string | undefined } = {}) => ({
+        jobId: overrides.jobId ?? 'job-1',
+        payload: { cardId: '0001', stageName: 'implementing', project: overrides.project },
+        startedOn: overrides.startedOn === undefined ? undefined : { toISO: () => overrides.startedOn },
+    });
+
+    it('fails every active job through pg-boss before inner.start() registers a work() handler — AC1', async () => {
+        const order: string[] = [];
+        const inner = fakeInnerRunner(order);
+        const pgboss = fakePgBoss(order);
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1' }), orphanedJob({ jobId: 'job-2' })]);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            pgboss,
+            fakeEvents(),
+        );
+
+        await runner.start();
+
+        // pg-boss must be started (a live connection is what `fail` asserts) and both orphans failed
+        // before `inner.start` ever runs.
+        expect(order).toEqual(['pgboss.start', 'pgboss.fail', 'pgboss.fail', 'inner.start']);
+        expect(pgboss.fail).toHaveBeenCalledWith('card.stage', 'job-1');
+        expect(pgboss.fail).toHaveBeenCalledWith('card.stage', 'job-2');
+
+        await runner.stop();
+    });
+
+    it('appends one job.orphaned event per failed job, naming the job id, stage and start time — AC5', async () => {
+        const inner = fakeInnerRunner();
+        const events = fakeEvents();
+        const cardJobs = fakeCardJobsWithSweep([
+            orphanedJob({ jobId: 'job-1', project: 'project-a', startedOn: '2026-09-21T12:09:36.000Z' }),
+        ]);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            events,
+        );
+
+        await runner.start();
+
+        expect(events.append).toHaveBeenCalledWith({
+            project: 'project-a',
+            cardId: '0001',
+            stage: 'implementing',
+            type: 'job.orphaned',
+            payload: { jobId: 'job-1', startedOn: '2026-09-21T12:09:36.000Z' },
+        });
+
+        await runner.stop();
+    });
+
+    it('records a null startedOn when pg-boss never recorded one for the job', async () => {
+        const inner = fakeInnerRunner();
+        const events = fakeEvents();
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1', project: 'project-a', startedOn: undefined })]);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            events,
+        );
+
+        await runner.start();
+
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ payload: { jobId: 'job-1', startedOn: null } }));
+
+        await runner.stop();
+    });
+
+    it("falls back to the runner.cardJobs claim's project when the job's own payload carries none", async () => {
+        const inner = fakeInnerRunner();
+        const events = fakeEvents();
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1', project: undefined, startedOn: '2026-09-21T12:09:36.000Z' })]);
+        cardJobs.claimForJob = vi.fn(async () => ({ project: 'project-from-claim', cardId: '0001' }));
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            events,
+        );
+
+        await runner.start();
+
+        expect(cardJobs.claimForJob).toHaveBeenCalledWith('job-1');
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ project: 'project-from-claim' }));
+
+        await runner.stop();
+    });
+
+    it('still fails the job but appends no event when neither the payload nor the claim names a project', async () => {
+        const inner = fakeInnerRunner();
+        const pgboss = fakePgBoss();
+        const events = fakeEvents();
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1', project: undefined })]);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            pgboss,
+            events,
+        );
+
+        await runner.start();
+
+        expect(pgboss.fail).toHaveBeenCalledWith('card.stage', 'job-1');
+        expect(events.append).not.toHaveBeenCalled();
+
+        await runner.stop();
+    });
+
+    it('logs and still starts the inner runner when reading active jobs itself fails — AC7', async () => {
+        const inner = fakeInnerRunner();
+        const logger = fakeLogger();
+        const cardJobs = { ...fakeCardJobs(), activeCardStageJobs: vi.fn(async () => Promise.reject(new Error('pgboss.job unreachable'))) };
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            logger,
+            fakePgBoss(),
+            fakeEvents(),
+        );
+
+        await expect(runner.start()).resolves.toBeUndefined();
+
+        expect(logger.error).toHaveBeenCalledWith(expect.any(Error));
+        expect(inner.start).toHaveBeenCalledTimes(1);
+
+        await runner.stop();
+    });
+
+    it('logs one job.fail failure and still processes the remaining orphans and starts the inner runner — AC7', async () => {
+        const inner = fakeInnerRunner();
+        const logger = fakeLogger();
+        const pgboss = {
+            start: vi.fn(async () => undefined),
+            fail: vi
+                .fn()
+                .mockRejectedValueOnce(new Error('job-1 already settled'))
+                .mockResolvedValueOnce(undefined),
+        } as unknown as import('pg-boss').PgBoss;
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1' }), orphanedJob({ jobId: 'job-2' })]);
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            logger,
+            pgboss,
+            fakeEvents(),
+        );
+
+        await expect(runner.start()).resolves.toBeUndefined();
+
+        expect(logger.error).toHaveBeenCalledWith(expect.any(Error));
+        expect(pgboss.fail).toHaveBeenCalledWith('card.stage', 'job-1');
+        expect(pgboss.fail).toHaveBeenCalledWith('card.stage', 'job-2');
+        expect(inner.start).toHaveBeenCalledTimes(1);
+
+        await runner.stop();
+    });
+
+    it('does not run the sweep when reconcileConcurrency restarts the inner runner — AC8', async () => {
+        const inner = fakeInnerRunner();
+        const poller = fakePoller();
+        const pollerSettings = fakePollerSettings();
+        const pgboss = fakePgBoss();
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1' })]);
+        const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
+        const logger = fakeLogger();
+        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), cardJobs as never, poller, pollerSettings, settings, logger, pgboss, fakeEvents());
+        (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
+        CARD_STAGE_WORKER.concurrency = 3;
+
+        await (runner as unknown as { reconcileConcurrency: () => Promise<void> }).reconcileConcurrency();
+
+        // The restart cycles `inner.stop()`/`inner.start()` directly — never `runner.start()` itself —
+        // so pg-boss is never asked to start and nothing is ever failed, even though the same
+        // `CardJobs` fake would report an orphaned job if the sweep ran.
+        expect(pgboss.start).not.toHaveBeenCalled();
+        expect(pgboss.fail).not.toHaveBeenCalled();
+        expect(cardJobs.activeCardStageJobs).not.toHaveBeenCalled();
+        expect(inner.stop).toHaveBeenCalledTimes(1);
+        expect(inner.start).toHaveBeenCalledTimes(1);
     });
 });

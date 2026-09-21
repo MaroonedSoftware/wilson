@@ -61,10 +61,23 @@ const fakePoller = () => ({ stop: vi.fn(async () => undefined) }) as unknown as 
 const fakePollerSettings = () =>
     ({ applyCurrentValue: vi.fn(async () => undefined) }) as unknown as import('#modules/settings/poller.setting.service.js').PollerSettingService;
 
-const fakeCardJobs = () => ({ confirmInFlightAfterStop: vi.fn(async () => undefined) }) as never;
+// Card 0272 added `activeCardStageJobs`/`claimForJob`, read by `start()`'s boot sweep. Reporting no
+// active jobs keeps the sweep a no-op, so these tests still observe only the interval-read loop.
+const fakeCardJobs = () =>
+    ({
+        confirmInFlightAfterStop: vi.fn(async () => undefined),
+        activeCardStageJobs: vi.fn(async () => []),
+        claimForJob: vi.fn(async () => undefined),
+    }) as never;
 
 const fakeLogger = (): import('@maroonedsoftware/logger').Logger =>
     ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) as unknown as import('@maroonedsoftware/logger').Logger;
+
+// Card 0272: `BoundedCardStageJobRunner` now also takes the injected `PgBoss` singleton and
+// `EventLog` for the boot sweep. `start` and `fail` both resolve immediately — the sweep itself is
+// exercised in `bounded.card.stage.job.runner.test.ts`, not here.
+const fakePgBoss = () => ({ start: vi.fn(async () => undefined), fail: vi.fn(async () => undefined) }) as unknown as import('pg-boss').PgBoss;
+const fakeEvents = () => ({ append: vi.fn(async () => undefined) }) as unknown as import('#modules/events/event.log.js').EventLog;
 
 /**
  * A `SettingsStore` fake for `POLLER_INTERVAL_MS` (the interval `watchConcurrency` reads) whose
@@ -106,6 +119,8 @@ const buildRunner = (settings: import('#modules/settings/settings.store.js').Set
         fakePollerSettings(),
         settings,
         logger,
+        fakePgBoss(),
+        fakeEvents(),
     );
     return { runner, logger };
 };
