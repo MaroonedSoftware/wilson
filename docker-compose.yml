@@ -1,3 +1,11 @@
+# Pinned, not taken from the folder name. Compose names a project after the directory it runs in,
+# and the containers below belong to project `kanban`, this folder's original name. Without this,
+# renaming the folder to `wilson` makes `docker compose up` a different project: it collides on
+# `container_name: wilson-db`, and removing the old container to get past that would start `db` on
+# a new, empty volume, because `db` keeps the board in the anonymous volume the postgres image
+# declares rather than a named one. Change this only together with moving that data.
+name: kanban
+
 services:
     db:
         image: postgres:17
