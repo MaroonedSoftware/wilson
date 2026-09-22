@@ -14,8 +14,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, HealthClient, ProjectsClient } from '@wilson/sdk';
-import type { BoardColumns, Health } from '@wilson/sdk';
+import { BoardClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
+import type { BoardColumns, DirectoryListing, DirectoryQuery, Health } from '@wilson/sdk';
 import { routeTree } from '#src/routeTree.gen.js';
 import { API_BASE } from '#src/lib/sdk.js';
 
@@ -200,5 +200,99 @@ describe('the dashboard\'s New project control', () => {
         await waitFor(() => expect(router.state.location.pathname).toBe('/projects/myapp'));
         expect(callsTo(REGISTER_URL)).toHaveLength(1);
         expect(callsTo(INIT_URL)).toHaveLength(2);
+    });
+});
+
+/**
+ * The folder picker behind each path field's Browse button. `listDirectories` is answered from this
+ * fake tree, rooted at `/home/me` the way the API confines itself to the home folder; anything not
+ * in it is a 404, as the API answers for a missing path.
+ */
+describe('the path fields\' folder picker', () => {
+    const HOME = '/home/me';
+    const tree: Record<string, string[]> = {
+        [HOME]: ['.config', 'projects'],
+        [`${HOME}/projects`]: ['myapp', 'other'],
+        [`${HOME}/projects/myapp`]: ['src'],
+        [`${HOME}/projects/other`]: [],
+    };
+
+    let listDirectories: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        listDirectories = vi.spyOn(ProjectsClient.prototype, 'listDirectories').mockImplementation(async (query?: DirectoryQuery) => {
+            const path = query?.path ?? HOME;
+            const directories = tree[path];
+            if (!directories) throw new SdkError(404, 'Not Found', { details: { reason: `nothing exists at "${path}"` } }, new Headers());
+            const listing: DirectoryListing = { path, directories };
+            if (path !== HOME) listing.parent = path.slice(0, path.lastIndexOf('/'));
+            return listing;
+        });
+    });
+
+    const openPicker = async (label: string) => {
+        fireEvent.click(screen.getByRole('button', { name: `Browse for ${label}` }));
+        await screen.findByText(`Choose ${label}`);
+    };
+
+    const folder = (name: string) => screen.findByRole('button', { name });
+
+    it('browses from the home folder into a repo and fills the code root with it, naming the project after it', async () => {
+        renderApp();
+        await openForm();
+        await openPicker('code root');
+
+        expect(listDirectories).toHaveBeenCalledWith({});
+        fireEvent.click(await folder('projects'));
+        fireEvent.click(await folder('myapp'));
+        await screen.findByRole('button', { name: 'src' });
+        fireEvent.click(screen.getByRole('button', { name: 'Select this folder' }));
+
+        await waitFor(() => expect(field('Code root').value).toBe(`${HOME}/projects/myapp`));
+        expect(field('Name').value).toBe('myapp');
+        expect(field('Worktree root').value).toBe(`${HOME}/projects/.worktrees/myapp`);
+    });
+
+    it('leaves a name already typed alone when a code root is picked', async () => {
+        renderApp();
+        await openForm();
+        type('Name', 'renamed');
+        type('Code root', `${HOME}/projects/myapp`);
+        await openPicker('code root');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Up one folder' }));
+        await folder('other');
+        fireEvent.click(await folder('other'));
+        await screen.findByText('No folders here.');
+        fireEvent.click(screen.getByRole('button', { name: 'Select this folder' }));
+
+        await waitFor(() => expect(field('Code root').value).toBe(`${HOME}/projects/other`));
+        expect(field('Name').value).toBe('renamed');
+    });
+
+    it('opens a proposed worktree root that does not exist yet at its nearest existing parent', async () => {
+        renderApp();
+        await openForm();
+        type('Name', 'myapp');
+        type('Code root', `${HOME}/projects/myapp`);
+        await openPicker('worktree root');
+
+        expect(await screen.findByText(`${HOME}/projects`)).toBeTruthy();
+        expect(listDirectories).toHaveBeenCalledWith({ path: `${HOME}/projects/.worktrees/myapp` });
+        expect(listDirectories).toHaveBeenCalledWith({ path: `${HOME}/projects/.worktrees` });
+        expect(listDirectories).toHaveBeenCalledWith({ path: `${HOME}/projects` });
+    });
+
+    it('hides dotfolders until asked, and cannot go up from the home folder', async () => {
+        renderApp();
+        await openForm();
+        await openPicker('code root');
+
+        await folder('projects');
+        expect(screen.queryByRole('button', { name: '.config' })).toBeNull();
+        expect((screen.getByRole('button', { name: 'Up one folder' }) as HTMLButtonElement).disabled).toBe(true);
+
+        fireEvent.click(screen.getByLabelText('Show hidden folders'));
+        expect(await folder('.config')).toBeTruthy();
     });
 });

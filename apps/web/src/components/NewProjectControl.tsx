@@ -5,6 +5,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import type { CreateProjectRequest } from '@wilson/sdk';
+import { DirectoryPicker } from '#src/components/DirectoryPicker.js';
 import { reasonFor } from '#src/lib/mutations.js';
 import { defaultProjectPaths } from '#src/lib/projects.js';
 import { wilson, wilsonForProject } from '#src/lib/sdk.js';
@@ -29,8 +30,10 @@ class CreateProjectError extends Error {
  * with no stage config, and a plain retry would hit the API's 409 for a taken name. So the name that
  * registered is remembered, and a retry for that same name goes straight to initialising.
  *
- * The worktree and run roots follow the code root (`defaultProjectPaths`) until someone types into
- * either field; from then on that field is theirs. Every path still goes to the API as typed, and
+ * Each path field has a folder button (`DirectoryPicker`) that browses the daemon's machine, since a
+ * browser's own picker never reveals an absolute path. The worktree and run roots follow the code
+ * root (`defaultProjectPaths`) until someone types or picks into either field; from then on that
+ * field is theirs. Every path still goes to the API as typed, and
  * the API's own refusals (a relative path, a taken name) are shown inline with the form left intact.
  *
  * On success the registered-projects cache (`['registered-projects']`, shared with the dashboard and
@@ -93,6 +96,12 @@ export function NewProjectControl() {
         },
     });
 
+    // Picking the repo usually names the project too, so an empty name takes the folder's.
+    const pickCodeRoot = (path: string) => {
+        setCodeRoot(path);
+        if (!name.trim()) setName(path.slice(path.lastIndexOf('/') + 1));
+    };
+
     const openFresh = () => {
         reset();
         handlers.open();
@@ -129,6 +138,7 @@ export function NewProjectControl() {
                         value={codeRoot}
                         onChange={event => setCodeRoot(event.currentTarget.value)}
                         disabled={create.isPending}
+                        rightSection={<DirectoryPicker label="Code root" value={codeRoot} onSelect={pickCodeRoot} disabled={create.isPending} />}
                     />
                     <TextInput
                         label="Worktree root"
@@ -136,6 +146,9 @@ export function NewProjectControl() {
                         value={worktreeRoot ?? defaults.worktreeRoot}
                         onChange={event => setWorktreeRoot(event.currentTarget.value)}
                         disabled={create.isPending}
+                        rightSection={
+                            <DirectoryPicker label="Worktree root" value={worktreeRoot ?? defaults.worktreeRoot} onSelect={setWorktreeRoot} disabled={create.isPending} />
+                        }
                     />
                     <TextInput
                         label="Run root"
@@ -143,6 +156,7 @@ export function NewProjectControl() {
                         value={runRoot ?? defaults.runRoot}
                         onChange={event => setRunRoot(event.currentTarget.value)}
                         disabled={create.isPending}
+                        rightSection={<DirectoryPicker label="Run root" value={runRoot ?? defaults.runRoot} onSelect={setRunRoot} disabled={create.isPending} />}
                     />
                     {failure && (
                         <Alert color="red" title={failure.step === 'register' ? 'Could not register the project' : 'Registered, but could not initialise its board'}>
