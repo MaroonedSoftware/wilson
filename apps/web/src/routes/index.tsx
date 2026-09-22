@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Loader, Paper, Stack, Title } from '@mantine/core';
+import { Alert, Group, Loader, Paper, Stack, Title } from '@mantine/core';
+import { NewProjectControl } from '#src/components/NewProjectControl.js';
 import { listRegisteredProjects } from '#src/lib/projects.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 
@@ -20,6 +21,8 @@ import { AnchorLink } from '#src/lib/router-link.js';
  * `Paper` rather than a bare list at the top of the viewport so a later card has an obvious place to
  * add a second one beside it, per this card's own instruction not to build that here.
  *
+ * `NewProjectControl` sits in the panel's own header, beside the list it adds to.
+ *
  * `AnchorLink` (`router-link.tsx`), not `component={Link}`: the target carries a `project` param,
  * and Mantine's polymorphic `component` prop erases TanStack's route-specific typing for that case.
  */
@@ -32,7 +35,10 @@ function DashboardRoute() {
 
             <Paper withBorder p="md" radius="sm">
                 <Stack gap="sm">
-                    <Title order={4}>Projects</Title>
+                    <Group justify="space-between">
+                        <Title order={4}>Projects</Title>
+                        <NewProjectControl />
+                    </Group>
                     {projects.error && (
                         <Alert color="red" title="Cannot reach the API">
                             {projects.error.message}

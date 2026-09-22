@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectsClient } from '@wilson/sdk';
 import type { Project } from '@wilson/sdk';
-import { listRegisteredProjects } from '#src/lib/projects.js';
+import { defaultProjectPaths, listRegisteredProjects } from '#src/lib/projects.js';
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -35,5 +35,28 @@ describe('listRegisteredProjects', () => {
         vi.spyOn(ProjectsClient.prototype, 'listProjects').mockRejectedValue(new Error('500 Internal Server Error'));
 
         await expect(listRegisteredProjects()).rejects.toThrow(/500/);
+    });
+});
+
+describe('defaultProjectPaths', () => {
+    it('puts a per-project worktree and run root beside the repo, in the directory that holds it', () => {
+        expect(defaultProjectPaths('myapp', '/srv/projects/myapp')).toEqual({
+            worktreeRoot: '/srv/projects/.worktrees/myapp',
+            runRoot: '/srv/projects/.run/myapp',
+        });
+    });
+
+    it('ignores trailing slashes and surrounding whitespace', () => {
+        expect(defaultProjectPaths(' myapp ', ' /srv/projects/myapp// ')).toEqual({
+            worktreeRoot: '/srv/projects/.worktrees/myapp',
+            runRoot: '/srv/projects/.run/myapp',
+        });
+    });
+
+    it('proposes nothing without a name or an absolute code root', () => {
+        const empty = { worktreeRoot: '', runRoot: '' };
+        expect(defaultProjectPaths('', '/srv/projects/myapp')).toEqual(empty);
+        expect(defaultProjectPaths('myapp', 'projects/myapp')).toEqual(empty);
+        expect(defaultProjectPaths('myapp', '')).toEqual(empty);
     });
 });
