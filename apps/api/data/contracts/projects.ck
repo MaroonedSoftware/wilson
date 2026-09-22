@@ -1,6 +1,7 @@
 options {
     services: {
         ProjectsService: "#modules/board/projects.service.js"
+        ProjectDirectoriesService: "#modules/board/project.directories.service.js"
     }
     security: none
 }
@@ -71,6 +72,26 @@ contract UpdateProjectRequest: {
     runRoot?: string
 }
 
+# The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
+# the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
+# folder, which is also the furthest up the listing will go.
+contract DirectoryQuery: {
+    path?: string
+}
+
+# One folder on the daemon's machine and the folders directly inside it, for the web app's folder
+# picker when registering a project. A browser cannot supply an absolute path from its own picker,
+# and the paths `CreateProjectRequest` takes are the daemon's, not the browser's, so the daemon is
+# the only thing that can answer "what is in this folder".
+#
+# Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
+# folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
+contract DirectoryListing: {
+    path: string
+    parent?: string
+    directories: array(string)
+}
+
 # No project header or `?project=` is required, and none is refused: `ProjectContextRouter`
 # (routes.setup.ts) only refuses a project that is *named and unregistered* — with neither set, it
 # falls back to the daemon's own configured project and calls `next`, the same as every other route
@@ -134,6 +155,31 @@ operation /api/projects/{name}: {
             # A path present in the body but empty or not absolute.
             400:
             # No project registered under this name.
+            404:
+        }
+    }
+}
+
+# Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
+# it (after resolving symlinks) is refused rather than listed. This is a new disclosure on an
+# unauthenticated surface, weighed the way `CreateProjectRequest`'s comment weighs accepting paths:
+# the API binds to 127.0.0.1, and anything that can reach it can already read the disk as this user.
+# The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
+# Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
+operation /api/projects/directories: {
+    get: {
+        name: List directories
+        service: ProjectDirectoriesService.list
+        query: DirectoryQuery
+        response: {
+            200: {
+                application/json: DirectoryListing
+            }
+            # `path` is not absolute, or names something that is not a folder.
+            400:
+            # `path` is outside the home folder, or the daemon cannot read it.
+            403:
+            # Nothing exists at `path`.
             404:
         }
     }

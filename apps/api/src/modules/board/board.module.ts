@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { Container, Registry } from 'injectkit';
 import { Kysely, PostgresDialect } from 'kysely';
 import { AppConfig } from '@maroonedsoftware/appconfig';
@@ -16,6 +17,7 @@ import { BoardWriteService } from './board.write.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { PlanLintService } from './plan.lint.service.js';
 import { ProjectsService } from './projects.service.js';
+import { ProjectDirectoriesService } from './project.directories.service.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 /**
@@ -119,6 +121,12 @@ export const BoardModule: ServerKitModule = {
         // service in this module — `ProjectRepository` above is already a registered token by the
         // time anything resolves this, since `setup` only registers, it never resolves.
         registry.register(ProjectsService).useClass(ProjectsService).asTransient();
+        // `GET /api/projects/directories`'s service, confined to the daemon user's home folder (see
+        // `projects.ck`). A factory because the root is a plain string, not a token.
+        registry
+            .register(ProjectDirectoriesService)
+            .useFactory(() => new ProjectDirectoriesService(homedir()))
+            .asSingleton();
     },
     /**
      * Card 0149. Register every project already in `runner.projects`, not just the one this process's

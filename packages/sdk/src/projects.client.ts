@@ -1,6 +1,6 @@
-import type { CreateProjectRequest, Project, UpdateProjectRequest } from './types/projects.js';
+import type { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, UpdateProjectRequest } from './types/projects.js';
 import type { SdkFetch } from './sdk-options.js';
-import { bigIntReplacer, parseJson } from './sdk-options.js';
+import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
  * generated from [projects.ck](file://./../../../apps/api/data/contracts/projects.ck)
@@ -51,5 +51,22 @@ export class ProjectsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<Project>(result);
+    }
+
+    /**
+     * @name List directories
+     * @description Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
+     * it (after resolving symlinks) is refused rather than listed. This is a new disclosure on an
+     * unauthenticated surface, weighed the way `CreateProjectRequest`'s comment weighs accepting paths:
+     * the API binds to 127.0.0.1, and anything that can reach it can already read the disk as this user.
+     * The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
+     * Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
+     */
+    async listDirectories(query?: DirectoryQuery): Promise<DirectoryListing> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/projects/directories${qs}`, {
+            method: 'GET',
+        });
+        return await parseJson<DirectoryListing>(result);
     }
 }
