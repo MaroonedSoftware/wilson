@@ -32,8 +32,7 @@ export const unsatisfiedDependencies = (card: CardSummary, cards: CardSummary[])
  * not require a CLI release to match it. `nonStages` also carries `parking-lot`, which is not
  * terminal — a card there can still move on — so it is excluded alongside `merged`.
  */
-export const deadStages = (nonStages: string[]): string[] =>
-    nonStages.filter(stage => stage !== 'merged' && stage !== 'parking-lot');
+export const deadStages = (nonStages: string[]): string[] => nonStages.filter(stage => stage !== 'merged' && stage !== 'parking-lot');
 
 /**
  * The dependency ids named on `card` whose card has settled into a stage it can never leave —

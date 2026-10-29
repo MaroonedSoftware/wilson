@@ -1,5 +1,5 @@
-import type { CreateHostRequest, Host, PutHostProjectRequest, UpdateHostRequest } from './types/hosts.js';
-import { reviveHost } from './types/hosts.js';
+import type { CreateHostRequest, Host, IssuedWorkerToken, PutHostProjectRequest, UpdateHostRequest } from './types/hosts.js';
+import { reviveHost, reviveIssuedWorkerToken } from './types/hosts.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -48,7 +48,7 @@ export class HostsClient {
 
     /**
      * @name Probe host
-     * @description Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+     * @description Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
      * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
      * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
      */
@@ -78,5 +78,28 @@ export class HostsClient {
      */
     async removeHostProject(name: string, project: string): Promise<void> {
         await this.fetch(`/api/hosts/${encodeURIComponent(name)}/projects/${encodeURIComponent(project)}`, { method: 'DELETE' });
+    }
+
+    /**
+     * @name Mint worker token
+     * @description The one credential a worker host's worker program connects with. Only the worker endpoint accepts
+     * it, and only as this host, so it grants less than the `manage` key or session minting it already
+     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
+     * `post` mints one, replacing any the host had, so rotating is posting again.
+     */
+    async mintWorkerToken(name: string): Promise<IssuedWorkerToken> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/worker-token`, { method: 'POST' });
+        return reviveIssuedWorkerToken(await parseJson<IssuedWorkerToken>(result));
+    }
+
+    /**
+     * @name Revoke worker token
+     * @description The one credential a worker host's worker program connects with. Only the worker endpoint accepts
+     * it, and only as this host, so it grants less than the `manage` key or session minting it already
+     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
+     * `post` mints one, replacing any the host had, so rotating is posting again.
+     */
+    async revokeWorkerToken(name: string): Promise<void> {
+        await this.fetch(`/api/hosts/${encodeURIComponent(name)}/worker-token`, { method: 'DELETE' });
     }
 }

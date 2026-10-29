@@ -38,7 +38,7 @@ const command: CommandModule<DiffOpts> = {
     options: [
         {
             flags: '--tool',
-            description: "Run the same range through `git difftool` instead of paging it here, so a configured tool (e.g. Beyond Compare) opens it",
+            description: 'Run the same range through `git difftool` instead of paging it here, so a configured tool (e.g. Beyond Compare) opens it',
             type: 'boolean',
         },
     ],

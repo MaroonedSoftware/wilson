@@ -35,7 +35,7 @@ export interface TestReport extends TestCounts {
 
 const REQUIRED_FIELDS = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests'] as const;
 
-const firstLine = (message: string): string => (message.split('\n', 1)[0] ?? message);
+const firstLine = (message: string): string => message.split('\n', 1)[0] ?? message;
 
 /**
  * The failing tests inside a parsed report's `testResults`, named for the red-suite failure's first

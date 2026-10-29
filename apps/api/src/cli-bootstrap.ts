@@ -1,6 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AppConfigBuilder, AppConfigResolverEnv, AppConfigSourceDotenv, type AppConfig } from '@maroonedsoftware/appconfig';
+import { AppConfigBuilder, AppConfigResolverEnv, AppConfigSourceDotenv, AppConfigSourceEnv, type AppConfig } from '@maroonedsoftware/appconfig';
 import { modules } from '#modules/modules.js';
 
 /**
@@ -15,7 +15,13 @@ export const buildConfig = async (options: { envFile?: string } = {}): Promise<A
     const here = dirname(fileURLToPath(import.meta.url));
     const envFile = options.envFile ?? resolve(here, '../.env');
 
+    // The process environment first, under the file: a container configured with `-e` alone, with no
+    // `.env` at all, is configured, and where there is a `.env` it still wins, as it always has (the
+    // dotenv source overrides `process.env` with it, too). Below rather than above it also keeps one
+    // boot's `.env` values, which that source writes into `process.env`, from outranking the next
+    // boot's file in a process that boots twice, as the tests do.
     return new AppConfigBuilder()
+        .addSource(new AppConfigSourceEnv({ groupSeparator: '__' }))
         .addSource(new AppConfigSourceDotenv(envFile, { groupSeparator: '__' }))
         .addResolver(new AppConfigResolverEnv())
         .buildSnapshot();

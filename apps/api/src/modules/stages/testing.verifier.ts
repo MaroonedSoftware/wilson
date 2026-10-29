@@ -46,11 +46,7 @@ export const scratchTestFileName = (path: string): string | undefined => {
  * (card.ts) to let a skip it named on purpose through; a declaration never permits removing
  * tests, so the total-count check above is untouched by it (card 0232).
  */
-export const checkCounts = (
-    counts: TestCounts,
-    baseline: { total: number; skipped: number } | undefined,
-    allowedSkipRise = 0,
-): string[] => {
+export const checkCounts = (counts: TestCounts, baseline: { total: number; skipped: number } | undefined, allowedSkipRise = 0): string[] => {
     if (!baseline) return [];
 
     const failures: string[] = [];

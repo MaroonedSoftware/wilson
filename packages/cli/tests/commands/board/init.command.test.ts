@@ -115,7 +115,9 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(json(COLUMNS, 201));
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator@example.com'], ['first try', 'typo', 'second try', 'second try']), keyStore(memoryEntry()))).toBe(0);
+        expect(
+            await init({}, ctx, scripted(['operator@example.com'], ['first try', 'typo', 'second try', 'second try']), keyStore(memoryEntry())),
+        ).toBe(0);
 
         expect(logger.warn).toHaveBeenCalledWith('those did not match; try again');
         expect(calls()[2]!.body.password).toBe('second try');
@@ -133,7 +135,14 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(json(COLUMNS, 201));
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator@example.com'], ['password1', 'password1', 'a long passphrase', 'a long passphrase']), keyStore(memoryEntry()))).toBe(0);
+        expect(
+            await init(
+                {},
+                ctx,
+                scripted(['operator@example.com'], ['password1', 'password1', 'a long passphrase', 'a long passphrase']),
+                keyStore(memoryEntry()),
+            ),
+        ).toBe(0);
 
         expect(logger.warn).toHaveBeenCalledWith('that password is too easy to guess. This is a very common password. Add another word.');
         expect(calls()[3]!.body.password).toBe('a long passphrase');
@@ -184,10 +193,7 @@ describe('wilson board init on a fresh install', () => {
     });
 
     it('stops without initialising when that sign-in fails', async () => {
-        fetchMock
-            .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json(ONBOARDED))
-            .mockResolvedValueOnce(unauthorised());
+        fetchMock.mockResolvedValueOnce(unauthorised()).mockResolvedValueOnce(json(ONBOARDED)).mockResolvedValueOnce(unauthorised());
         const { ctx, logger } = buildCtx();
 
         expect(await init({}, ctx, scripted(['operator@example.com'], ['wrong']), keyStore(memoryEntry()))).toBe(1);

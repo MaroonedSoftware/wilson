@@ -35,7 +35,7 @@ describe('vitest.config.mts (root)', () => {
         expect(String(rootConfig.test?.maxWorkers)).toMatch(/^\d+%$/);
     });
 
-    it('keeps the same three projects so the testing verifier reads one report', () => {
-        expect(rootConfig.test?.projects).toEqual(['apps/api', 'apps/web', 'packages/cli']);
+    it('keeps every package with tests in one root run so the testing verifier reads one report', () => {
+        expect(rootConfig.test?.projects).toEqual(['apps/api', 'apps/web', 'apps/worker', 'packages/cli', 'packages/worker-protocol']);
     });
 });

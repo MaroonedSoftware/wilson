@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import type { Host } from '../../generated/hosts.js';
 import type { ExecFailure, ExecutionHost } from './execution.host.js';
-import { HostConnector } from './host.connector.js';
+import { HostConnector, WorkerNotConnectedError } from './host.connector.js';
 import { HostRepository, type HostProbeRow, type HostRow } from './host.repository.js';
 import { toHost } from './hosts.service.js';
 
@@ -26,7 +26,7 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  * response: the caller asked what state the host is in, and "unreachable" is an answer.
  *
  * What it checks, and why each matters to a stage placed there:
- * - SSH reaches it, without a prompt.
+ * - SSH reaches it without a prompt, or, for a worker host, its worker is connected and answers.
  * - `claude` is on its `PATH`, since the engine runs there, and is signed in the way an engine
  *   started there would be. A version other than the one this
  *   machine's probes last passed against is reported, not refused: the host's engine has not been
@@ -54,12 +54,19 @@ export class HostProber {
 
     /** Run every check against `row`'s host and say what was found. Writes nothing. */
     async inspect(row: HostRow): Promise<HostProbeRow> {
-        const host = this.connector.connect(row);
         const probedAt = DateTime.now();
+        let host: ExecutionHost;
+        try {
+            host = this.connector.connect(row);
+        } catch (err) {
+            if (err instanceof WorkerNotConnectedError) return { probedAt, ok: false, detail: 'no worker is connected for this host' };
+            throw err;
+        }
 
         const reach = await run(host, 'true', []);
         if (reach instanceof Error) {
-            return { probedAt, ok: false, detail: `cannot reach ${row.sshTarget}: ${reason(reach)}` };
+            const where = row.kind === 'worker' ? `the worker for ${row.name}` : row.sshTarget;
+            return { probedAt, ok: false, detail: `cannot reach ${where}: ${reason(reach)}` };
         }
 
         const problems: string[] = [];
@@ -87,7 +94,9 @@ export class HostProber {
             const loggedIn = status instanceof Error ? undefined : parseLoggedIn(status);
             if (loggedIn === false) {
                 problems.push(
-                    'claude is not signed in for an engine started there; set REMOTE_CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in apps/api/.env',
+                    row.kind === 'worker'
+                        ? 'claude is not signed in for an engine started there; set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in the worker’s environment'
+                        : 'claude is not signed in for an engine started there; set REMOTE_CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in apps/api/.env',
                 );
             } else if (loggedIn === undefined) {
                 notes.push(`could not tell whether claude is signed in there${status instanceof Error ? `: ${reason(status)}` : ''}`);

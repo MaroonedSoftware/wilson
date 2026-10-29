@@ -4,8 +4,7 @@ import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
 
 export type ScopeDecision =
-    | { allowed: true; path: string; via?: 'scope' | 'collateral' | 'grant' }
-    | { allowed: false; path: string; reason: string };
+    { allowed: true; path: string; via?: 'scope' | 'collateral' | 'grant' } | { allowed: false; path: string; reason: string };
 
 export interface ScopeGuardOptions {
     /** Absolute path to the worktree. Nothing outside this is ever writable. */
@@ -74,8 +73,7 @@ const DENY_LIST_REASON = 'path is denied: the runner owns it, not the plan — r
 export const REPORT_RESULT_PATH = '.wilson-report.json';
 
 /** Refusal for a `request_scope` call naming {@link REPORT_RESULT_PATH}. */
-const REPORT_RESULT_GRANT_REASON =
-    'path is the runner’s own report channel, not the plan’s to request — it is already writable without a grant';
+const REPORT_RESULT_GRANT_REASON = 'path is the runner’s own report channel, not the plan’s to request — it is already writable without a grant';
 
 /**
  * Worktree-relative directory prefix a stage may write scratch output under — a throwaway report to
@@ -97,8 +95,7 @@ const REPORT_RESULT_GRANT_REASON =
 export const SCRATCH_PREFIX = '.wilson-scratch/';
 
 /** Refusal for a `request_scope` call naming a path under {@link SCRATCH_PREFIX}. */
-const SCRATCH_GRANT_REASON =
-    'path is under the runner’s scratch directory, not the plan’s to request — it is already writable without a grant';
+const SCRATCH_GRANT_REASON = 'path is under the runner’s scratch directory, not the plan’s to request — it is already writable without a grant';
 
 /**
  * Decides whether an agent may write a path.

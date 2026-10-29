@@ -67,12 +67,30 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
- * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
- * expects. `slots` defaults to 1.
+ * What is shown of a worker host's token: its last four characters and when it was minted, never the
+ * token itself.
+ * generated from [WorkerTokenSummary](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface WorkerTokenSummary {
+    hint: string;
+    issuedAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a WorkerTokenSummary into its runtime type. Mutates and returns `raw`. */
+export function reviveWorkerTokenSummary(raw: WorkerTokenSummary): WorkerTokenSummary {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['issuedAt'] = __dt(__o0['issuedAt'], 'WorkerTokenSummary.issuedAt');
+    return raw;
+}
+
+/**
+ * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
+ * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface CreateHostRequest {
     name: string;
+    kind?: 'ssh' | 'worker';
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
@@ -81,10 +99,12 @@ export interface CreateHostRequest {
 
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
- * No `name`: it is the key every lease and job that names this host will carry.
+ * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
+ * moving a machine to the other kind is removing the host and registering it again.
  * generated from [UpdateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface UpdateHostRequest {
+    /** Only for an `ssh` host. */
     sshTarget?: string;
     slots?: number;
     enabled?: boolean;
@@ -112,7 +132,13 @@ export interface PutHostProjectRequest {
  */
 export interface Host {
     name: string;
-    sshTarget: string;
+    /**
+     * How the daemon reaches it: `ssh` connects out to `sshTarget`; `worker` waits for the worker
+     * program there to connect in. Fixed at registration.
+     */
+    kind: 'ssh' | 'worker';
+    /** Set exactly when `kind` is `ssh`. */
+    sshTarget?: string;
     slots: number;
     enabled: boolean;
     draining: boolean;
@@ -130,6 +156,8 @@ export interface Host {
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];
     probe?: HostProbe;
+    /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
+    workerToken?: WorkerTokenSummary;
 }
 
 /** Rehydrates every wire-encoded scalar in a Host into its runtime type. Mutates and returns `raw`. */
@@ -144,5 +172,24 @@ export function reviveHost(raw: Host): Host {
     if (__o0['probe'] != null) {
         reviveHostProbe(__o0['probe'] as never);
     }
+    if (__o0['workerToken'] != null) {
+        reviveWorkerTokenSummary(__o0['workerToken'] as never);
+    }
+    return raw;
+}
+
+/**
+ * A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept.
+ * generated from [IssuedWorkerToken](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface IssuedWorkerToken {
+    token: string;
+    host: Host;
+}
+
+/** Rehydrates every wire-encoded scalar in a IssuedWorkerToken into its runtime type. Mutates and returns `raw`. */
+export function reviveIssuedWorkerToken(raw: IssuedWorkerToken): IssuedWorkerToken {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    reviveHost(__o0['host'] as never);
     return raw;
 }

@@ -1,0 +1,29 @@
+{
+    "name": "@wilson/worker",
+    "version": "0.0.1",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "start": "node --import @swc-node/register/esm-register ./src/main.ts",
+        "build": "tsc --noEmit",
+        "lint": "eslint --fix",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@swc-node/register": "^1.12.1",
+        "@wilson/worker-protocol": "workspace:*",
+        "ws": "^8.21.3"
+    },
+    "devDependencies": {
+        "@repo/config-eslint": "workspace:*",
+        "@repo/config-typescript": "workspace:*",
+        "@types/ws": "^8.18.2"
+    },
+    "bin": {
+        "wilson-worker": "./src/main.ts"
+    }
+}

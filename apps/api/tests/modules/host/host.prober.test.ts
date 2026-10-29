@@ -16,6 +16,7 @@ import { HostProber } from '#modules/host/host.prober.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
+import { connectLoopbackWorker, eventually, startWorkerServer } from '#tests/support/fake.worker.js';
 
 const exec = promisify(execFile);
 
@@ -126,6 +127,44 @@ describe('HostProber', () => {
 
         expect(host.probe?.ok).toBe(false);
         expect(host.probe?.detail).toMatch(/^cannot reach .*Operation timed out/);
+    });
+
+    it('records a worker host as not connected, without trying to reach it', async () => {
+        const name = uniqueProject();
+        await service.create({ name, kind: 'worker' });
+        // An `ssh` that fails the test if anything runs it: a worker host has no SSH target to reach.
+        const forbidden = join(base, 'forbidden-ssh');
+        await writeFile(forbidden, '#!/bin/sh\necho "ssh was run for a worker host" >&2\nexit 99\n', 'utf8');
+        await chmod(forbidden, 0o755);
+
+        const host = await new HostProber(hosts, new HostConnector(forbidden)).probe(name);
+
+        expect(host.probe).toMatchObject({ ok: false, detail: 'no worker is connected for this host' });
+    });
+
+    it('runs every check on a connected worker, and passes one that is ready', async () => {
+        const name = uniqueProject();
+        await service.create({ name, kind: 'worker' });
+        const project = uniqueProject();
+        await new ProjectRepository(db).create({ name: project, codeRoot: '/tmp/code', worktreeRoot: '/tmp/wt', runRoot: '/tmp/run' });
+        await service.putProject(name, project, {
+            codeRoot: join(base, 'clone'),
+            worktreeRoot: join(base, name, 'wt'),
+            runRoot: join(base, name, 'run'),
+        });
+        const server = await startWorkerServer({ token: (await hosts.find(name))! });
+        try {
+            await connectLoopbackWorker(server.apiUrl, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
+            await eventually(() => server.connections.get(name) !== undefined);
+
+            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections)).probe(name);
+
+            expect(host.probe?.ok).toBe(true);
+            expect(host.probe?.engineVersion).toBe('9.9.9');
+            expect(host.probe?.detail).toContain('claude 9.9.9 has not been through the engine probes');
+        } finally {
+            await server.close();
+        }
     });
 
     it('reports a variable the host says it supplies to commands but does not have', async () => {

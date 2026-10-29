@@ -79,7 +79,9 @@ export class Notifier {
                 redirect: 'manual',
             });
             if (response.type === 'opaqueredirect') {
-                this.logger.warn(`notify webhook for ${notification.cardId} (${notification.moment}) refused: server responded with a redirect, which is not followed`);
+                this.logger.warn(
+                    `notify webhook for ${notification.cardId} (${notification.moment}) refused: server responded with a redirect, which is not followed`,
+                );
             } else if (!response.ok) {
                 this.logger.warn(`notify webhook for ${notification.cardId} (${notification.moment}) returned ${response.status}`);
             }

@@ -6,6 +6,7 @@ import { ChatModule } from './chat/chat.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
 import { HostModule } from './host/host.module.js';
+import { WorkerModule } from './worker/worker.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
@@ -64,6 +65,7 @@ export const modules: ServerKitModule[] = [
     HealthModule,
     LeaseModule,
     HostModule,
+    WorkerModule,
     WorktreeModule,
     AgentModule,
     StagesModule,

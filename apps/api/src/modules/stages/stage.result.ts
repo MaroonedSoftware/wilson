@@ -139,13 +139,13 @@ export type ChallengeResult = z.infer<typeof ChallengeResultSchema>;
  */
 export const ScopeGroupSchema = z.object({
     title: z.string().describe('What kind of work this group is — the label under which its tasks repeat.'),
-    tasks: z.array(z.string()).min(1).describe("Which Tasks-section items belong to this group — quote or number them."),
+    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items belong to this group — quote or number them.'),
     sites: z
         .number()
         .int()
         .min(1)
         .describe(
-            'How many distinct places in the codebase this group\'s work actually lands — files, call sites, routes — not ' +
+            "How many distinct places in the codebase this group's work actually lands — files, call sites, routes — not " +
                 'how many Tasks-section items describe it. A task like "update every internal link" is one entry in `tasks` ' +
                 'but may land in ten files: report the ten.',
         ),

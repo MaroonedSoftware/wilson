@@ -1,8 +1,9 @@
 import type { ExecutionHost } from './execution.host.js';
+import type { GitTransport } from './git.transport.js';
 
 /**
- * Where a card's stage runs when it is not this machine: the host, how to reach it, the project's
- * three paths there, and the slot lease that holds a place on it.
+ * Where a card's stage runs when it is not this machine: the host, how commits reach it, the
+ * project's three paths there, and the slot lease that holds a place on it.
  *
  * Carried on the `Worktree` the stage gets, so everything downstream of the dispatcher (the tools,
  * the verifiers, the commit) reaches the same machine without being told twice.
@@ -10,11 +11,9 @@ import type { ExecutionHost } from './execution.host.js';
 export interface RemotePlacement {
     /** The host's registered name, as `runner.hosts` and events record it. */
     hostName: string;
-    /** What `ssh` and git connect to. */
-    sshTarget: string;
     host: ExecutionHost;
-    /** `GIT_SSH_COMMAND` for pushing commits to the host's clone and fetching the branch back. */
-    gitSsh: string;
+    /** Pushes commits to the host's clone and fetches the branch back. */
+    git: GitTransport;
     /** The project's clone on the host, which the card's worktree is cut from. */
     codeRoot: string;
     worktreeRoot: string;

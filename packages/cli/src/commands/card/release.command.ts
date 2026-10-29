@@ -21,8 +21,7 @@ const command: CommandModule = {
         const cardId = String(args[0]);
 
         const result = await api.board.releaseCard(cardId);
-        const cancelled =
-            result.releasedAs === 'orphan' ? 'an orphaned job left behind by an earlier process' : 'a queued job that had not started';
+        const cancelled = result.releasedAs === 'orphan' ? 'an orphaned job left behind by an earlier process' : 'a queued job that had not started';
 
         ctx.logger.info(`${cardId}: released — cancelled ${cancelled}, claim cleared`);
         ctx.logger.info('the card itself has not moved; decide where it goes next with `wilson card move`.');

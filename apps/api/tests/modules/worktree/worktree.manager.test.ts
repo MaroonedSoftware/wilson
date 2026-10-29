@@ -1018,7 +1018,7 @@ describe('WorktreeManager', () => {
             expect(byPath['src/renamed.ts']).toBe('added');
         });
 
-        it("answers for a card whose worktree has already been reclaimed (AC7)", async () => {
+        it('answers for a card whose worktree has already been reclaimed (AC7)', async () => {
             const worktree = await manager.create('0001', 'card/0001-thing');
             await writeFile(join(worktree.path, 'src', 'feature.ts'), 'export const feature = 1;\n', 'utf8');
             await manager.commit(worktree, '0001: implementing');

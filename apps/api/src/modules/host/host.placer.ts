@@ -114,9 +114,8 @@ export class HostPlacer {
             this.logger.info(`${cardId} placed on ${row.name} (${slotKey})`);
             return {
                 hostName: row.name,
-                sshTarget: row.sshTarget,
                 host,
-                gitSsh: this.connector.gitSsh(),
+                git: this.connector.gitTransport(row),
                 codeRoot: serves.codeRoot,
                 worktreeRoot: serves.worktreeRoot,
                 runRoot: serves.runRoot,

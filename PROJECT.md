@@ -141,8 +141,6 @@ watcher, were both considered and rejected: either adds runtime logic whose only
 whether it is safe to restart, when the operator already knows and `start` already exists as the
 answer. "Don't run `--watch` while a card is mid-flight" is one sentence, not a special case.
 
-
-
 ### The daemon is not a poller
 
 `jobbroker` replaces the hand-rolled lease loop. pg-boss already provides
@@ -259,6 +257,54 @@ that the CLI, run by hand in that environment, failed with "OAuth session expire
 refreshed". So `subscriptionEnv` still removes only the two provider keys. Whether a probe passes
 when run from inside a real stage, under the stage's own config directory, is still unmeasured.
 
+### Where a stage runs: here, an SSH host, or a worker
+
+A stage that cuts a worktree runs where its `placement` says: `local` (the default) on the daemon's
+own machine, `remote` on a registered host, or `any` on a host when one has a free slot and here
+otherwise. Planning sessions and stages with `worktree: none` always run here. A host is a
+`runner.hosts` row (`wilson host add`, the web app's Hosts page) with a number of slots, the projects
+it serves and where each one's clone lives on it, and a probe (`wilson host probe`) that has to pass
+before placement will choose it.
+
+Only the work moves. Everything above the `ExecutionHost` seam (`execution.host.ts`) stays in the
+daemon: the Agent SDK's loop, the tool guard and its denials, budgets, verification, the commit,
+merges and the board. A host does what the seam asks of it (read and write files in the worktree,
+run commands, start the `claude` engine) and the engine's stdio comes back to the daemon, so the
+guard sees every tool call wherever the engine runs. Commits move to and from a host's clone through
+a `GitTransport` (`git.transport.ts`) on the placement.
+
+There are two kinds of host, fixed when one is registered:
+
+- **`ssh`.** The daemon connects out with `ssh <target>` and runs each primitive as a shell command
+  there (`SshHost`); commits move with git's own push and fetch over the same connection. The daemon
+  needs a route to the machine and a key for it. An SSH host's engine signs in with
+  `REMOTE_CLAUDE_CODE_OAUTH_TOKEN`, sent over stdin.
+- **`worker`.** The worker program (`apps/worker`) on the machine connects in instead: a WebSocket to
+  `/api/workers/connect`, authenticated with that host's worker token (`wilson host token`), which
+  only that endpoint accepts and which names exactly one host. The daemon sends each primitive over
+  the connection as a message (`@wilson/worker-protocol`) and the worker answers it with the same
+  `node:fs` or `execFile` call `LocalHost` would make (`WorkerExecutor`); commits move as git bundles
+  holding only what the other side lacks (`WorkerGitTransport`). The daemon needs no route to the
+  machine and no key for it, which is what lets the daemon live in a container on a NAS while the
+  stages run on a VM or a laptop. A worker's engine signs in with the worker's own
+  `CLAUDE_CODE_OAUTH_TOKEN`, which never leaves that machine.
+
+A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
+worker subscribed to it would hold a credential for `runner.cards` and `runner.stage_configs` on the
+same machine as model-written code, which is the board readable from a worktree: exactly what
+decisions 6 and 8 rule out, and what card 0194 removed from the engine's environment. The connection
+is the only thing a worker holds, and Wilson drives it; a worker never decides what to run.
+
+A worker confines file primitives to its host's project roots, as the latest `welcome` named them
+(the daemon re-sends it whenever it connects to the host for a probe or a placement). That is a
+guardrail in the sense the note atop `command.allowlist.ts` uses the word: a command run inside a
+root can reach past it. The boundary is the machine, which is why a worker belongs on one kept for it.
+
+A dropped connection fails whatever was waiting on it as a lost host, which the queue retries, and
+the worker kills every process the dropped connection started before it reconnects. A daemon restart
+still abandons the stages running at the time, since the agent loop lives in the daemon. Moving the
+loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
+
 ## Stage model
 
 Each stage declares: input, mode, adapter, provider, model, prompt, allowed tools,
@@ -346,7 +392,7 @@ stage failed this way routes to itself, and either way `maxKickbacks` still boun
 general form of the same rule, previously encoded only as `testing.onFail: testing`.
 
 `testing.onFail: testing` stays exactly as it is — this card complements it rather than replacing it.
-It self-loops on *every* testing failure, including a well-formed verdict that testing wrote no tests
+It self-loops on _every_ testing failure, including a well-formed verdict that testing wrote no tests
 or its report is stale, which is a judgment about the work `unjudged` deliberately does not cover
 (testing has no downstream stage that could act on that judgment differently, which is why card 0062
 chose a blanket self-loop for it). `unjudged` only closes the narrower gap card 0062 left open: telling
@@ -591,7 +637,7 @@ config adds an `always_allowed` list for generated and machine-owned files that 
 plan should have to mention — `pnpm-lock.yaml`, `src/generated/**`.
 
 **Generated but tracked is the trap, and this repo has two.** A file that is
-regenerated by a tool *and* committed will pass every check an agent runs by hand
+regenerated by a tool _and_ committed will pass every check an agent runs by hand
 and still fail the build, because the checked-in copy is what `tsc` reads. Card 0032
 failed its exit condition editing `apps/api/data/contracts/board.ck` without running
 `pnpm codegen`, leaving `src/generated/**` and `board.router.ts` stale. Card 0151
@@ -950,42 +996,87 @@ input the operator did not write.
 
 ## Deployment
 
-Single `docker compose` stack: API + daemon in one image, the web app served
-statically from it, and Postgres.
+Two ways to run it. On a development machine, `docker-compose.yml` runs Postgres (and the test
+database and the backup) and the API runs from the checkout (`pnpm --filter @wilson/api start`).
+On a server, `docker-compose.unraid.yml` runs the whole orchestrator in containers, and the stages
+that touch a worktree run on workers.
 
-- **Code repos are mounted volumes.** Projects live on the host; worktrees are created
-  inside the mount so the host can inspect them and open them in an editor. The board is
-  not a mount — it is in Postgres, which is already in the stack.
-- **Project builds run in the daemon container.** Build and test commands execute
-  directly, so the image carries each project's toolchain (Node, pnpm, and whatever
-  else a registered project needs). This is the constraint of dropping Docker from
-  the requirements: a project whose test suite needs containers cannot be driven by
-  this runner yet. Revisit with a rootless Docker-in-Docker sidecar if that becomes
-  binding — never by mounting the host Docker socket, which would hand
-  model-authored code root on the host and defeat every other boundary here.
-- **Toolchains are declared, not discovered.** The base image carries what this
-  project needs (Node 22+, pnpm, git), since the system builds itself first. Each
-  registered project declares its required runtimes and a `setup` command run once at
-  worktree creation. A johnny5 `doctor` check verifies every registered project's
-  declared toolchain is present at boot, so an unsupported project fails loudly at
-  registration rather than mysteriously at stage four of a card. Onboarding an exotic
-  toolchain means rebuilding the image — a Dockerfile edit, not an architecture
-  change. Reach for a runtime manager like mise in the image only if that becomes a
-  regular chore.
-- **A published port range** maps the per-worktree dev server ports out to the host.
-- **Git credentials belong to the runner, not to agents.** A mounted deploy key,
-  reachable only through a credential helper the runner invokes when it commits
-  board state or pushes a card branch. The bash tool never sees it.
+### The server stack
+
+`Dockerfile` builds two images from one tree. `api` is the API and daemon: it migrates the database
+on every start, then boots, and carries the pinned `claude` that planning sessions and any `local`
+stage start. `web` is the web app built for the API's URL (`VITE_API_URL`, a build argument) and
+served by nginx. `docker-compose.unraid.yml` runs both with Postgres and the nightly backup, as
+compose project `wilson`, separate from the development stack's `kanban`. The one file to fill in is
+`deploy/unraid.env.example`, copied into the appdata folder.
+
+- **Configured by its environment.** The API reads the process environment beneath
+  `apps/api/.env`, so a container with no `.env` is configured by `-e` and `env_file` alone, and a
+  checkout with one behaves as it always has.
+- **Everything kept is bind-mounted** under `WILSON_APPDATA`: Postgres's data, the backups, the
+  worktree and run roots, the generated session and encryption keys, the Claude login and a home
+  folder. On Unraid that means the cache pool, not `/mnt/user`, whose user-share layer is slow for
+  Postgres and for git's many small files. The containers run as `nobody:users` (99:100) so the
+  shares stay usable from outside them.
+- **Code repos are mounted volumes.** The clones the daemon merges into live under
+  `WILSON_PROJECTS`, one folder per project. Their owner is not the container's user, so the stack
+  sets `safe.directory` for git rather than have it refuse them.
+- **Model-written code runs on workers, not in the stack.** Placing every worktree stage `remote` in
+  the stage config keeps it off the server altogether. What still runs in the `api` container is the
+  engine for planning sessions and for stages without a worktree. `local-stage-slots` cannot be 0
+  for that reason; `placement` is the switch.
+- **Never the Docker socket.** A project whose test suite needs containers cannot be driven by this
+  runner yet. Revisit with a rootless Docker-in-Docker sidecar, or on a worker whose machine has
+  Docker of its own, if that becomes binding. Mounting the host's socket would hand model-authored
+  code root on the server and defeat every other boundary here.
+- **The board is reached over the LAN, signed in.** The API needs `WEB_ORIGINS` set to the web
+  app's exact origin. Over plain HTTP, sessions work but passkeys do not: browsers allow WebAuthn
+  only on HTTPS or localhost. Put a TLS proxy in front, or reach it over Tailscale's HTTPS, to use
+  them.
+
+### Workers
+
+A worker is `apps/worker` on a machine kept for it, set up as `apps/worker/README.md` describes:
+register the host with `wilson host add <name> --worker`, mint its token with `wilson host token`,
+say where each project's clone is with `wilson host serve`, and start the worker with `WILSON_URL`,
+`WILSON_WORKER_TOKEN` and its own `CLAUDE_CODE_OAUTH_TOKEN`. It reconnects by itself and exits for good
+only when retrying cannot help.
+
+- **Toolchains are declared, not discovered,** and live on the workers. Each registered project
+  declares its required runtimes and a `setup` command run once at worktree creation, and a worker's
+  machine carries them. The probe checks what it can (`claude`, each clone, each `commandEnv`
+  variable) before placement will choose the host. The `api` image needs only what planning and
+  merges do: Node, pnpm and git.
+- **A published port range** maps the per-worktree dev server ports out from wherever the stage runs.
+- **Git credentials belong to the runner, not to agents.** Wilson merges into its own clones and
+  never pushes to a forge, so the stack holds no forge write credential, and should not until it
+  does. Commits reach an SSH host over the daemon's own SSH key and a worker as bundles over its
+  connection; neither is anything a stage's commands can read.
 - **Provider API keys** are injected per deployment and never enter a worktree.
-- **Nightly database backups.** The `backup` service (`docker-compose.yml`) is `postgres:17` —
+
+### Backups
+
+- **Nightly database backups.** The `backup` service (in both compose files) is `postgres:17` —
   the same image as `db`, so the dump and server versions cannot drift — and writes a
-  `pg_dump -Fc` of `db` (never `db-test`, which is tmpfs by design) once a night at 03:00 local
-  to `WILSON_BACKUP_DIR`, a host directory outside the repo and outside any container, default
-  `../.wilson-backups` relative to this file. Each dump is written to a temporary name and
-  renamed on success, so an interrupted dump is never mistaken for a good one, and anything older
-  than fourteen days is pruned after each successful dump. `wilson doctor`'s "database backed up"
-  check reads the same directory and fails when the newest dump is stale or does not read as a
-  dump. To restore: `pg_restore -d wilson <file>`.
+  `pg_dump -Fc` of `db` (never `db-test`, which is tmpfs by design) once a night at 03:00 in the
+  service's `TZ` to `WILSON_BACKUP_DIR` (the development stack: a host directory outside the repo,
+  default `../.wilson-backups` relative to `docker-compose.yml`; the server stack: `backups` under
+  `WILSON_APPDATA`). Each dump is written to a temporary name and renamed on success, so an
+  interrupted dump is never mistaken for a good one, and anything older than fourteen days is
+  pruned after each successful dump. `wilson doctor`'s "database backed up" check reads the same
+  directory and fails when the newest dump is stale or does not read as a dump. To restore:
+  `pg_restore -d wilson <file>`.
+- **Back up the secrets with the database.** The session signing key and the encryption key under
+  `secrets` are generated on first boot. Losing the encryption key makes every enrolled
+  authenticator unreadable.
+
+### Moving the board to the server
+
+The development stack keeps the board in `wilson-db`'s anonymous volume. Move it with a dump, never
+by copying or recreating that container: stop the daemon so no stage is running, `pg_dump -Fc` from
+`wilson-db`, start the server stack's `db`, and `pg_restore` into it before starting `api`. Then
+update every `runner.projects` row's `codeRoot`, `worktreeRoot` and `runRoot` to the container's
+paths, since they still name the development machine's.
 
 ## Build order
 

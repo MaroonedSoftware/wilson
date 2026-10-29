@@ -29,7 +29,7 @@ export const stageEnteredAt = (events: CardEventRow[], opts: { fullHistory?: boo
     const lastTransition = [...events].reverse().find(event => event.type === 'transition.written');
     if (lastTransition) return lastTransition.createdAt;
 
-    return opts.fullHistory ?? true ? earliest.createdAt : undefined;
+    return (opts.fullHistory ?? true) ? earliest.createdAt : undefined;
 };
 
 /**

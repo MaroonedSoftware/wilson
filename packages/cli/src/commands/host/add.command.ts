@@ -3,6 +3,7 @@ import { withApi } from '../../api-client.js';
 import { variableNames } from '../../host-view.js';
 
 interface AddOpts {
+    worker?: boolean;
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
@@ -12,12 +13,14 @@ interface AddOpts {
 /**
  * Register a machine a card stage can run on (`POST /api/hosts`). The host serves no project until
  * `wilson host serve` says where that project's clone lives on it, so registering one places no
- * work on it.
+ * work on it. `--worker` registers one whose worker program connects in, rather than one reached
+ * over SSH; it takes no `--ssh-target`.
  */
 const command: CommandModule<AddOpts> = {
-    description: 'Register a host a card stage can run on, reached over SSH',
+    description: 'Register a host a card stage can run on, reached over SSH or by a worker that connects in',
     args: [{ name: 'name', description: 'The host name, e.g. agent-3', required: true }],
     options: [
+        { flags: '--worker', description: 'A host whose worker program connects in, rather than one reached over SSH', type: 'boolean' },
         { flags: '--ssh-target <target>', description: 'What `ssh` connects to; defaults to the name', type: 'string' },
         { flags: '--slots <n>', description: 'Stages that may run on it at once, 1 to 8 (default 1)', type: 'number' },
         {
@@ -35,12 +38,14 @@ const command: CommandModule<AddOpts> = {
         const name = String(args[0]);
         const host = await api.hosts.registerHost({
             name,
+            ...(opts.worker && { kind: 'worker' as const }),
             ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
             ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
         });
-        ctx.logger.info(`${host.name} registered (ssh ${host.sshTarget}, ${host.slots} slot${host.slots === 1 ? '' : 's'})`);
+        const reached = host.kind === 'worker' ? 'worker' : `ssh ${host.sshTarget}`;
+        ctx.logger.info(`${host.name} registered (${reached}, ${host.slots} slot${host.slots === 1 ? '' : 's'})`);
         return 0;
     }),
 };

@@ -198,7 +198,9 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(0);
+        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(
+            0,
+        );
 
         expect(calls()[1]!.body).toMatchObject({ grant_type: 'authenticator', factor_id: 'f-1' });
     });

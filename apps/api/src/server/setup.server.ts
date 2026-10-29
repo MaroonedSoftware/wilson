@@ -4,6 +4,9 @@ import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftw
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
 import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
+import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
+import { attachWorkerEndpoint } from '#modules/worker/worker.endpoint.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { buildConfig, modules } from '../cli-bootstrap.js';
 import { routers } from '../routes/routes.setup.js';
@@ -36,5 +39,14 @@ export const setupServer = async (): Promise<Server> => {
     // this is what makes the `/api/feed` streams hanging off it do the same instead of holding the
     // socket open until the force-close grace period.
     serverBuilder.setupMiddleware(setupMiddleware(config)).setupRoutes(routers(serverBuilder.lifecycleSignal) as ServerKitRouterType[]);
-    return await serverBuilder.start(configNumber(config, 'PORT', 13100));
+    const server = await serverBuilder.start(configNumber(config, 'PORT', 13100));
+    // After `start`, since it is the listening server the upgrade arrives on. A worker that connects in
+    // the moment between the two is refused and simply tries again.
+    attachWorkerEndpoint(server, {
+        authenticate: token => container.get(WorkerTokensService).authenticate(token),
+        connections: container.get(WorkerConnections),
+        logger,
+        signal: serverBuilder.lifecycleSignal,
+    });
+    return server;
 };

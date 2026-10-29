@@ -1,0 +1,19 @@
+# Installed fresh in the image, for its own platform.
+**/node_modules
+.pnpm-store
+
+# Builds, caches and reports.
+**/dist
+**/.turbo
+**/coverage
+**/.contractkit
+.vitest-report.json
+
+# Secrets and local state never belong in an image.
+**/.env
+.wilson-secrets
+.wilson-backups
+
+# Agent and editor state, and git's own.
+.claude
+.git

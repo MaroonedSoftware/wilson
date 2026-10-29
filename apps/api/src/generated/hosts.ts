@@ -48,12 +48,24 @@ export const HostSlotUse = z.strictObject({
 export type HostSlotUse = z.infer<typeof HostSlotUse>;
 
 /**
- * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
- * expects. `slots` defaults to 1.
+ * What is shown of a worker host's token: its last four characters and when it was minted, never the
+ * token itself.
+ * generated from [WorkerTokenSummary](../../data/contracts/hosts.ck)
+ */
+export const WorkerTokenSummary = z.strictObject({
+    hint: z.string(),
+    issuedAt: _ZodDatetime,
+});
+export type WorkerTokenSummary = z.infer<typeof WorkerTokenSummary>;
+
+/**
+ * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
+ * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../data/contracts/hosts.ck)
  */
 export const CreateHostRequest = z.strictObject({
     name: z.string(),
+    kind: z.enum(['ssh', 'worker']).optional(),
     sshTarget: z.string().optional(),
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     lifetimeMinutes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
@@ -63,11 +75,12 @@ export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
 
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
- * No `name`: it is the key every lease and job that names this host will carry.
+ * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
+ * moving a machine to the other kind is removing the host and registering it again.
  * generated from [UpdateHostRequest](../../data/contracts/hosts.ck)
  */
 export const UpdateHostRequest = z.strictObject({
-    sshTarget: z.string().optional(),
+    sshTarget: z.string().optional().describe('Only for an `ssh` host.'),
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
@@ -97,7 +110,12 @@ export type PutHostProjectRequest = z.infer<typeof PutHostProjectRequest>;
  */
 export const Host = z.strictObject({
     name: z.string(),
-    sshTarget: z.string(),
+    kind: z
+        .enum(['ssh', 'worker'])
+        .describe(
+            'How the daemon reaches it: `ssh` connects out to `sshTarget`; `worker` waits for the worker\nprogram there to connect in. Fixed at registration.',
+        ),
+    sshTarget: z.string().optional().describe('Set exactly when `kind` is `ssh`.'),
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -115,5 +133,16 @@ export const Host = z.strictObject({
     projects: z.array(HostProject),
     running: z.array(HostSlotUse).describe('The slots in use right now, slot order. `slots` minus this many are free.'),
     probe: HostProbe.optional(),
+    workerToken: WorkerTokenSummary.optional().describe("A worker host's current token, absent until one is minted. Never present on an `ssh` host."),
 });
 export type Host = z.infer<typeof Host>;
+
+/**
+ * A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept.
+ * generated from [IssuedWorkerToken](../../data/contracts/hosts.ck)
+ */
+export const IssuedWorkerToken = z.strictObject({
+    token: z.string(),
+    host: Host,
+});
+export type IssuedWorkerToken = z.infer<typeof IssuedWorkerToken>;

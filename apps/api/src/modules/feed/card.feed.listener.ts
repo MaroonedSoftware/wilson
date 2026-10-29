@@ -51,10 +51,9 @@ export const startCardFeedListener = async (pool: KyselyPool, logger: Logger, si
         void (async (): Promise<void> => {
             try {
                 const event = JSON.parse(raw) as CardFeedNotification;
-                const { rows } = await pool.query<{ payload: Record<string, unknown> }>(
-                    `select payload from runner.card_events where id = $1`,
-                    [event.id],
-                );
+                const { rows } = await pool.query<{ payload: Record<string, unknown> }>(`select payload from runner.card_events where id = $1`, [
+                    event.id,
+                ]);
                 const row = rows[0];
                 if (!row) {
                     logger.error(new Error(`card feed notification for missing card_events row ${event.id}`));

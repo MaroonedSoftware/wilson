@@ -80,7 +80,14 @@ function HostPanel({ host, projects, now }: { host: Host; projects: string[]; no
                             <ProbeBadge host={host} now={now} />
                         </Group>
                         <Text size="sm" c="dimmed">
-                            ssh <Code>{host.sshTarget}</Code>
+                            {host.kind === 'worker' ? (
+                                'worker'
+                            ) : (
+                                <>
+                                    ssh <Code>{host.sshTarget}</Code>
+                                </>
+                            )}
+                            {host.kind === 'worker' && (host.workerToken ? <> · token …{host.workerToken.hint}</> : <> · no token yet</>)}
                             {host.probe?.engineVersion && <> · claude {host.probe.engineVersion}</>}
                             {host.probe?.expiresAt && <> · expires {relativeTime(host.probe.expiresAt, now)}</>}
                             {host.lifetimeMinutes && !host.probe?.expiresAt && <> · lives {host.lifetimeMinutes}m after boot</>}
@@ -235,11 +242,15 @@ function ServeProjectForm({ host, projects }: { host: Host; projects: string[] }
     );
 }
 
-/** Register a host: its name, what `ssh` connects to, its slots and, for an agent VM, its lifetime. */
+/**
+ * Register a host: its name, how it is reached (over SSH, or by a worker that connects in), what `ssh`
+ * connects to for an SSH host, its slots and, for an agent VM, its lifetime.
+ */
 function RegisterHostForm() {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
+    const [kind, setKind] = useState<Host['kind']>('ssh');
     const [sshTarget, setSshTarget] = useState('');
     const [slots, setSlots] = useState<number | ''>(1);
     const [lifetime, setLifetime] = useState<number | ''>('');
@@ -249,7 +260,8 @@ function RegisterHostForm() {
         mutationFn: () =>
             wilson.hosts.registerHost({
                 name: name.trim(),
-                ...(sshTarget.trim() && { sshTarget: sshTarget.trim() }),
+                ...(kind === 'worker' && { kind }),
+                ...(kind === 'ssh' && sshTarget.trim() && { sshTarget: sshTarget.trim() }),
                 ...(slots !== '' && { slots }),
                 ...(lifetime !== '' && { lifetimeMinutes: lifetime }),
                 ...(commandEnv.trim() && {
@@ -261,6 +273,7 @@ function RegisterHostForm() {
             }),
         onSuccess: () => {
             setName('');
+            setKind('ssh');
             setSshTarget('');
             setSlots(1);
             setLifetime('');
@@ -275,13 +288,27 @@ function RegisterHostForm() {
                 <Title order={5}>Register a host</Title>
                 <Group align="flex-end" gap="xs" wrap="wrap">
                     <TextInput label="Name" placeholder="agent-3" value={name} onChange={e => setName(e.currentTarget.value)} size="xs" />
-                    <TextInput
-                        label="SSH target"
-                        placeholder="defaults to the name"
-                        value={sshTarget}
-                        onChange={e => setSshTarget(e.currentTarget.value)}
+                    <Select
+                        label="Reached by"
+                        data={[
+                            { value: 'ssh', label: 'SSH' },
+                            { value: 'worker', label: 'Worker' },
+                        ]}
+                        value={kind}
+                        onChange={value => setKind(value === 'worker' ? 'worker' : 'ssh')}
+                        allowDeselect={false}
+                        w={110}
                         size="xs"
                     />
+                    {kind === 'ssh' && (
+                        <TextInput
+                            label="SSH target"
+                            placeholder="defaults to the name"
+                            value={sshTarget}
+                            onChange={e => setSshTarget(e.currentTarget.value)}
+                            size="xs"
+                        />
+                    )}
                     <NumberInput
                         label="Slots"
                         min={1}

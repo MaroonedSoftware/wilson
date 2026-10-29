@@ -15,10 +15,7 @@ const command: CommandModule = {
         for (const card of cards) {
             const outstanding = unsatisfiedDependencies(card, cards);
             const dead = deadDependencies(card, cards, columns.nonStages);
-            const blocked =
-                outstanding.length > 0
-                    ? ` (blocked on ${outstanding.map(id => describeDependency(id, cards, dead)).join(', ')})`
-                    : '';
+            const blocked = outstanding.length > 0 ? ` (blocked on ${outstanding.map(id => describeDependency(id, cards, dead)).join(', ')})` : '';
             const flag = card.needsHuman ? ' [needs human]' : '';
             ctx.logger.info(`${card.id}  ${card.stage.padEnd(width)}  ${card.title}${blocked}${flag}`);
         }

@@ -75,12 +75,7 @@ export interface KickbackDecision {
  * instead under `droppedRetryKey`; once that allowance is spent, a dropped result starts consuming
  * the same budget any other failure would, via the recursive call below.
  */
-export const kickback = (
-    stage: StageConfig,
-    retries: Record<string, number>,
-    unjudged: boolean,
-    resultDropped: boolean,
-): KickbackDecision => {
+export const kickback = (stage: StageConfig, retries: Record<string, number>, unjudged: boolean, resultDropped: boolean): KickbackDecision => {
     if (resultDropped) {
         const droppedKey = droppedRetryKey(stage);
         const dropped = (retries[droppedKey] ?? 0) + 1;

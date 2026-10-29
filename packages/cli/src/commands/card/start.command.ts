@@ -33,9 +33,7 @@ const command: CommandModule = {
         const card = await api.board.startCard(cardId);
 
         ctx.logger.info(`enqueued ${cardId} · ${card.stage}`);
-        ctx.logger.info(
-            'the job runs wherever the API is draining the queue — start it with `pnpm --filter @wilson/api start` if nothing is.',
-        );
+        ctx.logger.info('the job runs wherever the API is draining the queue — start it with `pnpm --filter @wilson/api start` if nothing is.');
         return 0;
     }),
 };

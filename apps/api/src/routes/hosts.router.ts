@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { HostProber } from '#modules/host/host.prober.js';
 import { HostsService } from '#modules/host/hosts.service.js';
-import { CreateHostRequest, Host, PutHostProjectRequest, UpdateHostRequest } from '../generated/hosts.js';
+import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
+import { CreateHostRequest, Host, IssuedWorkerToken, PutHostProjectRequest, UpdateHostRequest } from '../generated/hosts.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -94,7 +95,7 @@ HostsRouter.delete('/api/hosts/:name', requirePolicy({ policy: 'wilson.manage' }
 });
 
 /**
- * Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+ * Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
  * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
  * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
  * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts/{name}/probe`
@@ -155,6 +156,50 @@ HostsRouter.delete('/api/hosts/:name/projects/:project', requirePolicy({ policy:
 
     const service = ctx.container.get(HostsService);
     await service.removeProject(name, project);
+
+    ctx.status = 204;
+});
+
+/**
+ * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
+ * it, and only as this host, so it grants less than the `manage` key or session minting it already
+ * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
+ * `post` mints one, replacing any the host had, so rotating is posting again.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts/{name}/worker-token`
+ */
+HostsRouter.post('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(WorkerTokensService);
+    const result: IssuedWorkerToken = await service.issue(name);
+
+    ctx.status = 201;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
+ * it, and only as this host, so it grants less than the `manage` key or session minting it already
+ * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
+ * `post` mints one, replacing any the host had, so rotating is posting again.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `DELETE /api/hosts/{name}/worker-token`
+ */
+HostsRouter.delete('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(WorkerTokensService);
+    await service.revoke(name);
 
     ctx.status = 204;
 });

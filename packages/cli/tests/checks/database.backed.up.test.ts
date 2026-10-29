@@ -36,7 +36,8 @@ const pgRestoreRejects = () =>
     execFileMock.mockImplementation((_f, _a, cb) => cb(new Error('pg_restore: error: input file does not appear to be a valid archive'), '', ''));
 
 /** `pg_restore` isn't on the host's `PATH` at all — the check should fall back to the header read. */
-const pgRestoreMissing = () => execFileMock.mockImplementation((_f, _a, cb) => cb(Object.assign(new Error('spawn pg_restore ENOENT'), { code: 'ENOENT' }), '', ''));
+const pgRestoreMissing = () =>
+    execFileMock.mockImplementation((_f, _a, cb) => cb(Object.assign(new Error('spawn pg_restore ENOENT'), { code: 'ENOENT' }), '', ''));
 
 /** A buffer of `totalBytes`, starting with the real `PGDMP` magic header, or something else entirely. */
 const dumpBuffer = (totalBytes: number, validHeader = true): Buffer => {

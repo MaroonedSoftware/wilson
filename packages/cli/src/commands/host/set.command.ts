@@ -24,7 +24,7 @@ const command: CommandModule<SetOpts> = {
     description: "Change a host's SSH target, slots, or whether it takes work",
     args: [{ name: 'name', description: 'The host name', required: true }],
     options: [
-        { flags: '--ssh-target <target>', description: 'What `ssh` connects to', type: 'string' },
+        { flags: '--ssh-target <target>', description: 'What `ssh` connects to (not for a worker host)', type: 'string' },
         { flags: '--slots <n>', description: 'Stages that may run on it at once, 1 to 8', type: 'number' },
         { flags: '--lifetime-minutes <n>', description: 'Minutes it runs after boot before it stops by itself; 0 clears it', type: 'number' },
         {

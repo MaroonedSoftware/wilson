@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { default: setCommand } = await import('#src/commands/host/set.command.js');
 const { default: listCommand } = await import('#src/commands/host/list.command.js');
 const { default: addCommand } = await import('#src/commands/host/add.command.js');
+const { default: tokenCommand } = await import('#src/commands/host/token.command.js');
 
 type Handler<Opts> = (opts: Opts, ctx: unknown, args: unknown[]) => Promise<number | void>;
 
@@ -30,6 +31,7 @@ const buildCtx = () => {
 
 const host = {
     name: 'agent-3',
+    kind: 'ssh',
     sshTarget: 'agent-3',
     slots: 2,
     enabled: true,
@@ -84,6 +86,17 @@ describe('wilson host add', () => {
         expect(sentBody()).toEqual({ name: 'agent-3', commandEnv: ['GITHUB_TOKEN', 'NPM_TOKEN'] });
     });
 
+    it('registers a worker host with --worker, and says it is one', async () => {
+        const worker = { ...host, name: 'unraid-vm', kind: 'worker', sshTarget: undefined, slots: 1, projects: [], running: [] };
+        fetchMock.mockResolvedValueOnce(jsonResponse(worker));
+        const { ctx, logger } = buildCtx();
+
+        await (addCommand.run as unknown as Handler<object>)({ worker: true }, ctx, ['unraid-vm']);
+
+        expect(sentBody()).toEqual({ name: 'unraid-vm', kind: 'worker' });
+        expect(logger.info).toHaveBeenCalledWith('unraid-vm registered (worker, 1 slot)');
+    });
+
     it('leaves the SSH target and slots to the server when they are not given', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({ ...host, slots: 1, projects: [] }));
         const { ctx } = buildCtx();
@@ -101,6 +114,7 @@ describe('wilson host list', () => {
                 host,
                 {
                     name: 'box',
+                    kind: 'ssh',
                     sshTarget: 'dev@box',
                     slots: 1,
                     enabled: false,
@@ -122,5 +136,49 @@ describe('wilson host list', () => {
         expect(lines[2]).toBe('  tga  /opt/agent/TGA  worktrees /opt/agent/wt  run /opt/agent/run');
         expect(lines[3]).toBe('box (ssh dev@box)  disabled  0/1 slot in use  probe failed: ssh timed out at 2026-10-29T12:00:00Z');
         expect(lines[4]).toContain('serves no project yet');
+    });
+
+    it('marks a worker host as one, in place of an SSH target', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([
+                { name: 'unraid-vm', kind: 'worker', slots: 1, enabled: true, draining: false, commandEnv: [], projects: [], running: [] },
+            ]),
+        );
+        const { ctx, logger } = buildCtx();
+
+        await (listCommand.run as unknown as Handler<object>)({}, ctx, []);
+
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe('unraid-vm (worker)  enabled  0/1 slot in use  no token yet  never probed');
+    });
+});
+
+describe('wilson host token', () => {
+    it('mints a token and prints it once', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse(
+                {
+                    token: 'wilson_worker_abcd',
+                    host: { name: 'unraid-vm', kind: 'worker', slots: 1, enabled: true, draining: false, commandEnv: [], projects: [], running: [] },
+                },
+                201,
+            ),
+        );
+        const { ctx, logger } = buildCtx();
+
+        await (tokenCommand.run as unknown as Handler<object>)({}, ctx, ['unraid-vm']);
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(String(url)).toContain('/api/hosts/unraid-vm/worker-token');
+        expect(init.method).toBe('POST');
+        expect(logger.info).toHaveBeenCalledWith('wilson_worker_abcd');
+    });
+
+    it('revokes the token with --revoke', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const { ctx } = buildCtx();
+
+        await (tokenCommand.run as unknown as Handler<object>)({ revoke: true }, ctx, ['unraid-vm']);
+
+        expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('DELETE');
     });
 });

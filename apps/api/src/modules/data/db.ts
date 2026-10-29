@@ -154,7 +154,8 @@ export interface Projects {
  */
 export interface Hosts {
     name: string;
-    sshTarget: string;
+    kind: Generated<string>;
+    sshTarget: string | null;
     slots: Generated<number>;
     enabled: Generated<boolean>;
     draining: Generated<boolean>;
@@ -165,6 +166,9 @@ export interface Hosts {
     expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
     lifetimeMinutes: number | null;
     commandEnv: Generated<string[]>;
+    workerTokenHash: string | null;
+    workerTokenHint: string | null;
+    workerTokenIssuedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 

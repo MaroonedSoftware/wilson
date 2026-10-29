@@ -1,0 +1,128 @@
+# Wilson on an Unraid server: the orchestrator (API and daemon), the web app, Postgres and its nightly
+# backup. Stages that touch a worktree are meant to run on workers (apps/worker) on a VM or another
+# machine, so model-written code never runs in this stack; see PROJECT.md, Deployment.
+#
+#   cp deploy/unraid.env.example /mnt/cache/appdata/wilson/wilson.env   # then fill it in
+#   docker compose -f docker-compose.unraid.yml --env-file /mnt/cache/appdata/wilson/wilson.env up -d --build
+#
+# A project of its own, separate from docker-compose.yml's `kanban`, which is the development stack and
+# keeps its board in an anonymous volume. Nothing here touches that one. Everything this stack keeps
+# lives under WILSON_APPDATA, on the cache pool rather than /mnt/user: Unraid's user-share layer is slow
+# for Postgres and for git's many small files.
+name: wilson
+
+services:
+    db:
+        image: postgres:17
+        restart: unless-stopped
+        container_name: wilson-unraid-db
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+            POSTGRES_DB: wilson
+            TZ: ${TZ:-UTC}
+        volumes:
+            # A bind mount, not an anonymous volume, so the board survives the container being recreated.
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/postgres:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-U', 'postgres', '-d', 'wilson']
+            interval: 5s
+            timeout: 5s
+            start_period: 10s
+            retries: 5
+
+    # The same nightly `pg_dump -Fc` as docker-compose.yml's `backup`, at 03:00 in TZ.
+    backup:
+        image: postgres:17
+        restart: unless-stopped
+        container_name: wilson-unraid-backup
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            PGHOST: db
+            PGPORT: 5432
+            PGUSER: postgres
+            PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+            PGDATABASE: wilson
+            TZ: ${TZ:-UTC}
+        volumes:
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/backups:/backups
+        entrypoint: ['/bin/sh', '-c']
+        command:
+            - |
+                set -eu
+                while true; do
+                    if [ "$$(date +%H:%M)" = "03:00" ]; then
+                        stamp="$$(date +%F)"
+                        target="/backups/wilson-$${stamp}.dump"
+                        if [ ! -f "$$target" ]; then
+                            tmp="$${target}.tmp"
+                            pg_dump -Fc -f "$$tmp"
+                            mv "$$tmp" "$$target"
+                            find /backups -maxdepth 1 -name 'wilson-*.dump' -mtime +14 -delete
+                        fi
+                    fi
+                    sleep 30
+                done
+
+    api:
+        build:
+            context: .
+            target: api
+        image: wilson-api:local
+        restart: unless-stopped
+        container_name: wilson-unraid-api
+        depends_on:
+            db:
+                condition: service_healthy
+        # Unraid's nobody:users by default, so files in the shares stay readable and writable from them.
+        user: '${PUID:-99}:${PGID:-100}'
+        env_file:
+            - ${WILSON_ENV_FILE:-/mnt/cache/appdata/wilson/wilson.env}
+        environment:
+            DATABASE_HOST: db
+            DATABASE_PORT: 5432
+            DATABASE_USER: postgres
+            DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+            DATABASE_NAME: wilson
+            DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/wilson?sslmode=disable
+            PORT: 13100
+            TZ: ${TZ:-UTC}
+            # The paths below are the container's; the volumes map them onto the server.
+            PROJECT_CODE_ROOT: /srv/projects/${PROJECT_NAME:-wilson}
+            PROJECT_WORKTREE_ROOT: /srv/worktrees
+            PROJECT_RUN_ROOT: /srv/run
+            AUTH_SESSION_KEY_FILE: /data/secrets/session.pem
+            AUTH_ENCRYPTION_KEY_FILE: /data/secrets/encryption.key
+            CLAUDE_CONFIG_DIR: /data/claude
+            HOME: /data/home
+            WILSON_BACKUP_DIR: /backups
+            # The mounted repos belong to whoever cloned them, not this container's user, which git
+            # otherwise refuses to work in ("dubious ownership").
+            GIT_CONFIG_COUNT: 1
+            GIT_CONFIG_KEY_0: safe.directory
+            GIT_CONFIG_VALUE_0: '*'
+        volumes:
+            - ${WILSON_PROJECTS:-/mnt/cache/projects}:/srv/projects
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/worktrees:/srv/worktrees
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/run:/srv/run
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/secrets:/data/secrets
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/claude:/data/claude
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/home:/data/home
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/backups:/backups:ro
+        ports:
+            - '${WILSON_API_PORT:-13100}:13100'
+
+    web:
+        build:
+            context: .
+            target: web
+            args:
+                # Where the browser reaches the API, baked into the build. Change it, rebuild.
+                VITE_API_URL: ${WILSON_API_URL:?set WILSON_API_URL in the env file, e.g. http://tower:13100}
+        image: wilson-web:local
+        restart: unless-stopped
+        container_name: wilson-unraid-web
+        ports:
+            - '${WILSON_WEB_PORT:-13101}:80'

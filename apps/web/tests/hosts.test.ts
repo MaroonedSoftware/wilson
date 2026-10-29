@@ -5,7 +5,7 @@
 // reason that file gives.
 import { createElement } from 'react';
 import { DateTime } from 'luxon';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -46,6 +46,7 @@ const NOW = Date.parse('2026-10-29T12:00:00Z');
 
 const agentHost: Host = {
     name: 'agent-3',
+    kind: 'ssh',
     sshTarget: 'agent-3',
     slots: 2,
     enabled: true,
@@ -68,6 +69,9 @@ beforeEach(() => {
     vi.spyOn(wilson.projects, 'listProjects').mockResolvedValue([{ name: 'tga' }, { name: 'wilson' }]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    // jsdom has no layout engine, so the combobox's own `scrollIntoView` on the active option
+    // (the register form's "Reached by") would throw without this.
+    Element.prototype.scrollIntoView = vi.fn();
     vi.stubGlobal(
         'matchMedia',
         vi.fn().mockImplementation((query: string) => ({
@@ -175,5 +179,26 @@ describe('the hosts page', () => {
 
         await waitFor(() => expect(register).toHaveBeenCalledWith({ name: 'agent-4', slots: 1 }));
         expect(await screen.findByText('host "agent-4" is already registered')).toBeTruthy();
+    });
+
+    it('registers a worker host without an SSH target, and shows it as a worker', async () => {
+        const worker: Host = { ...agentHost, name: 'unraid-vm', kind: 'worker', sshTarget: undefined, running: [] };
+        vi.spyOn(wilson.hosts, 'listHosts').mockResolvedValueOnce([]).mockResolvedValue([worker]);
+        const register = vi.spyOn(wilson.hosts, 'registerHost').mockResolvedValue(worker);
+        renderApp('/hosts');
+
+        fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'unraid-vm' } });
+        fireEvent.click(screen.getByRole('combobox', { name: 'Reached by' }));
+        const option = await screen.findByRole('option', { name: 'Worker', hidden: true });
+        await act(async () => {
+            fireEvent.click(option);
+        });
+        expect(screen.queryByLabelText('SSH target')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+
+        await waitFor(() => expect(register).toHaveBeenCalledWith({ name: 'unraid-vm', kind: 'worker', slots: 1 }));
+        const card = await screen.findByLabelText('host unraid-vm');
+        expect(card.textContent).toContain('worker');
+        expect(card.textContent).not.toContain('ssh');
     });
 });

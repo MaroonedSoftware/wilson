@@ -514,8 +514,7 @@ export class StageDispatcher {
         // comment) both mean no file is written and no path reaches the adapter at all — an empty
         // document means "no learnings", not an empty file to hand the agent.
         const learningsMarkdown = (await this.learnings?.load()) ?? '';
-        const localLearningsPath =
-            learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
+        const localLearningsPath = learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
         const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
 
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
@@ -1139,8 +1138,7 @@ export class StageDispatcher {
         // result before checking findings' provenance). Guarded on `safeParse` actually being a
         // function: every stage registered through `StagesModule` gets a real Zod schema here, but a
         // test double standing in for one is not this check's business to reject.
-        const schemaInvalid =
-            reported !== undefined && typeof resultSchema.safeParse === 'function' && !resultSchema.safeParse(reported).success;
+        const schemaInvalid = reported !== undefined && typeof resultSchema.safeParse === 'function' && !resultSchema.safeParse(reported).success;
 
         // A stage that never called the report tool never said it was finished. Whatever is in the
         // tree is where it happened to stop, not what it set out to produce. A stage that *did* call

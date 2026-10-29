@@ -51,7 +51,11 @@ export const isClean = async (cwd: string, host: ExecutionHost = localHost): Pro
  * it runs `exec` itself rather than going through `git()`, and still throws for every other kind of
  * failure — a bad ref, or `merge-tree` erroring before it could even attempt the merge.
  */
-export const mergeTree = async (cwd: string, ours: string, theirs: string): Promise<{ ok: true; treeSha: string } | { ok: false; output: string }> => {
+export const mergeTree = async (
+    cwd: string,
+    ours: string,
+    theirs: string,
+): Promise<{ ok: true; treeSha: string } | { ok: false; output: string }> => {
     try {
         const { stdout } = await exec('git', ['merge-tree', '--write-tree', ours, theirs], { cwd, maxBuffer: 32 * 1024 * 1024 });
         return { ok: true, treeSha: stdout.trim() };

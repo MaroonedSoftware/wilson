@@ -4,26 +4,63 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import type { GitTransport } from '#modules/host/git.transport.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { gitSshCommand, SshHost } from '#modules/host/ssh.execution.host.js';
+import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
+import { WorkerExecutionHost } from '#modules/worker/worker.execution.host.js';
+import { WorkerGitTransport } from '#modules/worker/worker.git.transport.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { connectLoopbackWorker, eventually, startWorkerServer, workerRow } from '#tests/support/fake.worker.js';
 
 const exec = promisify(execFile);
 
 /**
  * A card's worktree on a host, end to end: this machine's code repo, a second repo standing in for
- * the host's clone, and the stand-in `ssh` (`tests/support/fake.ssh.sh`) carrying both the host's
- * commands and git's own push and fetch. Everything git and the shell do is real; only the network
- * hop is not.
+ * the host's clone, and the host reached each way Wilson reaches one. Over SSH, the stand-in `ssh`
+ * (`tests/support/fake.ssh.sh`) carries both the host's commands and git's own push and fetch. On a
+ * worker, the worker program's own executor answers over a real connection and commits move as git
+ * bundles. Everything git and the shell do is real; only the network hop is not.
  */
 const FAKE_SSH = fileURLToPath(new URL('../../support/fake.ssh.sh', import.meta.url));
 const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
 const git = async (cwd: string, ...args: string[]) => (await exec('git', args, { cwd })).stdout.trim();
 
-describe('WorktreeManager on a host', () => {
+/** How each way of reaching a host is set up for these tests, and torn down after. */
+interface Reach {
+    name: string;
+    /** `hostRoot` holds everything on the host: its clone, worktrees and run folder. */
+    open: (hostRoot: string) => Promise<{ host: ExecutionHost; git: GitTransport; close: () => Promise<void> }>;
+}
+
+const reaches: Reach[] = [
+    {
+        name: 'over SSH',
+        open: async () => ({
+            host: new SshHost('agent-t', FAKE_SSH),
+            git: new SshGitTransport('agent-t', gitSshCommand(FAKE_SSH)),
+            close: async () => {},
+        }),
+    },
+    {
+        name: 'on a worker',
+        open: async hostRoot => {
+            const project = { project: 'p', codeRoot: hostRoot, worktreeRoot: hostRoot, runRoot: hostRoot };
+            const server = await startWorkerServer({ token: workerRow('agent-t', [project]) });
+            await connectLoopbackWorker(server.apiUrl, 'token');
+            await eventually(() => server.connections.get('agent-t') !== undefined);
+            const connection = server.connections.get('agent-t')!;
+            return { host: new WorkerExecutionHost(connection), git: new WorkerGitTransport(connection), close: server.close };
+        },
+    },
+];
+
+describe.each(reaches)('WorktreeManager on a host $name', reach => {
+    let close: () => Promise<void>;
     let codeRoot: string;
     let hostClone: string;
     let runRoot: string;
@@ -45,17 +82,22 @@ describe('WorktreeManager on a host', () => {
         await git(codeRoot, 'add', '-A');
         await git(codeRoot, 'commit', '-q', '-m', 'first');
 
+        const opened = await reach.open(join(base, 'host'));
+        close = opened.close;
         placement = {
             hostName: 'agent-t',
-            sshTarget: 'agent-t',
-            host: new SshHost('agent-t', FAKE_SSH),
-            gitSsh: gitSshCommand(FAKE_SSH),
+            host: opened.host,
+            git: opened.git,
             codeRoot: hostClone,
             worktreeRoot: join(base, 'host', 'wt'),
             runRoot: join(base, 'host', 'run'),
             slotKey: 'host:agent-t:slot:1',
         };
         manager = new WorktreeManager(new StaticBoardConfig('p', codeRoot, join(base, 'wt'), runRoot), logger as never);
+    });
+
+    afterAll(async () => {
+        await close();
     });
 
     it('cuts the worktree in the host’s clone from this machine’s HEAD, commits there and fetches the branch back', async () => {
@@ -75,6 +117,9 @@ describe('WorktreeManager on a host', () => {
 
         expect(await git(codeRoot, 'rev-parse', 'card/0001-remote')).toBe(sha);
         expect(await git(codeRoot, 'show', 'card/0001-remote:new.txt')).toBe('from the host');
+        // Nothing a transfer used is left on either side.
+        expect(await git(codeRoot, 'for-each-ref', 'refs/wilson-transfer')).toBe('');
+        expect(await git(hostClone, 'for-each-ref', 'refs/wilson-transfer')).toBe('');
     });
 
     it('saves uncommitted work on the host to this machine’s patch path when it reclaims, and removes the tree', async () => {
