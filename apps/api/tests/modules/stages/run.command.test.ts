@@ -22,6 +22,19 @@ describe('scrubbedEnv', () => {
         expect(scrubbedEnv()[SECRET_KEY]).toBeUndefined();
     });
 
+    /** PROJECT.md decision 10: with any of these a stage could act as the operator. Pinned by name, in
+     * case the allowlist is ever widened. */
+    it("never passes wilson's own credentials to a stage command", () => {
+        const keys = ['AUTH_SESSION_PRIVATE_KEY', 'AUTH_ENCRYPTION_KEY', 'WILSON_API_KEY'];
+        for (const key of keys) process.env[key] = 'set-by-this-test';
+        try {
+            const env = scrubbedEnv();
+            for (const key of keys) expect(env[key], key).toBeUndefined();
+        } finally {
+            for (const key of keys) delete process.env[key];
+        }
+    });
+
     it('keeps every allowlisted variable that is actually set', () => {
         const env = scrubbedEnv();
         for (const key of PASSED_THROUGH) {

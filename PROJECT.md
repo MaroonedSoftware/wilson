@@ -727,8 +727,14 @@ has, never a board row. Two other paths do reach board state without the API:
   away from a stage is what this design does. Taking the files away needs a different OS user
   or a container boundary, and is its own card.
 
-The stage environment scrub (card 0045) extends to wilson's own credentials: no API key, keyring
-access or session token is ever inherited by a stage. A `wilson doctor` check verifies it.
+No stage inherits wilson's own credentials through its environment. The `api` engine's commands
+run with an allowlist of nine variables (`scrubbedEnv`), which none of them is on. The `cli` engine
+copies the daemon's environment and strips what must not pass (`subscriptionEnv`): `DATABASE_*`,
+and now `AUTH_*` (the signing and encryption keys, which dotenv loads from `.env`) and
+`WILSON_API_KEY`. Tests pin both by name. What an environment scrub cannot reach is the OS keyring
+holding the CLI's key: it belongs to the operator's user, which is the files gap above again. `wilson
+doctor` gains `signed in to the API`, so a machine with no key, or a revoked one, says so once with
+the fix instead of on every command.
 
 **Rollout.** One commit per step, each leaving the tree working:
 
@@ -749,7 +755,8 @@ access or session token is ever inherited by a stage. A `wilson doctor` check ve
 8. Settle the CLI's direct-database commands. There were none to settle: every command already
    goes through the API, and the doctor's database checks read no board state. This step corrects
    the note above, which had said otherwise.
-9. Extend the stage environment scrub to wilson credentials, and add the doctor check.
+9. Extend the `cli` engine's environment scrub to wilson's credentials, and add the doctor check
+   that this machine is signed in.
 
 Steps 2 to 5 add capability without changing who can call what. Step 6 is the one commit that
 changes behaviour, so the rollout can stop before it. Changing the database password is its own

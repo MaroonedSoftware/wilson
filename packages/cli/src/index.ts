@@ -45,6 +45,7 @@ import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
 import learningsVersionsCommand from './commands/learnings/versions.command.js';
 
+import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
 import { claudeBinaryCurrent } from './checks/claude.binary.current.js';
@@ -111,6 +112,7 @@ const app = await createCliApp({
         queueReachable,
         providerKeySet,
         codeRepoReady,
+        apiSignedIn,
         boardReady,
         daemonCurrent,
         claudeBinaryCurrent,

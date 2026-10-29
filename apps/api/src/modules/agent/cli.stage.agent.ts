@@ -54,6 +54,12 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
     // `pnpm test` does inside a stage.
     for (const key of Object.keys(env)) {
         if (key.startsWith('DATABASE_')) delete env[key];
+        // Wilson's own credentials (PROJECT.md decision 10): the session signing key and the root
+        // key second factors are encrypted under (`AUTH_*`, from `.env` the same way), and an API
+        // key the daemon's shell happened to carry. With any of them, project code a stage runs could
+        // mint a session or call the API as the operator, which is the route authentication takes
+        // away from a stage. A prefix for `AUTH_`, for `DATABASE_`'s reason.
+        if (key.startsWith('AUTH_') || key === 'WILSON_API_KEY') delete env[key];
     }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;

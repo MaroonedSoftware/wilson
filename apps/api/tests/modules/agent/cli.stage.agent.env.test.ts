@@ -28,7 +28,24 @@ afterEach(() => {
     touched.length = 0;
 });
 
+/** Wilson's own credentials (PROJECT.md decision 10), each of which would let a stage act as the operator. */
+const WILSON_CREDENTIAL_KEYS = [
+    'AUTH_SESSION_PRIVATE_KEY',
+    'AUTH_SESSION_KEY_FILE',
+    'AUTH_ENCRYPTION_KEY',
+    'AUTH_ENCRYPTION_KEY_FILE',
+    'WILSON_API_KEY',
+];
+
 describe('subscriptionEnv', () => {
+    it("strips wilson's own credentials, so a stage can neither mint a session nor call the API as the operator", () => {
+        for (const key of WILSON_CREDENTIAL_KEYS) set(key, 'set-by-this-test');
+
+        const env = subscriptionEnv();
+
+        for (const key of WILSON_CREDENTIAL_KEYS) expect(env[key], `${key} must not reach the agent`).toBeUndefined();
+    });
+
     it('strips every DATABASE_* key, so an agent never holds the board’s connection string', () => {
         for (const key of DATABASE_KEYS) set(key, 'set-by-this-test');
 
