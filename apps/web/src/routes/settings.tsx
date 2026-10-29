@@ -450,7 +450,7 @@ function DeploymentFacts() {
         <Stack gap="xs">
             <Fact label="Project">{health.data.project}</Fact>
             <Fact label="Commit">{health.data.head}</Fact>
-            <Fact label="Started">{new Date(health.data.startedAt).toLocaleString()}</Fact>
+            <Fact label="Started">{health.data.startedAt.toJSDate().toLocaleString()}</Fact>
             <Fact label="Code root" muted>
                 {health.data.codeRoot}
             </Fact>

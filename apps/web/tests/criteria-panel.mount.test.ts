@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0245. `CardDetailView` (`CardDetail.tsx`) now parses the plan's `acceptance-criteria` section
@@ -139,7 +140,7 @@ describe('acceptance criteria on the card page', () => {
                     ],
                 },
             },
-            createdAt: '2026-01-01T00:00:00.000Z',
+            createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
         };
         vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([reviewEvent]);
 

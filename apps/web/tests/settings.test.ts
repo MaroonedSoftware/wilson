@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0114: the settings route (auto-mode toggle + read-only deployment facts) did not exist
@@ -48,7 +49,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'wilson',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };

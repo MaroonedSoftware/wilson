@@ -6,7 +6,7 @@ import { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, Update
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [projects.ck](file://./../../data/contracts/projects.ck)
+ * generated from [projects.ck](../../data/contracts/projects.ck)
  */
 export const ProjectsRouter = ServerKitRouter();
 
@@ -16,7 +16,7 @@ export const ProjectsRouter = ServerKitRouter();
  * falls back to the daemon's own configured project and calls `next`, the same as every other route
  * on this surface. That catch-all is already correct for a route that lists every project, so no
  * exemption was added for it.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L101)
+ * from [projects.ck](../../data/contracts/projects.ck) `GET /api/projects`
  * anonymous access, no security required
  */
 ProjectsRouter.get('/api/projects', async ctx => {
@@ -34,7 +34,7 @@ ProjectsRouter.get('/api/projects', async ctx => {
  * unauthenticated read surface on purpose; echoing them back from a write would reverse that
  * quietly, for a caller that already has them. `ProjectsService.create` is where the path
  * validation and the duplicate-name refusal live.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L115)
+ * from [projects.ck](../../data/contracts/projects.ck) `POST /api/projects`
  * anonymous access, no security required
  */
 ProjectsRouter.post('/api/projects', bodyParserMiddleware(['json']), async ctx => {
@@ -52,7 +52,7 @@ ProjectsRouter.post('/api/projects', bodyParserMiddleware(['json']), async ctx =
  * Not `put`. Fields present in the body are set; fields absent are left as they are — see
  * `UpdateProjectRequest`'s own comment, and `board.ck`'s `PATCH /api/cards/{id}` for the same
  * reasoning stated once and not repeated differently here.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L145)
+ * from [projects.ck](../../data/contracts/projects.ck) `PATCH /api/projects/{name}`
  * anonymous access, no security required
  */
 ProjectsRouter.patch('/api/projects/:name', bodyParserMiddleware(['json']), async ctx => {
@@ -80,7 +80,7 @@ ProjectsRouter.patch('/api/projects/:name', bodyParserMiddleware(['json']), asyn
  * the API binds to 127.0.0.1, and anything that can reach it can already read the disk as this user.
  * The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
  * Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L170)
+ * from [projects.ck](../../data/contracts/projects.ck) `GET /api/projects/directories`
  * anonymous access, no security required
  */
 ProjectsRouter.get('/api/projects/directories', async ctx => {

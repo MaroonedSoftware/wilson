@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0174: a board tile answers "what state is this card in" at a glance — a leading `StateIcon`
@@ -23,7 +24,7 @@ const columns: BoardColumns = {
 const card = (
     id: string,
     stage: string,
-    opts: { needsHuman?: boolean; dependsOn?: string[]; stageEnteredAt?: string } = {},
+    opts: { needsHuman?: boolean; dependsOn?: string[]; stageEnteredAt?: DateTime } = {},
 ): CardSummary => ({
     id,
     title: `card ${id}`,
@@ -170,7 +171,7 @@ describe('the dependency indicator', () => {
 
 describe('the age-in-stage line', () => {
     it('renders a relative age line when stageEnteredAt is present', async () => {
-        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        const threeDaysAgo = DateTime.now().minus({ days: 3 });
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0009', 'implementing', { stageEnteredAt: threeDaysAgo })]);
 

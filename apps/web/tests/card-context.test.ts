@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0189: attaching and reviewing a card's context in the app — `CardContext.tsx`'s section on
@@ -37,11 +38,11 @@ const card: CardDetail = {
 const snapshot = (overrides: Partial<ContextSnapshot> = {}): ContextSnapshot => ({
     id: 'ctx-1',
     sourceUrl: 'https://example.com/spec',
-    fetchedAt: '2026-09-01T12:00:00.000Z',
+    fetchedAt: DateTime.fromISO('2026-09-01T12:00:00.000Z'),
     fetchedBy: 'human',
     content: 'the fetched body',
     contentHash: 'abc123',
-    createdAt: '2026-09-01T12:00:00.000Z',
+    createdAt: DateTime.fromISO('2026-09-01T12:00:00.000Z'),
     ...overrides,
 });
 

@@ -22,7 +22,7 @@ const _ZodDatetime = z.preprocess(
  * /api/learnings` answers with an empty document rather than a `404`, since an operator retiring
  * every learning at once (an empty save) must read back the same way a project that never saved one
  * does.
- * generated from [LearningsDocument](file://./../../data/contracts/learnings.ck#L23)
+ * generated from [LearningsDocument](../../data/contracts/learnings.ck)
  */
 export const LearningsDocument = z.strictObject({
     id: z.string().optional(),
@@ -36,7 +36,7 @@ export type LearningsDocument = z.infer<typeof LearningsDocument>;
  * `message` optional, same reasoning as `SetStageConfigRequest`: `wilson learnings edit` has no
  * commit-message prompt the way `git commit` does, and a default ("Edited learnings") beats forcing
  * one.
- * generated from [SetLearningsRequest](file://./../../data/contracts/learnings.ck#L33)
+ * generated from [SetLearningsRequest](../../data/contracts/learnings.ck)
  */
 export const SetLearningsRequest = z.strictObject({
     markdown: z.string(),
@@ -45,7 +45,7 @@ export const SetLearningsRequest = z.strictObject({
 export type SetLearningsRequest = z.infer<typeof SetLearningsRequest>;
 
 /**
- * generated from [LearningsVersion](file://./../../data/contracts/learnings.ck#L38)
+ * generated from [LearningsVersion](../../data/contracts/learnings.ck)
  */
 export const LearningsVersion = z.strictObject({
     id: z.string(),
@@ -55,9 +55,9 @@ export const LearningsVersion = z.strictObject({
 export type LearningsVersion = z.infer<typeof LearningsVersion>;
 
 /**
- * generated from [LearningsVersionsQuery](file://./../../data/contracts/learnings.ck#L44)
+ * generated from [LearningsVersionsQuery](../../data/contracts/learnings.ck)
  */
 export const LearningsVersionsQuery = z.strictObject({
-    limit: z.coerce.number().int().optional(),
+    limit: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
 });
 export type LearningsVersionsQuery = z.infer<typeof LearningsVersionsQuery>;

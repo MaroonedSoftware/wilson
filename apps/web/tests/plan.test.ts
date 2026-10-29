@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0137's `lib/plan.ts` is new: `usePlanTranscript` subscribes to a card's planning
@@ -58,7 +59,7 @@ const turn = (seq: number, overrides: Partial<PlanTurn> = {}): PlanTurn => ({
     seq,
     role: 'assistant',
     content: `turn ${seq}`,
-    createdAt: '2026-08-27T00:00:00.000Z',
+    createdAt: DateTime.fromISO('2026-08-27T00:00:00.000Z'),
     ...overrides,
 });
 
@@ -297,7 +298,7 @@ describe('usePlanComments', () => {
         suffix: ' jumps',
         text: 'nice catch',
         resolved: false,
-        createdAt: '2026-08-27T00:00:00.000Z',
+        createdAt: DateTime.fromISO('2026-08-27T00:00:00.000Z'),
         ...overrides,
     });
 

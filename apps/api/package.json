@@ -47,8 +47,8 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "@contractkit/cli": "^0.10.7",
-        "@contractkit/plugin-typescript": "^0.31.2",
+        "@contractkit/cli": "^0.11.10",
+        "@contractkit/plugin-typescript": "^0.42.0",
         "@maroonedsoftware/johnny5": "^8.0.10",
         "@repo/config-eslint": "workspace:*",
         "@repo/config-typescript": "workspace:*",

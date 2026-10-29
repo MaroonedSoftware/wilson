@@ -16,7 +16,7 @@ import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
 /**
- * generated from [settings.ck](file://./../../../apps/api/data/contracts/settings.ck)
+ * generated from [settings.ck](../../../apps/api/data/contracts/settings.ck)
  */
 export class SettingsClient {
     constructor(private fetch: SdkFetch) {}

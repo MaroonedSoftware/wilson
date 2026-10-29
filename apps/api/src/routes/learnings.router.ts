@@ -4,12 +4,12 @@ import { LearningsDocument, LearningsVersion, LearningsVersionsQuery, SetLearnin
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [learnings.ck](file://./../../data/contracts/learnings.ck)
+ * generated from [learnings.ck](../../data/contracts/learnings.ck)
  */
 export const LearningsRouter = ServerKitRouter();
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L49)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `GET /api/learnings`
  * anonymous access, no security required
  */
 LearningsRouter.get('/api/learnings', async ctx => {
@@ -25,7 +25,7 @@ LearningsRouter.get('/api/learnings', async ctx => {
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything. An empty `markdown` is a valid save.
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L61)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `PUT /api/learnings`
  * anonymous access, no security required
  */
 LearningsRouter.put('/api/learnings', bodyParserMiddleware(['json']), async ctx => {
@@ -40,7 +40,7 @@ LearningsRouter.put('/api/learnings', bodyParserMiddleware(['json']), async ctx 
 });
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L76)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `GET /api/learnings/versions`
  * anonymous access, no security required
  */
 LearningsRouter.get('/api/learnings/versions', async ctx => {

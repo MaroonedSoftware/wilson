@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import {
@@ -188,14 +189,14 @@ describe('ageInStage', () => {
     const now = new Date('2026-01-10T12:00:00.000Z');
 
     it('renders minutes for under an hour', () => {
-        expect(ageInStage('2026-01-10T11:45:00.000Z', now)).toBe('15m in stage');
+        expect(ageInStage(DateTime.fromISO('2026-01-10T11:45:00.000Z'), now)).toBe('15m in stage');
     });
 
     it('renders hours for under a day', () => {
-        expect(ageInStage('2026-01-10T06:00:00.000Z', now)).toBe('6h in stage');
+        expect(ageInStage(DateTime.fromISO('2026-01-10T06:00:00.000Z'), now)).toBe('6h in stage');
     });
 
     it('renders days at a day or more', () => {
-        expect(ageInStage('2026-01-07T12:00:00.000Z', now)).toBe('3d in stage');
+        expect(ageInStage(DateTime.fromISO('2026-01-07T12:00:00.000Z'), now)).toBe('3d in stage');
     });
 });

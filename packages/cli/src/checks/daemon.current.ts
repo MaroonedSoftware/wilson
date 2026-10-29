@@ -49,7 +49,7 @@ export const daemonCurrent: Check = {
             .catch(() => undefined);
         if (!health) return { ok: true, message: 'no daemon running' };
 
-        const startedAt = DateTime.fromISO(health.startedAt);
+        const { startedAt } = health;
         const head = await exec('git', ['log', '-1', '--format=%cI'], { cwd: root }).catch(() => undefined);
         if (!head) return { ok: true, message: `daemon running (${health.project}), started ${startedAt.toISO()}; HEAD unavailable` };
 
