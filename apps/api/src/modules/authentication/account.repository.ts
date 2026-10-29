@@ -5,7 +5,7 @@ import type { DB } from '#modules/data/db.js';
 /** The operator account as the rest of the API sees it. */
 export interface AccountRow {
     id: string;
-    username: string;
+    email: string;
     active: boolean;
 }
 
@@ -20,17 +20,17 @@ export class AccountRepository {
         return row !== undefined;
     }
 
-    /** The account signing in as `username`, matched without regard to case. */
-    async findByUsername(username: string): Promise<AccountRow | undefined> {
+    /** The account signing in as `email`, matched without regard to case. */
+    async findByEmail(email: string): Promise<AccountRow | undefined> {
         return this.db
             .selectFrom('runner.accounts')
-            .select(['id', 'username', 'active'])
-            .where(eb => eb(eb.fn('lower', ['username']), '=', username.toLowerCase()))
+            .select(['id', 'email', 'active'])
+            .where(eb => eb(eb.fn('lower', ['email']), '=', email.toLowerCase()))
             .executeTakeFirst();
     }
 
     async get(id: string): Promise<AccountRow | undefined> {
-        return this.db.selectFrom('runner.accounts').select(['id', 'username', 'active']).where('id', '=', id).executeTakeFirst();
+        return this.db.selectFrom('runner.accounts').select(['id', 'email', 'active']).where('id', '=', id).executeTakeFirst();
     }
 
     /** Whether `id` names an account that may still sign in. */
@@ -40,7 +40,7 @@ export class AccountRepository {
     }
 
     /** Inserts the account. A second one fails on `accounts_one_row` with a unique violation. */
-    async create(username: string): Promise<AccountRow> {
-        return this.db.insertInto('runner.accounts').values({ username }).returning(['id', 'username', 'active']).executeTakeFirstOrThrow();
+    async create(email: string): Promise<AccountRow> {
+        return this.db.insertInto('runner.accounts').values({ email }).returning(['id', 'email', 'active']).executeTakeFirstOrThrow();
     }
 }

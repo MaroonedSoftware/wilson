@@ -13,7 +13,7 @@ const _ZodDatetime = z.preprocess(
  */
 export const TokenRequest = z.strictObject({
     grant_type: z.enum(['password', 'refresh_token', 'authenticator', 'passkey']),
-    username: z.string().max(64).optional().describe('`password` grant.'),
+    email: z.email().optional().describe('`password` grant.'),
     password: z.string().max(256).optional(),
     refresh_token: z.string().optional().describe('`refresh_token` grant.'),
     challenge_id: z
@@ -70,7 +70,7 @@ export type PasskeyChallenge = z.infer<typeof PasskeyChallenge>;
  */
 export const CurrentSession = z.strictObject({
     accountId: z.string(),
-    username: z.string(),
+    email: z.email(),
     issuedAt: _ZodDatetime,
     expiresAt: _ZodDatetime,
 });

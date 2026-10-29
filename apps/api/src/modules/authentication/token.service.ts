@@ -76,14 +76,14 @@ export class TokenService {
     }
 
     private async password(request: TokenRequest): Promise<TokenResponse> {
-        const { username, password } = request;
-        if (!username || !password) {
-            throw httpError(400).withDetails({ reason: 'the password grant needs a username and a password' });
+        const { email, password } = request;
+        if (!email || !password) {
+            throw httpError(400).withDetails({ reason: 'the password grant needs an email and a password' });
         }
 
-        const account = await this.accounts.findByUsername(username.trim());
+        const account = await this.accounts.findByEmail(email.trim());
         if (!account?.active) {
-            await this.refuseUnknownAccount(username, password);
+            await this.refuseUnknownAccount(email, password);
         }
 
         // Spends a point from the limiter, answers 429 once it is spent, and 401 for a wrong password.
@@ -215,13 +215,13 @@ export class TokenService {
     }
 
     /**
-     * A username that is not an account costs what a wrong password costs: one point from the same
-     * limiter, under the name typed, and one Argon2 verify. Otherwise an unknown name would answer
+     * An email that is not an account costs what a wrong password costs: one point from the same
+     * limiter, under the address typed, and one Argon2 verify. Otherwise an unknown name would answer
      * at once and never reach 429, and how a guess failed would say whether the account exists.
      */
-    private async refuseUnknownAccount(username: string, password: string): Promise<never> {
+    private async refuseUnknownAccount(email: string, password: string): Promise<never> {
         try {
-            await this.limiter.consume(`unknown:${username.trim().toLowerCase()}`);
+            await this.limiter.consume(`unknown:${email.trim().toLowerCase()}`);
         } catch {
             throw httpError(429);
         }

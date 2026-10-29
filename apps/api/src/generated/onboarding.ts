@@ -18,13 +18,13 @@ export const OnboardingRequirement = z.strictObject({
 export type OnboardingRequirement = z.infer<typeof OnboardingRequirement>;
 
 /**
- * The operator account. A username rather than an email address, so signing in needs no mail setup.
- * `password` is checked for strength (zxcvbn, through the authentication library's password policy)
- * beyond the length limits here.
+ * The operator account, signed in to with an email address. Signing in still needs no mail setup:
+ * wilson never sends to it. `password` is checked for strength (zxcvbn, through the authentication
+ * library's password policy) beyond the length limits here.
  * generated from [CreateAccountRequest](../../data/contracts/onboarding.ck)
  */
 export const CreateAccountRequest = z.strictObject({
-    username: z.string().min(1).max(64),
+    email: z.email(),
     password: z.string().min(8).max(256),
 });
 export type CreateAccountRequest = z.infer<typeof CreateAccountRequest>;

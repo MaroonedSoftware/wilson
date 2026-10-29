@@ -13,7 +13,7 @@ export const status = async (ctx: CliContext, store?: KeyStore): Promise<number>
     }
     try {
         const session = await apiClient(ctx, keys).auth.getCurrentSession();
-        ctx.logger.info(`signed in to ${baseUrl} as ${session.username}`);
+        ctx.logger.info(`signed in to ${baseUrl} as ${session.email}`);
         return 0;
     } catch (err) {
         if (err instanceof SdkError && err.status === 401) {

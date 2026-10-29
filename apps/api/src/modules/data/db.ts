@@ -263,7 +263,7 @@ export interface CacheSetMembers {
  */
 export interface Accounts {
     id: Generated<string>;
-    username: string;
+    email: string;
     active: ColumnType<boolean, boolean | undefined, boolean>;
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }

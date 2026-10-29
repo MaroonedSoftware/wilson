@@ -56,7 +56,7 @@ const enrol = async (): Promise<{ secret: string; id: string }> => {
 };
 
 const passwordGrant = () =>
-    request(server, 'POST', '/api/auth/token', { body: { grant_type: 'password', username: 'operator', password: STRONG_PASSWORD } });
+    request(server, 'POST', '/api/auth/token', { body: { grant_type: 'password', email: 'operator@example.com', password: STRONG_PASSWORD } });
 
 const codeGrant = (challengeId: string, code: string) =>
     request(server, 'POST', '/api/auth/token', { body: { grant_type: 'authenticator', challenge_id: challengeId, code } });

@@ -131,7 +131,7 @@ describe('the sign-in form', () => {
         expect(await screen.findByText('the board')).toBeTruthy();
         const [, init] = callsTo('/api/auth/token').at(-1)!;
         expect((init.headers as Record<string, string>)['x-wilson-cookies']).toBe('1');
-        expect(JSON.parse(init.body as string)).toMatchObject({ grant_type: 'password', username: 'operator', password: 'right' });
+        expect(JSON.parse(init.body as string)).toMatchObject({ grant_type: 'password', email: 'operator', password: 'right' });
     });
 });
 

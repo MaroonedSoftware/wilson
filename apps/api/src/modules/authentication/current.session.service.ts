@@ -27,7 +27,7 @@ export class CurrentSessionService {
         const session = requireSession(this.context);
         const account = await this.accounts.get(session.subject);
         if (!account) throw unauthorizedError('Bearer error="invalid_token"');
-        return { accountId: account.id, username: account.username, issuedAt: session.issuedAt, expiresAt: session.expiresAt };
+        return { accountId: account.id, email: account.email, issuedAt: session.issuedAt, expiresAt: session.expiresAt };
     }
 
     /**

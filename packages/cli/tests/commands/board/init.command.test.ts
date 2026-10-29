@@ -98,7 +98,7 @@ describe('wilson board init on a fresh install', () => {
             'POST /api/auth/logout',
             'POST /api/board/init',
         ]);
-        expect(calls()[2]!.body).toEqual({ username: 'operator', password: 'a long passphrase' });
+        expect(calls()[2]!.body).toEqual({ email: 'operator', password: 'a long passphrase' });
         expect(calls()[6]!.headers.Authorization).toBe('Bearer wl_new');
         expect(JSON.parse(entry.value!).token).toBe('wl_new');
         expect(logger.info).toHaveBeenCalledWith('board initialised — stages: planning, implementing');
@@ -149,7 +149,7 @@ describe('wilson board init on a fresh install', () => {
 
         expect(await init({ username: 'operator', passwordStdin: true }, ctx, io, keyStore(memoryEntry()))).toBe(1);
 
-        expect(calls()[2]!.body).toEqual({ username: 'operator', password: 'password1' });
+        expect(calls()[2]!.body).toEqual({ email: 'operator', password: 'password1' });
         expect(io.secretsAsked).toEqual([]);
         expect(logger.error).toHaveBeenCalledWith('that password is too easy to guess. Too short.');
     });
@@ -166,7 +166,7 @@ describe('wilson board init on a fresh install', () => {
 
         expect(await init({}, buildCtx().ctx, io, keyStore(memoryEntry()))).toBe(0);
 
-        expect(calls()[2]!.body).toMatchObject({ grant_type: 'password', username: 'operator', password: 'pw' });
+        expect(calls()[2]!.body).toMatchObject({ grant_type: 'password', email: 'operator', password: 'pw' });
         expect(io.secretsAsked).toEqual(['Password']);
         expect(calls()[5]!.headers.Authorization).toBe('Bearer wl_new');
     });

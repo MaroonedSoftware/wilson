@@ -70,7 +70,7 @@ export const createOperatorAccount = async (
         const password = await choosePassword(ctx, opts, io);
         if (!password) throw new SignInError('a password is needed to create the account');
         try {
-            await anonymous.onboarding.createAccount({ username, password });
+            await anonymous.onboarding.createAccount({ email: username, password });
         } catch (err) {
             if (!isTooWeak(err) || opts.passwordStdin) throw new SignInError(refusal(err, ctx));
             ctx.logger.warn(refusal(err, ctx));

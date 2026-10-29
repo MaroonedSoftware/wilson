@@ -6,6 +6,9 @@ import type { CreateAccountRequest, OnboardingRequirement, OnboardingStatus } fr
 import { AccountRepository } from './account.repository.js';
 import { PasswordFactors } from './password.factors.js';
 
+/** One `@`, with something either side of it and no whitespace. */
+const LOOKS_LIKE_EMAIL = /^[^@\s]+@[^@\s]+$/;
+
 /** Postgres's `unique_violation`. */
 const UNIQUE_VIOLATION = '23505';
 
@@ -52,15 +55,16 @@ export class OnboardingService {
      * (400, too weak) leaves no account behind it and onboarding can be tried again.
      */
     async createAccount(request: CreateAccountRequest): Promise<OnboardingStatus> {
-        const username = request.username.trim();
-        if (username.length === 0) {
-            throw httpError(400).withDetails({ reason: 'username must not be blank' });
+        // The contract checks the format at the route; this is for a caller that skips it.
+        const email = request.email.trim();
+        if (!LOOKS_LIKE_EMAIL.test(email)) {
+            throw httpError(400).withDetails({ reason: 'that is not an email address' });
         }
         if (await this.accounts.exists()) throw alreadyOnboarded();
 
         try {
             await this.db.transaction().execute(async trx => {
-                const account = await new AccountRepository(trx).create(username);
+                const account = await new AccountRepository(trx).create(email);
                 await this.passwords.over(trx).createPasswordFactor(account.id, request.password);
             });
         } catch (err) {

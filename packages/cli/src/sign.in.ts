@@ -59,7 +59,7 @@ export const signInWithPassword = async (ctx: CliContext, username: string, pass
 
     let first;
     try {
-        first = await anonymous.auth.requestToken({ grant_type: 'password', username, password });
+        first = await anonymous.auth.requestToken({ grant_type: 'password', email: username, password });
     } catch (err) {
         throw refused(err, 'wrong username or password');
     }
@@ -154,7 +154,7 @@ export const withStepUp = async <T>(ctx: CliContext, api: WilsonSdk, call: (api:
 
     const username = await apiClient(ctx)
         .auth.getCurrentSession()
-        .then(session => session.username)
+        .then(session => session.email)
         .catch(() => io.ask('Username'));
     const password = await io.askSecret(`Password for ${username ?? 'your account'} (this change needs it)`);
     if (!username || !password) throw new SignInError('a password is needed for this change');

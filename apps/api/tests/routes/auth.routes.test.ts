@@ -21,10 +21,10 @@ beforeEach(async () => {
 
 const call = (method: string, path: string, options: { body?: unknown; token?: string } = {}) => request(server, method, path, options);
 
-const onboard = () => call('POST', '/api/onboarding', { body: { username: 'operator', password: STRONG_PASSWORD } });
+const onboard = () => call('POST', '/api/onboarding', { body: { email: 'operator@example.com', password: STRONG_PASSWORD } });
 
 const signIn = async (password = STRONG_PASSWORD) =>
-    call('POST', '/api/auth/token', { body: { grant_type: 'password', username: 'operator', password } });
+    call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'operator@example.com', password } });
 
 const tokens = async () => {
     const res = await signIn();
@@ -63,11 +63,11 @@ describe('the password grant', () => {
         expect(expiresIn).toBeGreaterThan(29 * 24 * 60 * 60);
         const session = await call('GET', '/api/auth/session', { token: accessToken });
         expect(session.status).toBe(200);
-        expect(await session.json()).toMatchObject({ username: 'operator' });
+        expect(await session.json()).toMatchObject({ email: 'operator@example.com' });
     });
 
-    it('matches the username without regard to case', async () => {
-        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', username: 'OPERATOR', password: STRONG_PASSWORD } });
+    it('matches the email without regard to case', async () => {
+        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'OPERATOR@EXAMPLE.COM', password: STRONG_PASSWORD } });
 
         expect(res.status).toBe(200);
     });
@@ -76,14 +76,14 @@ describe('the password grant', () => {
         expect((await signIn('not the password at all')).status).toBe(401);
     });
 
-    it('refuses an unknown username with 401, the same as a wrong password', async () => {
-        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', username: 'nobody', password: STRONG_PASSWORD } });
+    it('refuses an unknown email with 401, the same as a wrong password', async () => {
+        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'nobody@example.com', password: STRONG_PASSWORD } });
 
         expect(res.status).toBe(401);
     });
 
     it('refuses a grant missing its fields with 400', async () => {
-        expect((await call('POST', '/api/auth/token', { body: { grant_type: 'password', username: 'operator' } })).status).toBe(400);
+        expect((await call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'operator@example.com' } })).status).toBe(400);
     });
 
     it('answers 429 once five wrong passwords are spent', async () => {
@@ -179,7 +179,7 @@ describe('the web app cookies', () => {
 
     const cookieSignIn = () =>
         request(server, 'POST', '/api/auth/token', {
-            body: { grant_type: 'password', username: 'operator', password: STRONG_PASSWORD },
+            body: { grant_type: 'password', email: 'operator@example.com', password: STRONG_PASSWORD },
             headers: OPT_IN,
         });
 

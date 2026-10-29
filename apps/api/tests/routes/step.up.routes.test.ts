@@ -33,7 +33,7 @@ beforeEach(async () => {
 
 /** A real session whose password was proved `minutes` ago, minted straight through the session service. */
 const sessionProvedAgo = async (minutes: number): Promise<string> => {
-    const account = await server.container.get(AccountRepository).findByUsername('operator');
+    const account = await server.container.get(AccountRepository).findByEmail('operator@example.com');
     const sessions = server.container.get(AuthenticationSessionService);
     const at = DateTime.utc().minus({ minutes });
     const session = await sessions.createSession(

@@ -17,7 +17,7 @@ const __dt = (v: unknown, path: string): DateTime => {
 export interface TokenRequest {
     grant_type: 'password' | 'refresh_token' | 'authenticator' | 'passkey';
     /** `password` grant. */
-    username?: string;
+    email?: string;
     password?: string;
     /** `refresh_token` grant. */
     refresh_token?: string;
@@ -69,7 +69,7 @@ export interface PasskeyChallenge {
  */
 export interface CurrentSession {
     accountId: string;
-    username: string;
+    email: string;
     issuedAt: DateTime;
     expiresAt: DateTime;
 }

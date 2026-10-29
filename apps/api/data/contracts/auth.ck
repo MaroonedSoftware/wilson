@@ -10,7 +10,9 @@ options {
 # `POST /api/auth/token` with a `grant_type`, the OAuth shape deadair and ats use: `password` signs in
 # (or, with a second factor enrolled, starts signing in), `authenticator` or `passkey` finishes it,
 # and `refresh_token` trades a refresh token for a fresh pair. The request
-# field names are OAuth's (`grant_type`, `refresh_token`); the response's are this API's own.
+# field names are OAuth's (`grant_type`, `refresh_token`) except `email`, where OAuth says
+# `username`: the account signs in with an email address, and the field says so. The response's
+# names are this API's own.
 #
 # `security: none` on `token` and `logout`: signing in is how a caller gets a session, and signing
 # out must work with a dead one. `session` needs one (`wilson.view`).
@@ -18,7 +20,7 @@ options {
 contract TokenRequest: {
     grant_type: enum(password, refresh_token, authenticator, passkey)
     # `password` grant.
-    username?: string(max=64)
+    email?: email
     password?: string(max=256)
     # `refresh_token` grant.
     refresh_token?: string
@@ -74,7 +76,7 @@ contract PasskeyChallenge: {
 # The session the caller's bearer token names.
 contract CurrentSession: {
     accountId: string
-    username: string
+    email: email
     issuedAt: datetime
     expiresAt: datetime
 }
@@ -94,7 +96,7 @@ operation /api/auth/token: {
             }
             # The grant's fields are missing.
             400:
-            # Wrong username, password or code, a challenge that expired, or a refresh token that is
+            # Wrong email, password or code, a challenge that expired, or a refresh token that is
             # invalid, spent or revoked.
             401:
             # Too many wrong passwords or codes. Wait five minutes.

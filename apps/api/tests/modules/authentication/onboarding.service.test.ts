@@ -40,40 +40,40 @@ describe('OnboardingService', () => {
     });
 
     it('creates the account with a password that then verifies', async () => {
-        expect(await onboarding().createAccount({ username: 'operator', password: STRONG_PASSWORD })).toEqual({ requirements: [] });
+        expect(await onboarding().createAccount({ email: 'operator@example.com', password: STRONG_PASSWORD })).toEqual({ requirements: [] });
 
-        const account = await container.get(AccountRepository).findByUsername('operator');
-        expect(account).toMatchObject({ username: 'operator', active: true });
+        const account = await container.get(AccountRepository).findByEmail('operator@example.com');
+        expect(account).toMatchObject({ email: 'operator@example.com', active: true });
         await expect(container.get(PasswordFactorService).verifyPassword(account!.id, STRONG_PASSWORD)).resolves.toMatchObject({
             actorId: account!.id,
         });
     });
 
     it('stores the password hashed, never as typed', async () => {
-        await onboarding().createAccount({ username: 'operator', password: STRONG_PASSWORD });
+        await onboarding().createAccount({ email: 'operator@example.com', password: STRONG_PASSWORD });
 
         const row = await db.selectFrom('runner.accountPasswords').select('hash').executeTakeFirstOrThrow();
         expect(row.hash).not.toContain(STRONG_PASSWORD);
         expect(row.hash).toMatch(/^\$argon2id\$/);
     });
 
-    it('trims the username and matches it without regard to case', async () => {
-        await onboarding().createAccount({ username: '  Operator ', password: STRONG_PASSWORD });
+    it('trims the email and matches it without regard to case', async () => {
+        await onboarding().createAccount({ email: '  Operator@Example.com ', password: STRONG_PASSWORD });
 
-        expect(await container.get(AccountRepository).findByUsername('OPERATOR')).toMatchObject({ username: 'Operator' });
+        expect(await container.get(AccountRepository).findByEmail('OPERATOR@EXAMPLE.COM')).toMatchObject({ email: 'Operator@Example.com' });
     });
 
     it('refuses a second account with 409', async () => {
-        await onboarding().createAccount({ username: 'operator', password: STRONG_PASSWORD });
+        await onboarding().createAccount({ email: 'operator@example.com', password: STRONG_PASSWORD });
 
-        await expect(onboarding().createAccount({ username: 'someone-else', password: STRONG_PASSWORD })).rejects.toMatchObject({ statusCode: 409 });
+        await expect(onboarding().createAccount({ email: 'someone-else@example.com', password: STRONG_PASSWORD })).rejects.toMatchObject({ statusCode: 409 });
     });
 
     /** The check before the transaction is only a fast path; the database is what holds the line. */
     it('lets exactly one of two concurrent onboardings through', async () => {
         const results = await Promise.allSettled([
-            onboarding().createAccount({ username: 'first', password: STRONG_PASSWORD }),
-            onboarding().createAccount({ username: 'second', password: STRONG_PASSWORD }),
+            onboarding().createAccount({ email: 'first@example.com', password: STRONG_PASSWORD }),
+            onboarding().createAccount({ email: 'second@example.com', password: STRONG_PASSWORD }),
         ]);
 
         expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
@@ -82,12 +82,12 @@ describe('OnboardingService', () => {
     });
 
     it('refuses a weak password with 400 and leaves no account behind', async () => {
-        await expect(onboarding().createAccount({ username: 'operator', password: 'password' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(onboarding().createAccount({ email: 'operator@example.com', password: 'password' })).rejects.toMatchObject({ statusCode: 400 });
 
         expect(await onboarding().status()).toEqual({ requirements: [expect.objectContaining({ key: 'account', optional: false })] });
     });
 
-    it('refuses a blank username with 400', async () => {
-        await expect(onboarding().createAccount({ username: '   ', password: STRONG_PASSWORD })).rejects.toMatchObject({ statusCode: 400 });
+    it('refuses something that is not an email address with 400', async () => {
+        await expect(onboarding().createAccount({ email: 'operator', password: STRONG_PASSWORD })).rejects.toMatchObject({ statusCode: 400 });
     });
 });

@@ -31,7 +31,7 @@ beforeEach(async () => {
 
 /** A passkey row as enrolment would leave it, for the sign-in tests. */
 const enrolPasskeyDirectly = async (): Promise<string> => {
-    const account = await server.container.get(AccountRepository).findByUsername('operator');
+    const account = await server.container.get(AccountRepository).findByEmail('operator@example.com');
     const row = await server.db
         .insertInto('runner.accountPasskeys')
         .values({ accountId: account!.id, publicKey: 'test-public-key', publicKeyId: 'Y3JlZGVudGlhbC1pZA', counter: 0, label: 'laptop' })
@@ -41,7 +41,7 @@ const enrolPasskeyDirectly = async (): Promise<string> => {
 };
 
 const passwordGrant = () =>
-    request(server, 'POST', '/api/auth/token', { body: { grant_type: 'password', username: 'operator', password: STRONG_PASSWORD } });
+    request(server, 'POST', '/api/auth/token', { body: { grant_type: 'password', email: 'operator@example.com', password: STRONG_PASSWORD } });
 
 describe('enrolling a passkey', () => {
     it('issues creation options bound to the web app origin', async () => {
@@ -54,7 +54,7 @@ describe('enrolling a passkey', () => {
         };
         expect(registrationId).toBeTruthy();
         expect(options.rp.id).toBe('localhost');
-        expect(options.user.name).toBe('operator');
+        expect(options.user.name).toBe('operator@example.com');
         expect(options.challenge.length).toBeGreaterThan(16);
     });
 

@@ -55,7 +55,7 @@ export interface PendingSignIn {
  * returns the challenge `completeSignIn` finishes with a code.
  */
 export const signIn = async (username: string, password: string): Promise<PendingSignIn | undefined> => {
-    const response = await wilson.auth.requestToken({ grant_type: 'password', username, password });
+    const response = await wilson.auth.requestToken({ grant_type: 'password', email: username, password });
     if (response.result === 'mfa_required' && response.challengeId) {
         const factors = response.factors ?? [];
         const authenticator = factors.find(factor => factor.method === 'authenticator');
@@ -109,7 +109,7 @@ export const codeFailure = (err: unknown): string => {
 
 /** Create the operator account, then sign in with it. A new account has no second factor yet. */
 export const onboard = async (username: string, password: string): Promise<void> => {
-    await wilson.onboarding.createAccount({ username, password });
+    await wilson.onboarding.createAccount({ email: username, password });
     await signIn(username, password);
 };
 

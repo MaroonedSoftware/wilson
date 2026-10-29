@@ -14,13 +14,13 @@ export interface OnboardingRequirement {
 }
 
 /**
- * The operator account. A username rather than an email address, so signing in needs no mail setup.
- * `password` is checked for strength (zxcvbn, through the authentication library's password policy)
- * beyond the length limits here.
+ * The operator account, signed in to with an email address. Signing in still needs no mail setup:
+ * wilson never sends to it. `password` is checked for strength (zxcvbn, through the authentication
+ * library's password policy) beyond the length limits here.
  * generated from [CreateAccountRequest](../../../../apps/api/data/contracts/onboarding.ck)
  */
 export interface CreateAccountRequest {
-    username: string;
+    email: string;
     password: string;
 }
 

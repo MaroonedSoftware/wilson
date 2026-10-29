@@ -74,10 +74,10 @@ export const STRONG_PASSWORD = 'correct horse battery staple 47';
 
 /** Onboard the operator account and sign in, returning the session's tokens. */
 export const onboardAndSignIn = async (server: TestServer): Promise<{ accessToken: string; refreshToken: string }> => {
-    const onboarded = await request(server, 'POST', '/api/onboarding', { body: { username: 'operator', password: STRONG_PASSWORD } });
+    const onboarded = await request(server, 'POST', '/api/onboarding', { body: { email: 'operator@example.com', password: STRONG_PASSWORD } });
     if (onboarded.status !== 201) throw new Error(`onboarding answered ${onboarded.status}`);
     const res = await request(server, 'POST', '/api/auth/token', {
-        body: { grant_type: 'password', username: 'operator', password: STRONG_PASSWORD },
+        body: { grant_type: 'password', email: 'operator@example.com', password: STRONG_PASSWORD },
     });
     if (res.status !== 200) throw new Error(`sign-in answered ${res.status}`);
     return (await res.json()) as { accessToken: string; refreshToken: string };

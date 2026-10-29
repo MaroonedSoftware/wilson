@@ -122,7 +122,7 @@ describe('wilson auth login', () => {
         expect(await login({}, ctx, io({ username: 'operator', password: 'pw' }), keyStore(entry))).toBe(0);
 
         const [signIn, create, signOut] = calls();
-        expect(signIn).toMatchObject({ method: 'POST', body: { grant_type: 'password', username: 'operator', password: 'pw' } });
+        expect(signIn).toMatchObject({ method: 'POST', body: { grant_type: 'password', email: 'operator', password: 'pw' } });
         expect(signIn!.headers.Authorization).toBeUndefined();
         expect(create).toMatchObject({ method: 'POST', body: { scope: 'manage' } });
         expect(create!.headers.Authorization).toBe('Bearer session-jwt');
@@ -266,7 +266,7 @@ describe('wilson auth logout', () => {
 describe('wilson auth status and token', () => {
     it('reports who the key signs in as', async () => {
         fetchMock.mockResolvedValueOnce(
-            json({ accountId: 'a', username: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+            json({ accountId: 'a', email: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
         );
         const { ctx, logger } = buildCtx();
 
@@ -316,7 +316,7 @@ describe('withStepUp', () => {
         fetchMock
             .mockResolvedValueOnce(stepUpRefusal())
             .mockResolvedValueOnce(
-                json({ accountId: 'a', username: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+                json({ accountId: 'a', email: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
             )
             .mockResolvedValueOnce(json({ result: 'token', accessToken: 'fresh-session', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ id: 'v2', yaml: 'x', message: 'm', createdAt: '2026-10-29T00:00:00Z' }))
@@ -327,7 +327,7 @@ describe('withStepUp', () => {
 
         const [first, , signIn, retry, signOut] = calls();
         expect(first!.headers.Authorization).toBe('Bearer wl_stored');
-        expect(signIn!.body).toMatchObject({ grant_type: 'password', username: 'operator', password: 'pw' });
+        expect(signIn!.body).toMatchObject({ grant_type: 'password', email: 'operator', password: 'pw' });
         expect(retry!.headers.Authorization).toBe('Bearer fresh-session');
         expect(retry!.method).toBe('PUT');
         expect(signOut!.url).toContain('/api/auth/logout');

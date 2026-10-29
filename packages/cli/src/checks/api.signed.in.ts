@@ -15,7 +15,7 @@ export const apiSignedIn: Check = {
     run: async ctx => {
         try {
             const session = await apiClient(ctx).auth.getCurrentSession();
-            return { ok: true, message: `signed in to ${resolveApiBase(ctx)} as ${session.username}` };
+            return { ok: true, message: `signed in to ${resolveApiBase(ctx)} as ${session.email}` };
         } catch (err) {
             if (err instanceof SdkError && err.status === 401) {
                 return {

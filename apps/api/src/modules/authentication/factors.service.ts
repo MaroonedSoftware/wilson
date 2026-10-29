@@ -75,8 +75,8 @@ export class FactorsService {
             rpId: party.rpId,
             rpOrigin: party.rpOrigin,
             rpName: RELYING_PARTY_NAME,
-            userName: account.username,
-            userDisplayName: account.username,
+            userName: account.email,
+            userDisplayName: account.email,
         });
         const { rp, user, challenge, pubKeyCredParams, timeout, attestation } = registration.attestation;
         return {

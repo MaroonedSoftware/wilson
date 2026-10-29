@@ -39,7 +39,7 @@ describe('API keys', () => {
         expect(token.endsWith(key.hint) || token.includes(key.hint)).toBe(true);
         const session = await request(server, 'GET', '/api/auth/session', { token });
         expect(session.status).toBe(200);
-        expect(await session.json()).toMatchObject({ username: 'operator' });
+        expect(await session.json()).toMatchObject({ email: 'operator@example.com' });
     });
 
     it('stores only a hash of the token', async () => {

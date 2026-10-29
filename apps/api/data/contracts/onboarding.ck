@@ -30,11 +30,11 @@ contract OnboardingStatus: {
     requirements: array(OnboardingRequirement)
 }
 
-# The operator account. A username rather than an email address, so signing in needs no mail setup.
-# `password` is checked for strength (zxcvbn, through the authentication library's password policy)
-# beyond the length limits here.
+# The operator account, signed in to with an email address. Signing in still needs no mail setup:
+# wilson never sends to it. `password` is checked for strength (zxcvbn, through the authentication
+# library's password policy) beyond the length limits here.
 contract CreateAccountRequest: {
-    username: string(min=1, max=64)
+    email: email
     password: string(min=8, max=256)
 }
 
@@ -62,7 +62,7 @@ operation /api/onboarding: {
             201: {
                 application/json: OnboardingStatus
             }
-            # A blank username, or a password too weak for the password policy.
+            # Not an email address, or a password too weak for the password policy.
             400:
             # An account already exists. Sign in instead.
             409:
