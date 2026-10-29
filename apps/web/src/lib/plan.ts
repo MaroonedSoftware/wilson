@@ -77,7 +77,8 @@ export function usePlanTranscript(cardId: string, enabled: boolean, project?: st
         hasOpenedRef.current = false;
 
         const streamUrl = `${API_BASE}/api/cards/${encodeURIComponent(cardId)}/plan/stream`;
-        const source = new EventSource(project ? `${streamUrl}?project=${encodeURIComponent(project)}` : streamUrl);
+        // `withCredentials`: authenticated by the API's stream cookie, as `useCardFeed`'s stream is.
+        const source = new EventSource(project ? `${streamUrl}?project=${encodeURIComponent(project)}` : streamUrl, { withCredentials: true });
 
         source.onopen = () => {
             hasOpenedRef.current = true;

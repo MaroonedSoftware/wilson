@@ -1,5 +1,6 @@
 import { WilsonSdk } from '@wilson/sdk';
 import { resolveApiBase } from './api.config.js';
+import { sessionFetch } from './session.js';
 
 export const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL as string | undefined);
 
@@ -7,9 +8,10 @@ export const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL as string | 
  * The generated client, one instance for the app.
  *
  * Every call the UI makes goes through this — hand-written `fetch` against the API is the drift
- * the contract exists to prevent (PROJECT.md, Architecture).
+ * the contract exists to prevent (PROJECT.md, Architecture). Signed with the session's access token
+ * by `sessionFetch` (`session.ts`), which also refreshes it once on a 401.
  */
-export const wilson = new WilsonSdk({ baseUrl: API_BASE });
+export const wilson = new WilsonSdk({ baseUrl: API_BASE, fetch: sessionFetch({ baseUrl: API_BASE }) });
 
 /**
  * Card 0153. A client scoped to one project, sent as `X-Wilson-Project` on every call via
@@ -23,4 +25,4 @@ export const wilson = new WilsonSdk({ baseUrl: API_BASE });
  * top-level routes keep using `wilson` above, exactly as they do today.
  */
 export const wilsonForProject = (project: string): WilsonSdk =>
-    new WilsonSdk({ baseUrl: API_BASE, headers: { 'X-Wilson-Project': project } });
+    new WilsonSdk({ baseUrl: API_BASE, fetch: sessionFetch({ baseUrl: API_BASE, headers: { 'X-Wilson-Project': project } }) });

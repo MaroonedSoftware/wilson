@@ -36,8 +36,9 @@ export interface TestServer {
 export const startTestServer = async (): Promise<TestServer> => {
     const abort = new AbortController();
     const builder = new ListeningBuilder();
-    const container = await builder.setup(await buildTestServerConfig(), new ConsoleLogger(), modules);
-    builder.setupMiddleware(setupMiddleware).setupRoutes(routers(abort.signal) as ServerKitRouterType[]);
+    const config = await buildTestServerConfig();
+    const container = await builder.setup(config, new ConsoleLogger(), modules);
+    builder.setupMiddleware(setupMiddleware(config)).setupRoutes(routers(abort.signal) as ServerKitRouterType[]);
     const server = await builder.serve(abort.signal);
     const db = container.get(Kysely<DB>);
     return {

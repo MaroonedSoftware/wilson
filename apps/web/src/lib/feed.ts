@@ -200,7 +200,9 @@ export const useCardFeed = (project?: string): CardFeed => {
         setToolLog({});
 
         const url = project ? `${API_BASE}/api/feed?project=${encodeURIComponent(project)}` : `${API_BASE}/api/feed`;
-        const source = new EventSource(url);
+        // `withCredentials`: an `EventSource` cannot send a bearer header, so it authenticates with the
+        // API's stream cookie instead (`stream.cookie.middleware.ts` in apps/api).
+        const source = new EventSource(url, { withCredentials: true });
         const cardsQueryKey = project ? ['project', project, 'cards'] : ['cards'];
 
         source.onopen = () => setStatus('live');

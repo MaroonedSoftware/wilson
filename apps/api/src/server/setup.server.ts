@@ -35,8 +35,6 @@ export const setupServer = async (): Promise<Server> => {
     // Same signal, threaded one layer further: the LISTEN connection above drains on shutdown, and
     // this is what makes the `/api/feed` streams hanging off it do the same instead of holding the
     // socket open until the force-close grace period.
-    serverBuilder
-        .setupMiddleware(setupMiddleware)
-        .setupRoutes(routers(serverBuilder.lifecycleSignal) as ServerKitRouterType[]);
+    serverBuilder.setupMiddleware(setupMiddleware(config)).setupRoutes(routers(serverBuilder.lifecycleSignal) as ServerKitRouterType[]);
     return await serverBuilder.start(configNumber(config, 'PORT', 13100));
 };

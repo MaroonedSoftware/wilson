@@ -6,20 +6,15 @@ import {
     PasswordHashProvider,
     type AuthenticationToken,
 } from '@maroonedsoftware/authentication';
-import { httpError, unauthorizedError } from '@maroonedsoftware/errors';
+import { httpError, IsHttpError, unauthorizedError } from '@maroonedsoftware/errors';
+import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { TokenRequest, TokenResponse } from '../../generated/auth.js';
 import { AccountRepository } from './account.repository.js';
 import { PasswordRateLimiter } from './password.factors.js';
+import { clearSessionCookies, refreshCookieOf, setSessionCookies, wantsCookies } from './session.cookies.js';
 
 /** The `WWW-Authenticate` challenge for a grant that was refused: wrong password, dead refresh token. */
 const INVALID_GRANT = 'Bearer error="invalid_grant"';
-
-const toResponse = (token: AuthenticationToken): TokenResponse => {
-    // `issueTokenForSession` and `refreshSession` always mint a refresh token; the type allows its
-    // absence only for grants this API does not offer.
-    if (!token.refreshToken) throw httpError(500).withInternalDetails({ message: 'session token issued without a refresh token' });
-    return { accessToken: token.accessToken, refreshToken: token.refreshToken, expiresIn: token.expiresIn, tokenType: token.tokenType };
-};
 
 let dummyHash: Promise<{ hash: string; salt: string }> | undefined;
 
@@ -35,10 +30,16 @@ let dummyHash: Promise<{ hash: string; salt: string }> | undefined;
  *
  * Only one factor so far, so a password alone signs in. Rollout step 7 adds TOTP and passkeys, and
  * this is where the second-factor challenge will go.
+ *
+ * The web app sends `x-wilson-cookies: 1` and gets its tokens as cookies (`session.cookies.ts`):
+ * the refresh token never enters the response body, so no script on the page can read it, and a
+ * `refresh_token` grant with no token in the body redeems the cookie. Takes `ServerKitContext` for
+ * that, so the container wiring test exempts it.
  */
 @Injectable()
 export class TokenService {
     constructor(
+        private readonly context: ServerKitContext,
         private readonly accounts: AccountRepository,
         private readonly passwords: PasswordFactorService,
         private readonly hashes: PasswordHashProvider,
@@ -80,7 +81,7 @@ export class TokenService {
                 authenticatedAt: now,
             },
         );
-        return toResponse(await this.sessions.issueTokenForSession(session.sessionToken));
+        return this.respond(await this.sessions.issueTokenForSession(session.sessionToken));
     }
 
     /**
@@ -101,16 +102,39 @@ export class TokenService {
     }
 
     private async refresh(request: TokenRequest): Promise<TokenResponse> {
-        if (!request.refresh_token) {
+        const presented = request.refresh_token ?? refreshCookieOf(this.context);
+        if (!presented) {
             throw httpError(400).withDetails({ reason: 'the refresh_token grant needs a refresh_token' });
         }
-        const token = await this.sessions.refreshSession(request.refresh_token, undefined, async session => {
-            // Runs after the token is verified and its jti claimed, before anything is minted: a
-            // session naming an account that is gone or switched off is ended, not renewed.
-            if (await this.accounts.existsActive(session.subject)) return;
-            await this.sessions.deleteSession(session.sessionToken, 'expiry');
-            throw unauthorizedError(INVALID_GRANT);
-        });
-        return toResponse(token);
+        try {
+            const token = await this.sessions.refreshSession(presented, undefined, async session => {
+                // Runs after the token is verified and its jti claimed, before anything is minted: a
+                // session naming an account that is gone or switched off is ended, not renewed.
+                if (await this.accounts.existsActive(session.subject)) return;
+                await this.sessions.deleteSession(session.sessionToken, 'expiry');
+                throw unauthorizedError(INVALID_GRANT);
+            });
+            return this.respond(token);
+        } catch (err) {
+            // A cookie the session service refused (4xx: spent, revoked, expired) will never work, so
+            // stop the browser presenting it on every load. Anything else is not about the token, and
+            // dropping a good 30-day cookie over a database blip would sign the operator out for
+            // nothing: deadair's reasoning on the same branch.
+            if (request.refresh_token === undefined && IsHttpError(err) && err.statusCode < 500) clearSessionCookies(this.context);
+            throw err;
+        }
+    }
+
+    /** The token as the caller asked for it: in the body, or (the web app) as cookies. */
+    private respond(token: AuthenticationToken): TokenResponse {
+        // `issueTokenForSession` and `refreshSession` always mint a refresh token; the type allows
+        // its absence only for grants this API does not offer.
+        if (!token.refreshToken) throw httpError(500).withInternalDetails({ message: 'session token issued without a refresh token' });
+        const response = { accessToken: token.accessToken, expiresIn: token.expiresIn, tokenType: token.tokenType };
+        if (wantsCookies(this.context)) {
+            setSessionCookies(this.context, { accessToken: token.accessToken, refreshToken: token.refreshToken, expiresIn: token.expiresIn });
+            return response;
+        }
+        return { ...response, refreshToken: token.refreshToken };
     }
 }

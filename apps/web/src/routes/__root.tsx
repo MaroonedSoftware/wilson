@@ -1,11 +1,13 @@
 import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
 import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconLogout, IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
+import { AuthGate } from '#src/components/AuthGate.js';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
+import { signOut } from '#src/lib/auth.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
@@ -65,6 +67,18 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * `EventSource`.
  */
 function Root() {
+    return (
+        <AuthGate>
+            <Shell />
+        </AuthGate>
+    );
+}
+
+/**
+ * Everything a signed-in operator sees. Rendered only under `AuthGate`, so the feed subscription
+ * below opens once there is a session for it to authenticate with.
+ */
+function Shell() {
     const { project } = useParams({ strict: false });
     const feed = useCardFeed(project);
 
@@ -98,6 +112,11 @@ function Root() {
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
                                         <IconSettings size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label="Sign out">
+                                    <ActionIcon onClick={() => void signOut()} variant="subtle" aria-label="Sign out">
+                                        <IconLogout size={18} />
                                     </ActionIcon>
                                 </Tooltip>
                             </Group>

@@ -27,9 +27,12 @@ contract TokenRequest: {
 # A signed-in session. `accessToken` goes in `Authorization: Bearer` on every request, and lasts as
 # long as the session (`expiresIn` seconds) unless the session is revoked first. `refreshToken` is
 # single-use: trading it in returns a new one, and presenting a spent one revokes the session.
+#
+# A caller that sends `x-wilson-cookies: 1` (the web app) gets no `refreshToken` here: it arrives as
+# an httpOnly cookie instead, and a `refresh_token` grant with none in the body redeems that cookie.
 contract TokenResponse: {
     accessToken: string
-    refreshToken: string
+    refreshToken?: string
     expiresIn: number
     tokenType: string
 }

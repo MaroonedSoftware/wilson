@@ -13,8 +13,8 @@ export default defineConfig({
         },
     },
     server: {
-        // No proxy. The API allows any localhost origin (apps/api/src/server/setup.middleware.ts)
-        // and there are no cookies to keep same-origin, so the SDK talks to the API directly.
+        // No proxy. The API admits this origin with credentials (`WEB_ORIGINS`,
+        // apps/api/src/server/setup.middleware.ts), so the SDK talks to it directly.
         port: 13101,
     },
 });

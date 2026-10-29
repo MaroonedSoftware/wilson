@@ -168,3 +168,110 @@ describe('nothing is enforced yet', () => {
         expect((await call('GET', '/api/health', { token: 'garbage' })).status).toBe(200);
     });
 });
+
+/** The web app's cookie transport (`session.cookies.ts`), opted into with `x-wilson-cookies: 1`. */
+describe('the web app cookies', () => {
+    beforeEach(async () => {
+        await onboard();
+    });
+
+    const OPT_IN = { 'x-wilson-cookies': '1' };
+
+    const cookieSignIn = () =>
+        request(server, 'POST', '/api/auth/token', {
+            body: { grant_type: 'password', username: 'operator', password: STRONG_PASSWORD },
+            headers: OPT_IN,
+        });
+
+    /** `name=value` for each Set-Cookie, ready to send back as a Cookie header. */
+    const cookieJar = (res: Response): string =>
+        res.headers
+            .getSetCookie()
+            .map(cookie => cookie.split(';')[0])
+            .join('; ');
+
+    it('keeps the refresh token out of the body and sets both cookies httpOnly and SameSite=Strict', async () => {
+        const res = await cookieSignIn();
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.accessToken).toBeTruthy();
+        expect(body).not.toHaveProperty('refreshToken');
+        const cookies = res.headers.getSetCookie();
+        const refresh = cookies.find(cookie => cookie.startsWith('wilson_rt='))!;
+        const stream = cookies.find(cookie => cookie.startsWith('wilson_at='))!;
+        expect(refresh).toMatch(/path=\/api\/auth/i);
+        expect(refresh).toMatch(/httponly/i);
+        expect(refresh).toMatch(/samesite=strict/i);
+        expect(stream).toMatch(/path=\/api;/i);
+        expect(stream).toMatch(/httponly/i);
+    });
+
+    it('still returns the refresh token in the body without the opt-in, as the CLI expects', async () => {
+        const body = (await (await signIn()).json()) as Record<string, unknown>;
+
+        expect(body.refreshToken).toBeTruthy();
+    });
+
+    it('refreshes from the cookie alone, rotating it', async () => {
+        const first = await cookieSignIn();
+
+        const res = await request(server, 'POST', '/api/auth/token', {
+            body: { grant_type: 'refresh_token' },
+            headers: { ...OPT_IN, cookie: cookieJar(first) },
+        });
+
+        expect(res.status).toBe(200);
+        const { accessToken } = (await res.json()) as { accessToken: string };
+        expect((await call('GET', '/api/auth/session', { token: accessToken })).status).toBe(200);
+        expect(cookieJar(res)).not.toBe(cookieJar(first));
+    });
+
+    it('clears a refresh cookie that has been spent', async () => {
+        const first = await cookieSignIn();
+        const jar = cookieJar(first);
+        await request(server, 'POST', '/api/auth/token', { body: { grant_type: 'refresh_token' }, headers: { ...OPT_IN, cookie: jar } });
+
+        const replay = await request(server, 'POST', '/api/auth/token', {
+            body: { grant_type: 'refresh_token' },
+            headers: { ...OPT_IN, cookie: jar },
+        });
+
+        expect(replay.status).toBe(401);
+        expect(replay.headers.getSetCookie().find(cookie => cookie.startsWith('wilson_rt='))).toMatch(/expires=Thu, 01 Jan 1970/i);
+    });
+
+    it('answers 400 for a refresh with neither a body token nor a cookie', async () => {
+        expect((await request(server, 'POST', '/api/auth/token', { body: { grant_type: 'refresh_token' } })).status).toBe(400);
+    });
+
+    it('clears both cookies on sign-out', async () => {
+        const res = await call('POST', '/api/auth/logout');
+
+        const cleared = res.headers.getSetCookie();
+        expect(cleared.find(cookie => cookie.startsWith('wilson_rt='))).toMatch(/expires=Thu, 01 Jan 1970/i);
+        expect(cleared.find(cookie => cookie.startsWith('wilson_at='))).toMatch(/expires=Thu, 01 Jan 1970/i);
+    });
+
+    it('does not accept the stream cookie as a credential on any other route', async () => {
+        const jar = cookieJar(await cookieSignIn());
+
+        expect((await request(server, 'GET', '/api/auth/session', { headers: { cookie: jar } })).status).toBe(401);
+    });
+});
+
+describe('CORS', () => {
+    it('admits the web app origin with credentials', async () => {
+        const res = await request(server, 'GET', '/api/health', { headers: { origin: 'http://localhost:13101' } });
+
+        expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:13101');
+        expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+    });
+
+    /** Anything else on this machine must not be able to redeem the refresh cookie and read the result. */
+    it('admits no other origin, not even another localhost port', async () => {
+        const res = await request(server, 'GET', '/api/health', { headers: { origin: 'http://localhost:9999' } });
+
+        expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    });
+});

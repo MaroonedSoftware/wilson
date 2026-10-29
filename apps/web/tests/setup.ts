@@ -7,3 +7,13 @@ import { configure } from '@testing-library/react';
 // the tests already wait correctly with `await screen.findByText(...)`. Raise the wait to 5s so
 // tests stop failing on slowness; a genuinely broken test still fails, just 4 seconds later.
 configure({ asyncUtilTimeout: 5000 });
+
+// Every test starts signed in, so a test of the board or a card renders past `AuthGate` exactly as
+// it did before the app required a session. Tests of signing in clear it themselves
+// (`setAccessToken(undefined)`); `auth-gate.test.ts` is where that is exercised.
+import { beforeEach } from 'vitest';
+import { setAccessToken } from '#src/lib/session.js';
+
+beforeEach(() => {
+    setAccessToken('test-access-token');
+});

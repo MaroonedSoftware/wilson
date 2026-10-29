@@ -5,6 +5,7 @@ import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { CurrentSession } from '../../generated/auth.js';
 import { AccountRepository } from './account.repository.js';
 import { requireSession, sessionOf } from './request.session.js';
+import { clearSessionCookies } from './session.cookies.js';
 
 /**
  * `GET /api/auth/session` and `POST /api/auth/logout`: the session the caller's bearer token names,
@@ -31,9 +32,11 @@ export class CurrentSessionService {
 
     /**
      * Ends the caller's session, which invalidates its access token and its refresh token together.
-     * With no live session there is nothing to end, and that is still a successful sign-out.
+     * With no live session there is nothing to end, and that is still a successful sign-out. The
+     * web app's cookies are cleared either way.
      */
     async logout(): Promise<void> {
+        clearSessionCookies(this.context);
         const session = sessionOf(this.context);
         if (!session) return;
         await this.sessions.deleteSession(session.sessionToken, 'logout');

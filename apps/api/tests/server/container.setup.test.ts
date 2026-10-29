@@ -6,6 +6,7 @@ import { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { ApiKeysService } from '#modules/authentication/api.keys.service.js';
 import { CurrentSessionService } from '#modules/authentication/current.session.service.js';
+import { TokenService } from '#modules/authentication/token.service.js';
 import { CardStageDeadJob } from '#modules/jobs/card.stage.dead.job.js';
 import { buildConfig, modules } from '#src/cli-bootstrap.js';
 import { buildTestServerConfig } from '#tests/support/test.config.js';
@@ -47,10 +48,17 @@ describe('container wiring (card 0112)', () => {
     // restriction. Both are legitimate, by design, not a wiring defect this test should catch.
     // `ServerKitContext` is the same thing for a request: `@maroonedsoftware/koa` 4 registers it with
     // a factory that throws "ServerKitContext is only available inside a request scope", and the
-    // real value is supplied per request by `serverKitContextMiddleware`. `CurrentSessionService`
-    // and `ApiKeysService` take `ServerKitContext` as a constructor dependency, so they inherit the
-    // same restriction.
-    const NOT_RESOLVABLE_AT_BOOT = new Set<unknown>([JobContext, CardStageDeadJob, ServerKitContext, CurrentSessionService, ApiKeysService]);
+    // real value is supplied per request by `serverKitContextMiddleware`. `CurrentSessionService`,
+    // `ApiKeysService` and `TokenService` take `ServerKitContext` as a constructor dependency, so
+    // they inherit the same restriction.
+    const NOT_RESOLVABLE_AT_BOOT = new Set<unknown>([
+        JobContext,
+        CardStageDeadJob,
+        ServerKitContext,
+        CurrentSessionService,
+        ApiKeysService,
+        TokenService,
+    ]);
 
     it('builds the app\'s own container and resolves every registration', async () => {
         const config = await buildTestServerConfig();

@@ -668,13 +668,24 @@ minutes, guards minting an API key and editing stage config (`wilson stages edit
 because those are the two actions that hand out or rewrite authority. An API-key session never
 satisfies step-up.
 
-**Transport.** The web app holds the access token in memory and sends it as a bearer header. The
-refresh token travels in an httpOnly, SameSite=Lax cookie that only `/auth/token` and
-`/auth/logout` read, which is why there is no CSRF token: no other route accepts cookie
-authentication. The board feed moves from `EventSource`, which cannot set a header, to the
-SDK's fetch-based SSE so it carries the same bearer. The CLI keeps its key in the OS keyring
-(`@maroonedsoftware/johnny5/keyring`), and `wilson auth login` / `logout` / `token` manage it.
-CORS narrows to exact origins.
+**Transport.** The web app holds the access token in memory, never in storage a script could
+read, and sends it as a bearer header. It opts into cookies with `x-wilson-cookies: 1`, and the API
+then sets two httpOnly, SameSite=Strict cookies instead of returning the refresh token in the body:
+
+- `wilson_rt`, the refresh token, scoped to `/api/auth`, so only `/api/auth/token` and
+  `/api/auth/logout` ever receive it. A reload signs back in by redeeming it.
+- `wilson_at`, the access token, which the two read-only event streams (`GET /api/feed`,
+  `GET /api/cards/{id}/plan/stream`) accept in place of a header, because the browser's
+  `EventSource` cannot send one. Every other route ignores it.
+
+That is why there is no CSRF token: no route that changes anything accepts a cookie as a
+credential. CORS admits only the exact origins in `WEB_ORIGINS` (default the dev web app,
+`http://localhost:13101`), with credentials, since admitting any other origin would let a page
+there redeem the refresh cookie and read the access token it returns. The CLI and scripts never
+opt into cookies and get the refresh token in the body. The CLI keeps an API key in the OS keyring
+(`@maroonedsoftware/johnny5/keyring`): `wilson auth login` signs in with the password, mints a key
+named for the host, and signs the password session out again; `logout` / `status` / `token`
+manage it, and `WILSON_API_KEY` overrides it for scripts.
 
 **Enforcement.** Every `.ck` operation is gated by default. An operation with no `security`
 block requires an authenticated session. Public routes, which are health, onboarding and the
@@ -709,11 +720,12 @@ access or session token is ever inherited by a stage. A `wilson doctor` check ve
    `/auth/session` and `/auth/logout`. Nothing is enforced.
 4. Add API keys, with routes to create, rotate and revoke them, and `wilson auth`. The CLI
    sends a bearer when it has one. Nothing is enforced.
-5. Add the web onboarding and login pages, the root-route gate, the refresh cookie, a single
-   retry on 401, and the fetch-based feed. Nothing is enforced.
-6. Turn on enforcement: the middleware, default policies on every contract, `security: none`
-   on the public routes, the coverage test, and exact-origin CORS. After this commit an
-   unauthenticated request gets a 401.
+5. Add the web onboarding and login pages, the root-route gate, the session cookies, a single
+   retry on 401, the stream cookie for the event streams, and exact-origin CORS with credentials
+   (it cannot wait for step 6: credentialed CORS for any other origin would expose the refresh
+   cookie). Nothing is enforced.
+6. Turn on enforcement: default policies on every contract, `security: none` on the public
+   routes, and the coverage test. After this commit an unauthenticated request gets a 401.
 7. Add TOTP and passkeys, and step-up for key minting and stage config edits.
 8. Settle the CLI's direct-database commands: move them onto the API, or keep them and leave
    the database credential as their boundary.
