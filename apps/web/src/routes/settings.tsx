@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
-import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
+import { Alert, Button, Code, Group, Loader, NumberInput, Paper, SegmentedControl, Select, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import type { ChatEngineSetting, SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { SdkError } from '@wilson/sdk';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -13,6 +13,7 @@ const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
+const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
 // enforcement. The API refuses out of range regardless of what these let a user type up to
@@ -415,6 +416,90 @@ function ClaudeConfigDirControl() {
     );
 }
 
+/**
+ * Which engine the chat runs on (`chat.engine.setting.ts`): 'cli', the Claude Agent SDK on the
+ * subscription the stages use, or 'api', the AI SDK against a provider's API key. The provider
+ * matters only for 'api'. A local draft and an explicit Save, like `ClaudeConfigDirControl`, so
+ * typing a model name sends nothing until it is saved; what is shown after a save is what the server
+ * kept.
+ */
+function ChatEngineControl() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: CHAT_ENGINE_QUERY_KEY, queryFn: () => wilson.settings.getChatEngineSetting() });
+    const [draft, setDraft] = useState<ChatEngineSetting | undefined>(undefined);
+
+    useEffect(() => {
+        if (setting.data) setDraft(setting.data);
+    }, [setting.data]);
+
+    const mutation = useMutation({
+        mutationFn: (choice: ChatEngineSetting) => wilson.settings.setChatEngineSetting(choice),
+        onSuccess: result => {
+            queryClient.setQueryData(CHAT_ENGINE_QUERY_KEY, result);
+            setDraft(result);
+        },
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load the chat engine">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data || !draft) return <Loader size="sm" />;
+
+    const dirty = draft.engine !== setting.data.engine || draft.provider !== setting.data.provider || draft.model !== setting.data.model;
+
+    return (
+        <Stack gap="xs">
+            <SegmentedControl
+                aria-label="Chat engine"
+                value={draft.engine}
+                onChange={engine => setDraft({ ...draft, engine: engine as ChatEngineSetting['engine'] })}
+                disabled={mutation.isPending}
+                data={[
+                    { value: 'cli', label: 'Claude Agent SDK' },
+                    { value: 'api', label: 'AI SDK' },
+                ]}
+            />
+            <Text size="xs" c="dimmed">
+                {draft.engine === 'cli'
+                    ? 'Runs on the Claude subscription the stages use, from the engine credentials below. No API key needed.'
+                    : "Runs against the provider's API key in apps/api/.env, billed per token."}{' '}
+                Applies to chats started afterwards; a chat keeps the engine it started on.
+            </Text>
+            {draft.engine === 'api' && (
+                <Select
+                    label="Provider"
+                    value={draft.provider}
+                    onChange={provider => provider && setDraft({ ...draft, provider: provider as ChatEngineSetting['provider'] })}
+                    data={['anthropic', 'openai', 'xai']}
+                    allowDeselect={false}
+                    disabled={mutation.isPending}
+                />
+            )}
+            <TextInput
+                label="Model"
+                value={draft.model}
+                onChange={event => setDraft({ ...draft, model: event.currentTarget.value })}
+                disabled={mutation.isPending}
+            />
+            <Group gap="xs">
+                <Button size="xs" disabled={!dirty || mutation.isPending} onClick={() => dirty && mutation.mutate(draft)}>
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
 /** A `project`/`head`/`startedAt`/root row: a label column and a value, greyed for the read-only roots. */
 function Fact({ label, children, muted }: { label: string; children: ReactNode; muted?: boolean }) {
     return (
@@ -520,6 +605,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Engine credentials</Title>
                     <ClaudeConfigDirControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Chat</Title>
+                    <ChatEngineControl />
                 </Stack>
             </Paper>
 

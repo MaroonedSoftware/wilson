@@ -3,6 +3,7 @@ import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorSch
 import { Notifications } from '@mantine/notifications';
 import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
+import { ChatPanel } from '#src/components/ChatPanel.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
@@ -63,6 +64,10 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * component already gives the feed's `status`/`reconnect` — a board tile (`Board.tsx`) and a card
  * page's live tool list (`LiveActivity.tsx`) both read this instead of either opening its own
  * `EventSource`.
+ *
+ * `ChatPanel` sits in the header for the same reason `ProjectSwitcher` does: the chat is reachable
+ * from every screen, and follows the person between them. It is handed the matched route's
+ * `project`, so a message sent from a project's page is about that project unless it says otherwise.
  */
 function Root() {
     const { project } = useParams({ strict: false });
@@ -94,6 +99,7 @@ function Root() {
                                         <IconRefresh size={18} />
                                     </ActionIcon>
                                 </Tooltip>
+                                <ChatPanel project={project} />
                                 <ColorSchemeToggle />
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
