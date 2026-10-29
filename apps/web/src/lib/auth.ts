@@ -1,6 +1,7 @@
 import { SdkError } from '@wilson/sdk';
 import { API_BASE, wilson } from './sdk.js';
 import { currentAccessToken, refreshSession, setAccessToken } from './session.js';
+import { assertPasskey, isPasskeyCancelled } from './webauthn.js';
 
 /** Where the app stands before it can show a board. */
 export type SessionState = 'checking' | 'onboarding' | 'signed-out' | 'signed-in';
@@ -40,11 +41,13 @@ export const onboardingFailure = (err: unknown): string => {
     return 'Could not reach the API.';
 };
 
-/** A sign-in waiting on its second step: a code from the authenticator app. */
+/** A sign-in waiting on its second step: a code from the authenticator app, or a passkey. */
 export interface PendingSignIn {
     challengeId: string;
-    factorId?: string;
-    label?: string;
+    /** The authenticator app, if one is enrolled. */
+    authenticator?: { id: string; label?: string };
+    /** Whether a passkey is enrolled. */
+    passkey: boolean;
 }
 
 /**
@@ -54,8 +57,13 @@ export interface PendingSignIn {
 export const signIn = async (username: string, password: string): Promise<PendingSignIn | undefined> => {
     const response = await wilson.auth.requestToken({ grant_type: 'password', username, password });
     if (response.result === 'mfa_required' && response.challengeId) {
-        const [factor] = response.factors ?? [];
-        return { challengeId: response.challengeId, factorId: factor?.id, label: factor?.label };
+        const factors = response.factors ?? [];
+        const authenticator = factors.find(factor => factor.method === 'authenticator');
+        return {
+            challengeId: response.challengeId,
+            ...(authenticator ? { authenticator: { id: authenticator.id, ...(authenticator.label ? { label: authenticator.label } : {}) } } : {}),
+            passkey: factors.some(factor => factor.method === 'passkey'),
+        };
     }
     setAccessToken(response.accessToken);
     return undefined;
@@ -66,10 +74,30 @@ export const completeSignIn = async (pending: PendingSignIn, code: string): Prom
     const response = await wilson.auth.requestToken({
         grant_type: 'authenticator',
         challenge_id: pending.challengeId,
-        factor_id: pending.factorId,
+        factor_id: pending.authenticator?.id,
         code,
     });
     setAccessToken(response.accessToken);
+};
+
+/** The second step with a passkey: a challenge from the API, signed by the browser's passkey prompt. */
+export const completeSignInWithPasskey = async (pending: PendingSignIn): Promise<void> => {
+    const { passkeyChallengeId, options } = await wilson.auth.startPasskeyChallenge({ challenge_id: pending.challengeId });
+    const credential = await assertPasskey(options);
+    const response = await wilson.auth.requestToken({
+        grant_type: 'passkey',
+        challenge_id: pending.challengeId,
+        passkey_challenge_id: passkeyChallengeId,
+        credential,
+    });
+    setAccessToken(response.accessToken);
+};
+
+/** Why a passkey step failed, in the operator's words. A closed prompt is not a failure. */
+export const passkeyFailure = (err: unknown): string | undefined => {
+    if (isPasskeyCancelled(err)) return undefined;
+    if (err instanceof SdkError && err.status === 401) return 'That passkey was not accepted. Try again, or use another way.';
+    return err instanceof SdkError ? 'Could not check the passkey.' : 'Your browser could not use a passkey here.';
 };
 
 /** Why a code was refused, in the operator's words. */

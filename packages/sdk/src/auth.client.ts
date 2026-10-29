@@ -1,4 +1,4 @@
-import type { CurrentSession, TokenRequest, TokenResponse } from './types/auth.js';
+import type { CurrentSession, PasskeyChallenge, PasskeyChallengeRequest, TokenRequest, TokenResponse } from './types/auth.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -16,6 +16,21 @@ export class AuthClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<TokenResponse>(result);
+    }
+
+    /**
+     * @name Start a passkey sign-in step
+     * @description The passkey half of the second step: a challenge for the browser to sign, issued against the
+     * sign-in the password started. `security: none`, like `token`: the pending sign-in's challenge is
+     * what authorizes it, and it is good for one sign-in.
+     */
+    async startPasskeyChallenge(body: PasskeyChallengeRequest): Promise<PasskeyChallenge> {
+        const result = await this.fetch(`/api/auth/passkey/challenge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<PasskeyChallenge>(result);
     }
 
     /** @name Get the current session */

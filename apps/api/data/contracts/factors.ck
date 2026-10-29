@@ -7,16 +7,17 @@ options {
     }
 }
 
-# The operator's second factors (PROJECT.md, Authentication: Factors). Today an authenticator app
-# (TOTP); once one is enrolled, signing in asks for its code after the password, and a step-up
-# needs it rather than the password.
+# The operator's second factors (PROJECT.md, Authentication: Factors): an authenticator app (TOTP)
+# or a passkey. Once one is enrolled, signing in asks for it after the password, and a step-up needs
+# it rather than the password. Passkeys work only in the web app: a passkey is bound to the origin it
+# was made at, and the API holds that to `WEB_ORIGINS`.
 #
 # The floor is `wilson.step.up`: adding or removing a factor changes what it takes to sign in, so it
 # needs a factor proved in the last five minutes, and once a strong factor is enrolled, that one.
 # Otherwise anyone holding a signed-in session could enrol their own authenticator and lock the
 # operator out. Listing lowers it to `wilson.view`.
 
-contract SecondFactorMethod: enum(authenticator)
+contract SecondFactorMethod: enum(authenticator, passkey)
 
 contract SecondFactorSummary: {
     id: string
@@ -43,6 +44,23 @@ contract AuthenticatorRegistration: {
 contract VerifyAuthenticatorRequest: {
     registrationId: string
     code: string(min=6, max=10)
+}
+
+contract StartPasskeyRequest: {
+    # A name to tell this passkey apart from others, such as the device it is on.
+    label?: string(max=64)
+}
+
+# What to call `navigator.credentials.create` with. Nothing is enrolled until the browser's answer is
+# checked (`passkey/verify`).
+contract PasskeyRegistration: {
+    registrationId: string
+    options: PasskeyCreationOptions
+}
+
+contract VerifyPasskeyRequest: {
+    registrationId: string
+    credential: PasskeyAttestationCredential
 }
 
 operation /api/auth/factors: {
@@ -92,6 +110,45 @@ operation /api/auth/factors/authenticator/verify: {
                 application/json: SecondFactorSummary
             }
             # The code is wrong, or the registration expired.
+            401:
+            403:
+        }
+    }
+}
+
+operation /api/auth/factors/passkey: {
+    post: {
+        name: Start enrolling a passkey
+        sdk: startPasskey
+        service: FactorsService.startPasskey
+        request: {
+            application/json: StartPasskeyRequest
+        }
+        response: {
+            200: {
+                application/json: PasskeyRegistration
+            }
+            # Not from the web app, at an address in `WEB_ORIGINS`.
+            400:
+            403:
+        }
+    }
+}
+
+operation /api/auth/factors/passkey/verify: {
+    post: {
+        name: Finish enrolling a passkey
+        sdk: verifyPasskey
+        service: FactorsService.verifyPasskey
+        request: {
+            application/json: VerifyPasskeyRequest
+        }
+        response: {
+            201: {
+                application/json: SecondFactorSummary
+            }
+            # The browser's answer does not check out, or the registration expired.
+            400:
             401:
             403:
         }

@@ -4,8 +4,10 @@ import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import {
     codeFailure,
     completeSignIn,
+    completeSignInWithPasskey,
     onboard,
     onboardingFailure,
+    passkeyFailure,
     restoreSession,
     signIn,
     signInFailure,
@@ -13,6 +15,7 @@ import {
     type SessionState,
 } from '#src/lib/auth.js';
 import { currentAccessToken, onSessionChange } from '#src/lib/session.js';
+import { passkeysAvailable } from '#src/lib/webauthn.js';
 
 /**
  * Nothing below this renders without a session (PROJECT.md, Authentication). On load it restores
@@ -79,8 +82,8 @@ function Panel({ title, description, children }: { title: string; description: s
 }
 
 /**
- * Username and password, then, if the account has an authenticator app enrolled, its code. Calls
- * `onSignedIn` once a session is in place. Shared by the sign-in page and the step-up dialog.
+ * Username and password, then, if the account has a second factor enrolled, its code or its passkey.
+ * Calls `onSignedIn` once a session is in place. Shared by the sign-in page and the step-up dialog.
  */
 export function CredentialsSteps({
     initialFailure,
@@ -129,26 +132,55 @@ export function CredentialsSteps({
         }
     };
 
+    const usePasskey = async () => {
+        if (!challenge) return;
+        setPending(true);
+        setFailure(undefined);
+        try {
+            await completeSignInWithPasskey(challenge);
+            setPending(false);
+            onSignedIn?.();
+        } catch (err) {
+            setFailure(passkeyFailure(err));
+            setPending(false);
+        }
+    };
+
     if (challenge) {
+        const offerPasskey = challenge.passkey && passkeysAvailable();
         return (
-            <form onSubmit={submitCode}>
-                <Stack gap="sm">
-                    <TextInput
-                        label="Code"
-                        description={`From your authenticator app${challenge.label ? ` (${challenge.label})` : ''}.`}
-                        autoComplete="one-time-code"
-                        inputMode="numeric"
-                        value={code}
-                        onChange={e => setCode(e.currentTarget.value)}
-                        required
-                        autoFocus
-                    />
-                    {failure && <Alert color="red">{failure}</Alert>}
-                    <Button type="submit" loading={pending}>
-                        Verify
+            <Stack gap="sm">
+                {offerPasskey && (
+                    <Button onClick={() => void usePasskey()} loading={pending && !code}>
+                        Use your passkey
                     </Button>
-                </Stack>
-            </form>
+                )}
+                {challenge.authenticator && (
+                    <form onSubmit={submitCode}>
+                        <Stack gap="sm">
+                            <TextInput
+                                label="Code"
+                                description={`From your authenticator app${challenge.authenticator.label ? ` (${challenge.authenticator.label})` : ''}.`}
+                                autoComplete="one-time-code"
+                                inputMode="numeric"
+                                value={code}
+                                onChange={e => setCode(e.currentTarget.value)}
+                                required
+                                autoFocus={!offerPasskey}
+                            />
+                            <Button type="submit" variant={offerPasskey ? 'default' : 'filled'} loading={pending && !!code}>
+                                Verify
+                            </Button>
+                        </Stack>
+                    </form>
+                )}
+                {!offerPasskey && !challenge.authenticator && (
+                    <Alert color="yellow">
+                        This account signs in with a passkey, which this browser cannot use here. Open wilson over https or on localhost.
+                    </Alert>
+                )}
+                {failure && <Alert color="red">{failure}</Alert>}
+            </Stack>
         );
     }
 

@@ -292,6 +292,22 @@ export interface AccountAuthenticators {
 }
 
 /**
+ * A passkey enrolled as the operator's second factor: the credential's public key and id, and the
+ * authenticator's signature counter. Nothing secret; see the migration. `counter` is `BIGINT`, read
+ * back by `pg` as a string.
+ */
+export interface AccountPasskeys {
+    id: ColumnType<string, string | undefined, never>;
+    accountId: string;
+    publicKey: string;
+    publicKeyId: string;
+    counter: ColumnType<string, number | string | undefined, number | string>;
+    label: string | null;
+    active: ColumnType<boolean, boolean | undefined, boolean>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+/**
  * A project's human-approved learnings document (card 0239). Append-only, the same shape as
  * {@link StageConfigs}: the newest row per project is the current document and the rest are its
  * history. Agents read it and never write it; an empty `markdown` means "no learnings".
@@ -326,5 +342,6 @@ export interface DB {
     'runner.accountPasswords': AccountPasswords;
     'runner.apiKeys': ApiKeys;
     'runner.accountAuthenticators': AccountAuthenticators;
+    'runner.accountPasskeys': AccountPasskeys;
     'runner.learnings': Learnings;
 }

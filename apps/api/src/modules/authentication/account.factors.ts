@@ -32,13 +32,17 @@ export class AccountFactors {
             .where('active', '=', true)
             .orderBy('createdAt')
             .execute();
-        return authenticators.map(row => ({
-            method: 'authenticator',
-            methodId: row.id,
-            kind: 'possession',
-            ...(row.label === null ? {} : { label: row.label }),
-            createdAt: row.createdAt,
-        }));
+        const passkeys = await this.db
+            .selectFrom('runner.accountPasskeys')
+            .select(['id', 'label', 'createdAt'])
+            .where('accountId', '=', accountId)
+            .where('active', '=', true)
+            .orderBy('createdAt')
+            .execute();
+        return [
+            ...authenticators.map(row => ({ method: 'authenticator' as const, methodId: row.id, label: row.label, createdAt: row.createdAt })),
+            ...passkeys.map(row => ({ method: 'fido' as const, methodId: row.id, label: row.label, createdAt: row.createdAt })),
+        ].map(({ label, ...factor }) => ({ ...factor, kind: 'possession' as const, ...(label === null ? {} : { label }) }));
     }
 
     async hasStrongFactor(accountId: string): Promise<boolean> {

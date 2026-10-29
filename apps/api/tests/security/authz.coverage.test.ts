@@ -16,8 +16,10 @@ const PUBLIC = new Set([
     // First-run onboarding: there is nobody to authenticate yet.
     'GET /api/onboarding',
     'POST /api/onboarding',
-    // Signing in, and signing out, which must work with a dead session.
+    // Signing in, and signing out, which must work with a dead session. The passkey challenge is a
+    // step of signing in, authorized by the pending sign-in it names.
     'POST /api/auth/token',
+    'POST /api/auth/passkey/challenge',
     'POST /api/auth/logout',
 ]);
 

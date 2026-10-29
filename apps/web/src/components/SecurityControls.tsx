@@ -2,16 +2,17 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Code, Group, Image, Stack, Text, TextInput } from '@mantine/core';
 import type { AuthenticatorRegistration } from '@wilson/sdk';
-import { codeFailure } from '#src/lib/auth.js';
+import { codeFailure, passkeyFailure } from '#src/lib/auth.js';
 import { reasonFor } from '#src/lib/mutations.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+import { createPasskey, passkeysAvailable } from '#src/lib/webauthn.js';
 
 const FACTORS_KEY = ['auth', 'factors'];
 
 /**
- * The settings page's Security section: the authenticator app that is the operator's second factor
- * (PROJECT.md, Authentication: Factors). With one enrolled, signing in asks for its code after the
- * password. Adding or removing one needs a recent sign-in, and the step-up dialog asks for it when
+ * The settings page's Security section: the operator's second factors, an authenticator app and
+ * passkeys (PROJECT.md, Authentication: Factors). With one enrolled, signing in asks for it after the
+ * password. Passkeys are offered only where the browser can make one (`passkeysAvailable`). Adding or removing one needs a recent sign-in, and the step-up dialog asks for it when
  * the session is older than five minutes.
  */
 export function SecurityControls() {
@@ -36,6 +37,15 @@ export function SecurityControls() {
         },
         onError: err => setFailure(codeFailure(err)),
     });
+    const addPasskey = useMutation({
+        mutationFn: async () => {
+            const { registrationId, options } = await sdk.factors.startPasskey({ label: navigator.platform || 'this device' });
+            const credential = await createPasskey(options);
+            return sdk.factors.verifyPasskey({ registrationId, credential });
+        },
+        onSuccess: () => void queryClient.invalidateQueries({ queryKey: FACTORS_KEY }),
+        onError: err => setFailure(passkeyFailure(err)),
+    });
     const remove = useMutation({
         mutationFn: (id: string) => sdk.factors.removeSecondFactor(id),
         onSuccess: () => void queryClient.invalidateQueries({ queryKey: FACTORS_KEY }),
@@ -53,11 +63,15 @@ export function SecurityControls() {
     return (
         <Stack gap="sm">
             <Text size="sm" c="dimmed">
-                An authenticator app makes signing in need a code from your phone as well as your password.
+                A second factor makes signing in need your phone or a passkey as well as your password. The CLI can use an authenticator app but not a
+                passkey, so set up an authenticator app too if you edit stage config from the CLI.
             </Text>
             {enrolled.map(factor => (
                 <Group key={factor.id} justify="space-between">
-                    <Text size="sm">Authenticator app{factor.label ? ` (${factor.label})` : ''}</Text>
+                    <Text size="sm">
+                        {factor.method === 'passkey' ? 'Passkey' : 'Authenticator app'}
+                        {factor.label ? ` (${factor.label})` : ''}
+                    </Text>
                     <Button size="xs" variant="subtle" color="red" loading={remove.isPending} onClick={() => remove.mutate(factor.id)}>
                         Remove
                     </Button>
@@ -90,13 +104,18 @@ export function SecurityControls() {
                     </Stack>
                 </form>
             ) : (
-                enrolled.length === 0 && (
-                    <Group>
+                <Group>
+                    {!enrolled.some(factor => factor.method === 'authenticator') && (
                         <Button size="xs" loading={start.isPending} onClick={() => start.mutate()}>
                             Set up an authenticator app
                         </Button>
-                    </Group>
-                )
+                    )}
+                    {passkeysAvailable() && (
+                        <Button size="xs" variant="default" loading={addPasskey.isPending} onClick={() => addPasskey.mutate()}>
+                            Add a passkey
+                        </Button>
+                    )}
+                </Group>
             )}
             {failure && <Alert color="red">{failure}</Alert>}
         </Stack>

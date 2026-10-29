@@ -3,19 +3,24 @@ import { DateTime } from 'luxon';
 import {
     AuthenticationSessionService,
     AuthenticatorFactorService,
+    FidoFactorService,
     MfaChallengeService,
     PasswordFactorService,
     PasswordHashProvider,
     type AuthenticationSessionFactor,
     type AuthenticationToken,
+    type MfaChallengePayload,
+    type PublicKeyCredentialWithAssertion,
 } from '@maroonedsoftware/authentication';
 import { httpError, IsHttpError, unauthorizedError } from '@maroonedsoftware/errors';
 import { ServerKitContext } from '@maroonedsoftware/koa';
-import type { TokenRequest, TokenResponse } from '../../generated/auth.js';
+import type { PasskeyChallenge, PasskeyChallengeRequest, TokenRequest, TokenResponse } from '../../generated/auth.js';
 import { AccountFactors } from './account.factors.js';
 import { AccountRepository } from './account.repository.js';
 import { ACCOUNT_ACTOR } from './api.key.repository.js';
+import { relyingPartyFor } from './passkey.relying.party.js';
 import { PasswordRateLimiter } from './password.factors.js';
+import { WebOrigins } from './web.origins.js';
 import { clearSessionCookies, refreshCookieOf, setSessionCookies, wantsCookies } from './session.cookies.js';
 
 /** The `WWW-Authenticate` challenge for a grant that was refused: wrong password, dead refresh token. */
@@ -53,6 +58,8 @@ export class TokenService {
         private readonly factors: AccountFactors,
         private readonly challenges: MfaChallengeService,
         private readonly authenticators: AuthenticatorFactorService,
+        private readonly passkeys: FidoFactorService,
+        private readonly origins: WebOrigins,
     ) {}
 
     async requestToken(request: TokenRequest): Promise<TokenResponse> {
@@ -63,6 +70,8 @@ export class TokenService {
                 return this.refresh(request);
             case 'authenticator':
                 return this.authenticator(request);
+            case 'passkey':
+                return this.passkey(request);
         }
     }
 
@@ -100,7 +109,11 @@ export class TokenService {
             return {
                 result: 'mfa_required',
                 challengeId: challenge.challengeId,
-                factors: second.map(({ methodId, label }) => ({ method: 'authenticator' as const, id: methodId, ...(label ? { label } : {}) })),
+                factors: second.map(({ method, methodId, label }) => ({
+                    method: method === 'fido' ? ('passkey' as const) : ('authenticator' as const),
+                    id: methodId,
+                    ...(label ? { label } : {}),
+                })),
             };
         }
 
@@ -135,6 +148,64 @@ export class TokenService {
         return this.signIn(challenge.actor.actorId, [
             challenge.primaryFactor,
             { method: 'authenticator', methodId: factorId, kind: 'possession', issuedAt: now, authenticatedAt: now },
+        ]);
+    }
+
+    /** The sign-in challenge a second step names, or 401 once it has expired or been used. */
+    private async pending(challengeId: string | undefined): Promise<MfaChallengePayload> {
+        if (!challengeId) throw httpError(400).withDetails({ reason: 'name the sign-in challenge (challenge_id)' });
+        const challenge = await this.challenges.peek(challengeId);
+        if (!challenge) throw unauthorizedError(INVALID_GRANT);
+        return challenge;
+    }
+
+    /**
+     * `POST /api/auth/passkey/challenge`: a WebAuthn challenge for the browser to sign, for a
+     * sign-in whose password checked out and whose account has a passkey. Bound to this request's
+     * relying party, which must be the web app (`relyingPartyFor`).
+     */
+    async startPasskeyChallenge(request: PasskeyChallengeRequest): Promise<PasskeyChallenge> {
+        const challenge = await this.pending(request.challenge_id);
+        if (!challenge.eligibleFactors.some(factor => factor.method === 'fido')) {
+            throw httpError(400).withDetails({ reason: 'no passkey is enrolled for this sign-in' });
+        }
+        const party = relyingPartyFor(this.context, this.origins);
+        const issued = await this.passkeys.createFidoAuthorizationChallenge(challenge.actor.actorId, undefined, party);
+        const { challenge: nonce, timeout, rpId, userVerification, allowCredentials } = issued.assertion;
+        return {
+            passkeyChallengeId: issued.challengeId,
+            options: {
+                challenge: nonce,
+                ...(timeout === undefined ? {} : { timeout }),
+                ...(rpId === undefined ? {} : { rpId }),
+                ...(userVerification === undefined ? {} : { userVerification: String(userVerification) }),
+                ...(allowCredentials === undefined ? {} : { allowCredentials }),
+            },
+        };
+    }
+
+    /**
+     * The other second step: the browser's answer to the passkey challenge. The library checks the
+     * signature, the origin and the counter; this checks the passkey belongs to the account the
+     * password was for, then redeems the sign-in challenge so it completes once.
+     */
+    private async passkey(request: TokenRequest): Promise<TokenResponse> {
+        const challenge = await this.pending(request.challenge_id);
+        if (!request.passkey_challenge_id || !request.credential) {
+            throw httpError(400).withDetails({ reason: 'the passkey grant needs a passkey_challenge_id and a credential' });
+        }
+        const factor = await this.passkeys.verifyFidoAuthorizationChallenge(
+            request.passkey_challenge_id,
+            request.credential as PublicKeyCredentialWithAssertion,
+        );
+        const eligible = challenge.eligibleFactors.some(candidate => candidate.method === 'fido' && candidate.methodId === factor.id);
+        if (factor.actorId !== challenge.actor.actorId || !eligible) throw unauthorizedError(INVALID_GRANT);
+        if (!(await this.challenges.redeem(challenge.challengeId))) throw unauthorizedError(INVALID_GRANT);
+
+        const now = DateTime.utc();
+        return this.signIn(challenge.actor.actorId, [
+            challenge.primaryFactor,
+            { method: 'fido', methodId: factor.id, kind: 'possession', issuedAt: now, authenticatedAt: now },
         ]);
     }
 

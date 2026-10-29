@@ -1,5 +1,6 @@
 import { Registry } from 'injectkit';
 import { Kysely } from 'kysely';
+import { Duration } from 'luxon';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import {
     ApiKeyAuthenticationHandler,
@@ -16,6 +17,9 @@ import {
     AuthenticatorFactorService,
     AuthenticatorFactorServiceOptions,
     ChainedAuthenticationHandler,
+    FidoFactorRepository,
+    FidoFactorService,
+    FidoFactorServiceOptions,
     JwtAuthenticationHandler,
     JwtAuthenticationIssuerMap,
     JwtProvider,
@@ -41,6 +45,8 @@ import { AccountAuthenticatorRepository } from './authenticator.repository.js';
 import { CurrentSessionService } from './current.session.service.js';
 import { resolveEncryptionKey } from './encryption.key.js';
 import { FactorsService } from './factors.service.js';
+import { AccountPasskeyRepository } from './passkey.repository.js';
+import { RELYING_PARTY_NAME } from './passkey.relying.party.js';
 import { OnboardingService } from './onboarding.service.js';
 import { PasswordFactors, PasswordRateLimiter } from './password.factors.js';
 import { AccountPasswordRepository } from './password.factor.repository.js';
@@ -48,6 +54,7 @@ import { WilsonJwtAuthenticationIssuer } from './session.issuer.js';
 import { resolveSessionKey } from './session.key.js';
 import { API_KEY_PREFIX, API_KEY_USE_WINDOW, SESSION_ISSUER, SESSION_LIFETIME } from './session.options.js';
 import { TokenService } from './token.service.js';
+import { WebOrigins, webOrigins } from './web.origins.js';
 
 export { API_KEY_PREFIX, API_KEY_USE_WINDOW, SESSION_ISSUER, SESSION_LIFETIME } from './session.options.js';
 
@@ -171,6 +178,23 @@ export const AuthenticationModule: ServerKitModule = {
         registry
             .register(MfaChallengeService)
             .useFactory(container => new MfaChallengeService(container.get(MfaChallengeServiceOptions), container.get(CacheProvider)))
+            .asTransient();
+        // Passkeys. The options name a relying party only as a fallback: every registration and
+        // challenge passes the one `relyingPartyFor` read from the request, held to `WEB_ORIGINS`.
+        const origins = webOrigins(config);
+        registry.register(WebOrigins).useValue(new WebOrigins(origins));
+        registry
+            .register(FidoFactorServiceOptions)
+            .useValue(
+                new FidoFactorServiceOptions(Duration.fromObject({ minutes: 1 }), new URL(origins[0]!).hostname, RELYING_PARTY_NAME, origins[0]!),
+            );
+        registry.register(FidoFactorRepository).useClass(AccountPasskeyRepository).asTransient();
+        registry
+            .register(FidoFactorService)
+            .useFactory(
+                container =>
+                    new FidoFactorService(container.get(FidoFactorServiceOptions), container.get(FidoFactorRepository), container.get(CacheProvider)),
+            )
             .asTransient();
         registry.register(AccountFactors).useClass(AccountFactors).asTransient();
         registry.register(FactorsService).useClass(FactorsService).asTransient();

@@ -172,6 +172,37 @@ describe('wilson auth login', () => {
         expect(JSON.parse(entry.value!).token).toBe('wl_new');
     });
 
+    it('explains that a passkey-only account cannot sign in from the CLI', async () => {
+        fetchMock.mockResolvedValueOnce(json({ result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'passkey', id: 'p-1' }] }));
+        const { ctx, logger } = buildCtx();
+
+        expect(await login({}, ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(1);
+
+        expect(logger.error.mock.calls[0]![0]).toContain('passkey');
+        expect(calls()).toHaveLength(1);
+    });
+
+    it('uses the authenticator app when a passkey is enrolled too', async () => {
+        fetchMock
+            .mockResolvedValueOnce(
+                json({
+                    result: 'mfa_required',
+                    challengeId: 'ch-1',
+                    factors: [
+                        { method: 'passkey', id: 'p-1' },
+                        { method: 'authenticator', id: 'f-1' },
+                    ],
+                }),
+            )
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(0);
+
+        expect(calls()[1]!.body).toMatchObject({ grant_type: 'authenticator', factor_id: 'f-1' });
+    });
+
     it('says the code was wrong', async () => {
         fetchMock
             .mockResolvedValueOnce(json({ result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'authenticator', id: 'f-1' }] }))

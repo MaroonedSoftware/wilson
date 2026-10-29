@@ -1,4 +1,12 @@
-import type { AuthenticatorRegistration, SecondFactorSummary, StartAuthenticatorRequest, VerifyAuthenticatorRequest } from './types/factors.js';
+import type {
+    AuthenticatorRegistration,
+    PasskeyRegistration,
+    SecondFactorSummary,
+    StartAuthenticatorRequest,
+    StartPasskeyRequest,
+    VerifyAuthenticatorRequest,
+    VerifyPasskeyRequest,
+} from './types/factors.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -27,6 +35,26 @@ export class FactorsClient {
     /** @name Finish enrolling an authenticator app */
     async verifyAuthenticator(body: VerifyAuthenticatorRequest): Promise<SecondFactorSummary> {
         const result = await this.fetch(`/api/auth/factors/authenticator/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<SecondFactorSummary>(result);
+    }
+
+    /** @name Start enrolling a passkey */
+    async startPasskey(body: StartPasskeyRequest): Promise<PasskeyRegistration> {
+        const result = await this.fetch(`/api/auth/factors/passkey`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<PasskeyRegistration>(result);
+    }
+
+    /** @name Finish enrolling a passkey */
+    async verifyPasskey(body: VerifyPasskeyRequest): Promise<SecondFactorSummary> {
+        const result = await this.fetch(`/api/auth/factors/passkey/verify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),

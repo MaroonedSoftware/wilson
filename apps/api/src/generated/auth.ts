@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
+import { PasskeyAssertionCredential } from './passkey.types.js';
+import { PasskeyRequestOptions } from './passkey.types.js';
 
 const _ZodDatetime = z.preprocess(
     val => (typeof val === 'string' ? DateTime.fromISO(val) : val),
@@ -10,7 +12,7 @@ const _ZodDatetime = z.preprocess(
  * generated from [TokenRequest](file://./../../data/contracts/auth.ck#L18)
  */
 export const TokenRequest = z.strictObject({
-    grant_type: z.enum(['password', 'refresh_token', 'authenticator']),
+    grant_type: z.enum(['password', 'refresh_token', 'authenticator', 'passkey']),
     username: z.string().max(64).optional().describe('`password` grant.'),
     password: z.string().max(256).optional(),
     refresh_token: z.string().optional().describe('`refresh_token` grant.'),
@@ -22,23 +24,49 @@ export const TokenRequest = z.strictObject({
         ),
     factor_id: z.string().optional(),
     code: z.string().max(10).optional(),
+    passkey_challenge_id: z
+        .string()
+        .optional()
+        .describe(
+            "`passkey` grant: the other second step, with `challenge_id` as above, the passkey challenge\n`POST /api/auth/passkey/challenge` issued, and the browser's answer to it.",
+        ),
+    credential: PasskeyAssertionCredential.optional(),
 });
 export type TokenRequest = z.infer<typeof TokenRequest>;
 
 /**
  * A second factor a sign-in may be completed with, as `mfa_required` lists them.
- * generated from [MfaFactor](file://./../../data/contracts/auth.ck#L33)
+ * generated from [MfaFactor](file://./../../data/contracts/auth.ck#L37)
  */
 export const MfaFactor = z.strictObject({
-    method: z.enum(['authenticator']),
+    method: z.enum(['authenticator', 'passkey']),
     id: z.string(),
     label: z.string().optional(),
 });
 export type MfaFactor = z.infer<typeof MfaFactor>;
 
 /**
+ * generated from [PasskeyChallengeRequest](file://./../../data/contracts/auth.ck#L63)
+ */
+export const PasskeyChallengeRequest = z.strictObject({
+    challenge_id: z.string(),
+});
+export type PasskeyChallengeRequest = z.infer<typeof PasskeyChallengeRequest>;
+
+/**
+ * What to call `navigator.credentials.get` with to complete a sign-in, and the id the `passkey`
+ * grant names it by.
+ * generated from [PasskeyChallenge](file://./../../data/contracts/auth.ck#L69)
+ */
+export const PasskeyChallenge = z.strictObject({
+    passkeyChallengeId: z.string(),
+    options: PasskeyRequestOptions,
+});
+export type PasskeyChallenge = z.infer<typeof PasskeyChallenge>;
+
+/**
  * The session the caller's bearer token names.
- * generated from [CurrentSession](file://./../../data/contracts/auth.ck#L60)
+ * generated from [CurrentSession](file://./../../data/contracts/auth.ck#L75)
  */
 export const CurrentSession = z.strictObject({
     accountId: z.string(),
@@ -59,7 +87,7 @@ export type CurrentSession = z.infer<typeof CurrentSession>;
  * With a second factor enrolled, a correct password answers `result: mfa_required` instead, with no
  * tokens: `challengeId` and the `factors` to choose from, for an `authenticator` grant to complete
  * within five minutes. Otherwise `result` is `token`.
- * generated from [TokenResponse](file://./../../data/contracts/auth.ck#L49)
+ * generated from [TokenResponse](file://./../../data/contracts/auth.ck#L53)
  */
 export const TokenResponse = z.strictObject({
     result: z.enum(['token', 'mfa_required']),

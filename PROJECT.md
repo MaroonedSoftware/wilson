@@ -668,7 +668,14 @@ answers `mfa_required` with a five-minute challenge instead of a session, and th
 grant completes it with a code; each code works once. The TOTP seed is stored encrypted under a
 root key (`AUTH_ENCRYPTION_KEY`, or generated into `../.wilson-secrets/encryption.key` like the
 signing key), because a code can only be checked against the seed itself. Lose that key and every
-enrolled authenticator stops working, so back it up with the database. Step-up, meaning a strong factor proven within the last five
+enrolled authenticator stops working, so back it up with the database.
+
+A passkey completes the same challenge through the `passkey` grant, after
+`POST /api/auth/passkey/challenge` issues a WebAuthn challenge for the browser to sign. A passkey is
+bound to the origin it was made at, and the API takes that origin from the request only when it is
+one of `WEB_ORIGINS`, so a page anywhere else is never handed a challenge one of ours would answer.
+Passkeys work only in the web app, which has a browser: the CLI completes a sign-in with the
+authenticator app, and tells a passkey-only account to set one up as well. Step-up, meaning a strong factor proven within the last five
 minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
 because those are the two actions that hand out or rewrite authority. An API-key session never
 satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI

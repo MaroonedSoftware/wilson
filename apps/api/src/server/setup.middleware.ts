@@ -7,24 +7,8 @@ import {
     serverKitContextMiddleware,
     type ServerKitMiddleware,
 } from '@maroonedsoftware/koa';
-import { optionalConfigString } from '#shared/require.config.js';
+import { webOrigins } from '#modules/authentication/web.origins.js';
 import { streamCookieMiddleware } from './stream.cookie.middleware.js';
-
-/** Where the web app is served from in development: `apps/web`'s Vite port. */
-export const DEFAULT_WEB_ORIGIN = 'http://localhost:13101';
-
-/**
- * The browser origins allowed to call the API with credentials: `WEB_ORIGINS`, comma-separated, or
- * the dev web app alone. Exact origins, never a pattern. The web app's refresh cookie is redeemable
- * by any origin CORS admits with credentials, and redeeming it returns an access token in the body,
- * so admitting "any localhost port" would hand the operator's session to whatever else is serving
- * on this machine.
- */
-export const webOrigins = (config: AppConfig): string[] =>
-    (optionalConfigString(config, 'WEB_ORIGINS') ?? DEFAULT_WEB_ORIGIN)
-        .split(',')
-        .map(origin => origin.trim().replace(/\/$/, ''))
-        .filter(origin => origin.length > 0);
 
 /**
  * The middleware stack for a single-operator, self-hosted server: no rate limiting beyond the
