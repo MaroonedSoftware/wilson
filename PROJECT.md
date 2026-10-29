@@ -652,9 +652,15 @@ multi-tenant problem wilson does not have, and are deliberately left out.
 **Sessions.** Every login method goes through `POST /auth/token` with a `grant_type`. The access
 token is an RS256 JWT that names a server-side session, so revoking the session invalidates every
 token derived from it. Sessions live in the Postgres-backed cache wilson already runs
-(`cache_entries`), so authentication adds no Redis. Refresh tokens are single-use and rotate
-within a family; replaying a spent one revokes the family. The signing key comes from config, as
-a PEM or base64, and the API refuses to boot without it.
+(`cache_entries`, plus `cache_set_members` for each account's index of its sessions), so
+authentication adds no Redis. Refresh tokens are single-use and rotate within a family; replaying
+a spent one revokes the family.
+
+The signing key is `AUTH_SESSION_PRIVATE_KEY` when set, as a PEM or base64. Otherwise it is read
+from `AUTH_SESSION_KEY_FILE`, default `../.wilson-secrets/session.pem` beside the repo as
+`WILSON_BACKUP_DIR` is, and generated there, owner-only, on first boot, the way deadair's container
+generates its keys. Refusing to boot without one would be stricter, but the CLI builds the same
+container, so an unset key would stop every `wilson` command and the daemon's next restart.
 
 **Factors.** A password (Argon2id, rate-limited per account and per caller) is the first factor.
 TOTP and passkeys are the second. Step-up, meaning a strong factor proven within the last five
@@ -677,13 +683,19 @@ is neither gated nor explicitly public. Each request also confirms the session's
 exists, so a database restored out of step with the session store cannot serve a deleted
 principal.
 
-**What this does not cover.** Authentication guards the HTTP API. Two other paths reach board
+**What this does not cover.** Authentication guards the HTTP API. Three other paths reach board
 state without it:
 
 - **CLI commands that bootstrap the database directly** (`card start`, `card plan` and some
   doctor checks, through `cli-bootstrap`). For these the database credential is the boundary.
 - **The database itself.** The `cli` engine strips `DATABASE_*` from a stage's environment, but
   the compose credentials are the image defaults and project code can hard-code them.
+- **Files the operator's user can read.** A stage runs as the same OS user as the daemon, so
+  project code it runs can read the signing key file, `apps/api/.env` and anything else that user
+  can, unless the engine's own filesystem sandbox stops it (the `cli` engine's can; the `api`
+  engine's bash tool has none). With the signing key, code can mint a session. Taking the route
+  away from a stage is what this design does. Taking the files away needs a different OS user
+  or a container boundary, and is its own card.
 
 The stage environment scrub (card 0045) extends to wilson's own credentials: no API key, keyring
 access or session token is ever inherited by a stage. A `wilson doctor` check verifies it.

@@ -1,5 +1,6 @@
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
+import { AuthenticationModule } from './authentication/authentication.module.js';
 import { BoardModule } from './board/board.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -39,12 +40,16 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * Learnings is listed beside Stages (card 0239): `PostgresLearningsStore` takes `BoardConfig` and
  * `Kysely<DB>`, the same two dependencies `PostgresStageConfigStore` does, both already registered
  * by the time either module's turn comes (Board and Data are earlier in this list).
+ *
+ * Authentication is listed right after Sources: `AuthenticationSessionService` stores sessions
+ * through the `CacheProvider` that Sources registers.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
     BoardModule,
     SourcesModule,
+    AuthenticationModule,
     ContextModule,
     HealthModule,
     LeaseModule,

@@ -32,6 +32,9 @@ export const buildTestServerConfig = async (): Promise<AppConfig> => {
             'DATABASE_NAME=wilson_test',
             'PROJECT_NAME=wilson-test',
             'PROJECT_CODE_ROOT=/tmp/wilson-container-test/code',
+            // `AuthenticationModule.setup` generates a session key when none exists. Inside this
+            // fixture's own directory, so no test writes to the deployment's secrets directory.
+            `AUTH_SESSION_KEY_FILE=${join(dir, 'session.pem')}`,
         ].join('\n'),
         'utf8',
     );
