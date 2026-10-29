@@ -94,7 +94,7 @@ HostsRouter.delete('/api/hosts/:name', requirePolicy({ policy: 'wilson.manage' }
 });
 
 /**
- * Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+ * Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
  * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
  * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
  * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts/{name}/probe`

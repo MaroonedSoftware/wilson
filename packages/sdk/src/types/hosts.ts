@@ -67,12 +67,13 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
- * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
- * expects. `slots` defaults to 1.
+ * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
+ * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface CreateHostRequest {
     name: string;
+    kind?: 'ssh' | 'worker';
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
@@ -81,10 +82,12 @@ export interface CreateHostRequest {
 
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
- * No `name`: it is the key every lease and job that names this host will carry.
+ * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
+ * moving a machine to the other kind is removing the host and registering it again.
  * generated from [UpdateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface UpdateHostRequest {
+    /** Only for an `ssh` host. */
     sshTarget?: string;
     slots?: number;
     enabled?: boolean;
@@ -112,7 +115,13 @@ export interface PutHostProjectRequest {
  */
 export interface Host {
     name: string;
-    sshTarget: string;
+    /**
+     * How the daemon reaches it: `ssh` connects out to `sshTarget`; `worker` waits for the worker
+     * program there to connect in. Fixed at registration.
+     */
+    kind: 'ssh' | 'worker';
+    /** Set exactly when `kind` is `ssh`. */
+    sshTarget?: string;
     slots: number;
     enabled: boolean;
     draining: boolean;

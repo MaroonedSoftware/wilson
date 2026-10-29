@@ -34,13 +34,47 @@ const registerProject = async (): Promise<string> => {
 };
 
 describe('HostsService', () => {
-    it('registers a host with its SSH target defaulting to its name and one slot', async () => {
+    it('registers an SSH host by default, with its SSH target defaulting to its name and one slot', async () => {
         const name = uniqueProject();
 
         const host = await service.create({ name });
 
-        expect(host).toEqual({ name, sshTarget: name, slots: 1, enabled: true, draining: false, commandEnv: [], projects: [], running: [] });
+        expect(host).toEqual({
+            name,
+            kind: 'ssh',
+            sshTarget: name,
+            slots: 1,
+            enabled: true,
+            draining: false,
+            commandEnv: [],
+            projects: [],
+            running: [],
+        });
         expect(await service.list()).toContainEqual(host);
+    });
+
+    it('registers a worker host with no SSH target', async () => {
+        const name = uniqueProject();
+
+        const host = await service.create({ name, kind: 'worker', slots: 2 });
+
+        expect(host).toEqual({ name, kind: 'worker', slots: 2, enabled: true, draining: false, commandEnv: [], projects: [], running: [] });
+        expect(await service.get(name)).toEqual(host);
+    });
+
+    it('refuses an SSH target for a worker host with 400, at registration and after', async () => {
+        const name = uniqueProject();
+
+        await expect(service.create({ name, kind: 'worker', sshTarget: 'box' })).rejects.toMatchObject({ statusCode: 400 });
+        await service.create({ name, kind: 'worker' });
+        await expect(service.update(name, { sshTarget: 'box' })).rejects.toMatchObject({ statusCode: 400 });
+        expect(await service.update(name, { draining: true })).toMatchObject({ kind: 'worker', draining: true });
+    });
+
+    it('keeps the kind and the SSH target in step in the table itself', async () => {
+        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'worker', sshTarget: 'box' }).execute()).rejects.toThrow();
+        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'ssh', sshTarget: null }).execute()).rejects.toThrow();
+        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'pigeon', sshTarget: 'box' }).execute()).rejects.toThrow();
     });
 
     it('refuses a taken name with 409, and a bad target or slot count with 400', async () => {

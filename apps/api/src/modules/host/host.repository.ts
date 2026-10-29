@@ -37,10 +37,18 @@ export interface HostProbeRow {
     expiresAt?: DateTime;
 }
 
+/**
+ * How the daemon reaches a host: `ssh` connects out to `sshTarget`; `worker` waits for the worker
+ * program on the machine to connect in, and has no SSH target.
+ */
+export type HostKind = 'ssh' | 'worker';
+
 /** One `runner.hosts` row with its `runner.host_projects` rows. */
 export interface HostRow {
     name: string;
-    sshTarget: string;
+    kind: HostKind;
+    /** What `ssh` connects to. Set exactly when `kind` is `ssh`. */
+    sshTarget?: string;
     slots: number;
     enabled: boolean;
     draining: boolean;
@@ -117,7 +125,14 @@ export class HostRepository {
     }
 
     /** Register a host. Fails if the name is already taken. */
-    async create(row: { name: string; sshTarget: string; slots: number; lifetimeMinutes?: number; commandEnv?: string[] }): Promise<void> {
+    async create(row: {
+        name: string;
+        kind: HostKind;
+        sshTarget?: string;
+        slots: number;
+        lifetimeMinutes?: number;
+        commandEnv?: string[];
+    }): Promise<void> {
         await this.db.insertInto('runner.hosts').values(row).execute();
     }
 
@@ -179,7 +194,8 @@ export class HostRepository {
  */
 type HostSelection = {
     name: string;
-    sshTarget: string;
+    kind: string;
+    sshTarget?: string | null;
     slots: number;
     enabled: boolean;
     draining: boolean;
@@ -194,7 +210,8 @@ type HostSelection = {
 
 const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease[]): HostRow => ({
     name: host.name,
-    sshTarget: host.sshTarget,
+    kind: host.kind as HostKind,
+    ...(host.sshTarget && { sshTarget: host.sshTarget }),
     slots: host.slots,
     enabled: host.enabled,
     draining: host.draining,

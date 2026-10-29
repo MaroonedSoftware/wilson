@@ -144,7 +144,7 @@ export class ProbeHostMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'probe_host',
         description:
-            "Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each\nproject's clone is a git repository and its roots can be written, and, given a lifetime, when it\nwill stop. A failed check is a recorded result (`probe.ok: false`), not an error response.",
+            "Connect to the host and record what is there: that it can be reached, which `claude` it has, that each\nproject's clone is a git repository and its roots can be written, and, given a lifetime, when it\nwill stop. A failed check is a recorded result (`probe.ok: false`), not an error response.",
         inputSchema: z.toJSONSchema(ProbeHostArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(Host, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

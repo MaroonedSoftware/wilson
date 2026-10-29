@@ -32,10 +32,17 @@ export class HostsService {
         return toHost(await this.require(name));
     }
 
-    /** Register a host. Refuses a taken name with 409, and a bad name, target or slot count with 400. */
+    /**
+     * Register a host. Refuses a taken name with 409, and a bad name, target or slot count with 400. An
+     * `ssh` host's target defaults to its name; a `worker` host has none, and naming one is a 400.
+     */
     async create(request: CreateHostRequest): Promise<Host> {
         const name = requireNonEmpty('name', request.name);
-        const sshTarget = request.sshTarget === undefined ? name : requireNonEmpty('sshTarget', request.sshTarget);
+        const kind = request.kind ?? 'ssh';
+        if (kind === 'worker' && request.sshTarget !== undefined) {
+            throw httpError(400).withDetails({ reason: 'a worker host connects in, so it takes no sshTarget' });
+        }
+        const sshTarget = kind === 'worker' ? undefined : request.sshTarget === undefined ? name : requireNonEmpty('sshTarget', request.sshTarget);
         const slots = request.slots === undefined ? MIN_SLOTS : requireSlots(request.slots);
         const lifetimeMinutes = request.lifetimeMinutes === undefined ? undefined : requireLifetime(request.lifetimeMinutes);
         const commandEnv = request.commandEnv === undefined ? undefined : requireVariableNames(request.commandEnv);
@@ -44,14 +51,29 @@ export class HostsService {
             throw httpError(409).withDetails({ reason: `host "${name}" is already registered` });
         }
 
-        await this.hosts.create({ name, sshTarget, slots, ...(lifetimeMinutes && { lifetimeMinutes }), ...(commandEnv && { commandEnv }) });
+        await this.hosts.create({
+            name,
+            kind,
+            ...(sshTarget && { sshTarget }),
+            slots,
+            ...(lifetimeMinutes && { lifetimeMinutes }),
+            ...(commandEnv && { commandEnv }),
+        });
         return this.get(name);
     }
 
-    /** Change a host's target, slots or switches. Refuses an unregistered name with 404. */
+    /**
+     * Change a host's target, slots or switches. Refuses an unregistered name with 404, and an SSH
+     * target for a worker host with 400.
+     */
     async update(name: string, request: UpdateHostRequest): Promise<Host> {
         const patch: HostPatch = {};
-        if (request.sshTarget !== undefined) patch.sshTarget = requireNonEmpty('sshTarget', request.sshTarget);
+        if (request.sshTarget !== undefined) {
+            if ((await this.require(name)).kind === 'worker') {
+                throw httpError(400).withDetails({ reason: `host "${name}" is a worker, which connects in and has no sshTarget` });
+            }
+            patch.sshTarget = requireNonEmpty('sshTarget', request.sshTarget);
+        }
         if (request.slots !== undefined) patch.slots = requireSlots(request.slots);
         if (request.enabled !== undefined) patch.enabled = request.enabled;
         if (request.draining !== undefined) patch.draining = request.draining;
@@ -109,7 +131,8 @@ export class HostsService {
 /** A row as the API returns it. */
 export const toHost = (row: HostRow): Host => ({
     name: row.name,
-    sshTarget: row.sshTarget,
+    kind: row.kind,
+    ...(row.sshTarget !== undefined && { sshTarget: row.sshTarget }),
     slots: row.slots,
     enabled: row.enabled,
     draining: row.draining,

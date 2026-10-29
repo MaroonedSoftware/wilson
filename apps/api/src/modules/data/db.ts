@@ -154,7 +154,8 @@ export interface Projects {
  */
 export interface Hosts {
     name: string;
-    sshTarget: string;
+    kind: Generated<string>;
+    sshTarget: string | null;
     slots: Generated<number>;
     enabled: Generated<boolean>;
     draining: Generated<boolean>;

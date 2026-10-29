@@ -128,6 +128,19 @@ describe('HostProber', () => {
         expect(host.probe?.detail).toMatch(/^cannot reach .*Operation timed out/);
     });
 
+    it('records a worker host as not connected, without trying to reach it', async () => {
+        const name = uniqueProject();
+        await service.create({ name, kind: 'worker' });
+        // An `ssh` that fails the test if anything runs it: a worker host has no SSH target to reach.
+        const forbidden = join(base, 'forbidden-ssh');
+        await writeFile(forbidden, '#!/bin/sh\necho "ssh was run for a worker host" >&2\nexit 99\n', 'utf8');
+        await chmod(forbidden, 0o755);
+
+        const host = await new HostProber(hosts, new HostConnector(forbidden)).probe(name);
+
+        expect(host.probe).toMatchObject({ ok: false, detail: 'no worker is connected for this host' });
+    });
+
     it('reports a variable the host says it supplies to commands but does not have', async () => {
         const name = await registerHost({ codeRoot: join(base, 'clone') });
         await service.update(name, { commandEnv: ['WILSON_PROBE_SET', 'WILSON_PROBE_MISSING'] });

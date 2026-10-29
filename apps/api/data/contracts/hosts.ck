@@ -9,7 +9,7 @@ options {
 }
 
 # The registry of machines other than the daemon's own that a card stage can run on, reached over
-# SSH (`runner.hosts`, `runner.host_projects`). Deployment-scoped like `projects.ck`, not per
+# SSH or by a worker that connects in (`runner.hosts`, `runner.host_projects`). Deployment-scoped like `projects.ck`, not per
 # project, and in a file of its own for the same reason that one is.
 #
 # Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
@@ -56,7 +56,11 @@ contract HostSlotUse: {
 # takes no new stage but lets the ones already there finish.
 contract Host: {
     name: string
-    sshTarget: string
+    # How the daemon reaches it: `ssh` connects out to `sshTarget`; `worker` waits for the worker
+    # program there to connect in. Fixed at registration.
+    kind: enum(ssh, worker)
+    # Set exactly when `kind` is `ssh`.
+    sshTarget?: string
     slots: int
     enabled: boolean
     draining: boolean
@@ -72,10 +76,11 @@ contract Host: {
     probe?: HostProbe
 }
 
-# `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
-# expects. `slots` defaults to 1.
+# `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
+# VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
 contract CreateHostRequest: {
     name: string
+    kind?: enum(ssh, worker)
     sshTarget?: string
     slots?: int
     lifetimeMinutes?: int
@@ -83,8 +88,10 @@ contract CreateHostRequest: {
 }
 
 # A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
-# No `name`: it is the key every lease and job that names this host will carry.
+# No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
+# moving a machine to the other kind is removing the host and registering it again.
 contract UpdateHostRequest: {
+    # Only for an `ssh` host.
     sshTarget?: string
     slots?: int
     enabled?: boolean
@@ -125,7 +132,7 @@ operation /api/hosts: {
             201: {
                 application/json: Host
             }
-            # An empty name or SSH target, or slots outside 1 to 8.
+            # An empty name or SSH target, an SSH target for a worker host, or slots outside 1 to 8.
             400:
             # The name is already registered.
             409:
@@ -160,7 +167,7 @@ operation /api/hosts/{name}: {
             200: {
                 application/json: Host
             }
-            # An empty SSH target, or slots outside 1 to 8.
+            # An empty SSH target, an SSH target for a worker host, or slots outside 1 to 8.
             400:
             404:
         }
@@ -175,7 +182,7 @@ operation /api/hosts/{name}: {
     }
 }
 
-# Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+# Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
 # project's clone is a git repository and its roots can be written, and, given a lifetime, when it
 # will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
 operation /api/hosts/{name}/probe: {

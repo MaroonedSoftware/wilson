@@ -2,12 +2,12 @@ import type { DateTime } from 'luxon';
 import type { Host } from '@wilson/sdk';
 
 /**
- * One host as `wilson host list` prints it: its name and target, its switches and slots, what the
+ * One host as `wilson host list` prints it: its name and how it is reached, its switches and slots, what the
  * last probe found, one indented line per slot in use, and one per project it serves.
  */
 export const describeHost = (host: Host): string[] => {
     const state = !host.enabled ? 'disabled' : host.draining ? 'draining' : 'enabled';
-    const target = host.sshTarget === host.name ? '' : ` (ssh ${host.sshTarget})`;
+    const target = host.kind === 'worker' ? ' (worker)' : host.sshTarget === host.name ? '' : ` (ssh ${host.sshTarget})`;
     const lifetime = host.lifetimeMinutes ? `  lives ${host.lifetimeMinutes}m after boot` : '';
     const commandEnv = host.commandEnv.length > 0 ? `  commands get ${host.commandEnv.join(', ')} from it` : '';
     const lines = [

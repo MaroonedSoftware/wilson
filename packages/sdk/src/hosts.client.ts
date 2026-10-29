@@ -48,7 +48,7 @@ export class HostsClient {
 
     /**
      * @name Probe host
-     * @description Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+     * @description Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
      * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
      * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
      */

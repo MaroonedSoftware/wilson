@@ -26,7 +26,7 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  * response: the caller asked what state the host is in, and "unreachable" is an answer.
  *
  * What it checks, and why each matters to a stage placed there:
- * - SSH reaches it, without a prompt.
+ * - SSH reaches it, without a prompt. A `worker` host cannot be reached yet, so it fails here.
  * - `claude` is on its `PATH`, since the engine runs there, and is signed in the way an engine
  *   started there would be. A version other than the one this
  *   machine's probes last passed against is reported, not refused: the host's engine has not been
@@ -54,8 +54,13 @@ export class HostProber {
 
     /** Run every check against `row`'s host and say what was found. Writes nothing. */
     async inspect(row: HostRow): Promise<HostProbeRow> {
-        const host = this.connector.connect(row);
         const probedAt = DateTime.now();
+        // Nothing accepts a worker's connection yet, so there is no way to reach one to check it. A
+        // failed probe is also what keeps placement from choosing it.
+        if (row.kind === 'worker') {
+            return { probedAt, ok: false, detail: 'no worker is connected for this host' };
+        }
+        const host = this.connector.connect(row);
 
         const reach = await run(host, 'true', []);
         if (reach instanceof Error) {
