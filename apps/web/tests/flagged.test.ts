@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0119: an aggregate count of cards needing a human, shown in the shared header
@@ -47,7 +48,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'demo',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };

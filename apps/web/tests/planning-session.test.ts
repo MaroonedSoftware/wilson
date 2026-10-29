@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0137: a card in `planning` gets a two-pane session — the conversation
@@ -55,7 +56,7 @@ const turn = (seq: number, overrides: Partial<PlanTurn> = {}): PlanTurn => ({
     seq,
     role: 'assistant',
     content: `turn ${seq}`,
-    createdAt: '2026-08-27T00:00:00.000Z',
+    createdAt: DateTime.fromISO('2026-08-27T00:00:00.000Z'),
     ...overrides,
 });
 

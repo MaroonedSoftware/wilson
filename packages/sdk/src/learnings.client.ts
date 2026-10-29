@@ -1,9 +1,10 @@
 import type { LearningsDocument, LearningsVersion, LearningsVersionsQuery, SetLearningsRequest } from './types/learnings.js';
+import { reviveLearningsDocument, reviveLearningsVersion } from './types/learnings.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
- * generated from [learnings.ck](file://./../../../apps/api/data/contracts/learnings.ck)
+ * generated from [learnings.ck](../../../apps/api/data/contracts/learnings.ck)
  */
 export class LearningsClient {
     constructor(private fetch: SdkFetch) {}
@@ -11,7 +12,7 @@ export class LearningsClient {
     /** @name Get learnings */
     async getLearnings(): Promise<LearningsDocument> {
         const result = await this.fetch(`/api/learnings`, { method: 'GET' });
-        return await parseJson<LearningsDocument>(result);
+        return reviveLearningsDocument(await parseJson<LearningsDocument>(result));
     }
 
     /**
@@ -26,7 +27,7 @@ export class LearningsClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<LearningsDocument>(result);
+        return reviveLearningsDocument(await parseJson<LearningsDocument>(result));
     }
 
     /** @name List learnings versions */
@@ -35,6 +36,6 @@ export class LearningsClient {
         const result = await this.fetch(`/api/learnings/versions${qs}`, {
             method: 'GET',
         });
-        return await parseJson<LearningsVersion[]>(result);
+        return (await parseJson<LearningsVersion[]>(result)).map(reviveLearningsVersion);
     }
 }

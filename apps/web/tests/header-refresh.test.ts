@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0173: the header's refresh `ActionIcon` (`__root.tsx`, beside the live/snapshot badge) is
@@ -24,7 +25,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'demo',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };

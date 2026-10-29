@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Badge, Button, Code, Group, Loader, NumberInput, Paper, Select, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import type { DateTime } from 'luxon';
 import type { Host, UpdateHostRequest } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { listRegisteredProjects } from '#src/lib/projects.js';
@@ -17,9 +18,9 @@ export const HOSTS_QUERY_KEY = ['hosts'];
  */
 const REFRESH_MS = 10_000;
 
-/** "in 3h 12m", "5m ago": how far `iso` is from `now`, to the minute. */
-export function relativeTime(iso: string, now: number): string {
-    const minutes = Math.round((Date.parse(iso) - now) / 60_000);
+/** "in 3h 12m", "5m ago": how far `at` is from `now`, to the minute. */
+export function relativeTime(at: DateTime, now: number): string {
+    const minutes = Math.round((at.toMillis() - now) / 60_000);
     const span = Math.abs(minutes);
     const text = span < 1 ? 'less than a minute' : span < 60 ? `${span}m` : `${Math.floor(span / 60)}h ${span % 60}m`;
     return minutes >= 0 ? `in ${text}` : `${text} ago`;

@@ -1,3 +1,4 @@
+import type { DateTime } from 'luxon';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
 import type { CardState } from '#src/components/brand/StateIcon.js';
 import type { CardActivity } from './feed.js';
@@ -117,8 +118,8 @@ const DAY_MS = 24 * HOUR_MS;
  * `Board.tsx`) — omitting the line rather than guessing a duration, matching `stageEnteredAt`'s own
  * contract (card 0178).
  */
-export const ageInStage = (stageEnteredAt: string, now: Date): string => {
-    const elapsed = Math.max(0, now.getTime() - new Date(stageEnteredAt).getTime());
+export const ageInStage = (stageEnteredAt: DateTime, now: Date): string => {
+    const elapsed = Math.max(0, now.getTime() - stageEnteredAt.toMillis());
     if (elapsed < HOUR_MS) return `${Math.round(elapsed / MINUTE_MS)}m in stage`;
     if (elapsed < DAY_MS) return `${Math.round(elapsed / HOUR_MS)}h in stage`;
     return `${Math.round(elapsed / DAY_MS)}d in stage`;

@@ -1,5 +1,6 @@
 import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
+import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
@@ -7,6 +8,7 @@ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
     CardStageConcurrency,
+    ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
     NotifyWebhookSetting,
@@ -22,12 +24,12 @@ import {
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [settings.ck](file://./../../data/contracts/settings.ck)
+ * generated from [settings.ck](../../data/contracts/settings.ck)
  */
 export const SettingsRouter = ServerKitRouter();
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L70)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/poller-enabled`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
@@ -40,7 +42,7 @@ SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L77)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/poller-enabled`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']), async ctx => {
@@ -55,7 +57,7 @@ SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L90)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/poller-interval-ms`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
@@ -68,7 +70,7 @@ SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L97)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/poller-interval-ms`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['json']), async ctx => {
@@ -83,7 +85,7 @@ SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['js
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L113)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/card-stage-concurrency`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
@@ -96,7 +98,7 @@ SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L120)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/card-stage-concurrency`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(['json']), async ctx => {
@@ -111,7 +113,7 @@ SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L150)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/notify-webhook`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
@@ -124,7 +126,7 @@ SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L157)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/notify-webhook`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']), async ctx => {
@@ -139,7 +141,7 @@ SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L193)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/claude-config-dir`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
@@ -152,7 +154,7 @@ SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L200)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/claude-config-dir`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['json']), async ctx => {
@@ -167,7 +169,7 @@ SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['jso
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L229)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/dry-run`
  * anonymous access, no security required
  */
 SettingsRouter.get('/api/settings/dry-run', async ctx => {
@@ -180,7 +182,7 @@ SettingsRouter.get('/api/settings/dry-run', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L236)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/dry-run`
  * anonymous access, no security required
  */
 SettingsRouter.put('/api/settings/dry-run', bodyParserMiddleware(['json']), async ctx => {
@@ -188,6 +190,34 @@ SettingsRouter.put('/api/settings/dry-run', bodyParserMiddleware(['json']), asyn
 
     const service = ctx.container.get(DryRunSettingService);
     const result: DryRunSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/chat-engine`
+ * anonymous access, no security required
+ */
+SettingsRouter.get('/api/settings/chat-engine', async ctx => {
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/chat-engine`
+ * anonymous access, no security required
+ */
+SettingsRouter.put('/api/settings/chat-engine', bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, ChatEngineSetting);
+
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

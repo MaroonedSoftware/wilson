@@ -1,3 +1,5 @@
+import type { DateTime } from 'luxon';
+
 /** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
 const BULLET_MARKER = /^\s*[-*+]\s*/;
 
@@ -79,7 +81,7 @@ export const acceptanceCriteria = (sectionText: string | undefined): { id: strin
 };
 
 /** A timestamp for reading, not for sorting — the API already returns rows newest/oldest as intended. */
-export const formatTimestamp = (iso: string): string => new Date(iso).toLocaleString();
+export const formatTimestamp = (at: DateTime): string => at.toJSDate().toLocaleString();
 
 /**
  * The same six-heading skeleton `create.command.ts` seeds `$EDITOR` with

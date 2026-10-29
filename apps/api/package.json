@@ -32,9 +32,11 @@
         "@maroonedsoftware/koa": "^3.0.10",
         "@maroonedsoftware/kysely": "^0.7.9",
         "@maroonedsoftware/logger": "^1.1.8",
+        "@maroonedsoftware/mcp": "^0.7.7",
         "@maroonedsoftware/serverfeed": "^0.1.5",
         "@maroonedsoftware/utilities": "^1.11.5",
         "@maroonedsoftware/zod": "^0.5.6",
+        "@modelcontextprotocol/sdk": "^1.32.2",
         "ai": "^7.0.77",
         "injectkit": "^1.7.0",
         "kysely": "^0.29.5",
@@ -47,8 +49,8 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "@contractkit/cli": "^0.10.7",
-        "@contractkit/plugin-typescript": "^0.31.2",
+        "@contractkit/cli": "^0.11.10",
+        "@contractkit/plugin-typescript": "^0.42.0",
         "@maroonedsoftware/johnny5": "^8.0.10",
         "@repo/config-eslint": "workspace:*",
         "@repo/config-typescript": "workspace:*",

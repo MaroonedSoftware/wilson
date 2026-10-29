@@ -20,7 +20,7 @@ const command: CommandModule<VersionsOpts> = {
         }
 
         for (const version of versions) {
-            ctx.logger.info(`${version.id}  ${version.createdAt}  ${version.message}`);
+            ctx.logger.info(`${version.id}  ${version.createdAt.toUTC().toISO()}  ${version.message}`);
         }
         return 0;
     }),

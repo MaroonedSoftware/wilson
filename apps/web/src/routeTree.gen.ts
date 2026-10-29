@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HostsRouteImport } from './routes/hosts'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
 import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
@@ -29,6 +30,11 @@ const HostsRoute = HostsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -79,6 +88,7 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/projects/'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
@@ -87,6 +97,7 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/projects'
     | '/projects/$project/flagged'
     | '/projects/$project'
     | '/projects/$project/cards/$cardId'
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/projects/'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
@@ -104,6 +116,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HostsRoute: typeof HostsRoute
   SettingsRoute: typeof SettingsRoute
+  ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
   ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
   ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
@@ -130,6 +143,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$project/': {
@@ -160,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HostsRoute: HostsRoute,
   SettingsRoute: SettingsRoute,
+  ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
   ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
   ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,

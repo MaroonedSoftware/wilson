@@ -9,7 +9,7 @@ const _ZodDatetime = z.preprocess(
 /**
  * Where one project lives on a host. `codeRoot` is a clone of the project's repo on that machine;
  * a card's worktree is cut from it under `worktreeRoot`, and its plan is written under `runRoot`.
- * generated from [HostProject](file://./../../data/contracts/hosts.ck#L20)
+ * generated from [HostProject](../../data/contracts/hosts.ck)
  */
 export const HostProject = z.strictObject({
     project: z.string(),
@@ -22,7 +22,7 @@ export type HostProject = z.infer<typeof HostProject>;
 /**
  * What the last probe of a host found. Describes the machine as it was at `probedAt`, not as it is:
  * a VM deleted after a good probe still reads `ok` until the next one.
- * generated from [HostProbe](file://./../../data/contracts/hosts.ck#L29)
+ * generated from [HostProbe](../../data/contracts/hosts.ck)
  */
 export const HostProbe = z.strictObject({
     probedAt: _ZodDatetime,
@@ -37,10 +37,10 @@ export type HostProbe = z.infer<typeof HostProbe>;
  * A slot on a host held by a running stage: which card, of which project, since when. Read from the
  * slot's `runner.leases` row, so a slot a killed daemon left behind shows here until something takes
  * it back (placement does, the next time it needs one).
- * generated from [HostSlotUse](file://./../../data/contracts/hosts.ck#L43)
+ * generated from [HostSlotUse](../../data/contracts/hosts.ck)
  */
 export const HostSlotUse = z.strictObject({
-    slot: z.coerce.number().int(),
+    slot: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     project: z.string(),
     cardId: z.string(),
     since: _ZodDatetime,
@@ -50,13 +50,13 @@ export type HostSlotUse = z.infer<typeof HostSlotUse>;
 /**
  * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
  * expects. `slots` defaults to 1.
- * generated from [CreateHostRequest](file://./../../data/contracts/hosts.ck#L72)
+ * generated from [CreateHostRequest](../../data/contracts/hosts.ck)
  */
 export const CreateHostRequest = z.strictObject({
     name: z.string(),
     sshTarget: z.string().optional(),
-    slots: z.coerce.number().int().optional(),
-    lifetimeMinutes: z.coerce.number().int().optional(),
+    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    lifetimeMinutes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     commandEnv: z.array(z.string()).optional(),
 });
 export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
@@ -64,21 +64,24 @@ export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry.
- * generated from [UpdateHostRequest](file://./../../data/contracts/hosts.ck#L82)
+ * generated from [UpdateHostRequest](../../data/contracts/hosts.ck)
  */
 export const UpdateHostRequest = z.strictObject({
     sshTarget: z.string().optional(),
-    slots: z.coerce.number().int().optional(),
+    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
-    lifetimeMinutes: z.coerce.number().int().optional().describe('0 clears it: the host has no known end.'),
+    lifetimeMinutes: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .optional()
+        .describe('0 clears it: the host has no known end.'),
     commandEnv: z.array(z.string()).optional().describe('Replaces the whole list; an empty list clears it.'),
 });
 export type UpdateHostRequest = z.infer<typeof UpdateHostRequest>;
 
 /**
  * The three paths for one project on one host. All three are absolute paths on the host.
- * generated from [PutHostProjectRequest](file://./../../data/contracts/hosts.ck#L94)
+ * generated from [PutHostProjectRequest](../../data/contracts/hosts.ck)
  */
 export const PutHostProjectRequest = z.strictObject({
     codeRoot: z.string(),
@@ -90,17 +93,16 @@ export type PutHostProjectRequest = z.infer<typeof PutHostProjectRequest>;
 /**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
  * takes no new stage but lets the ones already there finish.
- * generated from [Host](file://./../../data/contracts/hosts.ck#L52)
+ * generated from [Host](../../data/contracts/hosts.ck)
  */
 export const Host = z.strictObject({
     name: z.string(),
     sshTarget: z.string(),
-    slots: z.coerce.number().int(),
+    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
-    lifetimeMinutes: z.coerce
-        .number()
-        .int()
+    lifetimeMinutes: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
         .optional()
         .describe(
             "Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe\nadds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.",

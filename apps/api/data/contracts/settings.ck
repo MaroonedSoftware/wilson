@@ -6,6 +6,7 @@ options {
         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
+        ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
     }
     security: none
 }
@@ -241,6 +242,37 @@ operation /api/settings/dry-run: {
         }
         response: {
             200: { application/json: DryRunSetting }
+        }
+    }
+}
+
+# Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
+# or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
+# `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
+contract ChatEngineSetting: {
+    engine: enum(api, cli)
+    provider: enum(anthropic, openai, xai)
+    model: string
+}
+
+operation /api/settings/chat-engine: {
+    get: {
+        name: Get chat engine setting
+        service: ChatEngineSettingService.get
+        response: {
+            200: { application/json: ChatEngineSetting }
+        }
+    }
+    put: {
+        name: Set chat engine setting
+        service: ChatEngineSettingService.set
+        request: {
+            application/json: ChatEngineSetting
+        }
+        response: {
+            200: { application/json: ChatEngineSetting }
+            # An empty model, carried via `details.reason` like every other refusal here.
+            400:
         }
     }
 }

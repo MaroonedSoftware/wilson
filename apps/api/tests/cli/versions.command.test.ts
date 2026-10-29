@@ -3,8 +3,8 @@ import { buildCtx, connectionRefused, fetchMock, jsonResponse, methodOf, reasonR
 
 // Card 0078 ports `versions.command.ts` off `container.get(...)` and onto `@wilson/sdk`. It used to
 // read `BoardRepository.versions(cardId, limit)` and print `version.createdAt.toISO()` (a Luxon
-// `DateTime`); the SDK's `CardVersion.createdAt` is already a wire ISO string, so the command now
-// prints it directly rather than calling `.toISO()` on it.
+// `DateTime`). The SDK revives `CardVersion.createdAt` into a `DateTime` as well, so the command
+// prints it with `.toUTC().toISO()`: the same UTC string the server sent, whatever this machine's zone.
 const { default: command } = await import('../../../../packages/cli/src/commands/card/versions.command.js');
 
 type VersionsOpts = { limit?: number };

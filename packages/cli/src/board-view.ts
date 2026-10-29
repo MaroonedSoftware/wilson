@@ -151,15 +151,15 @@ export const filesInScope = (sections: Record<string, string>): string[] => {
 
 /**
  * How long a card has held its current stage, derived from its event log. Mirrors
- * `timeInCurrentStage` in `apps/api/src/modules/events/time.in.stage.ts`, parsing `CardEvent`'s wire
- * `createdAt` (an ISO string) into a `DateTime` instead of reading one off a database row.
+ * `timeInCurrentStage` in `apps/api/src/modules/events/time.in.stage.ts`, reading `CardEvent`'s
+ * `createdAt` (a `DateTime` once the SDK has revived it) instead of one off a database row.
  */
 export const timeInCurrentStage = (events: CardEvent[], now: DateTime): Duration | undefined => {
     const [earliest] = events;
     if (!earliest) return undefined;
 
     const lastTransition = [...events].reverse().find(event => event.type === 'transition.written');
-    const since = DateTime.fromISO((lastTransition ?? earliest).createdAt);
+    const since = (lastTransition ?? earliest).createdAt;
 
     return now.diff(since);
 };

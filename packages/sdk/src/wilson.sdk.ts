@@ -1,33 +1,36 @@
 import type { SdkOptions } from './sdk-options.js';
 import { createSdkFetch } from './sdk-options.js';
-import { StagesClient } from './stages.client.js';
-import { SettingsClient } from './settings.client.js';
-import { ProjectsClient } from './projects.client.js';
-import { LearningsClient } from './learnings.client.js';
-import { HostsClient } from './hosts.client.js';
-import { HealthClient } from './health.client.js';
-import { ContextClient } from './context.client.js';
 import { BoardClient } from './board.client.js';
+import { ChatClient } from './chat.client.js';
+import { ContextClient } from './context.client.js';
+import { HealthClient } from './health.client.js';
+import { HostsClient } from './hosts.client.js';
+import { LearningsClient } from './learnings.client.js';
+import { ProjectsClient } from './projects.client.js';
+import { SettingsClient } from './settings.client.js';
+import { StagesClient } from './stages.client.js';
 
 export class WilsonSdk {
-    readonly stages: StagesClient;
-    readonly settings: SettingsClient;
-    readonly projects: ProjectsClient;
-    readonly learnings: LearningsClient;
-    readonly hosts: HostsClient;
-    readonly health: HealthClient;
-    readonly context: ContextClient;
     readonly board: BoardClient;
+    readonly chat: ChatClient;
+    readonly context: ContextClient;
+    readonly health: HealthClient;
+    readonly hosts: HostsClient;
+    readonly learnings: LearningsClient;
+    readonly projects: ProjectsClient;
+    readonly settings: SettingsClient;
+    readonly stages: StagesClient;
 
     constructor(options: SdkOptions) {
         const sdkFetch = options.fetch ?? createSdkFetch(options);
-        this.stages = new StagesClient(sdkFetch);
-        this.settings = new SettingsClient(sdkFetch);
-        this.projects = new ProjectsClient(sdkFetch);
-        this.learnings = new LearningsClient(sdkFetch);
-        this.hosts = new HostsClient(sdkFetch);
-        this.health = new HealthClient(sdkFetch);
-        this.context = new ContextClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
+        this.chat = new ChatClient(sdkFetch);
+        this.context = new ContextClient(sdkFetch);
+        this.health = new HealthClient(sdkFetch);
+        this.hosts = new HostsClient(sdkFetch);
+        this.learnings = new LearningsClient(sdkFetch);
+        this.projects = new ProjectsClient(sdkFetch);
+        this.settings = new SettingsClient(sdkFetch);
+        this.stages = new StagesClient(sdkFetch);
     }
 }

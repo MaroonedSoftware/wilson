@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useListState } from '@mantine/hooks';
-import type { PlanDraft, PlanTurn, PlanTurnRequest } from '@wilson/sdk';
+import { revivePlanTurn, type PlanDraft, type PlanTurn, type PlanTurnRequest } from '@wilson/sdk';
 import { API_BASE, wilson } from './sdk.js';
 
 /** Whether the conversation stream is watching live, still connecting, or has dropped. */
@@ -45,7 +45,8 @@ const insertBySeq = (turns: PlanTurn[], turn: PlanTurn): PlanTurn[] =>
  * a stale reducer happened to accumulate.
  *
  * Two SSE events arrive (`routes.setup.ts`'s `PlanStreamRouter`): `turn` — a full, persisted
- * `PlanTurn`, JSON-encoded since `SseFrame` only sends a string payload verbatim — replayed for
+ * `PlanTurn`, JSON-encoded since `SseFrame` only sends a string payload verbatim, and revived with
+ * the SDK's own `revivePlanTurn` since this stream never passes through an SDK client — replayed for
  * everything after the client's `Last-Event-ID` on connect; and `delta` — a raw text chunk of the
  * assistant reply still being produced, sent as that literal string, with no id of its own to
  * resume from. A client that drops mid-reply picks the finished turn back up from `turn`'s own
@@ -92,7 +93,7 @@ export function usePlanTranscript(cardId: string, enabled: boolean, project?: st
             if (!hasOpenedRef.current) setError('Could not connect to the planning conversation.');
         };
         source.addEventListener('turn', event => {
-            const turn = JSON.parse((event as MessageEvent<string>).data) as PlanTurn;
+            const turn = revivePlanTurn(JSON.parse((event as MessageEvent<string>).data) as PlanTurn);
             turnHandlers.setState(previous => insertBySeq(previous, turn));
             setPendingText('');
         });

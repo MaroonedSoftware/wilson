@@ -177,7 +177,7 @@ describe('nextCard', () => {
 });
 
 describe('staleDaemonCards', () => {
-    const event = (type: string): CardEvent => ({ id: 'e1', type, stage: null, payload: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+    const event = (type: string): CardEvent => ({ id: 'e1', type, stage: null, payload: {}, createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') });
 
     it('reports a card whose events include daemon.stale', () => {
         const a = card({ id: '0001' });
@@ -259,7 +259,7 @@ describe('timeInCurrentStage', () => {
         type: 'card.created',
         stage: null,
         payload: {},
-        createdAt: '2026-01-01T00:00:00.000Z',
+        createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
         ...overrides,
     });
 
@@ -268,16 +268,16 @@ describe('timeInCurrentStage', () => {
     });
 
     it('measures from the earliest event when there has never been a transition', () => {
-        const duration = timeInCurrentStage([event({ createdAt: '2026-01-01T10:00:00.000Z' })], now);
+        const duration = timeInCurrentStage([event({ createdAt: DateTime.fromISO('2026-01-01T10:00:00.000Z') })], now);
 
         expect(duration?.as('hours')).toBe(2);
     });
 
     it('measures from the most recent transition.written event, ignoring an earlier one and later non-transition events', () => {
         const events = [
-            event({ id: 'e1', type: 'transition.written', createdAt: '2026-01-01T00:00:00.000Z' }),
-            event({ id: 'e2', type: 'transition.written', createdAt: '2026-01-01T09:00:00.000Z' }),
-            event({ id: 'e3', type: 'note.added', createdAt: '2026-01-01T10:00:00.000Z' }),
+            event({ id: 'e1', type: 'transition.written', createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') }),
+            event({ id: 'e2', type: 'transition.written', createdAt: DateTime.fromISO('2026-01-01T09:00:00.000Z') }),
+            event({ id: 'e3', type: 'note.added', createdAt: DateTime.fromISO('2026-01-01T10:00:00.000Z') }),
         ];
 
         const duration = timeInCurrentStage(events, now);

@@ -5,12 +5,12 @@ import { AttachContextRequest, ContextSnapshot } from '../generated/context.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [context.ck](file://./../../data/contracts/context.ck)
+ * generated from [context.ck](../../data/contracts/context.ck)
  */
 export const ContextRouter = ServerKitRouter();
 
 /**
- * from [context.ck](file://./../../data/contracts/context.ck#L42)
+ * from [context.ck](../../data/contracts/context.ck) `POST /api/cards/{id}/context`
  * anonymous access, no security required
  */
 ContextRouter.post('/api/cards/:id/context', bodyParserMiddleware(['json']), async ctx => {
@@ -32,7 +32,7 @@ ContextRouter.post('/api/cards/:id/context', bodyParserMiddleware(['json']), asy
 });
 
 /**
- * from [context.ck](file://./../../data/contracts/context.ck#L60)
+ * from [context.ck](../../data/contracts/context.ck) `GET /api/cards/{id}/context`
  * anonymous access, no security required
  */
 ContextRouter.get('/api/cards/:id/context', async ctx => {
@@ -57,7 +57,7 @@ ContextRouter.get('/api/cards/:id/context', async ctx => {
  * verb genuinely isn't one of the four HTTP methods this repo's contracts use elsewhere. A snapshot
  * has no history worth keeping once removed (`CardContextRepository.remove`'s own doc comment), so
  * unlike `.../plan/comments/{commentId}/resolve` this is a real delete, not a state transition.
- * from [context.ck](file://./../../data/contracts/context.ck#L82)
+ * from [context.ck](../../data/contracts/context.ck) `DELETE /api/cards/{id}/context/{contextId}`
  * anonymous access, no security required
  */
 ContextRouter.delete('/api/cards/:id/context/:contextId', async ctx => {

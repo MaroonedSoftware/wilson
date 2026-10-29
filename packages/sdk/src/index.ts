@@ -1,5 +1,6 @@
 // Auto-generated barrel file
 export * from './board.client.js';
+export * from './chat.client.js';
 export * from './context.client.js';
 export * from './health.client.js';
 export * from './hosts.client.js';

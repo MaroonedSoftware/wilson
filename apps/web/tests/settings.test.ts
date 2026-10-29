@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0114: the settings route (auto-mode toggle + read-only deployment facts) did not exist
@@ -48,7 +49,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'wilson',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
@@ -77,7 +78,18 @@ function saveButtonFor(input: HTMLElement): HTMLElement {
     return within(container).getByRole('button', { name: 'Save' });
 }
 
+/** The chat engine control's `SegmentedControl` measures itself with `ResizeObserver`, which jsdom does not implement. */
+class FakeResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
 beforeEach(() => {
+    // Stubbed so the Chat section renders the same way whether or not an API happens to be running on
+    // the default port; `chat-engine-setting.test.ts` covers the control itself.
+    vi.spyOn(wilson.settings, 'getChatEngineSetting').mockResolvedValue({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' });
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(emptyColumns);
     vi.spyOn(wilson.board, 'listCards').mockResolvedValue(emptyCards);
     vi.spyOn(wilson.health, 'getHealth').mockResolvedValue(baseHealth);
@@ -117,7 +129,7 @@ describe('the board links to settings', () => {
     it('is reachable from the board by clicking, not just by knowing the URL', async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
 
-        renderApp('/');
+        renderApp('/projects');
 
         const link = await screen.findByLabelText('Settings');
         expect(link.getAttribute('href')).toBe('/settings');

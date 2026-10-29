@@ -69,6 +69,7 @@ operation /api/stages/config: {
     # again, never by deleting anything.
     put: {
         name: Set stage config
+        mcp: exclude # Human-write-only machinery (PROJECT.md decision 8): edited with `wilson stages edit`
         service: StageConfigService.set
         request: {
             application/json: SetStageConfigRequest

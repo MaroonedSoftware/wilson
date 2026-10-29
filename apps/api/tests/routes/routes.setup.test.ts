@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SseResponse } from '@maroonedsoftware/koa';
 import { FeedRouter, PlanStreamRouter, routers } from '#src/routes/routes.setup.js';
 import { BoardRouter } from '#src/routes/board.router.js';
+import { ChatRouter } from '#src/routes/chat.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
@@ -44,11 +45,11 @@ describe('routers', () => {
     // the two hand-written SSE routers. Card 0187 added `ContextRouter` right after `BoardRouter`,
     // pushing every entry from `SettingsRouter` on down one place later. Card 0239 added
     // `LearningsRouter` right after `StagesRouter`, pushing the two hand-written SSE routers one
-    // place later again.
-    it('mounts the project-context router first, then the generated health, board, context, settings, projects, hosts, stages and learnings routers plus the two hand-written SSE routers, and nothing else', () => {
+    // place later again. `ChatRouter`, generated from `chat.ck`, follows `LearningsRouter` the same way, and `HostsRouter` follows `ProjectsRouter`.
+    it('mounts the project-context router first, then the generated health, board, context, settings, projects, hosts, stages, learnings and chat routers plus the three hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(11);
+        expect(mounted).toHaveLength(13);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -57,11 +58,13 @@ describe('routers', () => {
         expect(mounted[6]).toBe(HostsRouter);
         expect(mounted[7]).toBe(StagesRouter);
         expect(mounted[8]).toBe(LearningsRouter);
+        expect(mounted[9]).toBe(ChatRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[9].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[10].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[10].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[11].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[12].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -73,7 +76,7 @@ describe('routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(11);
+        expect(mounted).toHaveLength(13);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -82,8 +85,10 @@ describe('routers', () => {
         expect(mounted[6]).toBe(HostsRouter);
         expect(mounted[7]).toBe(StagesRouter);
         expect(mounted[8]).toBe(LearningsRouter);
-        expect(mounted[9].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[10].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[9]).toBe(ChatRouter);
+        expect(mounted[10].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[11].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[12].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {

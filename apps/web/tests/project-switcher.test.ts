@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0154: `ProjectSwitcher` (`apps/web/src/components/ProjectSwitcher.tsx`) is new — the one thing
@@ -27,7 +28,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'demo',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
@@ -168,7 +169,7 @@ describe('the project switcher in the header', () => {
     it('marks the daemon\'s own configured project as current on a route with no project param', async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
-        renderApp('/');
+        renderApp('/projects');
         await openSwitcher();
 
         const items = await screen.findAllByRole('menuitem');

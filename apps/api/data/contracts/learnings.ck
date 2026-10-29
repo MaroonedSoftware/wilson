@@ -60,6 +60,7 @@ operation /api/learnings: {
     # again, never by deleting anything. An empty `markdown` is a valid save.
     put: {
         name: Set learnings
+        mcp: exclude # Human-write-only machinery (PROJECT.md decision 8): edited with `wilson learnings edit`
         service: LearningsService.set
         request: {
             application/json: SetLearningsRequest

@@ -3,7 +3,7 @@ import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
- * generated from [projects.ck](file://./../../../apps/api/data/contracts/projects.ck)
+ * generated from [projects.ck](../../../apps/api/data/contracts/projects.ck)
  */
 export class ProjectsClient {
     constructor(private fetch: SdkFetch) {}

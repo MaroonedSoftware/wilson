@@ -5,7 +5,7 @@
  * names, and an unauthenticated surface (see `security: none` above) is a reason to return the
  * minimum that serves the consumer, not a licence to expose everything `ProjectRepository.list()`
  * already reads.
- * generated from [Project](file://./../../../../apps/api/data/contracts/projects.ck#L30)
+ * generated from [Project](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface Project {
     name: string;
@@ -33,7 +33,7 @@ export interface Project {
  * restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
  * is discovered by use, not by a check guessing at what "working" means. `ProjectsService.create`
  * normalises with `resolve()`, as `BoardModule` already does for the seeded row.
- * generated from [CreateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L55)
+ * generated from [CreateProjectRequest](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface CreateProjectRequest {
     name: string;
@@ -50,7 +50,7 @@ export interface CreateProjectRequest {
  * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
  * orphan every card, event, version and setting rather than failing. The name lives in the path
  * (`/api/projects/{name}`) and nowhere in any request body on this contract.
- * generated from [UpdateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L69)
+ * generated from [UpdateProjectRequest](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface UpdateProjectRequest {
     codeRoot?: string;
@@ -62,7 +62,7 @@ export interface UpdateProjectRequest {
  * The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
  * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
  * folder, which is also the furthest up the listing will go.
- * generated from [DirectoryQuery](file://./../../../../apps/api/data/contracts/projects.ck#L78)
+ * generated from [DirectoryQuery](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface DirectoryQuery {
     path?: string;
@@ -76,7 +76,7 @@ export interface DirectoryQuery {
  *
  * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
  * folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
- * generated from [DirectoryListing](file://./../../../../apps/api/data/contracts/projects.ck#L89)
+ * generated from [DirectoryListing](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface DirectoryListing {
     path: string;

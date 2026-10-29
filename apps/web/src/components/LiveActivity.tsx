@@ -63,16 +63,19 @@ const toRow = (key: string, type: string, payload: unknown, ts: string): Activit
  * `feed.snapshot()`) may be the very event `seedEvents`' own tail already ends on — there is no
  * shared id to dedupe by (`FeedToolEvent.id` is the feed's own sequence number, never the database
  * row id `seedEvents` carries — see `feed.ts`'s own doc comment on `FeedToolEvent`), so this drops a
- * live entry that exactly matches the seed's newest `(type, ts)` pair rather than showing the same
- * tool call twice.
+ * live entry that matches the seed's newest type at the same instant rather than showing the same
+ * tool call twice. The instant is compared in milliseconds: the seed's `createdAt` arrives as a
+ * revived `DateTime`, the feed's `ts` as an ISO string, and the two need not share an offset.
  */
 const mergeRows = (seedEvents: CardEvent[], live: FeedToolEvent[]): ActivityRow[] => {
     const seedTail = seedEvents.filter(event => event.type.startsWith('tool.'));
     const newestSeed = seedTail[seedTail.length - 1];
-    const dedupedLive = live.filter(event => !(newestSeed && event.ts === newestSeed.createdAt && event.type === newestSeed.type));
+    const dedupedLive = live.filter(
+        event => !(newestSeed && Date.parse(event.ts) === newestSeed.createdAt.toMillis() && event.type === newestSeed.type),
+    );
 
     const liveRows = dedupedLive.map(event => toRow(`live-${event.id}`, event.type, event.payload, event.ts));
-    const seedRows = [...seedTail].reverse().map(event => toRow(event.id, event.type, event.payload, event.createdAt));
+    const seedRows = [...seedTail].reverse().map(event => toRow(event.id, event.type, event.payload, event.createdAt.toISO()!));
 
     return [...liveRows, ...seedRows].slice(0, MAX_LIVE_TOOL_EVENTS);
 };

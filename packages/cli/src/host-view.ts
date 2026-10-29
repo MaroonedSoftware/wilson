@@ -1,3 +1,4 @@
+import type { DateTime } from 'luxon';
 import type { Host } from '@wilson/sdk';
 
 /**
@@ -13,7 +14,7 @@ export const describeHost = (host: Host): string[] => {
         `${host.name}${target}  ${state}  ${host.running.length}/${host.slots} slot${host.slots === 1 ? '' : 's'} in use${lifetime}${commandEnv}  ${describeProbe(host)}`,
     ];
     for (const use of host.running) {
-        lines.push(`  slot ${use.slot}: ${use.project} ${use.cardId} since ${use.since}`);
+        lines.push(`  slot ${use.slot}: ${use.project} ${use.cardId} since ${utc(use.since)}`);
     }
     for (const project of host.projects) {
         lines.push(`  ${project.project}  ${project.codeRoot}  worktrees ${project.worktreeRoot}  run ${project.runRoot}`);
@@ -27,8 +28,8 @@ const describeProbe = (host: Host): string => {
     if (!probe) return 'never probed';
     const verdict = probe.ok ? 'ok' : `failed: ${probe.detail ?? 'no reason given'}`;
     const engine = probe.engineVersion ? `, claude ${probe.engineVersion}` : '';
-    const expires = probe.expiresAt ? `, expires ${probe.expiresAt}` : '';
-    return `probe ${verdict} at ${probe.probedAt}${engine}${expires}`;
+    const expires = probe.expiresAt ? `, expires ${utc(probe.expiresAt)}` : '';
+    return `probe ${verdict} at ${utc(probe.probedAt)}${engine}${expires}`;
 };
 
 /** `--command-env`'s comma-separated list as names, blanks dropped, so `--command-env ''` clears it. */
@@ -37,3 +38,6 @@ export const variableNames = (list: string): string[] =>
         .split(',')
         .map(name => name.trim())
         .filter(Boolean);
+
+/** A time as UTC ISO without milliseconds, so the output reads the same in every timezone. */
+const utc = (at: DateTime): string => at.toUTC().toISO({ suppressMilliseconds: true }) ?? at.toString();

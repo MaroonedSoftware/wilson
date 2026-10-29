@@ -3,12 +3,12 @@ import { HealthService } from '#modules/health/health.service.js';
 import { Health } from '../generated/health.js';
 
 /**
- * generated from [health.ck](file://./../../data/contracts/health.ck)
+ * generated from [health.ck](../../data/contracts/health.ck)
  */
 export const HealthRouter = ServerKitRouter();
 
 /**
- * from [health.ck](file://./../../data/contracts/health.ck#L30)
+ * from [health.ck](../../data/contracts/health.ck) `GET /api/health`
  * anonymous access, no security required
  */
 HealthRouter.get('/api/health', async ctx => {

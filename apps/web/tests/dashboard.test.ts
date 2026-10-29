@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0169: `/` (`apps/web/src/routes/index.tsx`) is new — before this card, loading the app with no
@@ -16,7 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, HealthClient, ProjectsClient } from '@wilson/sdk';
+import { BoardClient, ChatClient, HealthClient, ProjectsClient } from '@wilson/sdk';
 import type { BoardColumns, Health } from '@wilson/sdk';
 import { routeTree } from '#src/routeTree.gen.js';
 
@@ -26,7 +27,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'demo',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
@@ -66,6 +67,7 @@ function renderApp(path: string) {
 
 beforeEach(() => {
     vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue(baseHealth);
+    vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     // jsdom does not implement matchMedia; MantineProvider reads it (colour-scheme detection) on
@@ -85,6 +87,8 @@ beforeEach(() => {
     );
     // TanStack Router's scroll restoration calls this on navigation; jsdom does not implement it.
     vi.stubGlobal('scrollTo', vi.fn());
+    // The chat home's composer is an autosizing `Textarea`, which listens on `document.fonts`.
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { addEventListener: vi.fn(), removeEventListener: vi.fn() } });
 });
 
 afterEach(() => {
@@ -96,11 +100,11 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('the dashboard at /', () => {
+describe('the dashboard at /projects', () => {
     it('lists every registered project GET /api/projects returns, by name, each linked to its own board', async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
-        renderApp('/');
+        renderApp('/projects');
 
         const demo = (await screen.findByRole('link', { name: 'demo' })) as HTMLAnchorElement;
         const other = (await screen.findByRole('link', { name: 'other' })) as HTMLAnchorElement;
@@ -113,7 +117,7 @@ describe('the dashboard at /', () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(emptyColumns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
 
-        const { router } = renderApp('/');
+        const { router } = renderApp('/projects');
 
         fireEvent.click(await screen.findByRole('link', { name: 'demo' }));
 
@@ -129,7 +133,7 @@ describe('the dashboard at /', () => {
             }),
         );
 
-        renderApp('/');
+        renderApp('/projects');
 
         const panel = await screen.findByText('Projects');
         await waitFor(() => expect(panel.closest('.mantine-Paper-root')?.querySelector('.mantine-Loader-root')).not.toBeNull());
@@ -145,7 +149,7 @@ describe('the dashboard at /', () => {
     it('shows an alert titled "Cannot reach the API" when the registered-projects request fails, rather than a crash or an empty page', async () => {
         vi.spyOn(ProjectsClient.prototype, 'listProjects').mockRejectedValue(new Error('502 Bad Gateway'));
 
-        renderApp('/');
+        renderApp('/projects');
 
         expect(await screen.findByText('Cannot reach the API')).toBeTruthy();
         expect(await screen.findByText('502 Bad Gateway')).toBeTruthy();
@@ -160,7 +164,7 @@ describe('the dashboard at /', () => {
     it('shares the registered-projects cache with the header\'s ProjectSwitcher instead of fetching twice', async () => {
         const listProjects = stubProjectsEndpoint(['demo', 'other']);
 
-        renderApp('/');
+        renderApp('/projects');
 
         await screen.findByRole('link', { name: 'demo' });
         fireEvent.click(await screen.findByLabelText('Switch project'));
@@ -173,7 +177,7 @@ describe('the dashboard at /', () => {
     it('does not display any of the four filesystem paths GET /api/projects withholds', async () => {
         stubProjectsEndpoint(['demo']);
 
-        renderApp('/');
+        renderApp('/projects');
 
         await screen.findByRole('link', { name: 'demo' });
         for (const path of ['/deploy/board', '/deploy/code', '/deploy/worktrees']) {
@@ -183,6 +187,7 @@ describe('the dashboard at /', () => {
 });
 
 describe('the header title', () => {
+    // `/` is the chat now, the whole page (`routes/index.tsx`); the title still leads there.
     it('links to / from a project-scoped route, not just from the dashboard itself', async () => {
         stubProjectsEndpoint(['demo']);
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(emptyColumns);
@@ -198,6 +203,16 @@ describe('the header title', () => {
         fireEvent.click(homeLink!);
 
         await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+        expect(await screen.findByText('What should we do?')).toBeTruthy();
+    });
+
+    it('sits beside a Projects link to the dashboard, one click from anywhere', async () => {
+        stubProjectsEndpoint(['demo']);
+        const { router } = renderApp('/');
+
+        fireEvent.click(await screen.findByLabelText('Projects'));
+
+        await waitFor(() => expect(router.state.location.pathname).toBe('/projects'));
         expect(await screen.findByRole('link', { name: 'demo' })).toBeTruthy();
     });
 });

@@ -17,7 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, ProjectsClient, SdkError } from '@wilson/sdk';
+import { BoardClient, ChatClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { API_BASE } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -208,23 +208,30 @@ describe('a project-scoped route, reading through a client built for its own pro
     });
 
     // Card 0155 deleted the top-level board route in the same change that moved every link onto
-    // its `/projects/$project` counterpart, leaving `/` a 404 with no board and no per-project fan-out
-    // — exactly what a stray old bookmark or link would still try to do if the route had merely been
-    // superseded rather than actually removed. Card 0169 gave `/` its own content back (the
-    // dashboard), but that content is still not a board: no card count, no per-project fetch, just
-    // the registered projects by name (`routes/index.tsx`'s own doc comment — the fan-out was
-    // considered and rejected, not deferred). The shell around it (the header, the feed subscription
-    // in `__root.tsx`) still mounts regardless of which of the two it renders.
-    it('renders the dashboard, not a board, at the top-level route', async () => {
+    // its `/projects/$project` counterpart, so a stray old bookmark of `/` never lands on a board. Card
+    // 0169 gave `/` the dashboard; the chat has it now (`routes/index.tsx`), and the dashboard is at
+    // `/projects`. Neither is a board: no card count, no per-project fetch. The shell around them
+    // (the header, the feed subscription in `__root.tsx`) still mounts regardless.
+    it('renders the chat, not a board, at the top-level route', async () => {
         vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([]);
 
         renderApp('/');
 
-        expect(await screen.findByText('Dashboard')).toBeTruthy();
+        expect(await screen.findByText('What should we do?')).toBeTruthy();
         expect(screen.queryByText(/\d+ cards/)).toBeNull();
         // The shell itself is unaffected: the header's own feed subscription (unscoped — no
         // project param on this path) still opens, same as it always has.
         await waitFor(() => expect(feedSource()?.url).toBe(`${API_BASE}/api/feed`));
+    });
+
+    it('renders the dashboard, not a board, at /projects', async () => {
+        vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
+
+        renderApp('/projects');
+
+        expect(await screen.findByText('Dashboard')).toBeTruthy();
+        expect(screen.queryByText(/\d+ cards/)).toBeNull();
     });
 
     it('shows only that project\'s flagged cards at /projects/$project/flagged, and its back link returns to that project\'s board', async () => {

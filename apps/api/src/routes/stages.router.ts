@@ -4,12 +4,12 @@ import { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageCo
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [stages.ck](file://./../../data/contracts/stages.ck)
+ * generated from [stages.ck](../../data/contracts/stages.ck)
  */
 export const StagesRouter = ServerKitRouter();
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L55)
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/config`
  * anonymous access, no security required
  */
 StagesRouter.get('/api/stages/config', async ctx => {
@@ -25,7 +25,7 @@ StagesRouter.get('/api/stages/config', async ctx => {
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything.
- * from [stages.ck](file://./../../data/contracts/stages.ck#L70)
+ * from [stages.ck](../../data/contracts/stages.ck) `PUT /api/stages/config`
  * anonymous access, no security required
  */
 StagesRouter.put('/api/stages/config', bodyParserMiddleware(['json']), async ctx => {
@@ -40,7 +40,7 @@ StagesRouter.put('/api/stages/config', bodyParserMiddleware(['json']), async ctx
 });
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L89)
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/config/versions`
  * anonymous access, no security required
  */
 StagesRouter.get('/api/stages/config/versions', async ctx => {

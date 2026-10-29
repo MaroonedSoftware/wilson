@@ -27,14 +27,14 @@
  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
  * absence, not a substitute for it.
- * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L41)
+ * generated from [PollerSetting](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface PollerSetting {
     enabled: boolean;
 }
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L45)
+ * generated from [SetPollerSettingRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetPollerSettingRequest {
     enabled: boolean;
@@ -43,14 +43,14 @@ export interface SetPollerSettingRequest {
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L51)
+ * generated from [PollerInterval](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface PollerInterval {
     intervalMs: number;
 }
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L55)
+ * generated from [SetPollerIntervalRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetPollerIntervalRequest {
     intervalMs: number;
@@ -59,14 +59,14 @@ export interface SetPollerIntervalRequest {
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L61)
+ * generated from [CardStageConcurrency](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface CardStageConcurrency {
     concurrency: number;
 }
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L65)
+ * generated from [SetCardStageConcurrencyRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetCardStageConcurrencyRequest {
     concurrency: number;
@@ -77,7 +77,7 @@ export interface SetCardStageConcurrencyRequest {
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
  * card in its payload (`board.config.ts`'s own comment on the pair).
- * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L139)
+ * generated from [NotifyWebhookSetting](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface NotifyWebhookSetting {
     webhookUrl: string | null;
@@ -85,7 +85,7 @@ export interface NotifyWebhookSetting {
 }
 
 /**
- * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L144)
+ * generated from [SetNotifyWebhookSettingRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetNotifyWebhookSettingRequest {
     webhookUrl: string | null;
@@ -103,14 +103,14 @@ export interface SetNotifyWebhookSettingRequest {
  * directory exists, is writable, or holds working credentials is deliberately not this card's
  * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
  * stage failing at the model call, not by a check here guessing at what "working" means.
- * generated from [ClaudeConfigDirSetting](file://./../../../../apps/api/data/contracts/settings.ck#L184)
+ * generated from [ClaudeConfigDirSetting](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface ClaudeConfigDirSetting {
     configDir: string | null;
 }
 
 /**
- * generated from [SetClaudeConfigDirSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L188)
+ * generated from [SetClaudeConfigDirSettingRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetClaudeConfigDirSettingRequest {
     configDir: string | null;
@@ -121,15 +121,27 @@ export interface SetClaudeConfigDirSettingRequest {
  * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
  * (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
  * is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
- * generated from [DryRunSetting](file://./../../../../apps/api/data/contracts/settings.ck#L220)
+ * generated from [DryRunSetting](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface DryRunSetting {
     enabled: boolean;
 }
 
 /**
- * generated from [SetDryRunSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L224)
+ * generated from [SetDryRunSettingRequest](../../../../apps/api/data/contracts/settings.ck)
  */
 export interface SetDryRunSettingRequest {
     enabled: boolean;
+}
+
+/**
+ * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
+ * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
+ * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
+ * generated from [ChatEngineSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface ChatEngineSetting {
+    engine: 'api' | 'cli';
+    provider: 'anthropic' | 'openai' | 'xai';
+    model: string;
 }

@@ -28,11 +28,22 @@ import type {
     SplitCardsRequest,
     SplitResult,
 } from './types/board.js';
+import {
+    reviveCardDetail,
+    reviveCardEvent,
+    reviveCardSummary,
+    reviveCardVersion,
+    reviveMergeResult,
+    revivePlanComment,
+    revivePlanTurn,
+    reviveReleaseResult,
+    reviveSplitResult,
+} from './types/board.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
- * generated from [board.ck](file://./../../../apps/api/data/contracts/board.ck)
+ * generated from [board.ck](../../../apps/api/data/contracts/board.ck)
  */
 export class BoardClient {
     constructor(private fetch: SdkFetch) {}
@@ -40,7 +51,7 @@ export class BoardClient {
     /** @name List cards */
     async listCards(): Promise<CardSummary[]> {
         const result = await this.fetch(`/api/cards`, { method: 'GET' });
-        return await parseJson<CardSummary[]>(result);
+        return (await parseJson<CardSummary[]>(result)).map(reviveCardSummary);
     }
 
     /** @name Create card */
@@ -50,13 +61,13 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name Get card */
     async getCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}`, { method: 'GET' });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -71,7 +82,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -95,7 +106,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -112,7 +123,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -131,7 +142,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -147,31 +158,31 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name Acknowledge a flagged card */
     async acknowledgeAFlaggedCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/ack`, { method: 'POST' });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name Approve card plan */
     async approveCardPlan(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/approve`, { method: 'POST' });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name Start card */
     async startCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/start`, { method: 'POST' });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name Release card */
     async releaseCard(id: string): Promise<ReleaseResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/release`, { method: 'POST' });
-        return await parseJson<ReleaseResult>(result);
+        return reviveReleaseResult(await parseJson<ReleaseResult>(result));
     }
 
     /**
@@ -184,7 +195,7 @@ export class BoardClient {
      */
     async mergeCard(id: string): Promise<MergeResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/merge`, { method: 'POST' });
-        return await parseJson<MergeResult>(result);
+        return reviveMergeResult(await parseJson<MergeResult>(result));
     }
 
     /**
@@ -213,7 +224,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<SplitResult>(result);
+        return reviveSplitResult(await parseJson<SplitResult>(result));
     }
 
     /**
@@ -269,7 +280,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**
@@ -297,7 +308,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<PlanTurn>(result);
+        return revivePlanTurn(await parseJson<PlanTurn>(result));
     }
 
     /**
@@ -313,7 +324,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<PlanComment>(result);
+        return revivePlanComment(await parseJson<PlanComment>(result));
     }
 
     /**
@@ -325,7 +336,7 @@ export class BoardClient {
      */
     async listPlanComments(id: string): Promise<PlanComment[]> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments`, { method: 'GET' });
-        return await parseJson<PlanComment[]>(result);
+        return (await parseJson<PlanComment[]>(result)).map(revivePlanComment);
     }
 
     /**
@@ -338,7 +349,7 @@ export class BoardClient {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments/${encodeURIComponent(commentId)}/resolve`, {
             method: 'POST',
         });
-        return await parseJson<PlanComment>(result);
+        return revivePlanComment(await parseJson<PlanComment>(result));
     }
 
     /** @name List card events */
@@ -347,7 +358,7 @@ export class BoardClient {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/events${qs}`, {
             method: 'GET',
         });
-        return await parseJson<CardEvent[]>(result);
+        return (await parseJson<CardEvent[]>(result)).map(reviveCardEvent);
     }
 
     /**
@@ -394,7 +405,7 @@ export class BoardClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<CardDetail>(result);
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /** @name List card versions */
@@ -403,7 +414,7 @@ export class BoardClient {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/versions${qs}`, {
             method: 'GET',
         });
-        return await parseJson<CardVersion[]>(result);
+        return (await parseJson<CardVersion[]>(result)).map(reviveCardVersion);
     }
 
     /** @name List board columns */

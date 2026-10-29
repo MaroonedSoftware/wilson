@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // The dashboard's "New project" control (`apps/web/src/components/NewProjectControl.tsx`): the UI's
@@ -25,7 +26,7 @@ const baseHealth: Health = {
     ok: true,
     project: 'demo',
     head: 'abc1234',
-    startedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     codeRoot: '/deploy/code',
     worktreeRoot: '/deploy/worktrees',
 };
@@ -53,7 +54,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const callsTo = (url: string) => fetchMock.mock.calls.filter(([called]: [string]) => called === url) as [string, RequestInit][];
 
 function renderApp() {
-    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/'] }) });
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/projects'] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))));
     return { router };
@@ -173,7 +174,7 @@ describe('the dashboard\'s New project control', () => {
         expect(screen.getByText('project "myapp" is already registered')).toBeTruthy();
         expect(field('Name').value).toBe('myapp');
         expect(callsTo(INIT_URL)).toHaveLength(0);
-        expect(router.state.location.pathname).toBe('/');
+        expect(router.state.location.pathname).toBe('/projects');
     });
 
     it('retries only the board init after registering succeeded and initialising failed', async () => {

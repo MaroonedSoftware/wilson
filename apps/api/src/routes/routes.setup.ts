@@ -2,6 +2,8 @@ import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
 import { firstQueryValue, openSseStream, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
 import { BoardConfig } from '#modules/board/board.config.js';
+import { onChatEvent } from '#modules/chat/chat.feed.js';
+import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import type { DB } from '#modules/data/db.js';
@@ -10,6 +12,7 @@ import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { BoardRouter } from './board.router.js';
+import { ChatRouter } from './chat.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { HostsRouter } from './hosts.router.js';
@@ -225,26 +228,52 @@ export const PlanStreamRouter = (signal?: AbortSignal) => {
 };
 
 /**
+ * The chat's SSE stream: a thread's turn in progress, over `/api/chat/threads/:id/stream` — the
+ * answer's text as it is written, each read and each proposed change as it happens, then `done` or
+ * `failed` (`chat.feed.ts`'s `ChatStreamEvent`). Hand-written beside `PlanStreamRouter` for the same
+ * reason: ContractKit emits JSON handlers, and this response never resolves. `chat.ck`'s `POST
+ * .../messages` names it.
+ *
+ * No replay, unlike the plan stream: chat events are ephemeral and the stored messages are the
+ * record (`GET /api/chat/threads/{id}`), so a client reads the thread, then listens here for what is
+ * still arriving. Not project-scoped either, since a thread is not; a 404 for a thread that does not
+ * exist is answered before the stream opens.
+ */
+export const ChatStreamRouter = (signal?: AbortSignal) => {
+    const router = ServerKitRouter();
+    router.get('/api/chat/threads/:id/stream', async ctx => {
+        const id = String(ctx.params.id);
+        if (!(await ctx.container.get(ChatThreadRepository).get(id))) {
+            throw httpError(404).withDetails({ reason: `chat thread ${id} not found` });
+        }
+
+        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        stream.onClose(onChatEvent(id, ({ event, data }) => stream.event({ event, data })));
+    });
+    return router;
+};
+
+/**
  * Every router the server mounts, in one place — adding a router later is one line here.
  *
  * The `*.router.ts` files beside this one are generated from `data/contracts/*.ck` and must not be
  * edited; regenerate with `pnpm codegen`. This file is the only hand-written thing in the directory.
  *
- * Every route is generated, with two deliberate exceptions: `FeedRouter` and `PlanStreamRouter`
- * above. Card 0019 wrote the health route by hand and said why that was temporary — the health and
- * board routes are generated now, so that rule holds. An SSE stream is different in kind, not just
+ * Every route is generated, with three deliberate exceptions: `FeedRouter`, `PlanStreamRouter` and
+ * `ChatStreamRouter` above. Card 0019 wrote the health route by hand and said why that was
+ * temporary — the health and board routes are generated now, so that rule holds. An SSE stream is different in kind, not just
  * unfinished codegen: ContractKit emits JSON handlers, and there is no JSON handler to generate for
- * a response that never resolves. Both routers are built here, in this hand-written file, rather
+ * a response that never resolves. All three are built here, in this hand-written file, rather
  * than as new files beside it, so the "every file here but this one is generated" invariant the
- * tests enforce stays true. `ProjectContextRouter`, also above, is a third hand-written entry, but
+ * tests enforce stays true. `ProjectContextRouter`, also above, is a fourth hand-written entry, but
  * not a route: it carries no `.get`/`.post` of its own, and that invariant is about generated
  * *files*, not about every router in this array being a wrapper around ContractKit output.
  *
  * `ProjectContextRouter` is listed first, deliberately: see its own doc comment for why array order
  * is exactly what makes it run ahead of the other five without being merged into any of them.
  *
- * Takes the server's lifecycle signal and threads it to both SSE routers; the other three routers
- * have no long-lived connection to drain and stay untouched by it.
+ * Takes the server's lifecycle signal and threads it to the three SSE routers; the others have no
+ * long-lived connection to drain and stay untouched by it.
  *
  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
  * unknown>`, so callers cast at the point they hand this to `setupRoutes` instead.
@@ -259,6 +288,8 @@ export const routers = (signal?: AbortSignal) => [
     HostsRouter,
     StagesRouter,
     LearningsRouter,
+    ChatRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
+    ChatStreamRouter(signal),
 ];
