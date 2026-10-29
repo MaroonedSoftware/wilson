@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon';
+import type { CardEvent } from '@wilson/sdk';
 
 /** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
 const BULLET_MARKER = /^\s*[-*+]\s*/;
@@ -78,6 +79,31 @@ export const acceptanceCriteria = (sectionText: string | undefined): { id: strin
         const match = ACCEPTANCE_CRITERION_ID.exec(bulletText);
         return match ? { id: `AC${match[1]}`, text: match[2]!.trim() } : { id: `AC${index + 1}`, text: bulletText };
     });
+};
+
+/**
+ * The registered host the card's most recent stage ran on, or undefined when it ran on this machine
+ * or has not run. Read from the events in order: a `stage.placed` names the host for the
+ * `stage.dispatched` that follows it, and a dispatch with no placement before it ran here.
+ */
+export const lastStageHost = (events: readonly Pick<CardEvent, 'type' | 'payload'>[]): string | undefined => {
+    let placedOn: string | undefined;
+    let ranOn: string | undefined;
+    for (const event of events) {
+        if (event.type === 'stage.placed') placedOn = payloadString(event.payload, 'host');
+        if (event.type === 'stage.dispatched') {
+            ranOn = placedOn;
+            placedOn = undefined;
+        }
+    }
+    return ranOn;
+};
+
+/** One string field of an event's payload, which arrives as untyped JSON; anything else is absent. */
+export const payloadString = (payload: unknown, field: string): string | undefined => {
+    if (typeof payload !== 'object' || payload === null) return undefined;
+    const value = (payload as Record<string, unknown>)[field];
+    return typeof value === 'string' && value ? value : undefined;
 };
 
 /** A timestamp for reading, not for sorting — the API already returns rows newest/oldest as intended. */

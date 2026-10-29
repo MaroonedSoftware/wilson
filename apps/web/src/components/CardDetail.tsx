@@ -12,7 +12,7 @@ import { DraftPane } from '#src/components/DraftPane.js';
 import { LiveActivity } from '#src/components/LiveActivity.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
-import { acceptanceCriteria, filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { acceptanceCriteria, filesInScope, formatTimestamp, lastStageHost, payloadString } from '#src/lib/card.js';
 import { invalidateCard, invalidateCardsList, reasonFor, useAckCard, useMoveCard, useReleaseCard, useStartCard } from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -238,6 +238,21 @@ function deferredReason(payload: unknown): string | undefined {
 }
 
 /**
+ * The line under an event in the timeline: a deferral's reason, the host a stage was placed on, or
+ * the host that stopped answering and why. Nothing for any other event.
+ */
+function eventDetail(event: CardEvent): string | undefined {
+    if (event.type === 'dispatch.deferred') return deferredReason(event.payload);
+    const host = payloadString(event.payload, 'host');
+    if (event.type === 'stage.placed' && host) return `on ${host}`;
+    if (event.type === 'stage.host-lost' && host) {
+        const reason = payloadString(event.payload, 'reason');
+        return `${host} stopped answering${reason ? `: ${reason}` : ''}`;
+    }
+    return undefined;
+}
+
+/**
  * The timeline an operator reads to answer "why is this card not moving" — newest event first,
  * each tagged with the stage it happened in, favouring legibility over density.
  */
@@ -266,7 +281,7 @@ function EventsTimeline({ events, limit, error }: { events: CardEvent[] | undefi
         <Stack gap="xs">
             <Timeline active={newestFirst.length} bulletSize={14} lineWidth={2}>
                 {newestFirst.map(event => {
-                    const reason = event.type === 'dispatch.deferred' ? deferredReason(event.payload) : undefined;
+                    const reason = eventDetail(event);
                     return (
                         <Timeline.Item key={event.id} title={event.type}>
                             <Group gap={6}>
@@ -456,6 +471,9 @@ export function CardDetailView({
 }) {
     const scope = filesInScope(card.sections['files-in-scope']);
     const criteria = acceptanceCriteria(card.sections['acceptance-criteria']);
+    // Only from the events this page already loaded, so a card whose last stage ran on a host long
+    // ago, past the loaded tail, shows nothing rather than a guess.
+    const ranOn = events ? lastStageHost(events) : undefined;
 
     return (
         <Stack gap="lg">
@@ -480,6 +498,11 @@ export function CardDetailView({
                     {card.branch && (
                         <Badge color="gray" variant="outline" radius="sm" ff="monospace">
                             {card.branch}
+                        </Badge>
+                    )}
+                    {ranOn && (
+                        <Badge color="grape" variant="light" radius="sm" title="The registered host this card's most recent stage ran on">
+                            ran on {ranOn}
                         </Badge>
                     )}
                 </Group>

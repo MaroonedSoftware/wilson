@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
-import { acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
+import { lastStageHost, acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
 describe('filesInScope', () => {
     it('returns an empty list when the section is missing', () => {
@@ -214,5 +214,26 @@ describe('CARD_BODY_SKELETON', () => {
 ## Out of scope
 `;
         expect(CARD_BODY_SKELETON).toBe(cliSkeleton);
+    });
+});
+
+describe('lastStageHost', () => {
+    const event = (type: string, payload: unknown = {}) => ({ type, payload });
+
+    it('names the host the most recent stage was placed on', () => {
+        expect(lastStageHost([event('stage.placed', { host: 'agent-3', slot: 'host:agent-3:slot:1' }), event('stage.dispatched')])).toBe('agent-3');
+    });
+
+    it('says nothing when the most recent stage ran on this machine, even if an earlier one ran on a host', () => {
+        expect(lastStageHost([event('stage.placed', { host: 'agent-3' }), event('stage.dispatched'), event('stage.passed'), event('stage.dispatched')])).toBeUndefined();
+    });
+
+    it('says nothing for a card that has not run, or a placement not yet dispatched', () => {
+        expect(lastStageHost([])).toBeUndefined();
+        expect(lastStageHost([event('stage.placed', { host: 'agent-3' })])).toBeUndefined();
+    });
+
+    it('ignores a placement whose payload names no host', () => {
+        expect(lastStageHost([event('stage.placed', { host: 42 }), event('stage.dispatched')])).toBeUndefined();
     });
 });
