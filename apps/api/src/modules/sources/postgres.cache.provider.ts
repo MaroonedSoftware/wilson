@@ -95,9 +95,90 @@ export class PostgresCacheProvider implements CacheProvider {
     }
 
     /** Removes `key` regardless of whether it has expired, returning the key that was deleted, or
-     * `null` if it was already absent — `CacheProvider.delete`'s own contract. */
+     * `null` if it was already absent — `CacheProvider.delete`'s own contract. A set stored under
+     * `key` goes too, as Redis's `DEL` removes a key whatever its type. Both deletes are one
+     * statement, so no reader sees one half gone. */
     async delete(key: string): Promise<string | null> {
-        const row = await this.db.deleteFrom('runner.cacheEntries').where('key', '=', key).returning('key').executeTakeFirst();
-        return row?.key ?? null;
+        const row = await this.db
+            .with('entry', db => db.deleteFrom('runner.cacheEntries').where('key', '=', key).returning('key'))
+            .with('members', db => db.deleteFrom('runner.cacheSetMembers').where('key', '=', key).returning('key'))
+            .selectNoFrom(eb => [
+                eb.or([eb.exists(eb.selectFrom('entry').select('key')), eb.exists(eb.selectFrom('members').select('key'))]).as('deleted'),
+            ])
+            .executeTakeFirstOrThrow();
+        return row.deleted ? key : null;
+    }
+
+    /** Get-and-delete in one statement, so two racing callers for a single-use entry (a one-time
+     * code, a pending challenge) cannot both receive it. An expired row reads as absent and is left
+     * where it is, as `get` leaves it. */
+    async take(key: string): Promise<string | null> {
+        const row = await this.db
+            .deleteFrom('runner.cacheEntries')
+            .where('key', '=', key)
+            .where('expiresAt', '>', now())
+            .returning('value')
+            .executeTakeFirst();
+        return row?.value ?? null;
+    }
+
+    /**
+     * Adds `member` to the set at `key`, returning whether it was not already there.
+     *
+     * One statement. It reads the set's current deadline (the latest live row's), works out the new
+     * one, moves every live member to it, and inserts `member` at it. With a `ttl` the new deadline
+     * is the later of the current one and `now() + ttl`, so a write never shortens a set's life.
+     * Without one it keeps the current deadline, or never expires for a set that does not exist yet.
+     * That is `IoRedisCacheProvider`'s `SADD` plus conditional `EXPIRE`. A member whose row has
+     * expired is absent, so re-adding it counts as an add.
+     */
+    async setAdd(key: string, member: string, options?: { ttl?: Duration }): Promise<boolean> {
+        const deadline = options?.ttl
+            ? sql<DateTime>`greatest(live.expires_at, ${expiresAtFor(options.ttl)})`
+            : sql<DateTime>`coalesce(live.expires_at, ${NEVER})`;
+        const result = await sql<{ added: boolean }>`
+            WITH live AS (
+                SELECT max(expires_at) AS expires_at FROM runner.cache_set_members
+                WHERE key = ${key} AND expires_at > now()
+            ), target AS (
+                SELECT ${deadline} AS expires_at FROM live
+            ), extended AS (
+                UPDATE runner.cache_set_members m SET expires_at = target.expires_at FROM target
+                WHERE m.key = ${key} AND m.expires_at > now() AND m.expires_at < target.expires_at
+            ), added AS (
+                INSERT INTO runner.cache_set_members (key, member, expires_at)
+                SELECT ${key}, ${member}, target.expires_at FROM target
+                ON CONFLICT (key, member) DO UPDATE SET expires_at = excluded.expires_at
+                WHERE runner.cache_set_members.expires_at <= now()
+                RETURNING 1
+            )
+            SELECT EXISTS (SELECT 1 FROM added) AS added
+        `.execute(this.db);
+        return result.rows[0]?.added ?? false;
+    }
+
+    /** Removes `member` from the set at `key`, returning whether it was there. An expired member
+     * was not there. */
+    async setRemove(key: string, member: string): Promise<boolean> {
+        const row = await this.db
+            .deleteFrom('runner.cacheSetMembers')
+            .where('key', '=', key)
+            .where('member', '=', member)
+            .where('expiresAt', '>', now())
+            .returning('member')
+            .executeTakeFirst();
+        return row !== undefined;
+    }
+
+    /** Every live member of the set at `key`, in no particular order; empty for an absent or
+     * expired set. */
+    async setMembers(key: string): Promise<string[]> {
+        const rows = await this.db
+            .selectFrom('runner.cacheSetMembers')
+            .select('member')
+            .where('key', '=', key)
+            .where('expiresAt', '>', now())
+            .execute();
+        return rows.map(row => row.member);
     }
 }

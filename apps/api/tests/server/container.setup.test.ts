@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
-import { ServerKitServerBuilder } from '@maroonedsoftware/koa';
+import { ServerKitContext, ServerKitServerBuilder } from '@maroonedsoftware/koa';
 import { JobContext } from '@maroonedsoftware/jobbroker';
 import { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
@@ -43,7 +43,10 @@ describe('container wiring (card 0112)', () => {
     // supplied only inside a job's own execution scope (`PgBossJobRunner.start`), never here.
     // `CardStageDeadJob` takes `JobContext` as a constructor dependency, so it inherits the same
     // restriction. Both are legitimate, by design, not a wiring defect this test should catch.
-    const NOT_RESOLVABLE_AT_BOOT = new Set<unknown>([JobContext, CardStageDeadJob]);
+    // `ServerKitContext` is the same thing for a request: `@maroonedsoftware/koa` 4 registers it with
+    // a factory that throws "ServerKitContext is only available inside a request scope", and the
+    // real value is supplied per request by `serverKitContextMiddleware`.
+    const NOT_RESOLVABLE_AT_BOOT = new Set<unknown>([JobContext, CardStageDeadJob, ServerKitContext]);
 
     it('builds the app\'s own container and resolves every registration', async () => {
         const config = await buildTestServerConfig();

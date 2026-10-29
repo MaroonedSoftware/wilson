@@ -223,6 +223,17 @@ export interface CacheEntries {
 }
 
 /**
+ * One member of a `CacheProvider` set, the set half of {@link CacheEntries}. A member per row, so
+ * two concurrent `setAdd`s to one key each insert their own row instead of racing to rewrite a
+ * shared value. `expiresAt` is the whole set's deadline, kept equal across a key's live rows.
+ */
+export interface CacheSetMembers {
+    key: string;
+    member: string;
+    expiresAt: ColumnType<DateTime, DateTime | string, DateTime | string>;
+}
+
+/**
  * A project's human-approved learnings document (card 0239). Append-only, the same shape as
  * {@link StageConfigs}: the newest row per project is the current document and the rest are its
  * history. Agents read it and never write it; an empty `markdown` means "no learnings".
@@ -252,5 +263,6 @@ export interface DB {
     'runner.cardContext': CardContext;
     'runner.sourceCursors': SourceCursors;
     'runner.cacheEntries': CacheEntries;
+    'runner.cacheSetMembers': CacheSetMembers;
     'runner.learnings': Learnings;
 }

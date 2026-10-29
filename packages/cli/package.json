@@ -14,10 +14,10 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@maroonedsoftware/johnny5": "^8.0.10",
+        "@maroonedsoftware/johnny5": "^8.1.9",
         "@swc-node/register": "^1.12.1",
         "@wilson/sdk": "workspace:*",
-        "injectkit": "^1.7.0",
+        "injectkit": "^1.7.1",
         "luxon": "^3.7.2",
         "pg": "^8.23.0",
         "reflect-metadata": "^0.2.2"
