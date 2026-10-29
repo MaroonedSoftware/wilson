@@ -19,7 +19,7 @@ export const restoreSession = async (): Promise<SessionState> => {
 
 /** Why a sign-in failed, in the operator's words. */
 export const signInFailure = (err: unknown): string => {
-    if (err instanceof SdkError && err.status === 401) return 'Wrong username or password.';
+    if (err instanceof SdkError && err.status === 401) return 'Wrong email or password.';
     if (err instanceof SdkError && err.status === 429) return 'Too many wrong passwords. Wait five minutes and try again.';
     return 'Could not reach the API.';
 };
@@ -54,8 +54,8 @@ export interface PendingSignIn {
  * The first step. With no second factor enrolled this signs in and returns `undefined`; with one, it
  * returns the challenge `completeSignIn` finishes with a code.
  */
-export const signIn = async (username: string, password: string): Promise<PendingSignIn | undefined> => {
-    const response = await wilson.auth.requestToken({ grant_type: 'password', email: username, password });
+export const signIn = async (email: string, password: string): Promise<PendingSignIn | undefined> => {
+    const response = await wilson.auth.requestToken({ grant_type: 'password', email, password });
     if (response.result === 'mfa_required' && response.challengeId) {
         const factors = response.factors ?? [];
         const authenticator = factors.find(factor => factor.method === 'authenticator');
@@ -108,9 +108,9 @@ export const codeFailure = (err: unknown): string => {
 };
 
 /** Create the operator account, then sign in with it. A new account has no second factor yet. */
-export const onboard = async (username: string, password: string): Promise<void> => {
-    await wilson.onboarding.createAccount({ email: username, password });
-    await signIn(username, password);
+export const onboard = async (email: string, password: string): Promise<void> => {
+    await wilson.onboarding.createAccount({ email, password });
+    await signIn(email, password);
 };
 
 /** End the session on the server and forget the token here. The API clears its cookies either way. */

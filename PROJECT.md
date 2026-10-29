@@ -641,7 +641,8 @@ multi-tenant problem wilson does not have, and are deliberately left out.
 
 **Principals.** There are two:
 
-- **The operator account.** Exactly one human account, created through first-run onboarding:
+- **The operator account.** Exactly one human account, signed in to with an email address (wilson
+  never sends mail to it, so it needs no mail setup), created through first-run onboarding:
   `GET/POST /onboarding` is unauthenticated, takes a transaction-scoped advisory lock, re-checks
   that no account exists, and refuses with 409 once one does. There is no sign-up and no
   invitation flow. `GET /onboarding` answers with what first run still needs, as a list of

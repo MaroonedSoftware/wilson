@@ -4,9 +4,9 @@ import { describeApiError, resolveApiBase, resolveProject } from './api-client.j
 import type { KeyStore } from './credentials.js';
 import { signInThisMachine, SignInError, terminalIo, type LoginIo, type MachineKey } from './sign.in.js';
 
-/** How the operator answers: prompted, or (for a script) the username as a flag and the password on stdin. */
+/** How the operator answers: prompted, or (for a script) the email address as a flag and the password on stdin. */
 export interface CredentialOpts {
-    username?: string;
+    email?: string;
     passwordStdin?: boolean;
 }
 
@@ -15,19 +15,21 @@ export interface CredentialOpts {
  * suggestions in `details.password` and `details.suggestions`, not the `details.reason` other
  * refusals use (the web app's `onboardingFailure` reads it the same way).
  */
-const refusal = (err: unknown, ctx: CliContext): string => {
-    if (err instanceof SdkError && err.status === 409) return 'an account already exists; sign in with `wilson auth login` instead';
-    if (err instanceof SdkError) {
-        const details = (err.body as { details?: { password?: string; suggestions?: string[] } } | undefined)?.details;
-        if (details?.password !== undefined || details?.suggestions) {
-            const advice = [details.password, ...(details.suggestions ?? [])].filter(Boolean).join(' ');
-            return `that password is too easy to guess.${advice ? ` ${advice}` : ''}`;
-        }
-    }
-    return describeApiError(err, ctx);
+const passwordAdvice = (err: unknown): string | undefined => {
+    if (!(err instanceof SdkError) || err.status !== 400) return undefined;
+    const details = (err.body as { details?: { password?: string; suggestions?: string[] } } | undefined)?.details;
+    if (details?.password === undefined && !details?.suggestions) return undefined;
+    const advice = [details.password, ...(details.suggestions ?? [])].filter(Boolean).join(' ');
+    return `that password is too easy to guess.${advice ? ` ${advice}` : ''}`;
 };
 
-const isTooWeak = (err: unknown): boolean => err instanceof SdkError && err.status === 400;
+const refusal = (err: unknown, ctx: CliContext): string => {
+    if (err instanceof SdkError && err.status === 409) return 'an account already exists; sign in with `wilson auth login` instead';
+    return passwordAdvice(err) ?? describeApiError(err, ctx);
+};
+
+/** One `@`, with something either side of it and no whitespace: the API checks it properly. */
+const LOOKS_LIKE_EMAIL = /^[^@\s]+@[^@\s]+$/;
 
 /**
  * The password for a new account: from stdin when asked to, otherwise prompted twice, since there is
@@ -58,24 +60,27 @@ export const createOperatorAccount = async (
     opts: CredentialOpts,
     keys: KeyStore,
     io: LoginIo = terminalIo,
-): Promise<{ username: string; key: MachineKey }> => {
+): Promise<{ email: string; key: MachineKey }> => {
     const project = resolveProject(ctx);
     const anonymous = new WilsonSdk({ baseUrl: resolveApiBase(ctx), headers: project ? { 'X-Wilson-Project': project } : {} });
 
     ctx.logger.info('No account exists yet. Create the operator account; it is the only one, so keep the password somewhere safe.');
-    const username = (opts.username ?? (await io.ask('Username')))?.trim();
-    if (!username) throw new SignInError('a username is needed to create the account');
+    const email = (opts.email ?? (await io.ask('Email')))?.trim();
+    if (!email) throw new SignInError('an email address is needed to create the account');
+    if (!LOOKS_LIKE_EMAIL.test(email)) throw new SignInError(`${email} is not an email address`);
 
     for (;;) {
         const password = await choosePassword(ctx, opts, io);
         if (!password) throw new SignInError('a password is needed to create the account');
         try {
-            await anonymous.onboarding.createAccount({ email: username, password });
+            await anonymous.onboarding.createAccount({ email, password });
         } catch (err) {
-            if (!isTooWeak(err) || opts.passwordStdin) throw new SignInError(refusal(err, ctx));
-            ctx.logger.warn(refusal(err, ctx));
+            // Only a weak password is worth asking again for, and only of someone at the terminal.
+            const advice = passwordAdvice(err);
+            if (!advice || opts.passwordStdin) throw new SignInError(refusal(err, ctx));
+            ctx.logger.warn(advice);
             continue;
         }
-        return { username, key: await signInThisMachine(ctx, username, password, keys, io) };
+        return { email, key: await signInThisMachine(ctx, email, password, keys, io) };
     }
 };

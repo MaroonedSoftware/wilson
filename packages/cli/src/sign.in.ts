@@ -44,12 +44,12 @@ export const sessionClient = (ctx: CliContext, accessToken: string): WilsonSdk =
     new WilsonSdk({ baseUrl: resolveApiBase(ctx), headers: { ...projectHeaders(ctx), Authorization: `Bearer ${accessToken}` } });
 
 /**
- * Sign in with a username and password, returning the new session's access token. Unsigned, since
+ * Sign in with an email and password, returning the new session's access token. Unsigned, since
  * this is how a credential is obtained. With an authenticator app enrolled, the password answers
  * `mfa_required`, and this asks for the app's code and completes the sign-in with it. Throws
  * `SignInError` with the operator-facing reason.
  */
-export const signInWithPassword = async (ctx: CliContext, username: string, password: string, io: LoginIo = terminalIo): Promise<string> => {
+export const signInWithPassword = async (ctx: CliContext, email: string, password: string, io: LoginIo = terminalIo): Promise<string> => {
     const anonymous = new WilsonSdk({ baseUrl: resolveApiBase(ctx), headers: projectHeaders(ctx) });
     const refused = (err: unknown, wrong: string): SignInError => {
         if (err instanceof SdkError && err.status === 401) return new SignInError(wrong);
@@ -59,9 +59,9 @@ export const signInWithPassword = async (ctx: CliContext, username: string, pass
 
     let first;
     try {
-        first = await anonymous.auth.requestToken({ grant_type: 'password', email: username, password });
+        first = await anonymous.auth.requestToken({ grant_type: 'password', email, password });
     } catch (err) {
-        throw refused(err, 'wrong username or password');
+        throw refused(err, 'wrong email or password');
     }
     if (first.result === 'token' && first.accessToken) return first.accessToken;
 
@@ -105,12 +105,12 @@ export interface MachineKey {
  */
 export const signInThisMachine = async (
     ctx: CliContext,
-    username: string,
+    email: string,
     password: string,
     keys: KeyStore,
     io: LoginIo = terminalIo,
 ): Promise<MachineKey> => {
-    const accessToken = await signInWithPassword(ctx, username, password, io);
+    const accessToken = await signInWithPassword(ctx, email, password, io);
     const session = sessionClient(ctx, accessToken);
     try {
         const previous = await keys.read();
@@ -143,7 +143,7 @@ export const isStepUpRefusal = (err: unknown): boolean => {
  * `wilson.step.up` (PROJECT.md, Authentication: Factors), so a leaked key cannot rewrite stage
  * config, and the operator types the password at the moment it matters instead of on every command.
  *
- * The username comes from asking the API who the key belongs to, so only the password is prompted.
+ * The email comes from asking the API who the key belongs to, so only the password is prompted.
  */
 export const withStepUp = async <T>(ctx: CliContext, api: WilsonSdk, call: (api: WilsonSdk) => Promise<T>, io: LoginIo = terminalIo): Promise<T> => {
     try {
@@ -152,14 +152,14 @@ export const withStepUp = async <T>(ctx: CliContext, api: WilsonSdk, call: (api:
         if (!isStepUpRefusal(err)) throw err;
     }
 
-    const username = await apiClient(ctx)
+    const email = await apiClient(ctx)
         .auth.getCurrentSession()
         .then(session => session.email)
-        .catch(() => io.ask('Username'));
-    const password = await io.askSecret(`Password for ${username ?? 'your account'} (this change needs it)`);
-    if (!username || !password) throw new SignInError('a password is needed for this change');
+        .catch(() => io.ask('Email'));
+    const password = await io.askSecret(`Password for ${email ?? 'your account'} (this change needs it)`);
+    if (!email || !password) throw new SignInError('a password is needed for this change');
 
-    const accessToken = await signInWithPassword(ctx, username, password, io);
+    const accessToken = await signInWithPassword(ctx, email, password, io);
     const session = sessionClient(ctx, accessToken);
     try {
         return await call(session);

@@ -119,11 +119,11 @@ describe('the sign-in form', () => {
     it('signs in, opting into cookies, and shows the app', async () => {
         renderGate();
         await screen.findByRole('button', { name: 'Sign in' });
-        fill('Username', 'operator');
+        fill('Email', 'operator@example.com');
         fill('Password', 'wrong');
         fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-        expect(await screen.findByText('Wrong username or password.')).toBeTruthy();
+        expect(await screen.findByText('Wrong email or password.')).toBeTruthy();
 
         fill('Password', 'right');
         fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -131,7 +131,7 @@ describe('the sign-in form', () => {
         expect(await screen.findByText('the board')).toBeTruthy();
         const [, init] = callsTo('/api/auth/token').at(-1)!;
         expect((init.headers as Record<string, string>)['x-wilson-cookies']).toBe('1');
-        expect(JSON.parse(init.body as string)).toMatchObject({ grant_type: 'password', email: 'operator', password: 'right' });
+        expect(JSON.parse(init.body as string)).toMatchObject({ grant_type: 'password', email: 'operator@example.com', password: 'right' });
     });
 });
 
@@ -148,7 +148,7 @@ describe('signing in with an authenticator app', () => {
         });
         renderGate();
         await screen.findByRole('button', { name: 'Sign in' });
-        fill('Username', 'operator');
+        fill('Email', 'operator@example.com');
         fill('Password', 'right');
         fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -173,7 +173,7 @@ describe('the onboarding form', () => {
         renderGate();
         await screen.findByText('Create your account');
 
-        fill('Username', 'operator');
+        fill('Email', 'operator@example.com');
         fill('Password', 'correct horse battery staple');
         fill('Confirm password', 'something else');
         fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
@@ -192,7 +192,7 @@ describe('the onboarding form', () => {
         renderGate();
         await screen.findByText('Create your account');
 
-        fill('Username', 'operator');
+        fill('Email', 'operator@example.com');
         fill('Password', 'password1');
         fill('Confirm password', 'password1');
         fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
@@ -208,7 +208,7 @@ describe('the onboarding form', () => {
         renderGate();
         await screen.findByText('Create your account');
 
-        fill('Username', 'operator');
+        fill('Email', 'operator@example.com');
         fill('Password', 'correct horse battery staple');
         fill('Confirm password', 'correct horse battery staple');
         fireEvent.click(screen.getByRole('button', { name: 'Create account' }));

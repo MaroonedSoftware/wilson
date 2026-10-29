@@ -37,8 +37,8 @@ const buildCtx = (env: Record<string, string> = {}) => {
     return { ctx: { env, logger, config: { get: (_k: string, f: string) => f } } as never, logger };
 };
 
-const io = (answers: { username?: string; password?: string; stdin?: string; code?: string }): LoginIo => ({
-    ask: async () => answers.username,
+const io = (answers: { email?: string; password?: string; stdin?: string; code?: string }): LoginIo => ({
+    ask: async () => answers.email,
     askSecret: async (message: string) => (message.startsWith('Code') ? answers.code : answers.password),
     readStdin: async () => answers.stdin ?? '',
 });
@@ -119,10 +119,10 @@ describe('wilson auth login', () => {
         const entry = memoryEntry();
         const { ctx } = buildCtx();
 
-        expect(await login({}, ctx, io({ username: 'operator', password: 'pw' }), keyStore(entry))).toBe(0);
+        expect(await login({}, ctx, io({ email: 'operator@example.com', password: 'pw' }), keyStore(entry))).toBe(0);
 
         const [signIn, create, signOut] = calls();
-        expect(signIn).toMatchObject({ method: 'POST', body: { grant_type: 'password', email: 'operator', password: 'pw' } });
+        expect(signIn).toMatchObject({ method: 'POST', body: { grant_type: 'password', email: 'operator@example.com', password: 'pw' } });
         expect(signIn!.headers.Authorization).toBeUndefined();
         expect(create).toMatchObject({ method: 'POST', body: { scope: 'manage' } });
         expect(create!.headers.Authorization).toBe('Bearer session-jwt');
@@ -138,7 +138,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const entry = memoryEntry(JSON.stringify({ token: 'wl_old', id: 'key-0', name: 'old' }));
 
-        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw' }), keyStore(entry))).toBe(0);
+        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw' }), keyStore(entry))).toBe(0);
 
         expect(calls()[2]).toMatchObject({ method: 'DELETE' });
         expect(calls()[2]!.url).toContain('/api/auth/keys/key-0');
@@ -150,7 +150,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-        await login({ username: 'operator', passwordStdin: true }, buildCtx().ctx, io({ stdin: 'from-stdin\n' }), keyStore(memoryEntry()));
+        await login({ email: 'operator@example.com', passwordStdin: true }, buildCtx().ctx, io({ stdin: 'from-stdin\n' }), keyStore(memoryEntry()));
 
         expect(calls()[0]!.body.password).toBe('from-stdin');
     });
@@ -165,7 +165,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const entry = memoryEntry();
 
-        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(entry))).toBe(0);
+        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw', code: '123456' }), keyStore(entry))).toBe(0);
 
         expect(calls()[1]!.body).toEqual({ grant_type: 'authenticator', challenge_id: 'ch-1', factor_id: 'f-1', code: '123456' });
         expect(calls()[2]!.headers.Authorization).toBe('Bearer session-jwt');
@@ -176,7 +176,7 @@ describe('wilson auth login', () => {
         fetchMock.mockResolvedValueOnce(json({ result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'passkey', id: 'p-1' }] }));
         const { ctx, logger } = buildCtx();
 
-        expect(await login({}, ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(1);
+        expect(await login({}, ctx, io({ email: 'operator@example.com', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(1);
 
         expect(logger.error.mock.calls[0]![0]).toContain('passkey');
         expect(calls()).toHaveLength(1);
@@ -198,7 +198,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(0);
+        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw', code: '123456' }), keyStore(memoryEntry()))).toBe(0);
 
         expect(calls()[1]!.body).toMatchObject({ grant_type: 'authenticator', factor_id: 'f-1' });
     });
@@ -209,7 +209,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(json({}, 401));
         const { ctx, logger } = buildCtx();
 
-        expect(await login({}, ctx, io({ username: 'operator', password: 'pw', code: '000000' }), keyStore(memoryEntry()))).toBe(1);
+        expect(await login({}, ctx, io({ email: 'operator@example.com', password: 'pw', code: '000000' }), keyStore(memoryEntry()))).toBe(1);
 
         expect(logger.error).toHaveBeenCalledWith('wrong code');
     });
@@ -219,9 +219,9 @@ describe('wilson auth login', () => {
         const entry = memoryEntry();
         const { ctx, logger } = buildCtx();
 
-        expect(await login({}, ctx, io({ username: 'operator', password: 'bad' }), keyStore(entry))).toBe(1);
+        expect(await login({}, ctx, io({ email: 'operator@example.com', password: 'bad' }), keyStore(entry))).toBe(1);
 
-        expect(logger.error).toHaveBeenCalledWith('wrong username or password');
+        expect(logger.error).toHaveBeenCalledWith('wrong email or password');
         expect(entry.value).toBeNull();
     });
 
@@ -233,7 +233,7 @@ describe('wilson auth login', () => {
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const broken: KeyStore = { read: async () => undefined, write: async () => false, clear: async () => true };
 
-        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw' }), broken)).toBe(1);
+        expect(await login({}, buildCtx().ctx, io({ email: 'operator@example.com', password: 'pw' }), broken)).toBe(1);
 
         expect(calls()[2]).toMatchObject({ method: 'DELETE' });
     });
@@ -266,7 +266,7 @@ describe('wilson auth logout', () => {
 describe('wilson auth status and token', () => {
     it('reports who the key signs in as', async () => {
         fetchMock.mockResolvedValueOnce(
-            json({ accountId: 'a', email: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+            json({ accountId: 'a', email: 'operator@example.com', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
         );
         const { ctx, logger } = buildCtx();
 
@@ -316,7 +316,7 @@ describe('withStepUp', () => {
         fetchMock
             .mockResolvedValueOnce(stepUpRefusal())
             .mockResolvedValueOnce(
-                json({ accountId: 'a', email: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+                json({ accountId: 'a', email: 'operator@example.com', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
             )
             .mockResolvedValueOnce(json({ result: 'token', accessToken: 'fresh-session', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ id: 'v2', yaml: 'x', message: 'm', createdAt: '2026-10-29T00:00:00Z' }))
@@ -327,7 +327,7 @@ describe('withStepUp', () => {
 
         const [first, , signIn, retry, signOut] = calls();
         expect(first!.headers.Authorization).toBe('Bearer wl_stored');
-        expect(signIn!.body).toMatchObject({ grant_type: 'password', email: 'operator', password: 'pw' });
+        expect(signIn!.body).toMatchObject({ grant_type: 'password', email: 'operator@example.com', password: 'pw' });
         expect(retry!.headers.Authorization).toBe('Bearer fresh-session');
         expect(retry!.method).toBe('PUT');
         expect(signOut!.url).toContain('/api/auth/logout');

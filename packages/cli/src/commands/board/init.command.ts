@@ -29,8 +29,8 @@ const signInForInit = async (ctx: CliContext, opts: CredentialOpts, keys: KeySto
         if ((await login(opts, ctx, io, keys)) !== 0) throw new SignInError('not signed in, so the board was not initialised');
         return true;
     }
-    const { username, key } = await createOperatorAccount(ctx, opts, keys, io);
-    ctx.logger.info(`created the account ${username} and signed this machine in; its key is "${key.name}" (…${key.hint})`);
+    const { email, key } = await createOperatorAccount(ctx, opts, keys, io);
+    ctx.logger.info(`created the account ${email} and signed this machine in; its key is "${key.name}" (…${key.hint})`);
     return true;
 };
 
@@ -74,7 +74,7 @@ export const init = async (opts: CredentialOpts, ctx: CliContext, io: LoginIo = 
 const command: CommandModule<CredentialOpts> = {
     description: 'Give the project its first stage config, creating the operator account first on a fresh install',
     options: [
-        { flags: '--username <name>', description: 'The account username, if init has to sign in (prompted for if omitted)', type: 'string' },
+        { flags: '--email <address>', description: 'The account email address, if init has to sign in (prompted for if omitted)', type: 'string' },
         { flags: '--password-stdin', description: 'Read the password from stdin instead of prompting', type: 'boolean' },
     ],
     run: (opts, ctx) => init(opts, ctx),

@@ -19,7 +19,7 @@ afterEach(() => {
 describe('signed in to the API', () => {
     it('passes, naming the account, when the credential works', async () => {
         fetchMock.mockResolvedValueOnce(
-            json({ accountId: 'a', email: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+            json({ accountId: 'a', email: 'operator@example.com', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
         );
 
         const result = await apiSignedIn.run(ctx());

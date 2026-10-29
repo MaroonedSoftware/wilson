@@ -82,7 +82,7 @@ function Panel({ title, description, children }: { title: string; description: s
 }
 
 /**
- * Username and password, then, if the account has a second factor enrolled, its code or its passkey.
+ * Email and password, then, if the account has a second factor enrolled, its code or its passkey.
  * Calls `onSignedIn` once a session is in place. Shared by the sign-in page and the step-up dialog.
  */
 export function CredentialsSteps({
@@ -94,7 +94,7 @@ export function CredentialsSteps({
     submitLabel: string;
     onSignedIn?: () => void;
 }) {
-    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [code, setCode] = useState('');
     const [challenge, setChallenge] = useState<PendingSignIn | undefined>(undefined);
@@ -106,7 +106,7 @@ export function CredentialsSteps({
         setPending(true);
         setFailure(undefined);
         try {
-            const next = await signIn(username, password);
+            const next = await signIn(email, password);
             setPending(false);
             if (next) setChallenge(next);
             else onSignedIn?.();
@@ -187,7 +187,7 @@ export function CredentialsSteps({
     return (
         <form onSubmit={submitPassword}>
             <Stack gap="sm">
-                <TextInput label="Username" autoComplete="username" value={username} onChange={e => setUsername(e.currentTarget.value)} required />
+                <TextInput label="Email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.currentTarget.value)} required />
                 <PasswordInput
                     label="Password"
                     autoComplete="current-password"
@@ -218,7 +218,7 @@ export function SignInForm({ unreachable = false }: { unreachable?: boolean }) {
  * reset by email to fall back on.
  */
 export function OnboardingForm() {
-    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmation, setConfirmation] = useState('');
     const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -233,7 +233,7 @@ export function OnboardingForm() {
         setPending(true);
         setFailure(undefined);
         try {
-            await onboard(username, password);
+            await onboard(email, password);
         } catch (err) {
             setFailure(onboardingFailure(err));
             setPending(false);
@@ -241,14 +241,15 @@ export function OnboardingForm() {
     };
 
     return (
-        <Panel title="Create your account" description="wilson has one account: yours. Choose a username and a password to sign in with.">
+        <Panel title="Create your account" description="wilson has one account: yours. Choose the email address and password you will sign in with. wilson never sends mail to it.">
             <form onSubmit={submit}>
                 <Stack gap="sm">
                     <TextInput
-                        label="Username"
-                        autoComplete="username"
-                        value={username}
-                        onChange={e => setUsername(e.currentTarget.value)}
+                        label="Email"
+                        type="email"
+                        autoComplete="email"
+                        value={email}
+                        onChange={e => setEmail(e.currentTarget.value)}
                         required
                     />
                     <PasswordInput

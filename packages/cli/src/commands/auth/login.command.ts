@@ -6,13 +6,13 @@ import { signInThisMachine, SignInError, terminalIo, type LoginIo } from '../../
 export type { LoginIo } from '../../sign.in.js';
 
 interface LoginOpts {
-    username?: string;
+    email?: string;
     passwordStdin?: boolean;
 }
 
 /**
- * Sign this machine in (`signInThisMachine`): the operator's username and password buy a `manage`
- * API key named for this host, kept in the OS keyring. Every later command sends the key
+ * Sign this machine in (`signInThisMachine`): the operator's email address and password buy a
+ * `manage` API key named for this host, kept in the OS keyring. Every later command sends the key
  * (`api-client.ts`), so the password is typed once per machine, not once per command, and is never
  * stored.
  *
@@ -27,16 +27,16 @@ interface LoginOpts {
 export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = terminalIo, store?: KeyStore): Promise<number> => {
     const keys = store ?? keyStoreFor(ctx, resolveApiBase(ctx));
 
-    const username = opts.username ?? (await io.ask('Username'));
+    const email = opts.email ?? (await io.ask('Email'));
     const password = opts.passwordStdin ? (await io.readStdin()).replace(/\r?\n$/, '') : await io.askSecret('Password');
-    if (!username || !password) {
-        ctx.logger.error('a username and a password are needed to sign in');
+    if (!email || !password) {
+        ctx.logger.error('an email and a password are needed to sign in');
         return 1;
     }
 
     try {
-        const key = await signInThisMachine(ctx, username, password, keys, io);
-        ctx.logger.info(`signed in as ${username}; this machine's key is "${key.name}" (…${key.hint})`);
+        const key = await signInThisMachine(ctx, email, password, keys, io);
+        ctx.logger.info(`signed in as ${email}; this machine's key is "${key.name}" (…${key.hint})`);
         return 0;
     } catch (err) {
         ctx.logger.error(err instanceof SignInError ? err.message : describeApiError(err, ctx));
@@ -47,7 +47,7 @@ export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = term
 const command: CommandModule<LoginOpts> = {
     description: 'Sign this machine in to the API, storing an API key in the system keyring',
     options: [
-        { flags: '--username <name>', description: 'The account username (prompted for if omitted)', type: 'string' },
+        { flags: '--email <address>', description: 'The account email address (prompted for if omitted)', type: 'string' },
         { flags: '--password-stdin', description: 'Read the password from stdin instead of prompting', type: 'boolean' },
     ],
     run: (opts, ctx) => login(opts, ctx),

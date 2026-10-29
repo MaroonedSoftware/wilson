@@ -86,7 +86,7 @@ describe('wilson board init on a fresh install', () => {
         const entry = memoryEntry();
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator'], ['a long passphrase', 'a long passphrase']), keyStore(entry))).toBe(0);
+        expect(await init({}, ctx, scripted(['operator@example.com'], ['a long passphrase', 'a long passphrase']), keyStore(entry))).toBe(0);
 
         const urls = calls().map(call => `${call.method} ${new URL(call.url).pathname}`);
         expect(urls).toEqual([
@@ -98,7 +98,7 @@ describe('wilson board init on a fresh install', () => {
             'POST /api/auth/logout',
             'POST /api/board/init',
         ]);
-        expect(calls()[2]!.body).toEqual({ email: 'operator', password: 'a long passphrase' });
+        expect(calls()[2]!.body).toEqual({ email: 'operator@example.com', password: 'a long passphrase' });
         expect(calls()[6]!.headers.Authorization).toBe('Bearer wl_new');
         expect(JSON.parse(entry.value!).token).toBe('wl_new');
         expect(logger.info).toHaveBeenCalledWith('board initialised — stages: planning, implementing');
@@ -115,7 +115,7 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(json(COLUMNS, 201));
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator'], ['first try', 'typo', 'second try', 'second try']), keyStore(memoryEntry()))).toBe(0);
+        expect(await init({}, ctx, scripted(['operator@example.com'], ['first try', 'typo', 'second try', 'second try']), keyStore(memoryEntry()))).toBe(0);
 
         expect(logger.warn).toHaveBeenCalledWith('those did not match; try again');
         expect(calls()[2]!.body.password).toBe('second try');
@@ -133,7 +133,7 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(json(COLUMNS, 201));
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator'], ['password1', 'password1', 'a long passphrase', 'a long passphrase']), keyStore(memoryEntry()))).toBe(0);
+        expect(await init({}, ctx, scripted(['operator@example.com'], ['password1', 'password1', 'a long passphrase', 'a long passphrase']), keyStore(memoryEntry()))).toBe(0);
 
         expect(logger.warn).toHaveBeenCalledWith('that password is too easy to guess. This is a very common password. Add another word.');
         expect(calls()[3]!.body.password).toBe('a long passphrase');
@@ -147,11 +147,23 @@ describe('wilson board init on a fresh install', () => {
         const io = scripted([], [], 'password1\n');
         const { ctx, logger } = buildCtx();
 
-        expect(await init({ username: 'operator', passwordStdin: true }, ctx, io, keyStore(memoryEntry()))).toBe(1);
+        expect(await init({ email: 'operator@example.com', passwordStdin: true }, ctx, io, keyStore(memoryEntry()))).toBe(1);
 
-        expect(calls()[2]!.body).toEqual({ email: 'operator', password: 'password1' });
+        expect(calls()[2]!.body).toEqual({ email: 'operator@example.com', password: 'password1' });
         expect(io.secretsAsked).toEqual([]);
         expect(logger.error).toHaveBeenCalledWith('that password is too easy to guess. Too short.');
+    });
+
+    it('refuses something that is not an email address before creating anything', async () => {
+        fetchMock.mockResolvedValueOnce(unauthorised()).mockResolvedValueOnce(json(NEEDS_ACCOUNT));
+        const io = scripted(['operator'], []);
+        const { ctx, logger } = buildCtx();
+
+        expect(await init({}, ctx, io, keyStore(memoryEntry()))).toBe(1);
+
+        expect(logger.error).toHaveBeenCalledWith('operator is not an email address');
+        expect(io.secretsAsked).toEqual([]);
+        expect(calls()).toHaveLength(2);
     });
 
     it('signs in to the account there is when one exists, and initialises the board', async () => {
@@ -162,11 +174,11 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(signedOut())
             .mockResolvedValueOnce(json(COLUMNS, 201));
-        const io = scripted(['operator'], ['pw']);
+        const io = scripted(['operator@example.com'], ['pw']);
 
         expect(await init({}, buildCtx().ctx, io, keyStore(memoryEntry()))).toBe(0);
 
-        expect(calls()[2]!.body).toMatchObject({ grant_type: 'password', email: 'operator', password: 'pw' });
+        expect(calls()[2]!.body).toMatchObject({ grant_type: 'password', email: 'operator@example.com', password: 'pw' });
         expect(io.secretsAsked).toEqual(['Password']);
         expect(calls()[5]!.headers.Authorization).toBe('Bearer wl_new');
     });
@@ -178,9 +190,9 @@ describe('wilson board init on a fresh install', () => {
             .mockResolvedValueOnce(unauthorised());
         const { ctx, logger } = buildCtx();
 
-        expect(await init({}, ctx, scripted(['operator'], ['wrong']), keyStore(memoryEntry()))).toBe(1);
+        expect(await init({}, ctx, scripted(['operator@example.com'], ['wrong']), keyStore(memoryEntry()))).toBe(1);
 
-        expect(logger.error).toHaveBeenCalledWith('wrong username or password');
+        expect(logger.error).toHaveBeenCalledWith('wrong email or password');
         expect(logger.error).toHaveBeenLastCalledWith('not signed in, so the board was not initialised');
         expect(calls()).toHaveLength(3);
     });
