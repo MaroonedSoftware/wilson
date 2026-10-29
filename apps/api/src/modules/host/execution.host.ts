@@ -30,7 +30,13 @@ export interface ExecutionHost {
     mkdir(path: string): Promise<void>;
 
     /** `stat(path)`, narrowed to what a caller here asks of it. Rejects when the path is absent. */
-    stat(path: string): Promise<{ isDirectory: boolean }>;
+    stat(path: string): Promise<HostStat>;
+
+    /** `realpath(path)`. Rejects when the path is absent. */
+    realpath(path: string): Promise<string>;
+
+    /** `copyFile(from, to)`, both paths on this host. */
+    copyFile(from: string, to: string): Promise<void>;
 
     /** `unlink(path)`. */
     unlink(path: string): Promise<void>;
@@ -43,6 +49,12 @@ export interface ExecutionHost {
      * zero; otherwise rejects with an `ExecFailure`.
      */
     exec(file: string, args: readonly string[], options: ExecOptions): Promise<ExecResult>;
+}
+
+export interface HostStat {
+    isDirectory: boolean;
+    /** Last modification time, in milliseconds since the epoch, by the host's own clock. */
+    mtimeMs: number;
 }
 
 export interface ExecOptions {

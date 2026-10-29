@@ -1,9 +1,8 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { acceptanceCriteria } from '#modules/board/card.js';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { ReviewResultSchema } from './stage.result.js';
 import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
 
@@ -64,7 +63,7 @@ export class ReviewVerifier implements StageVerifier {
 
         for (const finding of findings) {
             if (!lineCounts.has(finding.file)) {
-                lineCounts.set(finding.file, await this.countLines(worktree.path, finding.file));
+                lineCounts.set(finding.file, await this.countLines(worktree, finding.file));
             }
             const lineCount = lineCounts.get(finding.file);
 
@@ -135,7 +134,7 @@ export class ReviewVerifier implements StageVerifier {
                 // in the worktree, and a line within it.
                 const file = criterion.file ?? '';
                 if (!lineCounts.has(file)) {
-                    lineCounts.set(file, await this.countLines(worktree.path, file));
+                    lineCounts.set(file, await this.countLines(worktree, file));
                 }
                 const lineCount = lineCounts.get(file);
                 if (lineCount === undefined) {
@@ -170,8 +169,10 @@ export class ReviewVerifier implements StageVerifier {
         return { passed: failures.length === 0, failures, changedPaths, reportRejected: failures.length > 0 && !codeFailure };
     }
 
-    private async countLines(worktreePath: string, path: string): Promise<number | undefined> {
-        const raw = await readFile(join(worktreePath, path), 'utf8').catch(() => undefined);
+    private async countLines(worktree: Worktree, path: string): Promise<number | undefined> {
+        const raw = await worktreeHost(worktree)
+            .readFile(join(worktree.path, path))
+            .catch(() => undefined);
         if (raw === undefined) return undefined;
         return raw.split('\n').length;
     }

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import type { ExecOptions, ExecResult, ExecutionHost } from './execution.host.js';
+import type { ExecOptions, ExecResult, ExecutionHost, HostStat } from './execution.host.js';
 
 const exec = promisify(execFile);
 
@@ -25,9 +25,17 @@ export class LocalHost implements ExecutionHost {
         await mkdir(path, { recursive: true });
     }
 
-    async stat(path: string): Promise<{ isDirectory: boolean }> {
+    async stat(path: string): Promise<HostStat> {
         const info = await stat(path);
-        return { isDirectory: info.isDirectory() };
+        return { isDirectory: info.isDirectory(), mtimeMs: info.mtimeMs };
+    }
+
+    realpath(path: string): Promise<string> {
+        return realpath(path);
+    }
+
+    copyFile(from: string, to: string): Promise<void> {
+        return copyFile(from, to);
     }
 
     unlink(path: string): Promise<void> {

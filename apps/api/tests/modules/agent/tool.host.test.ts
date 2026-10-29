@@ -5,55 +5,11 @@ import { fileTools } from '#modules/agent/tools/file.tools.js';
 import { searchTools } from '#modules/agent/tools/search.tools.js';
 import { toolHost, type ToolContext } from '#modules/agent/tools/tool.context.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
-import type { ExecOptions, ExecResult, ExecutionHost } from '#modules/host/execution.host.js';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
+import { MemoryHost } from '#tests/support/memory.host.js';
 
 type ExecuteFn<Input> = (input: Input) => Promise<string>;
-
-/**
- * A host with no disk behind it: files live in a map and commands are recorded, not run. The
- * worktree root below does not exist on this machine, so any tool that reached for `node:fs` or
- * `execFile` directly instead of its context's host would fail here rather than pass by accident.
- */
-class MemoryHost implements ExecutionHost {
-    readonly name = 'memory';
-    readonly files = new Map<string, string>();
-    readonly dirs = new Set<string>();
-    readonly commands: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
-
-    async readFile(path: string): Promise<string> {
-        const content = this.files.get(path);
-        if (content === undefined) throw new Error(`ENOENT: no such file, open '${path}'`);
-        return content;
-    }
-
-    async writeFile(path: string, content: string): Promise<void> {
-        this.files.set(path, content);
-    }
-
-    async mkdir(path: string): Promise<void> {
-        this.dirs.add(path);
-    }
-
-    async stat(path: string): Promise<{ isDirectory: boolean }> {
-        if (this.dirs.has(path)) return { isDirectory: true };
-        if (this.files.has(path)) return { isDirectory: false };
-        throw new Error(`ENOENT: no such file, stat '${path}'`);
-    }
-
-    async unlink(path: string): Promise<void> {
-        this.files.delete(path);
-    }
-
-    async removeTree(path: string): Promise<void> {
-        for (const key of [...this.files.keys()]) if (key.startsWith(`${path}/`)) this.files.delete(key);
-    }
-
-    async exec(file: string, args: readonly string[], options: ExecOptions): Promise<ExecResult> {
-        this.commands.push({ file, args, options });
-        return { stdout: `ran ${file}`, stderr: '' };
-    }
-}
 
 const ROOT = '/remote/agent-3/worktrees/0001';
 

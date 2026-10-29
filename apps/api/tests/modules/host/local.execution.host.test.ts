@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -23,8 +23,22 @@ describe('LocalHost', () => {
 
         expect(await localHost.readFile(join(root, 'a', 'b', 'c.txt'))).toBe('hello');
         expect(await readFile(join(root, 'a', 'b', 'c.txt'), 'utf8')).toBe('hello');
-        expect(await localHost.stat(join(root, 'a', 'b', 'c.txt'))).toEqual({ isDirectory: false });
-        expect(await localHost.stat(join(root, 'a'))).toEqual({ isDirectory: true });
+        expect(await localHost.stat(join(root, 'a', 'b', 'c.txt'))).toMatchObject({ isDirectory: false });
+        expect(await localHost.stat(join(root, 'a'))).toMatchObject({ isDirectory: true });
+    });
+
+    it('reports a file’s mtime as node:fs does', async () => {
+        await localHost.writeFile(join(root, 'timed.txt'), 'x');
+        expect((await localHost.stat(join(root, 'timed.txt'))).mtimeMs).toBe((await stat(join(root, 'timed.txt'))).mtimeMs);
+    });
+
+    it('resolves a path through realpath, and copies a file on the same machine', async () => {
+        expect(await localHost.realpath(root)).toBe(await realpath(root));
+        await expect(localHost.realpath(join(root, 'missing'))).rejects.toThrow(/ENOENT/);
+
+        await localHost.writeFile(join(root, 'from.txt'), 'copied');
+        await localHost.copyFile(join(root, 'from.txt'), join(root, 'to.txt'));
+        expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe('copied');
     });
 
     it('rejects a read or stat of a missing file the way node:fs does', async () => {

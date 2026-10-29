@@ -4,7 +4,9 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
-import { conflictingPaths, git, isClean, mergeTree } from '#modules/board/git.js';
+import { conflictingPaths, git, gitOn, isClean, mergeTree } from '#modules/board/git.js';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
 import { codeRootLock } from './code.root.lock.js';
 
@@ -14,7 +16,16 @@ export interface Worktree {
     branch: string;
     /** The commit the branch was cut from, used to diff what the stage actually changed. */
     baseSha: string;
+    /**
+     * The machine `path` is on. Read it with {@link worktreeHost}. Unset means this one, which is
+     * every worktree `create` and `resume` cut today; optional so the many tests that build a
+     * `Worktree` by hand keep meaning what they always meant.
+     */
+    host?: ExecutionHost;
 }
+
+/** The host a worktree's files and commands live on: its own, or this machine when it names none. */
+export const worktreeHost = (worktree: Worktree): ExecutionHost => worktree.host ?? localHost;
 
 /** Card 0265. One file changed in {@link WorktreeManager.patchSinceFork}'s range. */
 export interface DiffFileEntry {
@@ -301,12 +312,13 @@ export class WorktreeManager {
      * quietly drop the check that used to catch unformatted output.
      */
     async commit(worktree: Worktree, message: string): Promise<string | undefined> {
-        await git(worktree.path, ['add', '-A']);
-        const staged = await git(worktree.path, ['diff', '--cached', '--name-only']);
+        const host = worktreeHost(worktree);
+        await gitOn(host, worktree.path, ['add', '-A']);
+        const staged = await gitOn(host, worktree.path, ['diff', '--cached', '--name-only']);
         if (staged.stdout.trim().length === 0) return undefined;
 
-        await git(worktree.path, ['commit', '--no-verify', '-m', message]);
-        return (await git(worktree.path, ['rev-parse', 'HEAD'])).stdout.trim();
+        await gitOn(host, worktree.path, ['commit', '--no-verify', '-m', message]);
+        return (await gitOn(host, worktree.path, ['rev-parse', 'HEAD'])).stdout.trim();
     }
 
     /**
@@ -336,9 +348,9 @@ export class WorktreeManager {
         this.logger.info(`${worktree.branch} is ${behind} commit(s) behind; rebasing onto ${head.slice(0, 8)}`);
 
         try {
-            await git(worktree.path, ['rebase', head]);
+            await gitOn(worktreeHost(worktree), worktree.path, ['rebase', head]);
         } catch (err) {
-            await git(worktree.path, ['rebase', '--abort']).catch(() => undefined);
+            await gitOn(worktreeHost(worktree), worktree.path, ['rebase', '--abort']).catch(() => undefined);
             return {
                 ok: false,
                 reason: `rebase conflict: ${worktree.branch} cannot be replayed onto ${head.slice(0, 8)} without a human — ${(err as Error).message}`,
@@ -625,7 +637,7 @@ export class WorktreeManager {
      * rather than the directory when they refuse, which is strictly more useful.
      */
     async uncommittedPaths(worktree: Worktree): Promise<string[]> {
-        const { stdout } = await git(worktree.path, ['status', '--porcelain', '--untracked-files=all']);
+        const { stdout } = await gitOn(worktreeHost(worktree), worktree.path, ['status', '--porcelain', '--untracked-files=all']);
         return stdout
             .split('\n')
             .map(line => line.slice(3).trim())
@@ -637,7 +649,8 @@ export class WorktreeManager {
     async changedPaths(worktree: Worktree): Promise<string[]> {
         // --diff-filter excludes nothing: a stage that deletes a file is as much a change as one
         // that adds it, and the scope check must see both.
-        const { stdout } = await git(worktree.path, ['diff', '--name-only', worktree.baseSha, '--']);
+        const host = worktreeHost(worktree);
+        const { stdout } = await gitOn(host, worktree.path, ['diff', '--name-only', worktree.baseSha, '--']);
         const tracked = stdout
             .split('\n')
             .map(l => l.trim())
@@ -646,7 +659,7 @@ export class WorktreeManager {
         // Untracked files never appear in `git diff`, and a stage that creates a new file and does
         // not stage it would otherwise read as an empty diff — an exit condition satisfied by doing
         // nothing visible.
-        const { stdout: untrackedOut } = await git(worktree.path, ['ls-files', '--others', '--exclude-standard']);
+        const { stdout: untrackedOut } = await gitOn(host, worktree.path, ['ls-files', '--others', '--exclude-standard']);
         const untracked = untrackedOut
             .split('\n')
             .map(l => l.trim())
@@ -664,7 +677,8 @@ export class WorktreeManager {
      * `worktree.baseSha` is dereferenced in one file, not two (PROJECT.md: one basis for the diff).
      */
     async addedPaths(worktree: Worktree): Promise<string[]> {
-        const { stdout } = await git(worktree.path, ['diff', '--name-status', worktree.baseSha, '--']);
+        const host = worktreeHost(worktree);
+        const { stdout } = await gitOn(host, worktree.path, ['diff', '--name-status', worktree.baseSha, '--']);
         const added = stdout
             .split('\n')
             .map(line => line.trim())
@@ -672,7 +686,7 @@ export class WorktreeManager {
             .filter(line => line.startsWith('A'))
             .map(line => line.split('\t').pop() as string);
 
-        const { stdout: untrackedOut } = await git(worktree.path, ['ls-files', '--others', '--exclude-standard']);
+        const { stdout: untrackedOut } = await gitOn(host, worktree.path, ['ls-files', '--others', '--exclude-standard']);
         const untracked = untrackedOut
             .split('\n')
             .map(line => line.trim())

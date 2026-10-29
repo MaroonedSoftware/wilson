@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 
 const exec = promisify(execFile);
 
@@ -17,10 +19,15 @@ export interface GitResult {
  * The runner's own credentials live in a credential helper git invokes for itself (PROJECT.md,
  * Deployment) — nothing here passes a token, and the agent's bash tool never reaches this function.
  */
-export const git = async (cwd: string, args: string[]): Promise<GitResult> => {
+export const git = (cwd: string, args: string[]): Promise<GitResult> => gitOn(localHost, cwd, args);
+
+/**
+ * {@link git}, on `host` rather than this machine: the same argv, buffer and error message, so a
+ * caller that works on a card's worktree reads the same whichever machine that worktree is on.
+ */
+export const gitOn = async (host: ExecutionHost, cwd: string, args: string[]): Promise<GitResult> => {
     try {
-        const { stdout, stderr } = await exec('git', args, { cwd, maxBuffer: 32 * 1024 * 1024 });
-        return { stdout, stderr };
+        return await host.exec('git', args, { cwd, maxBuffer: 32 * 1024 * 1024 });
     } catch (err) {
         const e = err as { stderr?: string; message: string };
         throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${e.stderr?.trim() || e.message}`, { cause: err });
@@ -28,8 +35,8 @@ export const git = async (cwd: string, args: string[]): Promise<GitResult> => {
 };
 
 /** True when the working tree has no uncommitted changes. */
-export const isClean = async (cwd: string): Promise<boolean> => {
-    const { stdout } = await git(cwd, ['status', '--porcelain']);
+export const isClean = async (cwd: string, host: ExecutionHost = localHost): Promise<boolean> => {
+    const { stdout } = await gitOn(host, cwd, ['status', '--porcelain']);
     return stdout.trim().length === 0;
 };
 

@@ -1,11 +1,10 @@
-import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { expectedSkippedTests } from '#modules/board/card.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
@@ -161,14 +160,16 @@ export class TestingVerifier implements StageVerifier {
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
         const startedAt = Date.now();
-        const run = stage.testCommand ? await runConfiguredCommand(worktree.path, stage.testCommand) : undefined;
+        const run = stage.testCommand
+            ? await runConfiguredCommand(worktree.path, stage.testCommand, undefined, undefined, worktreeHost(worktree))
+            : undefined;
 
         // Read before pushing the red-suite failure below — that failure's first line is built from
         // this report's named failures, so the message needs the report before it can be assembled.
-        const counts = await this.readReport(worktree.path, stage.testReportPath, failures, startedAt);
+        const counts = await this.readReport(worktree, stage.testReportPath, failures, startedAt);
 
         if (run) {
-            const redFailure = await this.judgeRedRun(cardId, worktree.path, stage, counts, run);
+            const redFailure = await this.judgeRedRun(cardId, worktree, stage, counts, run);
             if (redFailure) failures.push(redFailure);
         }
 
@@ -208,7 +209,7 @@ export class TestingVerifier implements StageVerifier {
      * instead of after.
      */
     private async readReport(
-        worktreePath: string,
+        tree: Worktree,
         testReportPath: string | undefined,
         failures: string[],
         notBefore?: number,
@@ -218,24 +219,25 @@ export class TestingVerifier implements StageVerifier {
             return undefined;
         }
 
-        const path = join(worktreePath, testReportPath);
+        const host = worktreeHost(tree);
+        const path = join(tree.path, testReportPath);
 
         if (notBefore !== undefined) {
-            const stats = await stat(path).catch(() => undefined);
+            const stats = await host.stat(path).catch(() => undefined);
             if (stats && stats.mtimeMs < notBefore) {
                 failures.push(`the test report at ${testReportPath} predates this run: the test command wrote nothing`);
                 return undefined;
             }
         }
 
-        const raw = await readFile(path, 'utf8').catch((err: Error) => err);
+        const raw = await host.readFile(path).catch((err: Error) => err);
         if (raw instanceof Error) {
             failures.push(`could not read test report at ${testReportPath}: ${raw.message}`);
             return undefined;
         }
 
         try {
-            return parseTestReport(raw, worktreePath);
+            return parseTestReport(raw, tree.path);
         } catch (err) {
             failures.push(`test report at ${testReportPath} is unusable: ${(err as Error).message}`);
             return undefined;
@@ -263,7 +265,7 @@ export class TestingVerifier implements StageVerifier {
      */
     private async judgeRedRun(
         cardId: string,
-        worktreePath: string,
+        worktree: Worktree,
         stage: StageConfig,
         report: TestReport | undefined,
         run: CommandFailure,
@@ -272,7 +274,13 @@ export class TestingVerifier implements StageVerifier {
         if (failing.length === 0 || !stage.testCommand) return redSuiteFailure(report, run);
 
         const files = [...new Set(failing.map(test => test.file))];
-        const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
+        const rerun = await runConfiguredCommand(
+            worktree.path,
+            `${stage.testCommand} ${files.join(' ')}`,
+            undefined,
+            undefined,
+            worktreeHost(worktree),
+        );
         if (rerun) return redSuiteFailure(report, run);
 
         const names = failing.map(describeFailingTest);
@@ -345,7 +353,13 @@ export class TestingVerifier implements StageVerifier {
         const candidatePaths = changedPaths.filter(path => TEST_FILE_PATTERN.test(path));
         const testPaths = (
             await Promise.all(
-                candidatePaths.map(async path => ((await stat(join(worktree.path, path)).catch(() => undefined)) ? path : undefined)),
+                candidatePaths.map(async path =>
+                    (await worktreeHost(worktree)
+                        .stat(join(worktree.path, path))
+                        .catch(() => undefined))
+                        ? path
+                        : undefined,
+                ),
             )
         ).filter((path): path is string => path !== undefined);
         if (testPaths.length === 0) return [];
@@ -366,7 +380,7 @@ export class TestingVerifier implements StageVerifier {
                 const setup = await pnpmStoreLock.run(
                     `${cardId} testing baseline setup`,
                     message => this.logger.info(message),
-                    () => runConfiguredCommand(baseline.path, setupCommand),
+                    () => runConfiguredCommand(baseline.path, setupCommand, undefined, undefined, worktreeHost(baseline)),
                 );
                 if (setup) {
                     failures.push(`the baseline worktree could not be set up: ${setup.reason}`);
@@ -384,29 +398,35 @@ export class TestingVerifier implements StageVerifier {
             // does not care whether tests failed, only whether the report is readable, so a failing
             // suite reaches here as ordinary counts rather than a pushed failure.
             const baselineStartedAt = Date.now();
-            await runConfiguredCommand(baseline.path, stage.testCommand);
-            const baselineCounts = await this.readReport(baseline.path, stage.testReportPath, failures, baselineStartedAt);
+            await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
+            const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
             if (counts && baselineCounts) {
                 failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
             }
 
             for (const path of testPaths) {
                 const dest = join(baseline.path, path);
-                await mkdir(dirname(dest), { recursive: true });
-                await copyFile(join(worktree.path, path), dest);
+                await worktreeHost(baseline).mkdir(dirname(dest));
+                await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
             }
 
             // Delete the first run's report before the second. Otherwise a run that dies before
             // writing one leaves the full-suite report in place, and the check reads its counts as
             // though they described the copied tests. It would err towards failing rather than
             // passing, but on evidence about a different set of tests entirely.
-            if (stage.testReportPath) await rm(join(baseline.path, stage.testReportPath), { force: true });
+            if (stage.testReportPath) await worktreeHost(baseline).removeTree(join(baseline.path, stage.testReportPath));
 
-            const run = await runConfiguredCommand(baseline.path, `${stage.testCommand} ${testPaths.join(' ')}`);
+            const run = await runConfiguredCommand(
+                baseline.path,
+                `${stage.testCommand} ${testPaths.join(' ')}`,
+                undefined,
+                undefined,
+                worktreeHost(baseline),
+            );
             // Unlike the first run, an unreadable report here is expected in the common case — a new
             // test that cannot even import produces no report at all — so it is not pushed as a
             // failure; the exit status carries the proof instead.
-            const newCounts = await this.readReport(baseline.path, stage.testReportPath, []);
+            const newCounts = await this.readReport(baseline, stage.testReportPath, []);
 
             if (!baselineProvesChange(newCounts, !!run)) {
                 failures.push(baselineRefusal(testPaths));

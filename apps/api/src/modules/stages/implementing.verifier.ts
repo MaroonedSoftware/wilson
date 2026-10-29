@@ -1,5 +1,5 @@
 import { Injectable } from 'injectkit';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, worktreeHost } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 
@@ -55,7 +55,7 @@ export class ImplementingVerifier implements StageVerifier {
         }
 
         if (stage.buildCommand) {
-            const build = await runConfiguredCommand(worktree.path, stage.buildCommand);
+            const build = await runConfiguredCommand(worktree.path, stage.buildCommand, undefined, undefined, worktreeHost(worktree));
             if (build) failures.push(build.reason);
         }
 

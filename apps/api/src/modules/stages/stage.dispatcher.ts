@@ -15,14 +15,13 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { localHost } from '#modules/host/local.execution.host.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, worktreeHost } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
@@ -381,7 +380,7 @@ export class StageDispatcher {
             const failure = await pnpmStoreLock.run(
                 `${cardId} ${stageName} setup`,
                 message => this.logger.info(message),
-                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port),
+                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port, worktreeHost(worktree)),
                 waitedMs => {
                     installWaitedMs = waitedMs;
                 },
@@ -425,7 +424,7 @@ export class StageDispatcher {
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
         // for the file defining a type it is already using because something in scope imports it.
         const scoped = [...filesInScope(card), ...stage.extraScope];
-        const collateral = await collateralPaths(worktree.path, scoped);
+        const collateral = await collateralPaths(worktree.path, scoped, worktreeHost(worktree));
 
         // Every card's preserved patch, not just this one's (card 0161): a split card's plan
         // routinely names its parent's `last-failed-attempt.patch` as the single most useful
@@ -449,6 +448,7 @@ export class StageDispatcher {
             // `learningsPath` joins them on the same footing, present only when the document is
             // non-empty — see its own comment above.
             readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
+            host: worktreeHost(worktree),
         });
 
         await this.events.append({
@@ -928,8 +928,7 @@ export class StageDispatcher {
             // exactly as it did before this field existed (`stage.config.ts`).
             scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
             port,
-            // This machine, until a stage can be placed on another one.
-            host: localHost,
+            host: worktreeHost(worktree),
             events: this.events,
             logger: this.logger,
         };

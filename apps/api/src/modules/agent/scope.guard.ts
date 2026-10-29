@@ -1,6 +1,7 @@
-import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 
 export type ScopeDecision =
     | { allowed: true; path: string; via?: 'scope' | 'collateral' | 'grant' }
@@ -38,6 +39,12 @@ export interface ScopeGuardOptions {
      * Exact file paths only, never directories.
      */
     readableExtras?: string[];
+    /**
+     * The machine `worktreeRoot` is on, whose filesystem symlinks are resolved against. Unset means
+     * this one: a symlink escape is a property of the disk the tree is on, so containment has to be
+     * judged there.
+     */
+    host?: ExecutionHost;
 }
 
 /**
@@ -115,6 +122,10 @@ export class ScopeGuard {
     private readonly readableExtras: Set<string>;
     private readonly collateral: Set<string>;
     private readonly collateralUsed = new Set<string>();
+
+    private get host(): ExecutionHost {
+        return this.options.host ?? localHost;
+    }
 
     constructor(private readonly options: ScopeGuardOptions) {
         this.readableExtras = new Set((options.readableExtras ?? []).map(path => resolve(path)));
@@ -245,7 +256,7 @@ export class ScopeGuard {
         // Resolve the nearest existing ancestor: the file itself may not exist yet (a create), but
         // its parent chain does, and that is what a traversal or symlink escape would go through.
         const resolved = await this.resolveThroughExisting(absolute);
-        const root = await realpath(this.options.worktreeRoot).catch(() => this.options.worktreeRoot);
+        const root = await this.host.realpath(this.options.worktreeRoot).catch(() => this.options.worktreeRoot);
 
         const rel = relative(root, resolved);
         if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
@@ -283,7 +294,7 @@ export class ScopeGuard {
 
         for (;;) {
             try {
-                const real = await realpath(cursor);
+                const real = await this.host.realpath(cursor);
                 return missing.length > 0 ? resolve(real, ...missing.reverse()) : real;
             } catch {
                 const parent = dirname(cursor);

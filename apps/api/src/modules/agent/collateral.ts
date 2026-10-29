@@ -1,10 +1,7 @@
-import { readFile, stat } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
-
-const exec = promisify(execFile);
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 
 /**
  * `apps/api/tsconfig.json`'s `paths`, hardcoded here rather than read at runtime: this is the only
@@ -45,11 +42,13 @@ const resolveSpecifier = (worktreeRoot: string, importerAbsolute: string, spec: 
  * the worktree's tracked files rather than walking the filesystem — the same source the glob tool
  * already uses, and the cheapest way to enumerate them.
  */
-const expandScoped = async (worktreeRoot: string, scoped: string[]): Promise<string[]> => {
-    const result = await exec('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-        cwd: worktreeRoot,
-        maxBuffer: 8 * 1024 * 1024,
-    }).catch((err: Error) => err);
+const expandScoped = async (host: ExecutionHost, worktreeRoot: string, scoped: string[]): Promise<string[]> => {
+    const result = await host
+        .exec('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+            cwd: worktreeRoot,
+            maxBuffer: 8 * 1024 * 1024,
+        })
+        .catch((err: Error) => err);
     if (result instanceof Error) return [];
 
     const tracked = result.stdout.split('\n').filter(Boolean);
@@ -57,8 +56,9 @@ const expandScoped = async (worktreeRoot: string, scoped: string[]): Promise<str
     return tracked.filter(path => isScoped(path));
 };
 
-const exists = async (path: string): Promise<boolean> =>
-    stat(path)
+const exists = async (host: ExecutionHost, path: string): Promise<boolean> =>
+    host
+        .stat(path)
         .then(() => true)
         .catch(() => false);
 
@@ -70,23 +70,25 @@ const exists = async (path: string): Promise<boolean> =>
  * source of truth for what is collateral. Relative specifiers and this project's `#modules/`,
  * `#shared/` and `#src/` subpath imports are resolved; anything else (a package, a `node:` builtin,
  * an import that resolves outside the worktree) is dropped rather than treated as collateral.
+ *
+ * Read on `host`, the machine the worktree is on; this one unless a caller says otherwise.
  */
-export const collateralPaths = async (worktreeRoot: string, scoped: string[]): Promise<string[]> => {
-    const files = await expandScoped(worktreeRoot, scoped);
+export const collateralPaths = async (worktreeRoot: string, scoped: string[], host: ExecutionHost = localHost): Promise<string[]> => {
+    const files = await expandScoped(host, worktreeRoot, scoped);
     const collateral = new Set<string>();
 
     for (const file of files) {
         if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue;
 
         const absolute = resolve(worktreeRoot, file);
-        const source = await readFile(absolute, 'utf8').catch(() => undefined);
+        const source = await host.readFile(absolute).catch(() => undefined);
         if (source === undefined) continue;
 
         for (const match of source.matchAll(IMPORT_RE)) {
             const spec = match[1];
             if (spec === undefined) continue;
             const resolved = resolveSpecifier(worktreeRoot, absolute, spec);
-            if (!resolved || !(await exists(resolved))) continue;
+            if (!resolved || !(await exists(host, resolved))) continue;
 
             const rel = relative(worktreeRoot, resolved);
             if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue;
