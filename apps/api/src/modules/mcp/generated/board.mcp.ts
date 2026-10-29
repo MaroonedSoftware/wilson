@@ -30,14 +30,9 @@ import {
     MoveCardRequest,
     PlanComment,
     PlanDraft,
-    PlanSession,
-    PlanTurn,
-    PlanTurnRequest,
-    RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
     RepositionCardRequest,
-    SaveDraftRequest,
     SplitCardsRequest,
     SplitResult,
 } from '../../../generated/board.js';
@@ -66,18 +61,13 @@ const MergeCardArgs = z.object({ id: z.string() });
 const GetCardDivisionArgs = z.object({ id: z.string() });
 const SplitCardArgs = z.object({ id: z.string(), body: SplitCardsRequest });
 const LintACardPlanArgs = z.object({ id: z.string() });
-const OpenAPlanningSessionArgs = z.object({ id: z.string() });
 const GetAPlanDraftArgs = z.object({ id: z.string() });
-const SaveAPlanDraftArgs = z.object({ id: z.string(), body: SaveDraftRequest });
-const CloseAPlanningSessionArgs = z.object({ id: z.string() });
-const SendAPlanTurnArgs = z.object({ id: z.string(), body: PlanTurnRequest });
 const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRequest });
 const ListPlanCommentsArgs = z.object({ id: z.string() });
 const ResolveAPlanCommentArgs = z.object({ id: z.string(), commentId: z.string() });
 const ListCardEventsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
 const GetCardUsageArgs = z.object({ id: z.string() });
 const GetCardDiffArgs = z.object({ id: z.string() });
-const RecordFindingsArgs = z.object({ id: z.string(), body: RecordFindingsRequest });
 const ListCardVersionsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
 const ListBoardColumnsArgs = z.object({});
 const InitialiseBoardArgs = z.object({});
@@ -438,29 +428,6 @@ export class LintACardPlanMcpTool implements McpToolHandler {
 }
 
 /**
- * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/open`
- */
-@Injectable()
-export class OpenAPlanningSessionMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'open_a_planning_session',
-        description:
-            "Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and\nrefuses one whose real branch already has work (re-planning a card with code on it is a different,\nmore dangerous operation). Cuts nothing on a refusal.",
-        inputSchema: z.toJSONSchema(OpenAPlanningSessionArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(PlanSession, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { id } = await parseAndValidate(args, OpenAPlanningSessionArgs);
-        const result = await container.get(PlanService).open(id);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/plan/draft`
  */
 @Injectable()
@@ -479,74 +446,6 @@ export class GetAPlanDraftMcpTool implements McpToolHandler {
         const container = requireMcpContainer(context);
         const { id } = await parseAndValidate(args, GetAPlanDraftArgs);
         const result = await container.get(PlanService).draft(id);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
- * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/save`
- */
-@Injectable()
-export class SaveAPlanDraftMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'save_a_plan_draft',
-        description:
-            'Validates the six `PLAN_SECTIONS` headings and a non-empty "Files in scope" server-side — the same\nrefusal `wilson card plan` makes before writing today, and it must not become something a client\ncan skip, since skipping it is what let a card die at `assertDispatchable` three stages later\n(card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an\nunchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.',
-        inputSchema: z.toJSONSchema(SaveAPlanDraftArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { id, body } = await parseAndValidate(args, SaveAPlanDraftArgs);
-        const result = await container.get(PlanService).save(id, body);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
- * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/close`
- */
-@Injectable()
-export class CloseAPlanningSessionMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'close_a_planning_session',
-        description:
-            "Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,\nand safe to call for a session that opened but was never saved — because that is exactly what a CLI\ndying mid-conversation leaves behind, and closing it must never itself be the operation that fails.",
-        inputSchema: z.toJSONSchema(CloseAPlanningSessionArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { id } = await parseAndValidate(args, CloseAPlanningSessionArgs);
-        await container.get(PlanService).close(id);
-        return { content: [{ type: 'text', text: 'OK' }] };
-    }
-}
-
-/**
- * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/turn`
- */
-@Injectable()
-export class SendAPlanTurnMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'send_a_plan_turn',
-        description:
-            "Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead\nof that conversation existing only inside an operator's terminal (`wilson card plan`). This is the\nordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not\ngenerated — see routes.setup.ts) is where a client watches that same reply stream in as it is\nwritten. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose\nreal branch already has work.",
-        inputSchema: z.toJSONSchema(SendAPlanTurnArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(PlanTurn, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { id, body } = await parseAndValidate(args, SendAPlanTurnArgs);
-        const result = await container.get(PlanService).turn(id, body);
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
 }
@@ -690,29 +589,6 @@ export class GetCardDiffMcpTool implements McpToolHandler {
 }
 
 /**
- * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/findings`
- */
-@Injectable()
-export class RecordFindingsMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'record_findings',
-        description:
-            "Card 0266. Turns a human's line comments on the Diff tab into the same kind of kickback a failed\nreview already produces: folds every comment into the card's `## Review findings` section\n(`withFindings`, marked as human-written so implementing can tell the two apart) and moves the\ncard to `ready`'s own configured `onFail` — read from the live stage config, never hard-coded to\n`implementing`, so a board that points `ready.onFail` elsewhere still routes correctly with no\ncode change. Not a runner kickback: `retries` is left untouched (this is not a stage failing, it\nis a human's review) and the event's `by` is `'human'`, the same convention `move` uses for an\noperator-initiated transition.",
-        inputSchema: z.toJSONSchema(RecordFindingsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { id, body } = await parseAndValidate(args, RecordFindingsArgs);
-        const result = await container.get(BoardWriteService).recordFindings(id, body);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/versions`
  */
 @Injectable()
@@ -797,18 +673,13 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('get_card_division', container.get(GetCardDivisionMcpTool));
     map.set('split_card', container.get(SplitCardMcpTool));
     map.set('lint_a_card_plan', container.get(LintACardPlanMcpTool));
-    map.set('open_a_planning_session', container.get(OpenAPlanningSessionMcpTool));
     map.set('get_a_plan_draft', container.get(GetAPlanDraftMcpTool));
-    map.set('save_a_plan_draft', container.get(SaveAPlanDraftMcpTool));
-    map.set('close_a_planning_session', container.get(CloseAPlanningSessionMcpTool));
-    map.set('send_a_plan_turn', container.get(SendAPlanTurnMcpTool));
     map.set('add_a_plan_comment', container.get(AddAPlanCommentMcpTool));
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
     map.set('resolve_a_plan_comment', container.get(ResolveAPlanCommentMcpTool));
     map.set('list_card_events', container.get(ListCardEventsMcpTool));
     map.set('get_card_usage', container.get(GetCardUsageMcpTool));
     map.set('get_card_diff', container.get(GetCardDiffMcpTool));
-    map.set('record_findings', container.get(RecordFindingsMcpTool));
     map.set('list_card_versions', container.get(ListCardVersionsMcpTool));
     map.set('list_board_columns', container.get(ListBoardColumnsMcpTool));
     map.set('initialise_board', container.get(InitialiseBoardMcpTool));
@@ -832,18 +703,13 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(GetCardDivisionMcpTool).useClass(GetCardDivisionMcpTool).asSingleton();
     registry.register(SplitCardMcpTool).useClass(SplitCardMcpTool).asSingleton();
     registry.register(LintACardPlanMcpTool).useClass(LintACardPlanMcpTool).asSingleton();
-    registry.register(OpenAPlanningSessionMcpTool).useClass(OpenAPlanningSessionMcpTool).asSingleton();
     registry.register(GetAPlanDraftMcpTool).useClass(GetAPlanDraftMcpTool).asSingleton();
-    registry.register(SaveAPlanDraftMcpTool).useClass(SaveAPlanDraftMcpTool).asSingleton();
-    registry.register(CloseAPlanningSessionMcpTool).useClass(CloseAPlanningSessionMcpTool).asSingleton();
-    registry.register(SendAPlanTurnMcpTool).useClass(SendAPlanTurnMcpTool).asSingleton();
     registry.register(AddAPlanCommentMcpTool).useClass(AddAPlanCommentMcpTool).asSingleton();
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();
     registry.register(ResolveAPlanCommentMcpTool).useClass(ResolveAPlanCommentMcpTool).asSingleton();
     registry.register(ListCardEventsMcpTool).useClass(ListCardEventsMcpTool).asSingleton();
     registry.register(GetCardUsageMcpTool).useClass(GetCardUsageMcpTool).asSingleton();
     registry.register(GetCardDiffMcpTool).useClass(GetCardDiffMcpTool).asSingleton();
-    registry.register(RecordFindingsMcpTool).useClass(RecordFindingsMcpTool).asSingleton();
     registry.register(ListCardVersionsMcpTool).useClass(ListCardVersionsMcpTool).asSingleton();
     registry.register(ListBoardColumnsMcpTool).useClass(ListBoardColumnsMcpTool).asSingleton();
     registry.register(InitialiseBoardMcpTool).useClass(InitialiseBoardMcpTool).asSingleton();

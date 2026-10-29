@@ -6,7 +6,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { McpToolHandler, McpToolHandlerMap, McpToolContext } from '@maroonedsoftware/mcp';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { LearningsService } from '#modules/learnings/learnings.service.js';
-import { LearningsDocument, LearningsVersion, LearningsVersionsQuery, SetLearningsRequest } from '../../../generated/learnings.js';
+import { LearningsDocument, LearningsVersion, LearningsVersionsQuery } from '../../../generated/learnings.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -17,7 +17,6 @@ function requireMcpContainer(context: McpToolContext): Container {
 }
 
 const GetLearningsArgs = z.object({});
-const SetLearningsArgs = z.object({ body: SetLearningsRequest });
 const ListLearningsVersionsArgs = z.object({ query: LearningsVersionsQuery.optional() });
 
 /**
@@ -36,29 +35,6 @@ export class GetLearningsMcpTool implements McpToolHandler {
     async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
         const container = requireMcpContainer(context);
         const result = await container.get(LearningsService).get();
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
- * from [learnings.ck](../../../../data/contracts/learnings.ck) `PUT /api/learnings`
- */
-@Injectable()
-export class SetLearningsMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'set_learnings',
-        description:
-            '`put`, not `patch`: the document is replaced whole. Every save is a new row; the previous\ndocument is still there in the history, so a bad edit is undone by saving the earlier text\nagain, never by deleting anything. An empty `markdown` is a valid save.',
-        inputSchema: z.toJSONSchema(SetLearningsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(LearningsDocument, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { body } = await parseAndValidate(args, SetLearningsArgs);
-        const result = await container.get(LearningsService).set(body);
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
 }
@@ -91,13 +67,11 @@ export class ListLearningsVersionsMcpTool implements McpToolHandler {
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerLearningsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('get_learnings', container.get(GetLearningsMcpTool));
-    map.set('set_learnings', container.get(SetLearningsMcpTool));
     map.set('list_learnings_versions', container.get(ListLearningsVersionsMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
 export function registerLearningsMcpToolClasses(registry: Registry): void {
     registry.register(GetLearningsMcpTool).useClass(GetLearningsMcpTool).asSingleton();
-    registry.register(SetLearningsMcpTool).useClass(SetLearningsMcpTool).asSingleton();
     registry.register(ListLearningsVersionsMcpTool).useClass(ListLearningsVersionsMcpTool).asSingleton();
 }

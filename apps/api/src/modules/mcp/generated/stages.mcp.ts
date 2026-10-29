@@ -6,7 +6,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { McpToolHandler, McpToolHandlerMap, McpToolContext } from '@maroonedsoftware/mcp';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { StageConfigService } from '#modules/stages/stage.config.service.js';
-import { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from '../../../generated/stages.js';
+import { StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from '../../../generated/stages.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -17,7 +17,6 @@ function requireMcpContainer(context: McpToolContext): Container {
 }
 
 const GetStageConfigArgs = z.object({});
-const SetStageConfigArgs = z.object({ body: SetStageConfigRequest });
 const ListStageConfigVersionsArgs = z.object({ query: StageConfigVersionsQuery.optional() });
 
 /**
@@ -36,29 +35,6 @@ export class GetStageConfigMcpTool implements McpToolHandler {
     async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
         const container = requireMcpContainer(context);
         const result = await container.get(StageConfigService).get();
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-    }
-}
-
-/**
- * from [stages.ck](../../../../data/contracts/stages.ck) `PUT /api/stages/config`
- */
-@Injectable()
-export class SetStageConfigMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'set_stage_config',
-        description:
-            '`put`, not `patch`: the document is replaced whole. Every save is a new row; the previous\ndocument is still there in the history, so a bad edit is undone by saving the earlier text\nagain, never by deleting anything.',
-        inputSchema: z.toJSONSchema(SetStageConfigArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(StageConfigDocument, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        _meta: { 'contractkit/security': 'none' },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        const { body } = await parseAndValidate(args, SetStageConfigArgs);
-        const result = await container.get(StageConfigService).set(body);
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
 }
@@ -91,13 +67,11 @@ export class ListStageConfigVersionsMcpTool implements McpToolHandler {
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerStagesMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('get_stage_config', container.get(GetStageConfigMcpTool));
-    map.set('set_stage_config', container.get(SetStageConfigMcpTool));
     map.set('list_stage_config_versions', container.get(ListStageConfigVersionsMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
 export function registerStagesMcpToolClasses(registry: Registry): void {
     registry.register(GetStageConfigMcpTool).useClass(GetStageConfigMcpTool).asSingleton();
-    registry.register(SetStageConfigMcpTool).useClass(SetStageConfigMcpTool).asSingleton();
     registry.register(ListStageConfigVersionsMcpTool).useClass(ListStageConfigVersionsMcpTool).asSingleton();
 }

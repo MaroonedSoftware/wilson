@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { InjectKitRegistry, type Container } from 'injectkit';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
@@ -37,6 +38,14 @@ const contractRoutes = (): string[] =>
         ),
     );
 
+const CONTRACTS = new URL('../../../data/contracts/', import.meta.url);
+
+/** How many operations the contracts keep out of the catalog with `mcp: exclude`. */
+const excludedCount = (): number =>
+    readdirSync(CONTRACTS)
+        .filter(file => file.endsWith('.ck'))
+        .reduce((sum, file) => sum + (readFileSync(new URL(file, CONTRACTS), 'utf8').match(/^\s*mcp: exclude\b/gm)?.length ?? 0), 0);
+
 const readOnly = (tools: McpToolCatalog, name: string): boolean | undefined => tools.get(name)?.definition.annotations?.readOnlyHint;
 
 const contextFor = (toolName: string, container: Container): McpToolContext => ({
@@ -47,10 +56,19 @@ const contextFor = (toolName: string, container: Container): McpToolContext => (
 });
 
 describe('the MCP operation catalog', () => {
-    it('holds one handler per contract route', async () => {
+    it('holds one handler per contract route, except the ones a contract marks mcp: exclude', async () => {
         const tools = await catalog();
 
-        expect(tools.size).toBe(contractRoutes().length);
+        expect(excludedCount()).toBeGreaterThan(0);
+        expect(tools.size).toBe(contractRoutes().length - excludedCount());
+    });
+
+    it('leaves out what the chat must never reach, even with a confirm', async () => {
+        const tools = await catalog();
+
+        for (const name of ['record_findings', 'set_stage_config', 'set_learnings', 'send_a_plan_turn', 'open_a_planning_session']) {
+            expect(tools.has(name), name).toBe(false);
+        }
     });
 
     it('marks reads read-only', async () => {
@@ -64,7 +82,7 @@ describe('the MCP operation catalog', () => {
     it('marks every change as not read-only, whatever its method', async () => {
         const tools = await catalog();
 
-        for (const name of ['create_card', 'move_card', 'edit_card_body', 'approve_card_plan', 'set_stage_config', 'remove_a_context_snapshot']) {
+        for (const name of ['create_card', 'move_card', 'edit_card_body', 'approve_card_plan', 'set_poller_setting', 'remove_a_context_snapshot']) {
             expect(readOnly(tools, name), name).toBe(false);
         }
     });
