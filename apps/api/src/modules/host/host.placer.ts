@@ -105,6 +105,23 @@ export class HostPlacer {
         return wanted === 'remote' ? new NoHostAvailable(reasons) : undefined;
     }
 
+    /** Whether a placed stage's host still answers. */
+    async isAlive(placement: RemotePlacement): Promise<boolean> {
+        return placement.host.exec('true', [], { cwd: '/', env: {}, timeoutMs: REACH_TIMEOUT_MS }).then(
+            () => true,
+            () => false,
+        );
+    }
+
+    /**
+     * Record that a host was lost mid-stage, as a failed probe, so placement passes it over until
+     * someone probes it again and it answers.
+     */
+    async markLost(placement: RemotePlacement, detail: string): Promise<void> {
+        await this.hosts.recordProbe(placement.hostName, { probedAt: DateTime.now(), ok: false, detail: `lost during a stage: ${detail}` });
+        this.logger.warn(`${placement.hostName} stopped answering: ${detail}`);
+    }
+
     /** The first free slot on `row`, now held by `cardId`, or undefined when every one is taken. */
     private async takeSlot(row: HostRow, project: string, cardId: string): Promise<string | undefined> {
         for (let slot = 1; slot <= row.slots; slot++) {

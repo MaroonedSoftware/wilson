@@ -23,5 +23,23 @@ export interface RemotePlacement {
     slotKey: string;
 }
 
+/**
+ * A placed stage's host stopped answering partway through: deleted at the end of its lifetime, its
+ * tunnel dropped, or the machine gone. Not the card's failure, so nothing about it is a kickback; it
+ * is thrown for the queue to retry, and placement passes the host over until a probe passes again.
+ *
+ * Its message avoids every pattern `isPermanentFailure` matches, so it classifies as a retry.
+ */
+export class HostLostError extends Error {
+    constructor(
+        readonly hostName: string,
+        readonly detail: string,
+        options?: { cause?: unknown },
+    ) {
+        super(`host ${hostName} stopped answering during the stage, so it will be retried elsewhere: ${detail}`, options);
+        this.name = 'HostLostError';
+    }
+}
+
 /** The `runner.leases` key for one slot on a host. Machine-wide, like every lease key. */
 export const hostSlotKey = (hostName: string, slot: number): string => `host:${hostName}:slot:${slot}`;

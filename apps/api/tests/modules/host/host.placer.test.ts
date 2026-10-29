@@ -168,6 +168,18 @@ describe('HostPlacer', () => {
         expect(((await placer().place(project, '0001', stage('remote'))) as NoHostAvailable).message).toContain(`${name} is disabled`);
     });
 
+    it('passes a host over once it is marked lost, until a probe passes again', async () => {
+        const { project, name } = await setUp();
+        const placed = (await placer().place(project, '0001', stage('remote'))) as RemotePlacement;
+        expect(await placer().isAlive(placed)).toBe(true);
+
+        await placer().markLost(placed, '0001 implementing: engine exited');
+
+        const host = await service.get(name);
+        expect(host.probe).toMatchObject({ ok: false, detail: 'lost during a stage: 0001 implementing: engine exited' });
+        expect(((await placer().place(project, '0002', stage('remote'))) as NoHostAvailable).message).toContain('failed its last probe');
+    });
+
     it('gives the slot back when the host does not answer', async () => {
         const { project, name } = await setUp();
 

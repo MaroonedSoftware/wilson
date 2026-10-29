@@ -12,7 +12,7 @@ import { StageVerifierMap } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
 import { NoHostAvailable, type HostPlacer } from '#modules/host/host.placer.js';
-import type { RemotePlacement } from '#modules/host/placement.js';
+import { HostLostError, type RemotePlacement } from '#modules/host/placement.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { Worktree, WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -58,7 +58,11 @@ stages:
     onFail: implementing
 `;
 
-const build = async (place: HostPlacer['place'], createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>) => {
+const build = async (
+    place: HostPlacer['place'],
+    createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>,
+    options: { passes?: boolean; alive?: boolean } = {},
+) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-placement-'));
     const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
     const events = { append: vi.fn(async () => {}) };
@@ -88,11 +92,16 @@ const build = async (place: HostPlacer['place'], createWorktree?: (placement?: R
         },
     });
     const verifiers = new StageVerifierMap();
-    verifiers.set('implementing', { verify: async () => ({ passed: true, failures: [], changedPaths: ['src/x.ts'] }) });
+    const passes = options.passes ?? true;
+    verifiers.set('implementing', {
+        verify: async () => ({ passed: passes, failures: passes ? [] : ['build failed: ssh connection closed'], changedPaths: ['src/x.ts'] }),
+    });
     const resultSchemas = new StageResultSchemaMap();
     resultSchemas.set('implementing', {} as never);
     const portAllocator = { acquire: vi.fn(async () => ({ ok: true, port: 49000 })) };
     const settings = { get: vi.fn(async () => ({ start: 49000, end: 49099 })) };
+
+    const placer = { place: vi.fn(place), isAlive: vi.fn(async () => options.alive ?? true), markLost: vi.fn(async () => {}) };
 
     const dispatcher = new StageDispatcher(
         config,
@@ -107,9 +116,9 @@ const build = async (place: HostPlacer['place'], createWorktree?: (placement?: R
         settings as unknown as SettingsStore,
         portAllocator as unknown as DevServerPortAllocator,
         undefined,
-        { place: vi.fn(place) } as unknown as HostPlacer,
+        placer as unknown as HostPlacer,
     );
-    return { dispatcher, worktrees, events, contexts, portAllocator };
+    return { dispatcher, worktrees, events, contexts, portAllocator, placer, board };
 };
 
 const placementOn = (host: MemoryHost): RemotePlacement => ({
@@ -174,6 +183,54 @@ describe('StageDispatcher placement', () => {
 
         await expect(dispatcher.run('0001', 'implementing')).rejects.toThrow('connection closed');
         expect(worktrees.reclaim).toHaveBeenCalledWith('0001', placement);
+    });
+
+    it('retries a stage whose host stopped answering, marking the host lost and writing no kickback', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, worktrees, events, placer, board } = await build(async () => placement, undefined, { passes: false, alive: false });
+
+        const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(HostLostError);
+        expect(classifyDispatchFailure(error)).toEqual({ kind: 'retry' });
+        expect(placer.markLost).toHaveBeenCalledWith(placement, expect.stringContaining('ssh connection closed'));
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'stage.host-lost', payload: expect.objectContaining({ host: 'agent-3' }) }),
+        );
+        // No transition: the card is where it was, with no kickback counted against it.
+        const card = await board.read('0001');
+        expect(card.frontmatter.stage).toBe('implementing');
+        expect(card.frontmatter.retries).toEqual({});
+        expect(worktrees.commit).not.toHaveBeenCalled();
+        expect(worktrees.reclaim).toHaveBeenCalledWith('0001', placement);
+    });
+
+    it('kicks back as usual when the stage fails on a host that still answers', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, placer } = await build(async () => placement, undefined, { passes: false, alive: true });
+
+        const outcome = await dispatcher.run('0001', 'implementing');
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.transitionedTo).toBe('implementing');
+        expect(placer.markLost).not.toHaveBeenCalled();
+    });
+
+    it('turns an error thrown on a host that no longer answers into a retry, keeping the original as its cause', async () => {
+        const placement = placementOn(new MemoryHost());
+        const original = new Error('ssh agent-3 failed: Connection closed by remote host');
+        const { dispatcher } = await build(
+            async () => placement,
+            async () => {
+                throw original;
+            },
+            { alive: false },
+        );
+
+        const error = (await dispatcher.run('0001', 'implementing').catch((err: unknown) => err)) as HostLostError;
+
+        expect(error).toBeInstanceOf(HostLostError);
+        expect(error.cause).toBe(original);
     });
 
     it('runs here, exactly as before, when the placer places nothing', async () => {

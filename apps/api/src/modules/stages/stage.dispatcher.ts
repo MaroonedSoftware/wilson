@@ -16,7 +16,7 @@ import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agen
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
-import type { RemotePlacement } from '#modules/host/placement.js';
+import { HostLostError, type RemotePlacement } from '#modules/host/placement.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
@@ -318,6 +318,13 @@ export class StageDispatcher {
         });
         try {
             return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed });
+        } catch (err) {
+            // Anything thrown on a host, from cutting the worktree to the commit, may be the host
+            // going away rather than the stage going wrong. Only a host that no longer answers turns
+            // it into a retry; one that answers leaves the error to mean what it says.
+            if (err instanceof HostLostError) throw err;
+            await this.throwIfHostLost(placed, cardId, stageName, (err as Error).message, err);
+            throw err;
         } finally {
             await this.worktrees.reclaim(cardId, placed).catch(err => {
                 this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
@@ -548,6 +555,13 @@ export class StageDispatcher {
                 });
             }
             const outcome = withCollateralCaveats(ran, collateralHits);
+
+            // A stage that failed on a host whose engine or tools lost their connection failed for
+            // a reason that is not the card's. Checked before anything is committed or transitioned,
+            // so a lost host never costs the card a kickback.
+            if (placement && !outcome.passed) {
+                await this.throwIfHostLost(placement, cardId, stageName, outcome.failures.join('; ') || 'the stage did not pass');
+            }
 
             // Only a passing stage commits. A failed stage leaves its work in the worktree for
             // inspection, and the next attempt starts from the base rather than building on a tree
@@ -976,6 +990,23 @@ export class StageDispatcher {
         const path = join(dir, 'learnings.md');
         await writeFile(path, markdown, 'utf8');
         return path;
+    }
+
+    /**
+     * Throw a `HostLostError` when `placement`'s host no longer answers, after marking it failed and
+     * recording why. Returns quietly when it answers: then whatever went wrong is the stage's own.
+     */
+    private async throwIfHostLost(placement: RemotePlacement, cardId: string, stageName: string, reason: string, cause?: unknown): Promise<void> {
+        if (!this.placer || (await this.placer.isAlive(placement))) return;
+        await this.placer.markLost(placement, `${cardId} ${stageName}: ${reason}`);
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'stage.host-lost',
+            payload: { host: placement.hostName, reason },
+        });
+        throw new HostLostError(placement.hostName, reason, { cause });
     }
 
     /** Copy a file materialized here to the same card's folder under the host's run root. */
