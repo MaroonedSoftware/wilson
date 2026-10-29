@@ -1,7 +1,9 @@
+import { hostname } from 'node:os';
 import { isCancel, password as promptPassword, text as promptText } from '@clack/prompts';
 import type { CliContext } from '@maroonedsoftware/johnny5';
 import { SdkError, WilsonSdk } from '@wilson/sdk';
 import { apiClient, describeApiError, resolveApiBase } from './api-client.js';
+import type { KeyStore } from './credentials.js';
 import { apiSettings } from './settings.js';
 
 /** What to ask for, and how to read stdin, so tests can answer without a terminal. */
@@ -84,6 +86,46 @@ export const signInWithPassword = async (ctx: CliContext, username: string, pass
     } catch (err) {
         if (err instanceof SignInError) throw err;
         throw refused(err, 'wrong code');
+    }
+};
+
+/** The key `signInThisMachine` stored, as the API described it. */
+export interface MachineKey {
+    name: string;
+    hint: string;
+}
+
+/**
+ * Sign this machine in: the password buys a short-lived session, the session mints a `manage` API
+ * key named for this host, the key goes into `keys`, and the session is signed out again. The key
+ * it replaces, if any, is revoked. Minting a key needs a factor proved in the last five minutes
+ * (`wilson.step.up`), which a session signed in a moment ago is.
+ *
+ * Throws `SignInError` for a refusal the operator can act on, and the SDK's error for anything else.
+ */
+export const signInThisMachine = async (
+    ctx: CliContext,
+    username: string,
+    password: string,
+    keys: KeyStore,
+    io: LoginIo = terminalIo,
+): Promise<MachineKey> => {
+    const accessToken = await signInWithPassword(ctx, username, password, io);
+    const session = sessionClient(ctx, accessToken);
+    try {
+        const previous = await keys.read();
+        const issued = await session.apiKeys.createApiKey({ name: `wilson cli on ${hostname()}`, scope: 'manage' });
+        if (!(await keys.write({ token: issued.token, id: issued.key.id, name: issued.key.name }))) {
+            // No keyring to keep it in. Revoke it rather than leave a key nobody holds.
+            await session.apiKeys.revokeApiKey(issued.key.id).catch(() => undefined);
+            throw new SignInError('could not store the API key in the system keyring; create one in the web app and set WILSON_API_KEY instead');
+        }
+        if (previous && previous.id !== issued.key.id) {
+            await session.apiKeys.revokeApiKey(previous.id).catch(() => undefined);
+        }
+        return { name: issued.key.name, hint: issued.key.hint };
+    } finally {
+        await session.auth.logout().catch(() => undefined);
     }
 };
 
