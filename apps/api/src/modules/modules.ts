@@ -8,6 +8,7 @@ import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SourcesModule } from './sources/sources.module.js';
 import { StagesModule } from './stages/stages.module.js';
@@ -39,6 +40,10 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * Learnings is listed beside Stages (card 0239): `PostgresLearningsStore` takes `BoardConfig` and
  * `Kysely<DB>`, the same two dependencies `PostgresStageConfigStore` does, both already registered
  * by the time either module's turn comes (Board and Data are earlier in this list).
+ *
+ * Mcp is listed after every module whose service a contract operation calls: its catalog handlers
+ * resolve those services per call, not at registration, so this too is for a reader rather than
+ * for the container.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
@@ -53,5 +58,6 @@ export const modules: ServerKitModule[] = [
     StagesModule,
     LearningsModule,
     SettingsModule,
+    McpModule,
     JobsModule,
 ];

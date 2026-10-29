@@ -46,7 +46,7 @@ importers:
         version: 4.0.43(zod@4.4.3)
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.241
-        version: 0.3.241(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(zod@4.4.3)
+        version: 0.3.241(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.32.2(zod@4.4.3))(zod@4.4.3)
       '@maroonedsoftware/appconfig':
         specifier: ^2.5.1
         version: 2.5.1(pg@8.23.0)(yaml@2.9.0)
@@ -68,6 +68,9 @@ importers:
       '@maroonedsoftware/logger':
         specifier: ^1.1.8
         version: 1.1.8
+      '@maroonedsoftware/mcp':
+        specifier: ^0.7.7
+        version: 0.7.7(@maroonedsoftware/cache@0.4.5)(zod@4.4.3)
       '@maroonedsoftware/serverfeed':
         specifier: ^0.1.5
         version: 0.1.5(@maroonedsoftware/logger@1.1.8)
@@ -77,6 +80,9 @@ importers:
       '@maroonedsoftware/zod':
         specifier: ^0.5.6
         version: 0.5.6
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.4.3)
       ai:
         specifier: ^7.0.77
         version: 7.0.77(zod@4.4.3)
@@ -812,6 +818,10 @@ packages:
     resolution: {integrity: sha512-vwzTsBupT+qKDoJpWeEitUOI0k5ePo3y+0eHLVi5H0bkrfqEBDHriqhlhZI7bpK9YMW9LeVcaUS4hh3p3bxw/A==}
     engines: {node: '>=22'}
 
+  '@maroonedsoftware/authentication@6.7.0':
+    resolution: {integrity: sha512-vwefaquS8XjAwW9c2eKAWqJ9SgUkIzQqSFrQaajTPHM2QAIHysqDwo0rxM9kz5gJ52DNd9TPRxtgAUTfZWkRWw==}
+    engines: {node: '>=22'}
+
   '@maroonedsoftware/cache@0.4.5':
     resolution: {integrity: sha512-kvHopmwhBsPK0Gummc7eBeHrd2OHnW3AUX4AmgT3UVivpp8Xjjcunu93EDjm8AKLQY6jnV3JU+2BNazkJVsKYQ==}
     engines: {node: '>=22'}
@@ -821,12 +831,29 @@ packages:
       ioredis:
         optional: true
 
+  '@maroonedsoftware/cache@0.6.0':
+    resolution: {integrity: sha512-yX3Bg1ZKRTkHF6kmOUd/JNSOLTIqyIKr7Qyn3IKasAOqzWd078c/n7F0socFuBExCKpVwz/bBS9gVHzjNgugGA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ioredis: ^5.10.1 || ^6.0.0
+    peerDependenciesMeta:
+      ioredis:
+        optional: true
+
   '@maroonedsoftware/encryption@0.5.11':
     resolution: {integrity: sha512-hw8wYKFVmzFGxnn3yZ3227SvxdfTIYh2aPEDsYuR8M87yiFqSSBbZEJ5wEf0K9X7RaBEKOUwNbnBmcxkqKvi/Q==}
     engines: {node: '>=22'}
 
+  '@maroonedsoftware/encryption@0.5.13':
+    resolution: {integrity: sha512-8UqZcYUOSNCeFptHH8OxtTFYdYZklUg7jyq5D338V25zRQF0T5Gqk42Fd6bTQHAbKiDLM3u8AAI52IujJsyt0g==}
+    engines: {node: '>=22'}
+
   '@maroonedsoftware/errors@1.9.0':
     resolution: {integrity: sha512-m0Ahsvc9HeNoBdiZI2awARlHryV7Ji/v+qak01+85+QrHoyZEQVmb1PR+XTBOy2PxbdtBxTlWLfBGQOqoclAoQ==}
+    engines: {node: '>=22'}
+
+  '@maroonedsoftware/errors@1.9.1':
+    resolution: {integrity: sha512-V2P8iHoxfuFJZ8XrhWzo9SDyEA8tDUv6DzuNntxTWVohHy8NWoZrcjYw4/LFG2NxmQTPeUt0nNLBKRPEV/9R8g==}
     engines: {node: '>=22'}
 
   '@maroonedsoftware/jobbroker@1.12.0':
@@ -888,12 +915,29 @@ packages:
     resolution: {integrity: sha512-wCA2pNoz+4Hu4pIc9+dKlCdc19gUbep6XicdvN9CL0vK8aaybvgEWgCIT30rYVOHTpNI1kgZv91ibZkbHugULg==}
     engines: {node: '>=22'}
 
+  '@maroonedsoftware/logger@1.1.9':
+    resolution: {integrity: sha512-eEksDYu/PAWC/mIwLzxFqcF9tOnYURqyP9BDUlSgconUZ/I6MJrXvZ/cYOjCtQ6YEr/8k4GRMvwxIaOwSVaQ4w==}
+    engines: {node: '>=22'}
+
+  '@maroonedsoftware/mcp@0.7.7':
+    resolution: {integrity: sha512-550Nqf22dEoPzSdUBLAAl5BIvnv41RrpZIKy0I3X1pIUbm/Jm4TR81ftRHTdxQp26Ora0baPpKYCBz8Y2SFXEA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@maroonedsoftware/cache': 0.6.0
+    peerDependenciesMeta:
+      '@maroonedsoftware/cache':
+        optional: true
+
   '@maroonedsoftware/multipart@1.3.6':
     resolution: {integrity: sha512-gGub+uQ/+vvtqHJ4MXPenSzL9ZycAKohoYK7PEdv6SAEgWHoKneCut/S41JKmpTm6/pulzseF+BIidYAfKcCuA==}
     engines: {node: '>=22'}
 
   '@maroonedsoftware/policies@0.6.6':
     resolution: {integrity: sha512-d/uADGxCYJUw9WZjNbIJyAEYZgMWNMMbcGarfXXKP2SCRNZXprak/dHx37rb2T8ZS70tPJkVsBFQnlpZ7H1yPg==}
+    engines: {node: '>=22'}
+
+  '@maroonedsoftware/policies@0.6.9':
+    resolution: {integrity: sha512-mfIj55Fdntdw6PrUIKBTeIT2bLIGtOsEnBpvK/BH6kCnhpduWHDWMqKRrQoO1HwqpArVPLsSaFHkfl1UoELdEA==}
     engines: {node: '>=22'}
 
   '@maroonedsoftware/serverfeed@0.1.5':
@@ -923,6 +967,16 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
+  '@modelcontextprotocol/sdk@1.32.2':
+    resolution: {integrity: sha512-SWsVtH/0vULSQStoZ6xxH2K09Li8fXYTMC64ZeogCdpZ3XSi1eCPOByV1OpuJxuI3OcmHhosDWYyii07tpPsLw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@cfworker/json-schema': ^4.1.1
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@cfworker/json-schema':
+        optional: true
+
   '@napi-rs/wasm-runtime@1.2.3':
     resolution: {integrity: sha512-UMduMbqO5s5zF2NkNacMT/yK5Y5QiKvWr2+50bzIIxFDwVJ2h49b+oyjaCGPhJxd2/gC2x39EHv/gHVuu36x2Q==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=23.5.0}
@@ -940,8 +994,20 @@ packages:
     cpu: [arm]
     os: [android]
 
+  '@node-rs/argon2-android-arm-eabi@2.2.2':
+    resolution: {integrity: sha512-c11BOrPLBWNC1cDyzGB+Bil+flmxfZbB2hv8EhcobmAsFKMyqkHPNhUY4qhcjv1U+4+Vmw4G8H+l224iO2g/Dw==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [android]
+
   '@node-rs/argon2-android-arm64@2.1.0':
     resolution: {integrity: sha512-MHby1n9UzlVma3GiEYWNNqRhn2Z/90QwF2PFckGwucdz0HfdVX+lSKEcyfwcbvS5sJ9GAzhop3hXlUPxUYe72Q==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [android]
+
+  '@node-rs/argon2-android-arm64@2.2.2':
+    resolution: {integrity: sha512-dpMYIoxhN/wY6hFH+3MM5kQErcH3luMekkszbkDF3NKqhB1kFRntkOLDpFY87oItBSHJrsoYkXC3vBRhjYoCjQ==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [android]
@@ -952,8 +1018,20 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
+  '@node-rs/argon2-darwin-arm64@2.2.2':
+    resolution: {integrity: sha512-vxVAXcIG0iiHizkCuImmzVhOFsRnU4Z79xiOxdISLyI+QhOAWbbTaVSXw0PNfThB3zAdkzzDJ/WWu52Hs/qHGg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
   '@node-rs/argon2-darwin-x64@2.1.0':
     resolution: {integrity: sha512-7bFf3qH/PLQ5kU5GkxMF+dMz/tiT+0yFXILpOx4fgSFjw3wdXpGZt3wH4i6dHMURDcwYlNap0hJaX4h2E3JGng==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@node-rs/argon2-darwin-x64@2.2.2':
+    resolution: {integrity: sha512-r7GbSFpFZZ9EAV9cvIm9prUjOupK7QQXTyP+FJ6bWSMq0h+qRDBlUOXQXduDIIrLEGoBVelixKUtf4ksZ0ljoQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
@@ -964,14 +1042,33 @@ packages:
     cpu: [x64]
     os: [freebsd]
 
+  '@node-rs/argon2-freebsd-x64@2.2.2':
+    resolution: {integrity: sha512-AmWxDSmQgprilD6NX3jmxCgcDvWAW7kGJnnWQo+0qav6nfMXdPZYgSezK/skmw1GBWipr4yZMIUzpeNHnVpMxg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [freebsd]
+
   '@node-rs/argon2-linux-arm-gnueabihf@2.1.0':
     resolution: {integrity: sha512-NxZILF+Hqav6yzJTUFuZXTUC1VagTO4Vfd2HSlzkwankUa1B7goo0NLY2tUPw6MdqtLojkqVG5MZ26AaF49tHw==}
     engines: {node: '>= 10'}
     cpu: [arm]
     os: [linux]
 
+  '@node-rs/argon2-linux-arm-gnueabihf@2.2.2':
+    resolution: {integrity: sha512-M1gnPBTr9GFeEUWkQ53qCJeTsX03C3kcUeHnDbN7dU2xkI58wMP4Z1sEBN7WmKJ/fTHYEgti4truz7r4A82DLg==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
   '@node-rs/argon2-linux-arm64-gnu@2.1.0':
     resolution: {integrity: sha512-jpx2VwJLyAF/cM64HRigFBk67GwtQBcssYyVhvHqfmCEZz/CP//SV9bxE+uJOGIPKJo7wDg/5f2k3JY0PNMROg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-rs/argon2-linux-arm64-gnu@2.2.2':
+    resolution: {integrity: sha512-4CYDlIdITlLSVcAXYUtEoGUahRaayPXM+4Rcfg3BZx9WGi6UB8HUycs6GNMTPYXV5kVXCpyE2u1HmYUpgmIzOQ==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
@@ -984,8 +1081,22 @@ packages:
     os: [linux]
     libc: [musl]
 
+  '@node-rs/argon2-linux-arm64-musl@2.2.2':
+    resolution: {integrity: sha512-FYlfj3XgQ1xrx6HzQbKbUcKiYMG/3iSi/X81KyhHaItTJ7vZlMwrbVLl9yqDmvotKUF6VjrhrlZ8KRbbzchseA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
   '@node-rs/argon2-linux-x64-gnu@2.1.0':
     resolution: {integrity: sha512-ICnfyFaxZzr8OdAEwTPsAjx6gpNla1sI3miZJWAVCtZlw98Wo3Wd4H7tvW6S2NRJ1BIOf4l8Z7aX7h3fimXn5w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-rs/argon2-linux-x64-gnu@2.2.2':
+    resolution: {integrity: sha512-ULXLs8UFYZANlwiROM7AeccxZndr2Xk3IstADq3jAUhnwV2W75mxMBTABUZ+7AdKRhPLOrxU77OgnMWlDkYJQg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
@@ -998,8 +1109,21 @@ packages:
     os: [linux]
     libc: [musl]
 
+  '@node-rs/argon2-linux-x64-musl@2.2.2':
+    resolution: {integrity: sha512-zgjIwc9TyGodn62vGc+36DGwFqVV5e7L8Ptd2FQWuBxe5aFrcFxvtDGn1/qfYwoHLv09utgtR+RBAPCXepWG3Q==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
   '@node-rs/argon2-win32-arm64-msvc@2.1.0':
     resolution: {integrity: sha512-KH8lBdjoZLUiVG1GjJQIQPKhmddJmEbJbL+e3S7BKVq1wKl1mx+ClmhGtMtYp8ZtEIw8/BYIFUIjL3sBuWGEuQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@node-rs/argon2-win32-arm64-msvc@2.2.2':
+    resolution: {integrity: sha512-3nLhvLie/ec5xfxUBXXqGMb7oGeqF+YXrcGckqaTaGkPtOBozho0Kh2IuP/zi9BcOriirTG2LW3gtIOfpuh+mQ==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [win32]
@@ -1010,14 +1134,30 @@ packages:
     cpu: [ia32]
     os: [win32]
 
+  '@node-rs/argon2-win32-ia32-msvc@2.2.2':
+    resolution: {integrity: sha512-6RJKD6cFl7UeiYJLjRsXPywVXSFSaSDdr6xGpztNDV31QHCEecWnsnNmKxzi4gVpln2F9XeWEtIgM4Nqw1hLbA==}
+    engines: {node: '>= 10'}
+    cpu: [ia32]
+    os: [win32]
+
   '@node-rs/argon2-win32-x64-msvc@2.1.0':
     resolution: {integrity: sha512-JN/yNiX7u8Cw9XXTbRrjnlgzFjCiEQe6x97wJnMIsJ3vty89q0SAg504Otd9qy2ofQS2F5CCWvrOXhm/oyHaAQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
 
+  '@node-rs/argon2-win32-x64-msvc@2.2.2':
+    resolution: {integrity: sha512-dQOO9S4QKBaVul0Uyk/2quJc/OBeHNZRJP+GZZTy1A5kYIaAfIJGHUYLY6oFoAlcuLIkdFouLaHX3fCl8tZm/w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
   '@node-rs/argon2@2.1.0':
     resolution: {integrity: sha512-VBOWfM2u58/to3DFqTGJ2U5cJKQwmjN2zxzsQNZ5a2o8Z6aUrhvqQh8NdgotIF1Y0tMsBNtzOBDBdfvvkwJDSQ==}
+    engines: {node: '>= 10'}
+
+  '@node-rs/argon2@2.2.2':
+    resolution: {integrity: sha512-NtdlPPWtR5U4BxX5EGJYza+UklNaoWORmkaKCMqf/nyKeXWKVwNt8KfQoRpNT7OB1DcEwmePafO4wZyW+sbfCQ==}
     engines: {node: '>= 10'}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.7':
@@ -2142,6 +2282,10 @@ packages:
     resolution: {integrity: sha512-gQhL1ksGBLQbHeAo47YU6cs2ahd3Pv+8PFYoWogNZbQnNwQyOh9Ad5kbeHFiWwbKdeWQJ5Z7Y7mwb9ew2hXBLw==}
     engines: {node: '>=16.0.0'}
 
+  deepmerge-ts@8.0.2:
+    resolution: {integrity: sha512-uqbvqLUMrc6p0MO+WBRtTxY55hmyh94WRwI5a++PZe54X+bfVh59FSN7uWCBCW1CCVjzjnrwzfI8zidE2obMMw==}
+    engines: {node: '>=16.9.0'}
+
   delayed-stream@1.0.0:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
@@ -2585,6 +2729,10 @@ packages:
 
   injectkit@1.7.0:
     resolution: {integrity: sha512-gAeyoBJeqoUDu5Lj7OOEEASb/Q6QcV2I+kF8YhQITS5k2PseUDJDLRWTViM4PKvfrSFiuUccu4HC1/dR7GeZjQ==}
+    engines: {node: '>=22'}
+
+  injectkit@1.7.1:
+    resolution: {integrity: sha512-ynT3kJ8wn0kOT8DZB5cfzOFjc/rnLTnQvH+jrOUIo9hI7itjkaQ8jrsXnvQbKl2GzUNiXhII6a/0QthNn3dXqA==}
     engines: {node: '>=22'}
 
   ip-address@10.5.0:
@@ -4065,10 +4213,10 @@ snapshots:
   '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.241':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.241(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(zod@4.4.3)':
+  '@anthropic-ai/claude-agent-sdk@0.3.241(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.32.2(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.120.0(zod@4.4.3)
-      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
+      '@modelcontextprotocol/sdk': 1.32.2(zod@4.4.3)
       zod: 4.4.3
     optionalDependencies:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.241
@@ -4519,9 +4667,40 @@ snapshots:
     transitivePeerDependencies:
       - ioredis
 
+  '@maroonedsoftware/authentication@6.7.0':
+    dependencies:
+      '@maroonedsoftware/cache': 0.6.0
+      '@maroonedsoftware/encryption': 0.5.13
+      '@maroonedsoftware/errors': 1.9.1
+      '@maroonedsoftware/logger': 1.1.9
+      '@maroonedsoftware/policies': 0.6.9
+      '@maroonedsoftware/utilities': 1.11.5
+      '@node-rs/argon2': 2.2.2
+      '@zxcvbn-ts/core': 4.2.0
+      '@zxcvbn-ts/language-common': 4.1.3
+      '@zxcvbn-ts/language-en': 4.1.1
+      '@zxcvbn-ts/matcher-pwned': 4.1.3
+      arctic: 3.7.0
+      deepmerge-ts: 8.0.2
+      fido2-lib: 3.5.9
+      injectkit: 1.7.1
+      jsonwebtoken: 9.0.3
+      luxon: 3.7.2
+      openid-client: 6.8.7
+      qrcode: 1.5.4
+      rate-limiter-flexible: 11.2.0
+      zxcvbn-ts: 2.3.4
+    transitivePeerDependencies:
+      - ioredis
+
   '@maroonedsoftware/cache@0.4.5':
     dependencies:
       injectkit: 1.7.0
+      luxon: 3.7.2
+
+  '@maroonedsoftware/cache@0.6.0':
+    dependencies:
+      injectkit: 1.7.1
       luxon: 3.7.2
 
   '@maroonedsoftware/encryption@0.5.11':
@@ -4531,7 +4710,16 @@ snapshots:
       injectkit: 1.7.0
       luxon: 3.7.2
 
+  '@maroonedsoftware/encryption@0.5.13':
+    dependencies:
+      '@maroonedsoftware/errors': 1.9.1
+      '@node-rs/argon2': 2.2.2
+      injectkit: 1.7.1
+      luxon: 3.7.2
+
   '@maroonedsoftware/errors@1.9.0': {}
+
+  '@maroonedsoftware/errors@1.9.1': {}
 
   '@maroonedsoftware/jobbroker@1.12.0(pg-boss@12.27.0)':
     dependencies:
@@ -4605,6 +4793,27 @@ snapshots:
     dependencies:
       injectkit: 1.7.0
 
+  '@maroonedsoftware/logger@1.1.9':
+    dependencies:
+      injectkit: 1.7.1
+
+  '@maroonedsoftware/mcp@0.7.7(@maroonedsoftware/cache@0.4.5)(zod@4.4.3)':
+    dependencies:
+      '@maroonedsoftware/authentication': 6.7.0
+      '@maroonedsoftware/errors': 1.9.1
+      '@maroonedsoftware/logger': 1.1.9
+      '@maroonedsoftware/policies': 0.6.9
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
+      injectkit: 1.7.1
+      luxon: 3.7.2
+    optionalDependencies:
+      '@maroonedsoftware/cache': 0.4.5
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - ioredis
+      - supports-color
+      - zod
+
   '@maroonedsoftware/multipart@1.3.6':
     dependencies:
       '@fastify/busboy': 3.2.2
@@ -4614,6 +4823,12 @@ snapshots:
     dependencies:
       '@maroonedsoftware/errors': 1.9.0
       injectkit: 1.7.0
+      luxon: 3.7.2
+
+  '@maroonedsoftware/policies@0.6.9':
+    dependencies:
+      '@maroonedsoftware/errors': 1.9.1
+      injectkit: 1.7.1
       luxon: 3.7.2
 
   '@maroonedsoftware/serverfeed@0.1.5(@maroonedsoftware/logger@1.1.8)':
@@ -4651,6 +4866,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@modelcontextprotocol/sdk@1.32.2(zod@4.4.3)':
+    dependencies:
+      '@hono/node-server': 2.1.1(hono@4.13.3)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.1
+      express: 5.2.1
+      express-rate-limit: 8.6.2(express@5.2.1)
+      hono: 4.13.3
+      jose: 6.2.10
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    transitivePeerDependencies:
+      - supports-color
+
   '@napi-rs/wasm-runtime@1.2.3(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
     dependencies:
       '@emnapi/core': 1.11.2
@@ -4663,40 +4900,79 @@ snapshots:
   '@node-rs/argon2-android-arm-eabi@2.1.0':
     optional: true
 
+  '@node-rs/argon2-android-arm-eabi@2.2.2':
+    optional: true
+
   '@node-rs/argon2-android-arm64@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-android-arm64@2.2.2':
     optional: true
 
   '@node-rs/argon2-darwin-arm64@2.1.0':
     optional: true
 
+  '@node-rs/argon2-darwin-arm64@2.2.2':
+    optional: true
+
   '@node-rs/argon2-darwin-x64@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-darwin-x64@2.2.2':
     optional: true
 
   '@node-rs/argon2-freebsd-x64@2.1.0':
     optional: true
 
+  '@node-rs/argon2-freebsd-x64@2.2.2':
+    optional: true
+
   '@node-rs/argon2-linux-arm-gnueabihf@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-linux-arm-gnueabihf@2.2.2':
     optional: true
 
   '@node-rs/argon2-linux-arm64-gnu@2.1.0':
     optional: true
 
+  '@node-rs/argon2-linux-arm64-gnu@2.2.2':
+    optional: true
+
   '@node-rs/argon2-linux-arm64-musl@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-linux-arm64-musl@2.2.2':
     optional: true
 
   '@node-rs/argon2-linux-x64-gnu@2.1.0':
     optional: true
 
+  '@node-rs/argon2-linux-x64-gnu@2.2.2':
+    optional: true
+
   '@node-rs/argon2-linux-x64-musl@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-linux-x64-musl@2.2.2':
     optional: true
 
   '@node-rs/argon2-win32-arm64-msvc@2.1.0':
     optional: true
 
+  '@node-rs/argon2-win32-arm64-msvc@2.2.2':
+    optional: true
+
   '@node-rs/argon2-win32-ia32-msvc@2.1.0':
     optional: true
 
+  '@node-rs/argon2-win32-ia32-msvc@2.2.2':
+    optional: true
+
   '@node-rs/argon2-win32-x64-msvc@2.1.0':
+    optional: true
+
+  '@node-rs/argon2-win32-x64-msvc@2.2.2':
     optional: true
 
   '@node-rs/argon2@2.1.0':
@@ -4714,6 +4990,22 @@ snapshots:
       '@node-rs/argon2-win32-arm64-msvc': 2.1.0
       '@node-rs/argon2-win32-ia32-msvc': 2.1.0
       '@node-rs/argon2-win32-x64-msvc': 2.1.0
+
+  '@node-rs/argon2@2.2.2':
+    optionalDependencies:
+      '@node-rs/argon2-android-arm-eabi': 2.2.2
+      '@node-rs/argon2-android-arm64': 2.2.2
+      '@node-rs/argon2-darwin-arm64': 2.2.2
+      '@node-rs/argon2-darwin-x64': 2.2.2
+      '@node-rs/argon2-freebsd-x64': 2.2.2
+      '@node-rs/argon2-linux-arm-gnueabihf': 2.2.2
+      '@node-rs/argon2-linux-arm64-gnu': 2.2.2
+      '@node-rs/argon2-linux-arm64-musl': 2.2.2
+      '@node-rs/argon2-linux-x64-gnu': 2.2.2
+      '@node-rs/argon2-linux-x64-musl': 2.2.2
+      '@node-rs/argon2-win32-arm64-msvc': 2.2.2
+      '@node-rs/argon2-win32-ia32-msvc': 2.2.2
+      '@node-rs/argon2-win32-x64-msvc': 2.2.2
 
   '@node-rs/xxhash-android-arm-eabi@1.7.7':
     optional: true
@@ -5748,6 +6040,8 @@ snapshots:
 
   deepmerge-ts@7.1.6: {}
 
+  deepmerge-ts@8.0.2: {}
+
   delayed-stream@1.0.0: {}
 
   delegates@1.0.0: {}
@@ -6214,6 +6508,10 @@ snapshots:
   inherits@2.0.4: {}
 
   injectkit@1.7.0:
+    dependencies:
+      reflect-metadata: 0.2.2
+
+  injectkit@1.7.1:
     dependencies:
       reflect-metadata: 0.2.2
 
