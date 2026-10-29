@@ -84,6 +84,7 @@ export const fakeContainer = (proposals: ChatPendingActionRepository = fakePropo
     registry.register(BoardConfig).useValue(new StaticBoardConfig('default-project', '/tmp/code', '/tmp/wt', '/tmp/run'));
     registry.register(ProjectRepository).useValue({
         find: async (name: string) => (['wilson', 'other'].includes(name) ? { name, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' } : undefined),
+        list: async () => ['other', 'wilson'].map(name => ({ name, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' })),
     } as unknown as ProjectRepository);
     registry.register(ChatPendingActionRepository).useValue(proposals);
     return registry.build();

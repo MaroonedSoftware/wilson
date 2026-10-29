@@ -8,6 +8,7 @@ import { HealthService } from '#modules/health/health.service.js';
 import { McpModule } from '#modules/mcp/mcp.module.js';
 import { McpToolCatalog } from '#modules/mcp/generated/mcp.tools.js';
 import { BoardRouter } from '#src/routes/board.router.js';
+import { ChatRouter } from '#src/routes/chat.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
@@ -28,7 +29,7 @@ const catalog = async (): Promise<McpToolCatalog> => {
     return registry.build().get(McpToolCatalog);
 };
 
-const ROUTERS = [BoardRouter, ContextRouter, HealthRouter, LearningsRouter, ProjectsRouter, SettingsRouter, StagesRouter];
+const ROUTERS = [BoardRouter, ChatRouter, ContextRouter, HealthRouter, LearningsRouter, ProjectsRouter, SettingsRouter, StagesRouter];
 
 /** Every method + path the generated routers serve, `HEAD` aside (koa adds it beside each `GET`). */
 const contractRoutes = (): string[] =>
