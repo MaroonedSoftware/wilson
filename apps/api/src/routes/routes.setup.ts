@@ -12,6 +12,7 @@ import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { BoardRouter } from './board.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
+import { HostsRouter } from './hosts.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { SettingsRouter } from './settings.router.js';
@@ -255,6 +256,7 @@ export const routers = (signal?: AbortSignal) => [
     ContextRouter,
     SettingsRouter,
     ProjectsRouter,
+    HostsRouter,
     StagesRouter,
     LearningsRouter,
     FeedRouter(signal),

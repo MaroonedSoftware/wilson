@@ -3,6 +3,7 @@ import { AgentModule } from './agent/agent.module.js';
 import { BoardModule } from './board/board.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
+import { HostModule } from './host/host.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
@@ -48,6 +49,7 @@ export const modules: ServerKitModule[] = [
     ContextModule,
     HealthModule,
     LeaseModule,
+    HostModule,
     WorktreeModule,
     AgentModule,
     StagesModule,

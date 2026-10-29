@@ -152,6 +152,28 @@ export interface Projects {
  * (`data/migrations/20260831120000_leases.sql`) for why `resourceKey` alone is the primary key
  * rather than `(project, resourceKey)`.
  */
+export interface Hosts {
+    name: string;
+    sshTarget: string;
+    slots: Generated<number>;
+    enabled: Generated<boolean>;
+    draining: Generated<boolean>;
+    probedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    probeOk: boolean | null;
+    probeDetail: string | null;
+    engineVersion: string | null;
+    expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+export interface HostProjects {
+    host: string;
+    project: string;
+    codeRoot: string;
+    worktreeRoot: string;
+    runRoot: string;
+}
+
 export interface Leases {
     resourceKey: string;
     project: string;
@@ -248,6 +270,8 @@ export interface DB {
     'runner.planComments': PlanComments;
     'runner.projects': Projects;
     'runner.leases': Leases;
+    'runner.hosts': Hosts;
+    'runner.hostProjects': HostProjects;
     'runner.stageConfigs': StageConfigs;
     'runner.cardContext': CardContext;
     'runner.sourceCursors': SourceCursors;
