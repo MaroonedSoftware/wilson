@@ -69,9 +69,7 @@ export const bashTool = (ctx: ToolContext) =>
             // another card's `setupCommand` for that store, which is what poisoned card 0081 itself.
             const isStoreWrite = file === 'pnpm' && args[0] === 'install';
             const result = await (
-                isStoreWrite
-                    ? pnpmStoreLock.run(`${ctx.cardId} ${ctx.stage} bash`, message => ctx.logger.info(message), runOnce)
-                    : runOnce()
+                isStoreWrite ? pnpmStoreLock.run(`${ctx.cardId} ${ctx.stage} bash`, message => ctx.logger.info(message), runOnce) : runOnce()
             ).catch((err: ExecFailure) => err);
 
             if (result instanceof Error) {

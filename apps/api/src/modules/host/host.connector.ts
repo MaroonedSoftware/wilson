@@ -5,6 +5,7 @@ import { gitSshCommand, SshHost } from './ssh.execution.host.js';
 import { SshGitTransport } from './ssh.git.transport.js';
 import type { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { WorkerExecutionHost } from '#modules/worker/worker.execution.host.js';
+import { WorkerGitTransport } from '#modules/worker/worker.git.transport.js';
 
 /**
  * Turns a registered host into the `ExecutionHost` that reaches it. One place for it, so the probe and
@@ -31,21 +32,23 @@ export class HostConnector {
      * {@link WorkerNotConnectedError} for a worker host whose worker is not connected.
      */
     connect(host: Pick<HostRow, 'name' | 'kind' | 'sshTarget' | 'commandEnv'>): ExecutionHost {
-        if (host.kind === 'worker') {
-            const connection = this.workers?.get(host.name);
-            if (!connection) throw new WorkerNotConnectedError(host.name);
-            return new WorkerExecutionHost(connection, host.commandEnv);
-        }
+        if (host.kind === 'worker') return new WorkerExecutionHost(this.workerConnection(host.name), host.commandEnv);
         return new SshHost(sshTargetOf(host), this.sshCommand, host.commandEnv, this.engineToken);
     }
 
     /**
-     * How commits reach a host's clone and come back from it. Throws for a worker host: nothing moves
-     * commits over a worker's connection yet, which is why the probe still fails one.
+     * How commits reach a host's clone and come back from it: git over SSH, or bundles over a worker's
+     * connection. Throws {@link WorkerNotConnectedError} as `connect` does.
      */
     gitTransport(host: Pick<HostRow, 'name' | 'kind' | 'sshTarget'>): GitTransport {
-        if (host.kind === 'worker') throw new Error(`moving commits to and from worker host ${host.name} is not supported yet`);
+        if (host.kind === 'worker') return new WorkerGitTransport(this.workerConnection(host.name));
         return new SshGitTransport(sshTargetOf(host), gitSshCommand(this.sshCommand));
+    }
+
+    private workerConnection(name: string) {
+        const connection = this.workers?.get(name);
+        if (!connection) throw new WorkerNotConnectedError(name);
+        return connection;
     }
 }
 

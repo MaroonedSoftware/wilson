@@ -66,6 +66,16 @@ describe('WorkerExecutor', () => {
         expect(await call({ op: 'readFile', path })).toMatchObject({ ok: false, error: { code: 'ENOENT' } });
     });
 
+    it('reads and writes a file’s bytes as base64, binary included', async () => {
+        const { call } = harness();
+        const path = join(root, 'bytes.bin');
+        const data = Buffer.from([0, 255, 10, 13, 128]);
+
+        expect(await call({ op: 'writeBytes', path, data: data.toString('base64') })).toMatchObject({ ok: true });
+        expect(await readFile(path)).toEqual(data);
+        expect(await call({ op: 'readBytes', path })).toMatchObject({ ok: true, value: data.toString('base64') });
+    });
+
     it('runs a command with Wilson’s env, but the passthrough names and hostEnv from its own', async () => {
         const { call } = harness({ env: { PATH: process.env.PATH, HOME: '/home/worker', GITHUB_TOKEN: 'gh', SECRET: 'no' } });
 

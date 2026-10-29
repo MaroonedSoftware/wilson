@@ -145,12 +145,7 @@ export class PostgresBoardRepository extends BoardRepository {
      * write path already leaves this column alone; this is the one place that changes it.
      */
     async setPosition(id: string, position: number): Promise<void> {
-        await this.db
-            .updateTable('runner.cards')
-            .set({ position })
-            .where('project', '=', this.config.project)
-            .where('id', '=', id)
-            .execute();
+        await this.db.updateTable('runner.cards').set({ position }).where('project', '=', this.config.project).where('id', '=', id).execute();
     }
 
     /**

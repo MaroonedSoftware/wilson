@@ -99,9 +99,7 @@ export class ChallengeVerifier implements StageVerifier {
 
         const incoming = await this.incomingReview(cardId);
         if (incoming === undefined) {
-            failures.push(
-                'nothing to challenge: the most recent review event for this card is not a stage.passed result with verdict "revise"',
-            );
+            failures.push('nothing to challenge: the most recent review event for this card is not a stage.passed result with verdict "revise"');
             return { passed: false, failures, changedPaths: reviewOutcome.changedPaths };
         }
 

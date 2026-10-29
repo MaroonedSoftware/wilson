@@ -64,6 +64,10 @@ export const CallOp = z.discriminatedUnion('op', [
     z.object({ op: z.literal('unlink'), path: z.string() }),
     z.object({ op: z.literal('removeTree'), path: z.string() }),
     z.object({ op: z.literal('exec'), file: z.string(), args: z.array(z.string()), options: ExecOptionsMessage }),
+    /** A file's bytes, base64: how a git bundle carrying a card's commits comes back from the worker. */
+    z.object({ op: z.literal('readBytes'), path: z.string() }),
+    /** Write `data` (base64) to `path`: how a git bundle carrying a card's base reaches the worker. */
+    z.object({ op: z.literal('writeBytes'), path: z.string(), data: z.string() }),
 ]);
 export type CallOp = z.infer<typeof CallOp>;
 
@@ -79,6 +83,8 @@ export interface CallResults {
     unlink: undefined;
     removeTree: undefined;
     exec: { stdout: string; stderr: string };
+    readBytes: string;
+    writeBytes: undefined;
 }
 
 /** Where a project lives on the worker's machine, as its host's `runner.host_projects` row says. */

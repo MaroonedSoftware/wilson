@@ -72,10 +72,6 @@ export class HostProber {
         const problems: string[] = [];
         const notes: string[] = [];
 
-        // Its commands and files answer, but nothing moves a card's commits to and from a worker
-        // yet, so a stage could not start there: that is what keeps placement from choosing it.
-        if (row.kind === 'worker') problems.push('moving commits to and from a worker is not supported yet, so stages cannot run there');
-
         let engineVersion: string | undefined;
         const version = await run(host, 'claude', ['--version']);
         if (version instanceof Error) {

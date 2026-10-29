@@ -142,7 +142,7 @@ describe('HostProber', () => {
         expect(host.probe).toMatchObject({ ok: false, detail: 'no worker is connected for this host' });
     });
 
-    it('runs every check on a connected worker, and still fails it until commits can move to it', async () => {
+    it('runs every check on a connected worker, and passes one that is ready', async () => {
         const name = uniqueProject();
         await service.create({ name, kind: 'worker' });
         const project = uniqueProject();
@@ -159,11 +159,9 @@ describe('HostProber', () => {
 
             const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections)).probe(name);
 
-            expect(host.probe?.ok).toBe(false);
+            expect(host.probe?.ok).toBe(true);
             expect(host.probe?.engineVersion).toBe('9.9.9');
-            expect(host.probe?.detail).toContain('moving commits to and from a worker is not supported yet');
-            expect(host.probe?.detail).not.toContain('not a git repository');
-            expect(host.probe?.detail).not.toContain('not signed in');
+            expect(host.probe?.detail).toContain('claude 9.9.9 has not been through the engine probes');
         } finally {
             await server.close();
         }

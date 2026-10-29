@@ -330,7 +330,9 @@ export class BoardWriteService {
         // no neighbours named is a caller that forgot to say where the card lands, not a request for
         // the empty-column midpoint `rankBetween(undefined, undefined)` would otherwise hand back.
         if (before === undefined && after === undefined && order.length > 0) {
-            throw httpError(400).withDetails({ reason: `cannot reposition ${id}: "beforeId"/"afterId" must say where it lands unless "parking-lot" holds only this card` });
+            throw httpError(400).withDetails({
+                reason: `cannot reposition ${id}: "beforeId"/"afterId" must say where it lands unless "parking-lot" holds only this card`,
+            });
         }
 
         // `before` and `after` are supposed to be `id`'s actual neighbours, which means `before` must
@@ -346,7 +348,8 @@ export class BoardWriteService {
 
         const rankable = (neighbour: Card | undefined): boolean => neighbour === undefined || neighbour.frontmatter.position !== undefined;
 
-        let ranked = rankable(before) && rankable(after) ? rankBetween(before?.frontmatter.position, after?.frontmatter.position) : { ok: false as const };
+        let ranked =
+            rankable(before) && rankable(after) ? rankBetween(before?.frontmatter.position, after?.frontmatter.position) : { ok: false as const };
 
         if (!ranked.ok) {
             const spaced = renormalizedPositions(order);
@@ -743,9 +746,7 @@ export class BoardWriteService {
         // wait for dry run to be turned off.
         await this.move(id, { stage: 'merged' });
 
-        const reason = dryRun
-            ? `dry run: rehearsed onto ${targetRef} at ${mergeCommit.slice(0, 8)} — the write to main was withheld`
-            : undefined;
+        const reason = dryRun ? `dry run: rehearsed onto ${targetRef} at ${mergeCommit.slice(0, 8)} — the write to main was withheld` : undefined;
         return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit, reason };
     }
 
@@ -835,8 +836,10 @@ export class BoardWriteService {
         try {
             if (stage.setupCommand) {
                 const setupCommand = stage.setupCommand;
-                const setup = await pnpmStoreLock.run(`${id} merge-check setup`, message => this.logger.info(message), () =>
-                    runConfiguredCommand(worktree.path, setupCommand),
+                const setup = await pnpmStoreLock.run(
+                    `${id} merge-check setup`,
+                    message => this.logger.info(message),
+                    () => runConfiguredCommand(worktree.path, setupCommand),
                 );
                 if (setup) return { ok: false, reason: `setup failed: ${setup.reason}` };
             }

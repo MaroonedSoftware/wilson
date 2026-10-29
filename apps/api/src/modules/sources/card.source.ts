@@ -43,8 +43,7 @@ export type CardSourceItem = {
  * persists it, only on this branch and only once every reported item has been applied.
  */
 export type CardSourceFetchResult =
-    | { readonly ok: true; readonly items: readonly CardSourceItem[]; readonly cursor: string }
-    | { readonly ok: false; readonly reason: string };
+    { readonly ok: true; readonly items: readonly CardSourceItem[]; readonly cursor: string } | { readonly ok: false; readonly reason: string };
 
 /**
  * Which of the five human-meaningful transitions `StatusMirrorPoller` (`status.mirror.poller.ts`,

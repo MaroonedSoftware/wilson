@@ -131,6 +131,12 @@ export class WorkerExecutor {
             case 'removeTree':
                 this.guard(call.path);
                 return rm(call.path, { recursive: true, force: true });
+            case 'readBytes':
+                this.guard(call.path);
+                return (await readFile(call.path)).toString('base64');
+            case 'writeBytes':
+                this.guard(call.path);
+                return writeFile(call.path, Buffer.from(call.data, 'base64'));
             case 'exec': {
                 this.guard(call.options.cwd);
                 const { options } = call;

@@ -4,6 +4,7 @@ import { SshHost } from '#modules/host/ssh.execution.host.js';
 import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { WorkerExecutionHost } from '#modules/worker/worker.execution.host.js';
+import { WorkerGitTransport } from '#modules/worker/worker.git.transport.js';
 import { eventually, FakeWorker, startWorkerServer, workerRow } from '#tests/support/fake.worker.js';
 
 describe('HostConnector', () => {
@@ -25,7 +26,7 @@ describe('HostConnector', () => {
         );
     });
 
-    it('reaches a connected worker over its connection, but cannot move commits to one yet', async () => {
+    it('reaches a connected worker over its connection, for both its commands and its commits', async () => {
         const server = await startWorkerServer({ token: workerRow('unraid-vm') });
         try {
             await FakeWorker.connect(server.url, 'token');
@@ -37,7 +38,7 @@ describe('HostConnector', () => {
 
             expect(host).toBeInstanceOf(WorkerExecutionHost);
             expect(host.commandEnv).toEqual(['GITHUB_TOKEN']);
-            expect(() => workers.gitTransport(row)).toThrow('moving commits to and from worker host unraid-vm is not supported yet');
+            expect(workers.gitTransport(row)).toBeInstanceOf(WorkerGitTransport);
         } finally {
             await server.close();
         }
