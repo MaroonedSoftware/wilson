@@ -4,7 +4,6 @@ import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
-    ChatMessage as WireChatMessage,
     ChatPendingAction as WirePendingAction,
     ChatThread as WireChatThread,
     ChatThreadDetail,
@@ -14,6 +13,7 @@ import type {
     SendChatMessageRequest,
 } from '#src/generated/chat.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
+import { publishChat, toStreamEvent } from './chat.feed.js';
 import type { ChatEngine } from './chat.engine.js';
 import type { ChatEngineChoice } from './chat.engine.setting.js';
 import { ChatMessageRepository, type ChatMessage } from './chat.message.repository.js';
@@ -21,6 +21,7 @@ import { ChatPendingActionRepository, type PendingAction } from './chat.pending.
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
 import { chatTools, type ChatTurnContext } from './chat.tools.js';
+import { toWireAction, toWireMessage, toWireThread } from './chat.wire.js';
 
 /** A thread's title until its first message names it. */
 export const NEW_THREAD_TITLE = 'New chat';
@@ -32,41 +33,6 @@ export const titleFrom = (text: string): string => {
     const line = text.trim().split('\n')[0]!.trim();
     return line.length <= TITLE_LENGTH ? line : `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
-
-const toWireThread = (thread: ChatThread): WireChatThread => ({
-    id: thread.id,
-    title: thread.title,
-    engine: thread.engine,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-    ...(thread.archivedAt ? { archivedAt: thread.archivedAt } : {}),
-});
-
-const toWireMessage = (message: ChatMessage): WireChatMessage => ({
-    seq: message.seq,
-    role: message.role,
-    content: message.content,
-    operations: message.operations.map(operation => ({
-        ...operation,
-        arguments: operation.arguments as WireChatMessage['operations'][number]['arguments'],
-    })),
-    createdAt: message.createdAt,
-});
-
-export const toWireAction = (action: PendingAction): WirePendingAction => ({
-    id: action.id,
-    threadId: action.threadId,
-    operation: action.operation,
-    arguments: action.arguments as WirePendingAction['arguments'],
-    summary: action.summary,
-    status: action.status,
-    expiresAt: action.expiresAt,
-    createdAt: action.createdAt,
-    ...(action.project ? { project: action.project } : {}),
-    ...(action.result !== undefined ? { result: action.result as WirePendingAction['result'] } : {}),
-    ...(action.error ? { error: action.error } : {}),
-    ...(action.decidedAt ? { decidedAt: action.decidedAt } : {}),
-});
 
 /**
  * One lock per thread, so a second message sent while the first is still being answered waits for
@@ -174,19 +140,34 @@ export class ChatService {
         return toWireAction(finished ?? decided);
     }
 
-    /** Run one turn on the thread's engine and store its answer. */
+    /**
+     * Run one turn on the thread's engine and store its answer, publishing its progress to anyone
+     * watching the thread (`chatFeed`) as it goes.
+     */
     private async answer(
         thread: ChatThread,
         history: ChatMessage[],
         text: string,
         project?: string,
     ): Promise<{ reply: ChatMessage; proposed: PendingAction[] }> {
+        const fail = (reason: string): never => {
+            publishChat(thread.id, { event: 'failed', data: { reason } });
+            throw httpError(502).withDetails({ reason });
+        };
+
         const engine = this.engines[thread.engine];
-        if (!engine) throw httpError(502).withDetails({ reason: `the chat could not answer: the '${thread.engine}' engine is not available` });
+        if (!engine) return fail(`the chat could not answer: the '${thread.engine}' engine is not available`);
 
         const { provider, model } = await this.choose();
         const projects = (await this.projects.list()).map(row => row.name);
-        const context: ChatTurnContext = { threadId: thread.id, container: this.container, logger: this.logger, operations: [], proposed: [] };
+        const context: ChatTurnContext = {
+            threadId: thread.id,
+            container: this.container,
+            logger: this.logger,
+            operations: [],
+            proposed: [],
+            emit: event => publishChat(thread.id, toStreamEvent(event)),
+        };
 
         let output;
         try {
@@ -198,10 +179,11 @@ export class ChatService {
                 tools: chatTools(this.catalog, context),
                 provider,
                 model,
+                onText: delta => publishChat(thread.id, { event: 'delta', data: delta }),
             });
         } catch (err) {
             this.logger.warn(`chat thread ${thread.id}: the turn failed: ${explainError(err)}`);
-            throw httpError(502).withDetails({ reason: `the chat could not answer: ${explainError(err)}` });
+            return fail(`the chat could not answer: ${explainError(err)}`);
         }
 
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);
@@ -211,6 +193,7 @@ export class ChatService {
             operations: context.operations,
             engineMessages: output.engineMessages,
         });
+        publishChat(thread.id, { event: 'done', data: { seq: reply.seq } });
         return { reply, proposed: context.proposed };
     }
 

@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
+import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatPendingActionRepository } from '#modules/chat/chat.pending.action.repository.js';
@@ -91,6 +92,37 @@ describe('ChatService', () => {
             operations: [{ name: 'list_cards', arguments: { stage: 'review' }, project: 'wilson', ok: true }],
         });
         expect(turn.proposed).toEqual([]);
+    });
+
+    it('streams a turn to anyone watching its thread: text, each read, each proposal, then done', async () => {
+        const { service } = setup([
+            calls('dispatch_readonly', { name: 'list_cards', project: 'wilson' }, 'Looking. '),
+            calls('propose_change', { name: 'move_card', project: 'wilson', arguments: { id: '0007' }, summary: 'Move 0007.' }),
+            says('Proposed.'),
+        ]);
+        const thread = await service.startThread();
+        const heard: ChatStreamEvent[] = [];
+        const stop = onChatEvent(thread.id, event => heard.push(event));
+
+        const turn = await service.sendMessage(thread.id, { text: 'Move whatever is in review' });
+        stop();
+
+        expect(heard.map(event => event.event)).toEqual(['delta', 'operation', 'proposed', 'delta', 'done']);
+        expect(heard[1]).toEqual({ event: 'operation', data: { name: 'list_cards', arguments: {}, project: 'wilson', ok: true } });
+        expect(heard[2]).toMatchObject({ event: 'proposed', data: { id: turn.proposed[0]!.id, summary: 'Move 0007.' } });
+        expect(heard.at(-1)).toEqual({ event: 'done', data: { seq: turn.reply.seq } });
+    });
+
+    it('streams why a turn failed', async () => {
+        const { service } = setup([]);
+        const thread = await service.startThread();
+        const heard: ChatStreamEvent[] = [];
+        const stop = onChatEvent(thread.id, event => heard.push(event));
+
+        await service.sendMessage(thread.id, { text: 'hello?' }).catch(() => undefined);
+        stop();
+
+        expect(heard).toEqual([{ event: 'failed', data: { reason: expect.stringContaining('the chat could not answer') } }]);
     });
 
     it('tells the model which project the person is looking at', async () => {
