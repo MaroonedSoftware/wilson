@@ -1,5 +1,5 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
@@ -7,6 +7,7 @@ import type { Card } from '#modules/board/card.js';
 import { conflictingPaths, git, gitOn, isClean, mergeTree } from '#modules/board/git.js';
 import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
+import type { RemotePlacement } from '#modules/host/placement.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
 import { codeRootLock } from './code.root.lock.js';
 
@@ -17,11 +18,15 @@ export interface Worktree {
     /** The commit the branch was cut from, used to diff what the stage actually changed. */
     baseSha: string;
     /**
-     * The machine `path` is on. Read it with {@link worktreeHost}. Unset means this one, which is
-     * every worktree `create` and `resume` cut today; optional so the many tests that build a
-     * `Worktree` by hand keep meaning what they always meant.
+     * The machine `path` is on. Read it with {@link worktreeHost}. Unset means this one; optional so
+     * the many tests that build a `Worktree` by hand keep meaning what they always meant.
      */
     host?: ExecutionHost;
+    /**
+     * Set when the worktree was cut on another host: where, and the slot it holds there. Its `host`
+     * is the same one as `host` above. Unset for a worktree on this machine.
+     */
+    placement?: RemotePlacement;
 }
 
 /** The host a worktree's files and commands live on: its own, or this machine when it names none. */
@@ -146,16 +151,23 @@ export class WorktreeManager {
      * check uses it to cut from the card worktree's own base, so "pre-change" means exactly what the
      * card branched from rather than whatever HEAD has moved to since.
      */
-    async create(cardId: string, branch: string, at?: string): Promise<Worktree> {
+    async create(cardId: string, branch: string, at?: string, placement?: RemotePlacement): Promise<Worktree> {
         return codeRootLock.run(
             `${cardId} worktree create`,
             message => this.logger.info(message),
             async () => {
-                await this.reclaimUnlocked(cardId);
+                await this.reclaimUnlocked(cardId, placement);
+                const baseSha = at ?? (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+                if (placement) {
+                    // The host's clone may not have this commit yet: it is this machine's code repo
+                    // that merges land in. Pushed to a ref of Wilson's own, so it never moves a
+                    // branch someone on the host is working on.
+                    await this.pushToHost(placement, [`+${baseSha}:refs/wilson/base/${cardId}`]);
+                    return this.addRemoteWorktree(placement, cardId, ['-B', branch], baseSha, branch, baseSha);
+                }
                 await mkdir(this.config.worktreeRoot, { recursive: true });
 
                 const path = this.path(cardId);
-                const baseSha = at ?? (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
 
                 // -B so a leftover branch from a prior attempt is reset to the base rather than colliding.
                 await git(this.config.codeRoot, ['worktree', 'add', '-B', branch, path, baseSha]);
@@ -176,7 +188,7 @@ export class WorktreeManager {
      * `baseSha` is the fork point rather than the branch tip, so `changedPaths` still describes
      * everything the card has changed since it started, across all of its stages.
      */
-    async resume(cardId: string, branch: string): Promise<Worktree> {
+    async resume(cardId: string, branch: string, placement?: RemotePlacement): Promise<Worktree> {
         if (!(await this.hasWork(branch))) {
             throw new Error(`this stage resumes the card's branch, but ${branch} has no work on it — has an earlier stage run for this card?`);
         }
@@ -185,11 +197,17 @@ export class WorktreeManager {
             `${cardId} worktree resume`,
             message => this.logger.info(message),
             async () => {
-                await this.reclaimUnlocked(cardId);
+                await this.reclaimUnlocked(cardId, placement);
+                const baseSha = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
+                if (placement) {
+                    // The branch as this machine has it, forced: the host's copy is whatever an
+                    // earlier stage there left, and this machine's is the one later stages built on.
+                    await this.pushToHost(placement, [`+refs/heads/${branch}:refs/heads/${branch}`]);
+                    return this.addRemoteWorktree(placement, cardId, [], branch, branch, baseSha);
+                }
                 await mkdir(this.config.worktreeRoot, { recursive: true });
 
                 const path = this.path(cardId);
-                const baseSha = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
 
                 // No -B: the branch stays exactly where the previous stage left it.
                 await git(this.config.codeRoot, ['worktree', 'add', path, branch]);
@@ -218,12 +236,74 @@ export class WorktreeManager {
     }
 
     /** Remove a card's worktree and its git bookkeeping. Safe to call when there is nothing there. */
-    async reclaim(cardId: string): Promise<void> {
+    async reclaim(cardId: string, placement?: RemotePlacement): Promise<void> {
         await codeRootLock.run(
             `${cardId} worktree reclaim`,
             message => this.logger.info(message),
-            () => this.reclaimUnlocked(cardId),
+            () => this.reclaimUnlocked(cardId, placement),
         );
+    }
+
+    /**
+     * Bring a branch committed on a host back into this machine's code repo, where merges, the diff
+     * view and every later stage read it. Called after `commit` on a remote worktree; a no-op for a
+     * worktree on this machine, whose commits are already here.
+     */
+    async fetchBack(worktree: Worktree): Promise<void> {
+        const placement = worktree.placement;
+        if (!placement) return;
+        await this.transport(placement, [
+            'fetch',
+            '--no-tags',
+            this.remoteUrl(placement),
+            `+refs/heads/${worktree.branch}:refs/heads/${worktree.branch}`,
+        ]);
+    }
+
+    /**
+     * Cut a worktree in the host's clone and describe it. `args` go to `git worktree add` ahead of
+     * the path, and `commitish` after it.
+     */
+    private async addRemoteWorktree(
+        placement: RemotePlacement,
+        cardId: string,
+        args: string[],
+        commitish: string,
+        branch: string,
+        baseSha: string,
+    ): Promise<Worktree> {
+        const path = posix.join(placement.worktreeRoot, cardId);
+        await placement.host.mkdir(placement.worktreeRoot);
+        await gitOn(placement.host, placement.codeRoot, ['worktree', 'add', ...args, path, commitish]);
+        this.logger.info(`worktree ${path} on ${placement.hostName} on ${branch} at ${baseSha.slice(0, 8)}`);
+        return { path, branch, baseSha, host: placement.host, placement };
+    }
+
+    /** `git push` from this machine's code repo to the host's clone. */
+    private async pushToHost(placement: RemotePlacement, refspecs: string[]): Promise<void> {
+        await this.transport(placement, ['push', '--quiet', '--no-verify', this.remoteUrl(placement), ...refspecs]);
+    }
+
+    /** The host's clone as a git remote: `target:path`, which git reaches with `ssh`. */
+    private remoteUrl(placement: RemotePlacement): string {
+        return `${placement.sshTarget}:${placement.codeRoot}`;
+    }
+
+    /**
+     * Run git in this machine's code repo with `GIT_SSH_COMMAND` set, so a push or fetch to a host
+     * rides the same multiplexed connection, with the same no-prompt options, as its other commands.
+     */
+    private async transport(placement: RemotePlacement, args: string[]): Promise<void> {
+        try {
+            await localHost.exec('git', args, {
+                cwd: this.config.codeRoot,
+                maxBuffer: 32 * 1024 * 1024,
+                env: { ...process.env, GIT_SSH_COMMAND: placement.gitSsh },
+            });
+        } catch (err) {
+            const e = err as { stderr?: string; message: string };
+            throw new Error(`git ${args[0]} to ${placement.hostName} failed: ${e.stderr?.trim() || e.message}`, { cause: err });
+        }
     }
 
     /**
@@ -240,7 +320,7 @@ export class WorktreeManager {
      * lease held (a daemon killed mid-stage, say) frees it the moment that same card is dispatched
      * again, without needing anything to notice first.
      */
-    private async reclaimUnlocked(cardId: string): Promise<void> {
+    private async reclaimUnlocked(cardId: string, placement?: RemotePlacement): Promise<void> {
         const path = this.path(cardId);
         // Never lets a preservation failure block the reclaim itself: a card that cannot be
         // reclaimed is worse than an attempt that goes unpreserved.
@@ -250,13 +330,36 @@ export class WorktreeManager {
         // Same "never block the reclaim" contract as the preservation above: a card that cannot be
         // reclaimed is worse than a lease that needs sweeping later (LeaseService.acquire does
         // that sweeping on the next attempt to take it).
-        await this.leases?.releaseAll(this.config.project, cardId).catch(err => {
+        // A placed stage took its slot before its worktree is cut, and cutting one lands here first,
+        // so the slot is kept. A reclaim that ends the stage passes no placement to keep.
+        const releasing = placement
+            ? this.leases?.releaseAll(this.config.project, cardId, [placement.slotKey])
+            : this.leases?.releaseAll(this.config.project, cardId);
+        await releasing?.catch(err => {
             this.logger.warn(`could not release leases for ${cardId} before reclaim: ${(err as Error).message}`);
         });
         await git(this.config.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);
         await rm(path, { recursive: true, force: true });
         // Drops records for directories already gone, which is what a killed run leaves behind.
         await git(this.config.codeRoot, ['worktree', 'prune']).catch(() => undefined);
+
+        if (placement) await this.reclaimRemote(cardId, placement);
+    }
+
+    /**
+     * The same reclaim on a host: save anything uncommitted there to this machine's patch path, then
+     * remove the worktree from the host's clone. After the local half, so when a card has a tree in
+     * both places the patch kept is the host's, which is the newer one.
+     */
+    private async reclaimRemote(cardId: string, placement: RemotePlacement): Promise<void> {
+        const host = placement.host;
+        const path = posix.join(placement.worktreeRoot, cardId);
+        await this.preserveUncommitted(cardId, path, host).catch(err => {
+            this.logger.warn(`could not preserve uncommitted work for ${cardId} on ${placement.hostName} before reclaim: ${(err as Error).message}`);
+        });
+        await gitOn(host, placement.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);
+        await host.removeTree(path);
+        await gitOn(host, placement.codeRoot, ['worktree', 'prune']).catch(() => undefined);
     }
 
     /**
@@ -274,16 +377,16 @@ export class WorktreeManager {
      * Skips silently when there is no directory to look at, or nothing dirty in it — a passing
      * stage's clean tree leaves no patch, so the success path is unaffected.
      */
-    private async preserveUncommitted(cardId: string, path: string): Promise<void> {
-        const exists = await stat(path).then(
+    private async preserveUncommitted(cardId: string, path: string, host: ExecutionHost = localHost): Promise<void> {
+        const exists = await host.stat(path).then(
             () => true,
             () => false,
         );
         if (!exists) return;
-        if (await isClean(path)) return;
+        if (await isClean(path, host)) return;
 
-        await git(path, ['add', '-A']);
-        const { stdout } = await git(path, ['diff', '--cached', '--binary']);
+        await gitOn(host, path, ['add', '-A']);
+        const { stdout } = await gitOn(host, path, ['diff', '--cached', '--binary']);
 
         const patchPath = this.failedAttemptPatchPath(cardId);
         await mkdir(join(this.config.runRoot, 'cards', cardId), { recursive: true });
@@ -342,6 +445,10 @@ export class WorktreeManager {
         const head = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
         if (head === worktree.baseSha) {
             return { ok: true, baseSha: head };
+        }
+        // A host's clone has to have the commit before its worktree can rebase onto it.
+        if (worktree.placement) {
+            await this.pushToHost(worktree.placement, [`+${head}:refs/wilson/head`]);
         }
 
         const behind = (await git(this.config.codeRoot, ['rev-list', '--count', `${worktree.branch}..HEAD`])).stdout.trim();

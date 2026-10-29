@@ -7,6 +7,9 @@
  */
 export type CardEventType =
     | 'stage.dispatched'
+    // Carries `host` and `slot`: the registered host a stage's `placement` put it on, and the
+    // `runner.leases` key holding its slot there. Absent for a stage that ran on this machine.
+    | 'stage.placed'
     | 'stage.passed'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
     // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's

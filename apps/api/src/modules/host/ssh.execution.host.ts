@@ -40,6 +40,13 @@ const SSH_OPTIONS = [
 ];
 
 /**
+ * `GIT_SSH_COMMAND` for git's own push and fetch to a host: the same connection options, so git rides
+ * the multiplexed connection the host's other commands already opened. Only the options that apply
+ * to a transport; git adds the target and the remote command itself.
+ */
+export const gitSshCommand = (sshCommand = 'ssh'): string => [sshCommand, ...SSH_OPTIONS.filter(option => option !== '-T')].map(shellQuote).join(' ');
+
+/**
  * The environment prefixes the Agent SDK sets for the engine, which are forwarded to a remote
  * `claude`. Everything else in the SDK's `env` is this machine's own environment, which describes
  * nothing on the host: its `PATH`, its `HOME`, and `CLAUDE_CONFIG_DIR` when the `claude-config-dir`

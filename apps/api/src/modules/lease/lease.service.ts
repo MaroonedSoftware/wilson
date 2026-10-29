@@ -98,9 +98,15 @@ export class LeaseService {
      * outlive the worktree it was taken for. Scoped by `project` as well as `cardId` because card
      * ids are per-project (card 0149) — without it, releasing card `0001` in one project could
      * release a same-numbered card's leases in another.
+     *
+     * `except` names keys to keep. A stage placed on another host takes its slot there before its
+     * worktree is cut, and cutting one reclaims first; without this, that reclaim would hand the
+     * slot straight back.
      */
-    async releaseAll(project: string, cardId: string): Promise<void> {
-        await this.db.deleteFrom('runner.leases').where('project', '=', project).where('cardId', '=', cardId).execute();
+    async releaseAll(project: string, cardId: string, except: readonly string[] = []): Promise<void> {
+        let query = this.db.deleteFrom('runner.leases').where('project', '=', project).where('cardId', '=', cardId);
+        if (except.length > 0) query = query.where('resourceKey', 'not in', except);
+        await query.execute();
     }
 
     /**

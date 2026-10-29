@@ -1,6 +1,6 @@
 import type { ExecutionHost } from './execution.host.js';
 import type { HostRow } from './host.repository.js';
-import { SshHost } from './ssh.execution.host.js';
+import { gitSshCommand, SshHost } from './ssh.execution.host.js';
 
 /**
  * Turns a registered host into the `ExecutionHost` that reaches it. One place for it, so the probe and
@@ -14,5 +14,10 @@ export class HostConnector {
 
     connect(host: Pick<HostRow, 'sshTarget'>): ExecutionHost {
         return new SshHost(host.sshTarget, this.sshCommand);
+    }
+
+    /** `GIT_SSH_COMMAND` for pushing to and fetching from a host's clone. */
+    gitSsh(): string {
+        return gitSshCommand(this.sshCommand);
     }
 }

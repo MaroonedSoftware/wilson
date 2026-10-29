@@ -366,7 +366,9 @@ export class TestingVerifier implements StageVerifier {
 
         const failures: string[] = [];
         const baselineId = `${cardId}-baseline`;
-        const baseline = await this.worktrees.create(baselineId, `card/${cardId}-baseline`, worktree.baseSha);
+        // On the card's own host when it has one: the test files are copied across from the card's
+        // worktree, and both trees have to be on the same disk for that.
+        const baseline = await this.worktrees.create(baselineId, `card/${cardId}-baseline`, worktree.baseSha, worktree.placement);
 
         try {
             if (stage.setupCommand) {
@@ -434,7 +436,7 @@ export class TestingVerifier implements StageVerifier {
 
             return failures;
         } finally {
-            await this.worktrees.reclaim(baselineId);
+            await this.worktrees.reclaim(baselineId, worktree.placement);
         }
     }
 }
