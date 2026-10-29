@@ -14,18 +14,27 @@ import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
  *
  * Every `DATABASE_*` case here fails on the pre-change tree, where the key is copied straight
  * through.
+ *
+ * Since then `subscriptionEnv` is an allowlist rather than a copy with deletions, so the cases below
+ * that name `OPENAI_API_KEY`, `XAI_API_KEY`, `GITHUB_TOKEN`, `NOTIFY_WEBHOOK_URL` and an invented
+ * future secret each failed on the denylist, which passed them straight through.
  */
 const DATABASE_KEYS = ['DATABASE_URL', 'DATABASE_HOST', 'DATABASE_PORT', 'DATABASE_USER', 'DATABASE_PASSWORD', 'DATABASE_NAME'];
 
-const touched: string[] = [];
+// Each key's value before this test set it, so `PATH`, `HOME` and the rest come back afterwards
+// rather than being deleted from the process the rest of the suite runs in.
+const touched = new Map<string, string | undefined>();
 const set = (key: string, value: string) => {
-    touched.push(key);
+    if (!touched.has(key)) touched.set(key, process.env[key]);
     process.env[key] = value;
 };
 
 afterEach(() => {
-    for (const key of touched) delete process.env[key];
-    touched.length = 0;
+    for (const [key, previous] of touched) {
+        if (previous === undefined) delete process.env[key];
+        else process.env[key] = previous;
+    }
+    touched.clear();
 });
 
 describe('subscriptionEnv', () => {
@@ -53,14 +62,49 @@ describe('subscriptionEnv', () => {
         expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     });
 
+    it.each([
+        ['OPENAI_API_KEY', 'another provider’s key'],
+        ['XAI_API_KEY', 'another provider’s key'],
+        ['GITHUB_TOKEN', 'the token card imports read issues with'],
+        ['NOTIFY_WEBHOOK_URL', 'the webhook notifications post to'],
+    ])('strips %s, %s', key => {
+        set(key, 'set-by-this-test');
+
+        expect(subscriptionEnv()[key], `${key} must not reach the agent`).toBeUndefined();
+    });
+
+    it('strips a secret nobody has named yet, because it is an allowlist and not a deny list', () => {
+        set('SOME_FUTURE_SERVICE_SECRET', 'set-by-this-test');
+
+        expect(subscriptionEnv().SOME_FUTURE_SERVICE_SECRET).toBeUndefined();
+    });
+
     it('passes through what the engine needs, so this is a scrub and not a reset', () => {
-        set('PATH', '/usr/bin');
-        set('HOME', '/home/wilson');
+        const needed = {
+            PATH: '/usr/bin',
+            HOME: '/home/wilson',
+            USER: 'wilson',
+            LOGNAME: 'wilson',
+            TMPDIR: '/tmp/wilson',
+            LC_CTYPE: 'en_US.UTF-8',
+            HTTPS_PROXY: 'http://proxy.test:3128',
+            https_proxy: 'http://proxy.test:3128',
+            NO_PROXY: 'localhost',
+            NODE_EXTRA_CA_CERTS: '/etc/ssl/proxy.pem',
+            CLAUDE_CODE_OAUTH_TOKEN: 'engine-sign-in',
+        };
+        for (const [key, value] of Object.entries(needed)) set(key, value);
 
         const env = subscriptionEnv();
 
-        expect(env.PATH).toBe('/usr/bin');
-        expect(env.HOME).toBe('/home/wilson');
+        for (const [key, value] of Object.entries(needed)) expect(env[key], key).toBe(value);
+    });
+
+    it('keeps an operator’s own CLAUDE_CONFIG_DIR, and a resolved one wins over it', () => {
+        set('CLAUDE_CONFIG_DIR', '/home/wilson/.claude-operator');
+
+        expect(subscriptionEnv().CLAUDE_CONFIG_DIR).toBe('/home/wilson/.claude-operator');
+        expect(subscriptionEnv('/tmp/claude-config').CLAUDE_CONFIG_DIR).toBe('/tmp/claude-config');
     });
 
     it('still sets CLAUDE_CONFIG_DIR when one is resolved, and leaves it absent when not', () => {

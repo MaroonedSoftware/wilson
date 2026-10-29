@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
@@ -24,49 +25,75 @@ import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
 
 /**
- * The environment the engine runs with, minus any provider API key.
+ * What the engine needs from this process's environment beyond `PASSED_THROUGH` (the names a stage
+ * command already gets): the rest of a login (`LOGNAME`, `TERM`, the `XDG_*` directories), an
+ * operator's own `CLAUDE_CONFIG_DIR`, and the proxy and CA variables the engine's HTTPS calls honour
+ * on a network that needs them. Both cases of the proxy names, since tools disagree on which they
+ * read.
+ */
+const ENGINE_PASSED_THROUGH = [
+    ...PASSED_THROUGH,
+    'LOGNAME',
+    'TERM',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_DATA_HOME',
+    'XDG_STATE_HOME',
+    'CLAUDE_CONFIG_DIR',
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'NO_PROXY',
+    'ALL_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'no_proxy',
+    'all_proxy',
+    'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE',
+    'SSL_CERT_DIR',
+];
+
+/**
+ * Whole families passed through by prefix. `LC_` for the locale (`LC_CTYPE` is what macOS sets, not
+ * `LC_ALL`). `CLAUDE_CODE_` for the engine's own settings, including `CLAUDE_CODE_OAUTH_TOKEN` when
+ * an operator signs the engine in that way: it is the engine's credential, which it has to hold.
+ * `TEST_DATABASE_` names the disposable tmpfs database the suite writes to, so `pnpm test` inside a
+ * stage does what it does outside one.
+ */
+const ENGINE_PASSED_THROUGH_PREFIXES = ['LC_', 'CLAUDE_CODE_', 'TEST_DATABASE_'];
+
+/**
+ * The environment the engine runs with: an allowlist of this process's, never a copy of it.
  *
- * AppConfig's dotenv source loads `.env` into `process.env`, so `ANTHROPIC_API_KEY` is visible to
- * the SDK — and the SDK prefers a key over the operator's own credentials when it sees one. That
- * silently routes this adapter back through per-token API billing, which is the exact thing it
- * exists to avoid: the first run of it failed on "Credit balance is too low" while a perfectly good
- * subscription sat unused.
+ * AppConfig's dotenv source loads `.env` into `process.env`, so everything in it is visible here:
+ * `ANTHROPIC_API_KEY`, which the SDK prefers over the operator's own credentials when it sees one
+ * (silently routing this adapter back through per-token API billing, the exact thing it exists to
+ * avoid; the first run of it failed on "Credit balance is too low" while a perfectly good
+ * subscription sat unused), `DATABASE_URL` and its parts (card 0194: a credentialed connection to
+ * the board itself), the other providers' keys, `GITHUB_TOKEN`, `NOTIFY_WEBHOOK_URL`, and
+ * `REMOTE_CLAUDE_CODE_OAUTH_TOKEN`, which reaches a host over stdin and never by way of this. The
+ * engine hands this environment to every Bash command it runs, so whatever is here a stage holds.
+ * It used to be a copy with those deleted one by one; it is an allowlist now, for the reason
+ * `PASSED_THROUGH` is: a secret added to `.env` later should not reach every stage because nobody
+ * remembered to add it to a deny list. The SDK uses this object as the child's whole environment
+ * (it merges nothing from `process.env` once `env` is given), so nothing comes back in behind it.
  *
  * `configDir`, when given, is set as `CLAUDE_CONFIG_DIR` — the directory the engine reads its own
  * Claude Code credentials from (card 0141: an operator's choice, via the `claude-config-dir`
  * setting, rather than whatever the daemon user's own `~/.claude` happens to hold). Left `undefined`
- * — the setting unset — the environment is exactly what it always was, with no `CLAUDE_CONFIG_DIR`
- * key at all: a fresh install behaves identically to before this card. Resolving that setting is
- * async and needs the container, which this function deliberately stays free of (this card's
- * Constraints: "`subscriptionEnv()` stays synchronous and dependency-free") — both callers resolve
- * it themselves and pass the result in, the same way they already resolve everything else this
- * function does not know about on its own.
+ * — the setting unset — no `CLAUDE_CONFIG_DIR` is added beyond one this process already has: a
+ * fresh install behaves identically to before that card. Resolving that setting is async and needs
+ * the container, which this function deliberately stays free of (that card's Constraints:
+ * "`subscriptionEnv()` stays synchronous and dependency-free") — both callers resolve it themselves
+ * and pass the result in, the same way they already resolve everything else this function does not
+ * know about on its own.
  */
 export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
-    // Card 0194. `AppConfigSourceDotenv` mutates `process.env` — the same load that puts
-    // `ANTHROPIC_API_KEY` there, which is why the line above exists — so the daemon holds
-    // `DATABASE_URL` and the copy above hands it to the engine, and to every Bash command the
-    // engine runs. That is a credentialed connection to the database holding `runner.cards`,
-    // `runner.card_versions` and `runner.stage_configs`: the board itself. Nothing exploited it
-    // because no allowlisted command takes a connection string, but that is the command allowlist
-    // holding the line — the guardrail decision 8's own note distinguishes from a boundary — and
-    // decision 6's "unreachable from a worktree by construction" is true of the disk (`.env` is
-    // gitignored, so no worktree has one) and was not true of this environment.
-    //
-    // A prefix rather than the five names: `DATABASE_URL` and the `DATABASE_HOST`/`PORT`/`USER`/
-    // `PASSWORD`/`NAME` set are the same secret in two shapes, and a sixth added to `.env` later
-    // should not need remembering here. `TEST_DATABASE_*` is deliberately untouched: it names the
-    // disposable tmpfs database the suite already writes to, and stripping it would change what
-    // `pnpm test` does inside a stage.
-    for (const key of Object.keys(env)) {
-        if (key.startsWith('DATABASE_')) delete env[key];
+    const env: NodeJS.ProcessEnv = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value === undefined) continue;
+        if (ENGINE_PASSED_THROUGH.includes(key) || ENGINE_PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
-    // The token a remote engine signs in with (`HostConnector`). It reaches a host over stdin, never
-    // by way of this environment, and the engine here has no use for it.
-    delete env.REMOTE_CLAUDE_CODE_OAUTH_TOKEN;
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
 };
@@ -76,7 +103,9 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
  * the SDK passes its flags straight through (it treats anything not ending in `.js` as a native
  * binary), and the host's own spawn. Nothing for a host without `spawnClaude`.
  */
-const remoteEngine = (host: ExecutionHost): { pathToClaudeCodeExecutable?: string; spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess } => {
+const remoteEngine = (
+    host: ExecutionHost,
+): { pathToClaudeCodeExecutable?: string; spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess } => {
     const spawnClaude = host.spawnClaude?.bind(host);
     if (!spawnClaude) return {};
     return { pathToClaudeCodeExecutable: 'claude', spawnClaudeCodeProcess: options => spawnClaude(options) as SpawnedProcess };
@@ -239,7 +268,10 @@ export class CliStageAgent extends StageAgent {
                     REPORT_TOOL,
                     `Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes. Write the finished result to ${REPORT_RESULT_PATH} — that file, and only that file, is how the result is delivered — then call this with its path, or with no path since that is the default.`,
                     z.object({
-                        path: z.string().optional().describe(`Worktree-relative path of the finished result file. Defaults to ${REPORT_RESULT_PATH}.`),
+                        path: z
+                            .string()
+                            .optional()
+                            .describe(`Worktree-relative path of the finished result file. Defaults to ${REPORT_RESULT_PATH}.`),
                     }).shape,
                     async ({ path }: { path?: string }) => {
                         const target = path ?? REPORT_RESULT_PATH;
@@ -575,8 +607,7 @@ export class CliStageAgent extends StageAgent {
         // result, not the stage failing to finish — `stage.dispatcher.ts` phrases the two failures
         // differently and `kickback.ts` charges them differently, so the distinction has to survive
         // past this function rather than collapse back into a plain missing result.
-        const droppedField = (): { resultDropped?: boolean } =>
-            reported === undefined && reportToolSeen ? { resultDropped: true } : {};
+        const droppedField = (): { resultDropped?: boolean } => (reported === undefined && reportToolSeen ? { resultDropped: true } : {});
 
         try {
             const messages = stream[Symbol.asyncIterator]();
@@ -622,9 +653,7 @@ export class CliStageAgent extends StageAgent {
                     // Sticky once seen: a later message in the same run carrying only a text block
                     // must not erase that the report tool was already called earlier in this run.
                     if (!reportToolSeen) {
-                        reportToolSeen = message.message.content.some(
-                            part => part.type === 'tool_use' && part.name === qualifiedReportTool(),
-                        );
+                        reportToolSeen = message.message.content.some(part => part.type === 'tool_use' && part.name === qualifiedReportTool());
                     }
                     if (!anyToolSeen) {
                         anyToolSeen = message.message.content.some(part => part.type === 'tool_use');
@@ -637,9 +666,7 @@ export class CliStageAgent extends StageAgent {
                         if (!WRITE_TOOLS.includes(part.name) && !EXEC_TOOLS.includes(part.name)) continue;
                         const input = (part.input ?? {}) as Record<string, unknown>;
                         const detail =
-                            part.name === 'Bash'
-                                ? { command: String(input.command ?? '') }
-                                : { path: String(input.file_path ?? input.path ?? '') };
+                            part.name === 'Bash' ? { command: String(input.command ?? '') } : { path: String(input.file_path ?? input.path ?? '') };
                         guardedToolCalls.set(part.id, { tool: part.name, detail });
                     }
 
