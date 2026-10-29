@@ -67,6 +67,23 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
+ * What is shown of a worker host's token: its last four characters and when it was minted, never the
+ * token itself.
+ * generated from [WorkerTokenSummary](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface WorkerTokenSummary {
+    hint: string;
+    issuedAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a WorkerTokenSummary into its runtime type. Mutates and returns `raw`. */
+export function reviveWorkerTokenSummary(raw: WorkerTokenSummary): WorkerTokenSummary {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['issuedAt'] = __dt(__o0['issuedAt'], 'WorkerTokenSummary.issuedAt');
+    return raw;
+}
+
+/**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
  * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
@@ -139,6 +156,8 @@ export interface Host {
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];
     probe?: HostProbe;
+    /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
+    workerToken?: WorkerTokenSummary;
 }
 
 /** Rehydrates every wire-encoded scalar in a Host into its runtime type. Mutates and returns `raw`. */
@@ -153,5 +172,24 @@ export function reviveHost(raw: Host): Host {
     if (__o0['probe'] != null) {
         reviveHostProbe(__o0['probe'] as never);
     }
+    if (__o0['workerToken'] != null) {
+        reviveWorkerTokenSummary(__o0['workerToken'] as never);
+    }
+    return raw;
+}
+
+/**
+ * A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept.
+ * generated from [IssuedWorkerToken](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface IssuedWorkerToken {
+    token: string;
+    host: Host;
+}
+
+/** Rehydrates every wire-encoded scalar in a IssuedWorkerToken into its runtime type. Mutates and returns `raw`. */
+export function reviveIssuedWorkerToken(raw: IssuedWorkerToken): IssuedWorkerToken {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    reviveHost(__o0['host'] as never);
     return raw;
 }

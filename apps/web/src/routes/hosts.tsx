@@ -87,6 +87,7 @@ function HostPanel({ host, projects, now }: { host: Host; projects: string[]; no
                                     ssh <Code>{host.sshTarget}</Code>
                                 </>
                             )}
+                            {host.kind === 'worker' && (host.workerToken ? <> · token …{host.workerToken.hint}</> : <> · no token yet</>)}
                             {host.probe?.engineVersion && <> · claude {host.probe.engineVersion}</>}
                             {host.probe?.expiresAt && <> · expires {relativeTime(host.probe.expiresAt, now)}</>}
                             {host.lifetimeMinutes && !host.probe?.expiresAt && <> · lives {host.lifetimeMinutes}m after boot</>}

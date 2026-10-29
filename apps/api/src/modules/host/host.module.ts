@@ -7,6 +7,7 @@ import { HostPlacer } from './host.placer.js';
 import { HostProber } from './host.prober.js';
 import { HostRepository } from './host.repository.js';
 import { HostsService } from './hosts.service.js';
+import { WorkerTokensService } from './worker.tokens.service.js';
 
 /**
  * The host registry: {@link HostRepository}, the {@link HostsService} `/api/hosts` binds to, and the
@@ -24,5 +25,6 @@ export const HostModule: ServerKitModule = {
         registry.register(HostConnector).useInstance(new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN')));
         registry.register(HostProber).useClass(HostProber).asTransient();
         registry.register(HostPlacer).useClass(HostPlacer).asTransient();
+        registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();
     },
 };

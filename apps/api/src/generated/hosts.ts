@@ -48,6 +48,17 @@ export const HostSlotUse = z.strictObject({
 export type HostSlotUse = z.infer<typeof HostSlotUse>;
 
 /**
+ * What is shown of a worker host's token: its last four characters and when it was minted, never the
+ * token itself.
+ * generated from [WorkerTokenSummary](../../data/contracts/hosts.ck)
+ */
+export const WorkerTokenSummary = z.strictObject({
+    hint: z.string(),
+    issuedAt: _ZodDatetime,
+});
+export type WorkerTokenSummary = z.infer<typeof WorkerTokenSummary>;
+
+/**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
  * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../data/contracts/hosts.ck)
@@ -122,5 +133,16 @@ export const Host = z.strictObject({
     projects: z.array(HostProject),
     running: z.array(HostSlotUse).describe('The slots in use right now, slot order. `slots` minus this many are free.'),
     probe: HostProbe.optional(),
+    workerToken: WorkerTokenSummary.optional().describe("A worker host's current token, absent until one is minted. Never present on an `ssh` host."),
 });
 export type Host = z.infer<typeof Host>;
+
+/**
+ * A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept.
+ * generated from [IssuedWorkerToken](../../data/contracts/hosts.ck)
+ */
+export const IssuedWorkerToken = z.strictObject({
+    token: z.string(),
+    host: Host,
+});
+export type IssuedWorkerToken = z.infer<typeof IssuedWorkerToken>;

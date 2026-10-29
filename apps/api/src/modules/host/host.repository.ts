@@ -43,6 +43,12 @@ export interface HostProbeRow {
  */
 export type HostKind = 'ssh' | 'worker';
 
+/** What is shown of a worker host's token: never the token, only its last four characters and when it was minted. */
+export interface WorkerTokenSummaryRow {
+    hint: string;
+    issuedAt: DateTime;
+}
+
 /** One `runner.hosts` row with its `runner.host_projects` rows. */
 export interface HostRow {
     name: string;
@@ -61,6 +67,8 @@ export interface HostRow {
     running: HostSlotUseRow[];
     /** Absent until the host has been probed once. */
     probe?: HostProbeRow;
+    /** A worker host's current token, absent until one is minted. Never set on an `ssh` host. */
+    workerToken?: WorkerTokenSummaryRow;
 }
 
 /**
@@ -172,6 +180,32 @@ export class HostRepository {
         return result.numDeletedRows > 0n;
     }
 
+    /** Keep `hash` as host `name`'s worker token, replacing any it had. Returns whether a row matched. */
+    async setWorkerToken(name: string, token: { hash: string; hint: string; issuedAt: DateTime }): Promise<boolean> {
+        const result = await this.db
+            .updateTable('runner.hosts')
+            .set({ workerTokenHash: token.hash, workerTokenHint: token.hint, workerTokenIssuedAt: token.issuedAt })
+            .where('name', '=', name)
+            .executeTakeFirst();
+        return result.numUpdatedRows > 0n;
+    }
+
+    /** Forget host `name`'s worker token, so nothing can connect as it. Returns whether a row matched. */
+    async clearWorkerToken(name: string): Promise<boolean> {
+        const result = await this.db
+            .updateTable('runner.hosts')
+            .set({ workerTokenHash: null, workerTokenHint: null, workerTokenIssuedAt: null })
+            .where('name', '=', name)
+            .executeTakeFirst();
+        return result.numUpdatedRows > 0n;
+    }
+
+    /** The host whose worker token hashes to `hash`, or undefined when none does. */
+    async findByWorkerTokenHash(hash: string): Promise<HostRow | undefined> {
+        const host = await this.db.selectFrom('runner.hosts').select('name').where('workerTokenHash', '=', hash).executeTakeFirst();
+        return host ? this.find(host.name) : undefined;
+    }
+
     /** Record what a probe found, replacing the last one. Every probe column is written, set or not. */
     async recordProbe(name: string, probe: HostProbeRow): Promise<void> {
         await this.db
@@ -206,6 +240,8 @@ type HostSelection = {
     expiresAt?: DateTime | null;
     lifetimeMinutes?: number | null;
     commandEnv: string[];
+    workerTokenHint?: string | null;
+    workerTokenIssuedAt?: DateTime | null;
 };
 
 const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease[]): HostRow => ({
@@ -238,4 +274,5 @@ const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease
               },
           }
         : {}),
+    ...(host.workerTokenHint && host.workerTokenIssuedAt && { workerToken: { hint: host.workerTokenHint, issuedAt: host.workerTokenIssuedAt } }),
 });

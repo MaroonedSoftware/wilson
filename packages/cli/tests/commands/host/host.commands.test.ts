@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { default: setCommand } = await import('#src/commands/host/set.command.js');
 const { default: listCommand } = await import('#src/commands/host/list.command.js');
 const { default: addCommand } = await import('#src/commands/host/add.command.js');
+const { default: tokenCommand } = await import('#src/commands/host/token.command.js');
 
 type Handler<Opts> = (opts: Opts, ctx: unknown, args: unknown[]) => Promise<number | void>;
 
@@ -147,6 +148,37 @@ describe('wilson host list', () => {
 
         await (listCommand.run as unknown as Handler<object>)({}, ctx, []);
 
-        expect(String(logger.info.mock.calls[0]?.[0])).toBe('unraid-vm (worker)  enabled  0/1 slot in use  never probed');
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe('unraid-vm (worker)  enabled  0/1 slot in use  no token yet  never probed');
+    });
+});
+
+describe('wilson host token', () => {
+    it('mints a token and prints it once', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse(
+                {
+                    token: 'wilson_worker_abcd',
+                    host: { name: 'unraid-vm', kind: 'worker', slots: 1, enabled: true, draining: false, commandEnv: [], projects: [], running: [] },
+                },
+                201,
+            ),
+        );
+        const { ctx, logger } = buildCtx();
+
+        await (tokenCommand.run as unknown as Handler<object>)({}, ctx, ['unraid-vm']);
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(String(url)).toContain('/api/hosts/unraid-vm/worker-token');
+        expect(init.method).toBe('POST');
+        expect(logger.info).toHaveBeenCalledWith('wilson_worker_abcd');
+    });
+
+    it('revokes the token with --revoke', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const { ctx } = buildCtx();
+
+        await (tokenCommand.run as unknown as Handler<object>)({ revoke: true }, ctx, ['unraid-vm']);
+
+        expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('DELETE');
     });
 });

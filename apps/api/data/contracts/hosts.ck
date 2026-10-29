@@ -2,6 +2,7 @@ options {
     services: {
         HostsService: "#modules/host/hosts.service.js"
         HostProber: "#modules/host/host.prober.js"
+        WorkerTokensService: "#modules/host/worker.tokens.service.js"
     }
     security: {
         policy: wilson.manage
@@ -52,6 +53,19 @@ contract HostSlotUse: {
     since: datetime
 }
 
+# What is shown of a worker host's token: its last four characters and when it was minted, never the
+# token itself.
+contract WorkerTokenSummary: {
+    hint: string
+    issuedAt: datetime
+}
+
+# A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept.
+contract IssuedWorkerToken: {
+    token: string
+    host: Host
+}
+
 # One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
 # takes no new stage but lets the ones already there finish.
 contract Host: {
@@ -74,6 +88,8 @@ contract Host: {
     # The slots in use right now, slot order. `slots` minus this many are free.
     running: array(HostSlotUse)
     probe?: HostProbe
+    # A worker host's current token, absent until one is minted. Never present on an `ssh` host.
+    workerToken?: WorkerTokenSummary
 }
 
 # `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
@@ -231,6 +247,41 @@ operation /api/hosts/{name}/projects/{project}: {
         service: HostsService.removeProject
         response: {
             204:
+            404:
+        }
+    }
+}
+
+# The one credential a worker host's worker program connects with. Only the worker endpoint accepts
+# it, and only as this host, so it grants less than the `manage` key or session minting it already
+# holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
+# `post` mints one, replacing any the host had, so rotating is posting again.
+operation /api/hosts/{name}/worker-token: {
+    params: {
+        name: string
+    }
+    post: {
+        name: Mint worker token
+        mcp: exclude # Credentials are never handed to an agent
+        sdk: mintWorkerToken
+        service: WorkerTokensService.issue
+        response: {
+            201: {
+                application/json: IssuedWorkerToken
+            }
+            # The host is reached over SSH, and has nothing to connect with a token.
+            400:
+            404:
+        }
+    }
+    delete: {
+        name: Revoke worker token
+        mcp: exclude # Credentials are never handed to an agent
+        sdk: revokeWorkerToken
+        service: WorkerTokensService.revoke
+        response: {
+            204:
+            400:
             404:
         }
     }

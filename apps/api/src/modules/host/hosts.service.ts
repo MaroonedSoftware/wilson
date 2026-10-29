@@ -141,6 +141,7 @@ export const toHost = (row: HostRow): Host => ({
     projects: row.projects,
     running: row.running,
     ...(row.probe && { probe: row.probe }),
+    ...(row.workerToken && { workerToken: row.workerToken }),
 });
 
 const notFound = (name: string) => httpError(404).withDetails({ reason: `host "${name}" is not registered` });

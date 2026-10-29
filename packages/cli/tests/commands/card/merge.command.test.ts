@@ -62,9 +62,7 @@ describe('wilson card merge', () => {
         const result = await run(ctx, '0101');
 
         expect(result).toBe(1);
-        expect(logger.info).toHaveBeenCalledWith(
-            '0101: not merged — re-review: main moved under src/index.ts since review (round 1 of 2)',
-        );
+        expect(logger.info).toHaveBeenCalledWith('0101: not merged — re-review: main moved under src/index.ts since review (round 1 of 2)');
         expect(logger.error).not.toHaveBeenCalled();
     });
 

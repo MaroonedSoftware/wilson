@@ -127,13 +127,7 @@ describe('testDbMigrated', () => {
 
     it('fails and names up to three missing versions when some migrations are missing (AC3)', async () => {
         connectMock.mockResolvedValueOnce(undefined);
-        readdirMock.mockResolvedValueOnce([
-            '1_a.sql',
-            '2_b.sql',
-            '3_c.sql',
-            '4_d.sql',
-            '5_e.sql',
-        ]);
+        readdirMock.mockResolvedValueOnce(['1_a.sql', '2_b.sql', '3_c.sql', '4_d.sql', '5_e.sql']);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }, { version: '2' }, { version: '3' }] });
         const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
@@ -148,14 +142,7 @@ describe('testDbMigrated', () => {
 
     it('caps the named missing versions at three and counts the rest (AC3)', async () => {
         connectMock.mockResolvedValueOnce(undefined);
-        readdirMock.mockResolvedValueOnce([
-            '1_a.sql',
-            '2_b.sql',
-            '3_c.sql',
-            '4_d.sql',
-            '5_e.sql',
-            '6_f.sql',
-        ]);
+        readdirMock.mockResolvedValueOnce(['1_a.sql', '2_b.sql', '3_c.sql', '4_d.sql', '5_e.sql', '6_f.sql']);
         queryMock.mockResolvedValueOnce({ rows: [{ version: '1' }] });
         const ctx = { env: {}, paths: { repoRoot: '/repo' } } as never;
 
@@ -210,7 +197,7 @@ describe('testDbMigrated', () => {
 
     it('fails naming the resolved path, instead of throwing, when the migrations directory is missing (card 0259 AC2)', async () => {
         connectMock.mockResolvedValueOnce(undefined);
-        readdirMock.mockRejectedValueOnce(new Error('ENOENT: no such file or directory, scandir \'/some/repo/root/apps/api/data/migrations\''));
+        readdirMock.mockRejectedValueOnce(new Error("ENOENT: no such file or directory, scandir '/some/repo/root/apps/api/data/migrations'"));
         const ctx = { env: {}, paths: { repoRoot: '/some/repo/root' } } as never;
 
         const result = await testDbMigrated.run(ctx);

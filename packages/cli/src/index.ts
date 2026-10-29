@@ -41,6 +41,7 @@ import hostProbeCommand from './commands/host/probe.command.js';
 import hostRemoveCommand from './commands/host/remove.command.js';
 import hostServeCommand from './commands/host/serve.command.js';
 import hostSetCommand from './commands/host/set.command.js';
+import hostTokenCommand from './commands/host/token.command.js';
 import hostUnserveCommand from './commands/host/unserve.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
 import stagesShowCommand from './commands/stages/show.command.js';
@@ -106,6 +107,7 @@ const app = await createCliApp({
         reg(['host', 'remove'], hostRemoveCommand),
         reg(['host', 'serve'], hostServeCommand),
         reg(['host', 'unserve'], hostUnserveCommand),
+        reg(['host', 'token'], hostTokenCommand),
         reg(['host', 'probe'], hostProbeCommand),
         reg(['stages', 'show'], stagesShowCommand),
         reg(['stages', 'edit'], stagesEditCommand),
