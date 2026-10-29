@@ -644,7 +644,9 @@ multi-tenant problem wilson does not have, and are deliberately left out.
 - **The operator account.** Exactly one human account, created through first-run onboarding:
   `GET/POST /onboarding` is unauthenticated, takes a transaction-scoped advisory lock, re-checks
   that no account exists, and refuses with 409 once one does. There is no sign-up and no
-  invitation flow.
+  invitation flow. The web app shows onboarding when no account exists, and so does `wilson board
+  init`: on a fresh install its call answers 401, so it creates the account from the terminal (or
+  signs in to the one there is), stores this machine's key, and tries again.
 - **API keys.** `wl_`-prefixed and stored only as a SHA-256 hash with a short display hint, with an
   optional expiry and a `revoked_at`. Scope is `view` or `manage` (manage implies view), and a key
   can never exceed its owner's authority. The CLI uses one, and so does any script.
@@ -764,8 +766,8 @@ card.
 
 **Upgrading a running deployment past step 6.** Every caller needs a credential from then on, so,
 in order: run `pnpm migrate:up` (the accounts, keys and cache-set tables); restart the API; open the
-web app, which shows onboarding the first time, and create the account; then run `wilson auth login`
-on each machine that uses the CLI. Until the last step, CLI commands answer "not signed in" rather
+web app, which shows onboarding the first time, and create the account (or let `wilson board init`
+create it from the terminal); then run `wilson auth login` on each other machine that uses the CLI. Until the last step, CLI commands answer "not signed in" rather
 than reaching the board. `GET /api/health` stays open, so `wilson doctor`'s liveness check works
 throughout.
 
