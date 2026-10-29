@@ -45,7 +45,7 @@ const command: CommandModule = {
 
             let chosen: string[];
             try {
-                chosen = unwrap(
+                chosen = unwrap<string[]>(
                     await prompts.multiselect<string>({
                         message: `${piece.title}: which other pieces does it actually depend on?`,
                         options: others.map(title => ({ value: title, label: title })),
@@ -74,7 +74,7 @@ const command: CommandModule = {
 
         let approved: boolean;
         try {
-            approved = unwrap(await prompts.confirm({ message: `Create ${division.pieces.length} cards in planning from this division?` }));
+            approved = unwrap<boolean>(await prompts.confirm({ message: `Create ${division.pieces.length} cards in planning from this division?` }));
         } catch (err) {
             if (!(err instanceof PromptCancelledError)) throw err;
             approved = false;

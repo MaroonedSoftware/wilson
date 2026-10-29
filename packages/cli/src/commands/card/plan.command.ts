@@ -132,7 +132,7 @@ const command: CommandModule = {
 
             let approved: boolean;
             try {
-                approved = unwrap(await prompts.confirm({ message: `Write this as a new version of ${cardId}?` }));
+                approved = unwrap<boolean>(await prompts.confirm({ message: `Write this as a new version of ${cardId}?` }));
             } catch (err) {
                 if (!(err instanceof PromptCancelledError)) throw err;
                 approved = false;
