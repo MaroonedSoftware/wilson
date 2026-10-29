@@ -1,5 +1,6 @@
 import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
+import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
@@ -7,6 +8,7 @@ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
     CardStageConcurrency,
+    ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
     NotifyWebhookSetting,
@@ -188,6 +190,34 @@ SettingsRouter.put('/api/settings/dry-run', bodyParserMiddleware(['json']), asyn
 
     const service = ctx.container.get(DryRunSettingService);
     const result: DryRunSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/chat-engine`
+ * anonymous access, no security required
+ */
+SettingsRouter.get('/api/settings/chat-engine', async ctx => {
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/chat-engine`
+ * anonymous access, no security required
+ */
+SettingsRouter.put('/api/settings/chat-engine', bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, ChatEngineSetting);
+
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

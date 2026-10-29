@@ -1,7 +1,6 @@
 import type { Container } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
-import type { Provider } from '#modules/agent/model.registry.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
@@ -16,18 +15,12 @@ import type {
 } from '#src/generated/chat.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 import type { ChatEngine } from './chat.engine.js';
+import type { ChatEngineChoice } from './chat.engine.setting.js';
 import { ChatMessageRepository, type ChatMessage } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
 import { chatTools, type ChatTurnContext } from './chat.tools.js';
-
-/** Which engine a new thread runs on, and the model every turn uses. */
-export interface ChatEngineChoice {
-    engine: ChatEngineName;
-    provider: Provider;
-    model: string;
-}
 
 /** A thread's title until its first message names it. */
 export const NEW_THREAD_TITLE = 'New chat';

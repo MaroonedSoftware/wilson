@@ -3,7 +3,7 @@ import type { Kysely } from 'kysely';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
-import { DEFAULT_CHAT_ENGINE } from '#modules/chat/chat.module.js';
+import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatPendingActionRepository } from '#modules/chat/chat.pending.action.repository.js';
 import { ChatService, NEW_THREAD_TITLE, titleFrom } from '#modules/chat/chat.service.js';
@@ -50,7 +50,7 @@ describe('ChatService', () => {
             catalog,
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
-            async () => DEFAULT_CHAT_ENGINE,
+            async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
         );
         return { service, model, operationCalls };
     };

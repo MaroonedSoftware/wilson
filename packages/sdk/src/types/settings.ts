@@ -133,3 +133,15 @@ export interface DryRunSetting {
 export interface SetDryRunSettingRequest {
     enabled: boolean;
 }
+
+/**
+ * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
+ * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
+ * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
+ * generated from [ChatEngineSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface ChatEngineSetting {
+    engine: 'api' | 'cli';
+    provider: 'anthropic' | 'openai' | 'xai';
+    model: string;
+}

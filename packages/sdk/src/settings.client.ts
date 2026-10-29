@@ -1,5 +1,6 @@
 import type {
     CardStageConcurrency,
+    ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
     NotifyWebhookSetting,
@@ -115,5 +116,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<DryRunSetting>(result);
+    }
+
+    /** @name Get chat engine setting */
+    async getChatEngineSetting(): Promise<ChatEngineSetting> {
+        const result = await this.fetch(`/api/settings/chat-engine`, { method: 'GET' });
+        return await parseJson<ChatEngineSetting>(result);
+    }
+
+    /** @name Set chat engine setting */
+    async setChatEngineSetting(body: ChatEngineSetting): Promise<ChatEngineSetting> {
+        const result = await this.fetch(`/api/settings/chat-engine`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<ChatEngineSetting>(result);
     }
 }

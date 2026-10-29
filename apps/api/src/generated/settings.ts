@@ -147,3 +147,16 @@ export const SetDryRunSettingRequest = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
 });
 export type SetDryRunSettingRequest = z.infer<typeof SetDryRunSettingRequest>;
+
+/**
+ * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
+ * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
+ * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
+ * generated from [ChatEngineSetting](../../data/contracts/settings.ck)
+ */
+export const ChatEngineSetting = z.strictObject({
+    engine: z.enum(['api', 'cli']),
+    provider: z.enum(['anthropic', 'openai', 'xai']),
+    model: z.string(),
+});
+export type ChatEngineSetting = z.infer<typeof ChatEngineSetting>;
