@@ -8,11 +8,12 @@ import { HostProber } from './host.prober.js';
 import { HostRepository } from './host.repository.js';
 import { HostsService } from './hosts.service.js';
 import { WorkerTokensService } from './worker.tokens.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 
 /**
  * The host registry: {@link HostRepository}, the {@link HostsService} `/api/hosts` binds to, and the
  * {@link HostProber} behind its probe, and the {@link HostPlacer} `StageDispatcher` places stages with. Plain `useClass` registrations, as `LeaseModule`'s are, apart
- * from {@link HostConnector}, whose one parameter is a binary path the container cannot supply.
+ * from {@link HostConnector}, whose parameters are a binary path and a token the container cannot supply.
  */
 export const HostModule: ServerKitModule = {
     name: 'Host',
@@ -22,7 +23,12 @@ export const HostModule: ServerKitModule = {
         // A token of its own, not CLAUDE_CODE_OAUTH_TOKEN: that name in this process's environment
         // would sign the engine on this machine in with it too, in place of the operator's own
         // `claude-config-dir` choice.
-        registry.register(HostConnector).useInstance(new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN')));
+        // A factory for the one `WorkerConnections` instance `WorkerModule` registers, so the connector
+        // reaches exactly the workers the endpoint accepted.
+        registry
+            .register(HostConnector)
+            .useFactory(c => new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections)))
+            .asSingleton();
         registry.register(HostProber).useClass(HostProber).asTransient();
         registry.register(HostPlacer).useClass(HostPlacer).asTransient();
         registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();

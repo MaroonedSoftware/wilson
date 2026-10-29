@@ -168,6 +168,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      '@wilson/worker':
+        specifier: workspace:*
+        version: link:../worker
       dbmate:
         specifier: ^2.33.0
         version: 2.35.0
@@ -262,6 +265,19 @@ importers:
       vite:
         specifier: ^8.1.3
         version: 8.2.2(@types/node@26.2.0)(jiti@2.7.0)(sugarss@5.0.1(postcss@8.5.26))(yaml@2.9.1)
+
+  apps/worker:
+    dependencies:
+      '@wilson/worker-protocol':
+        specifier: workspace:*
+        version: link:../../packages/worker-protocol
+    devDependencies:
+      '@repo/config-eslint':
+        specifier: workspace:*
+        version: link:../../packages/config-eslint
+      '@repo/config-typescript':
+        specifier: workspace:*
+        version: link:../../packages/config-typescript
 
   packages/cli:
     dependencies:

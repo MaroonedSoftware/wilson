@@ -1,0 +1,22 @@
+{
+    "name": "@wilson/worker",
+    "version": "0.0.1",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "tsc --noEmit",
+        "lint": "eslint --fix",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@wilson/worker-protocol": "workspace:*"
+    },
+    "devDependencies": {
+        "@repo/config-eslint": "workspace:*",
+        "@repo/config-typescript": "workspace:*"
+    }
+}

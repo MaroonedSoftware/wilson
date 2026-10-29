@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
+import { WorkerExecutor, type WorkerExecutorOptions } from '@wilson/worker';
 import { FromWorker, ToWorker, WORKER_CONNECT_PATH, WORKER_PROTOCOL_VERSION, parseFrame } from '@wilson/worker-protocol';
 import type { HostRow } from '#modules/host/host.repository.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
@@ -101,4 +102,18 @@ export const eventually = async (check: () => boolean, timeoutMs = 2_000): Promi
         if (Date.now() > deadline) throw new Error('condition not met in time');
         await new Promise(resolve => setTimeout(resolve, 10));
     }
+};
+
+/**
+ * A worker that really works: the worker program's own `WorkerExecutor` behind a real connection, so
+ * `WorkerExecutionHost` is tested against what a worker actually does, on this machine.
+ */
+export const connectLoopbackWorker = async (url: string, token: string, options: WorkerExecutorOptions = {}): Promise<FakeWorker> => {
+    let executor: WorkerExecutor | undefined;
+    const worker = await FakeWorker.connect(url, token, (message, w) => {
+        executor ??= new WorkerExecutor(reply => w.send(reply), options);
+        executor.handle(message);
+    });
+    worker.socket.on('close', () => executor?.killAll());
+    return worker;
 };

@@ -16,7 +16,7 @@ import { HostProber } from '#modules/host/host.prober.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
-import { eventually, FakeWorker, startWorkerServer } from '#tests/support/fake.worker.js';
+import { connectLoopbackWorker, eventually, startWorkerServer } from '#tests/support/fake.worker.js';
 
 const exec = promisify(execFile);
 
@@ -142,19 +142,28 @@ describe('HostProber', () => {
         expect(host.probe).toMatchObject({ ok: false, detail: 'no worker is connected for this host' });
     });
 
-    it('records a connected worker as answering, but not yet able to take stages', async () => {
+    it('runs every check on a connected worker, and still fails it until commits can move to it', async () => {
         const name = uniqueProject();
         await service.create({ name, kind: 'worker' });
+        const project = uniqueProject();
+        await new ProjectRepository(db).create({ name: project, codeRoot: '/tmp/code', worktreeRoot: '/tmp/wt', runRoot: '/tmp/run' });
+        await service.putProject(name, project, {
+            codeRoot: join(base, 'clone'),
+            worktreeRoot: join(base, name, 'wt'),
+            runRoot: join(base, name, 'run'),
+        });
         const server = await startWorkerServer({ token: (await hosts.find(name))! });
         try {
-            await FakeWorker.connect(server.url, 'token', (message, worker) => {
-                if (message.type === 'call' && message.call.op === 'ping') worker.send({ type: 'result', id: message.id, ok: true, value: 'pong' });
-            });
+            await connectLoopbackWorker(server.url, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
             await eventually(() => server.connections.get(name) !== undefined);
 
-            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH), server.connections).probe(name);
+            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections)).probe(name);
 
-            expect(host.probe).toMatchObject({ ok: false, detail: 'worker 0.0.1-test on linux is connected, but stages cannot run on a worker yet' });
+            expect(host.probe?.ok).toBe(false);
+            expect(host.probe?.engineVersion).toBe('9.9.9');
+            expect(host.probe?.detail).toContain('moving commits to and from a worker is not supported yet');
+            expect(host.probe?.detail).not.toContain('not a git repository');
+            expect(host.probe?.detail).not.toContain('not signed in');
         } finally {
             await server.close();
         }

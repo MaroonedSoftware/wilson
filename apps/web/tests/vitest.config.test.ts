@@ -36,6 +36,6 @@ describe('vitest.config.mts (root)', () => {
     });
 
     it('keeps every package with tests in one root run so the testing verifier reads one report', () => {
-        expect(rootConfig.test?.projects).toEqual(['apps/api', 'apps/web', 'packages/cli', 'packages/worker-protocol']);
+        expect(rootConfig.test?.projects).toEqual(['apps/api', 'apps/web', 'apps/worker', 'packages/cli', 'packages/worker-protocol']);
     });
 });

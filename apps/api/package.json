@@ -67,6 +67,7 @@
         "@types/pg": "^8.20.0",
         "@types/picomatch": "^4.0.2",
         "@types/ws": "^8.18.2",
+        "@wilson/worker": "workspace:*",
         "dbmate": "^2.33.0",
         "kysely-codegen": "^0.20.0"
     }
