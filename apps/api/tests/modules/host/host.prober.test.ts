@@ -43,7 +43,12 @@ beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'host-prober-'));
     const bin = join(base, 'bin');
     await mkdir(bin);
-    await writeFile(join(bin, 'claude'), '#!/bin/sh\necho "9.9.9 (Claude Code)"\n', 'utf8');
+    // Signed in exactly when a token reaches it, the way `claude auth status` answers.
+    await writeFile(
+        join(bin, 'claude'),
+        '#!/bin/sh\nif [ "$1" = auth ]; then\n  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ]; then echo \'{"loggedIn": true, "authMethod": "oauth_token"}\'; else echo \'{"loggedIn": false, "authMethod": "none"}\'; fi\n  exit 0\nfi\necho "9.9.9 (Claude Code)"\n',
+        'utf8',
+    );
     await chmod(join(bin, 'claude'), 0o755);
     // BSD's format, which a machine without /proc/stat falls back to. A stub rather than the real one:
     // its answer is fixed, so the expiry can be checked exactly, and a sandboxed run may not be
@@ -72,7 +77,7 @@ const registerHost = async (paths: { codeRoot: string }, lifetimeMinutes?: numbe
 };
 
 describe('HostProber', () => {
-    const prober = () => new HostProber(hosts, new HostConnector(FAKE_SSH));
+    const prober = () => new HostProber(hosts, new HostConnector(FAKE_SSH, 'engine-token'));
 
     it('records a healthy host: its claude version, a note that it is unprobed, and when it expires', async () => {
         const name = await registerHost({ codeRoot: join(base, 'clone') }, 720);
@@ -89,6 +94,15 @@ describe('HostProber', () => {
         } else {
             expect(host.probe?.expiresAt?.toMillis()).toBe(DateTime.fromSeconds(BOOT_SECONDS).plus({ minutes: 720 }).toMillis());
         }
+    });
+
+    it('reports a host whose claude would not be signed in for an engine Wilson starts', async () => {
+        const name = await registerHost({ codeRoot: join(base, 'clone') });
+
+        const host = await new HostProber(hosts, new HostConnector(FAKE_SSH)).probe(name);
+
+        expect(host.probe?.ok).toBe(false);
+        expect(host.probe?.detail).toContain('claude is not signed in for an engine started there');
     });
 
     it('reports a clone that is not a git repository, and still runs every other check', async () => {

@@ -37,6 +37,12 @@ describe('subscriptionEnv', () => {
         for (const key of DATABASE_KEYS) expect(env[key], `${key} must not reach the agent`).toBeUndefined();
     });
 
+    it('strips the token a remote engine signs in with, which only ever reaches a host over stdin', () => {
+        set('REMOTE_CLAUDE_CODE_OAUTH_TOKEN', 'remote-token');
+
+        expect(subscriptionEnv().REMOTE_CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    });
+
     it('still strips the provider keys it always did', () => {
         set('ANTHROPIC_API_KEY', 'sk-test');
         set('ANTHROPIC_AUTH_TOKEN', 'token-test');

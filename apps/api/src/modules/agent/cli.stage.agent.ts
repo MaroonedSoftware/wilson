@@ -64,6 +64,9 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
     for (const key of Object.keys(env)) {
         if (key.startsWith('DATABASE_')) delete env[key];
     }
+    // The token a remote engine signs in with (`HostConnector`). It reaches a host over stdin, never
+    // by way of this environment, and the engine here has no use for it.
+    delete env.REMOTE_CLAUDE_CODE_OAUTH_TOKEN;
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
 };

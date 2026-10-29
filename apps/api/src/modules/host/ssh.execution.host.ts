@@ -54,6 +54,9 @@ export const gitSshCommand = (sshCommand = 'ssh'): string => [sshCommand, ...SSH
  */
 const CLAUDE_ENV_PREFIXES = ['CLAUDE_CODE_', 'CLAUDE_AGENT_SDK_'];
 
+/** The variable `claude` signs in with when it is set, as `claude setup-token` documents. */
+const ENGINE_TOKEN_VARIABLE = 'CLAUDE_CODE_OAUTH_TOKEN';
+
 /** Quote one word for a POSIX shell: everything inside single quotes is literal, bar the quote. */
 export const shellQuote = (word: string): string => `'${word.replace(/'/g, `'\\''`)}'`;
 
@@ -95,15 +98,18 @@ export class SshHost implements ExecutionHost {
      * @param target What `ssh` connects to: an SSH config alias or `user@host`.
      * @param sshCommand The `ssh` binary. A test substitutes a script that runs the remote command
      *   locally, which exercises every quoting and shell path here without a second machine.
-     */
-    /**
      * @param commandEnv Variables the host's own environment supplies to configured commands, e.g.
      *   GITHUB_TOKEN on an agent VM, whose `.bashrc` sets it for every shell `ssh` starts there.
+     * @param engineToken A Claude Code OAuth token (`claude setup-token`) the engine signs in with
+     *   there, as `CLAUDE_CODE_OAUTH_TOKEN`. An agent VM's own `claude` is signed in only inside the
+     *   desktop app's sessions, so an engine Wilson starts needs one. Unset leaves the host's own
+     *   sign-in, if it has one.
      */
     constructor(
         readonly target: string,
         private readonly sshCommand = 'ssh',
         readonly commandEnv: readonly string[] = [],
+        private readonly engineToken?: string,
     ) {
         this.name = `ssh:${target}`;
     }
@@ -177,15 +183,48 @@ export class SshHost implements ExecutionHost {
      * when it ends the engine's stdin closes, which is how the engine knows to exit.
      */
     spawnClaude(options: ClaudeSpawnOptions): ChildProcess {
+        const child = spawn(this.sshCommand, [...SSH_OPTIONS, this.target, '--', this.engineScript(options)], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        // First, before the SDK writes anything: the script reads this one line, then hands the
+        // rest of stdin to the engine. A shell's `read` takes a pipe a byte at a time, so it never
+        // swallows the start of the SDK's own messages.
+        if (this.engineToken !== undefined) child.stdin.write(`${this.engineToken}\n`);
+        return child;
+    }
+
+    /**
+     * Run `claude` with `args` on the host exactly as `spawnClaude` would start the engine (same
+     * environment, same token), and wait for it. For the probe's `claude auth status`, which has to
+     * see what an engine would, not what a login shell would.
+     */
+    async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
+        return this.run(
+            this.engineScript({ command: 'claude', args, cwd: '/', env: {} }),
+            { timeoutMs },
+            this.engineToken !== undefined ? `${this.engineToken}\n` : undefined,
+        );
+    }
+
+    /**
+     * The remote command that starts `claude`: the SDK's own variables on the command line, and the
+     * token, when there is one, read from stdin on the host and expanded there. A command line is
+     * visible to every process listing on both machines; stdin is not.
+     */
+    private engineScript(options: ClaudeSpawnOptions): string {
+        if (this.engineToken?.includes('\n')) throw new Error('the engine token must be a single line');
         const env: NodeJS.ProcessEnv = {};
         for (const [key, value] of Object.entries(options.env)) {
+            // A token in this machine's environment is never forwarded by value: that would put it
+            // on the command line. The host's own is used, read from stdin, below.
+            if (key === ENGINE_TOKEN_VARIABLE) continue;
             if (value !== undefined && CLAUDE_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
         }
         const command = [options.command, ...options.args].map(shellQuote).join(' ');
         const cd = options.cwd ? `cd -- ${shellQuote(options.cwd)} || exit 1; ` : '';
-        return spawn(this.sshCommand, [...SSH_OPTIONS, this.target, '--', `${cd}exec ${envPrefix(env)} ${command}`], {
-            stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        const token = this.engineToken !== undefined ? `IFS= read -r ${ENGINE_TOKEN_VARIABLE} || exit 1; ` : '';
+        const fromHost = this.engineToken !== undefined ? [ENGINE_TOKEN_VARIABLE] : [];
+        return `${token}${cd}exec ${envPrefix(env, fromHost)} ${command}`;
     }
 
     /** A file primitive: `exec`'s transport, with a missing path reported as `node:fs` would. */

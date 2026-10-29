@@ -27,7 +27,8 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  *
  * What it checks, and why each matters to a stage placed there:
  * - SSH reaches it, without a prompt.
- * - `claude` is on its `PATH`, since the engine runs there. A version other than the one this
+ * - `claude` is on its `PATH`, since the engine runs there, and is signed in the way an engine
+ *   started there would be. A version other than the one this
  *   machine's probes last passed against is reported, not refused: the host's engine has not been
  *   through `cli.engine.contract.probe.ts`, which is worth knowing before trusting it.
  * - Each project's `codeRoot` is a git repository, since worktrees are cut from it, and its worktree
@@ -75,6 +76,24 @@ export class HostProber {
             }
         }
 
+        // Signed in the way an engine started there would be: the same environment and token
+        // `spawnClaude` gives it, not a login shell's. A version answering says nothing about this:
+        // an agent VM's `claude` runs fine and is signed in only inside the desktop app's sessions.
+        if (!(version instanceof Error) && host.runClaude) {
+            const status = await host.runClaude(['auth', 'status'], PROBE_COMMAND_TIMEOUT_MS).then(
+                result => result.stdout,
+                (err: ExecFailure) => err,
+            );
+            const loggedIn = status instanceof Error ? undefined : parseLoggedIn(status);
+            if (loggedIn === false) {
+                problems.push(
+                    'claude is not signed in for an engine started there; set REMOTE_CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in apps/api/.env',
+                );
+            } else if (loggedIn === undefined) {
+                notes.push(`could not tell whether claude is signed in there${status instanceof Error ? `: ${reason(status)}` : ''}`);
+            }
+        }
+
         for (const project of row.projects) {
             const repo = await run(host, 'git', ['-C', project.codeRoot, 'rev-parse', '--git-dir']);
             if (repo instanceof Error) problems.push(`${project.project}: ${project.codeRoot} is not a git repository: ${reason(repo)}`);
@@ -113,6 +132,16 @@ export class HostProber {
         };
     }
 }
+
+/** `loggedIn` from `claude auth status`'s JSON, or undefined when the output is not that shape. */
+const parseLoggedIn = (stdout: string): boolean | undefined => {
+    try {
+        const parsed = JSON.parse(stdout) as { loggedIn?: unknown };
+        return typeof parsed.loggedIn === 'boolean' ? parsed.loggedIn : undefined;
+    } catch {
+        return undefined;
+    }
+};
 
 /** Run one check from `/`, with only the host's own `PATH` and `HOME`. Resolves to stdout or the failure. */
 const run = async (host: ExecutionHost, file: string, args: string[], hostEnv: readonly string[] = []): Promise<string | ExecFailure> =>

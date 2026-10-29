@@ -10,10 +10,17 @@ import { gitSshCommand, SshHost } from './ssh.execution.host.js';
  * something the container could resolve.
  */
 export class HostConnector {
-    constructor(private readonly sshCommand = 'ssh') {}
+    /**
+     * @param engineToken What every host's engine signs in with (`REMOTE_CLAUDE_CODE_OAUTH_TOKEN`);
+     *   see `SshHost`'s parameter of the same name.
+     */
+    constructor(
+        private readonly sshCommand = 'ssh',
+        private readonly engineToken?: string,
+    ) {}
 
     connect(host: Pick<HostRow, 'sshTarget' | 'commandEnv'>): ExecutionHost {
-        return new SshHost(host.sshTarget, this.sshCommand, host.commandEnv);
+        return new SshHost(host.sshTarget, this.sshCommand, host.commandEnv, this.engineToken);
     }
 
     /** `GIT_SSH_COMMAND` for pushing to and fetching from a host's clone. */

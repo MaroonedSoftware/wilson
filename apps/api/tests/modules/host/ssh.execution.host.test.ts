@@ -1,5 +1,5 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- these tests set the environment the stand-in ssh hands its "remote" shell; nothing here is a build input */
-import { mkdtemp, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,46 @@ describe('SshHost', () => {
     it('enforces maxBuffer the way execFile does', async () => {
         const failure = (await host.exec('sh', ['-c', 'head -c 3000000 /dev/zero'], { cwd: root }).catch((err: ExecFailure) => err)) as ExecFailure;
         expect(failure.code).toBe('ERR_CHILD_PROCESS_STDIO_MAXBUFFER');
+    });
+
+    it('hands the engine its token over stdin, never on either machine’s command line', async () => {
+        const argsLog = join(root, 'ssh-args.log');
+        const loggingSsh = join(root, 'logging-ssh.sh');
+        await writeFile(loggingSsh, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${argsLog}'\nexec '${FAKE_SSH}' "$@"\n`, 'utf8');
+        await chmod(loggingSsh, 0o755);
+        const withToken = new SshHost('agent-3', loggingSsh, [], 'secret-engine-token');
+
+        const child = withToken.spawnClaude({
+            command: 'sh',
+            args: ['-c', 'read line; printf "%s|%s" "$line" "$CLAUDE_CODE_OAUTH_TOKEN"'],
+            cwd: root,
+            // A token in this machine's environment is not the one sent: it would be on the command line.
+            env: { CLAUDE_CODE_OAUTH_TOKEN: 'this-machine-token' },
+        });
+        let out = '';
+        child.stdout!.on('data', (chunk: Buffer) => (out += chunk.toString()));
+        child.stdin!.end('first message from the SDK\n');
+        await new Promise(resolve => child.on('exit', resolve));
+
+        expect(out).toBe('first message from the SDK|secret-engine-token');
+        const args = await readFile(argsLog, 'utf8');
+        expect(args).not.toContain('secret-engine-token');
+        expect(args).not.toContain('this-machine-token');
+    });
+
+    it('runs claude the way the engine starts, token included, for the probe', async () => {
+        const host = new SshHost('agent-3', FAKE_SSH, [], 'secret-engine-token');
+        const original = process.env.PATH;
+        const bin = join(root, 'bin');
+        await host.mkdir(bin);
+        await writeFile(join(bin, 'claude'), '#!/bin/sh\nprintf "%s %s" "$*" "${CLAUDE_CODE_OAUTH_TOKEN-none}"\n', 'utf8');
+        await chmod(join(bin, 'claude'), 0o755);
+        process.env.PATH = `${bin}:${original}`;
+        try {
+            expect((await host.runClaude(['auth', 'status'], 10_000)).stdout).toBe('auth status secret-engine-token');
+        } finally {
+            process.env.PATH = original;
+        }
     });
 
     it('starts claude with the SDK’s own variables only, in the folder asked for, over stdio', async () => {

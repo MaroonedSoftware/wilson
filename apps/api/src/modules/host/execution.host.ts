@@ -63,6 +63,9 @@ export interface ExecutionHost {
      * a host where the SDK's own local spawn already does the right thing, which is this machine.
      */
     spawnClaude?(options: ClaudeSpawnOptions): ChildProcess;
+
+    /** Run `claude` with `args` the way `spawnClaude` starts it, and wait. Present wherever that is. */
+    runClaude?(args: string[], timeoutMs: number): Promise<ExecResult>;
 }
 
 /** The part of the Agent SDK's `SpawnOptions` a host needs to start the engine. */
