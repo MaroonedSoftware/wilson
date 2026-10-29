@@ -233,6 +233,22 @@ describe('LeaseService.releaseAll', () => {
         expect(held.some(l => l.resourceKey === resourceKeyB)).toBe(false);
     });
 
+    it('leaves a stage slot alone, which the dispatcher releases itself when the stage ends', async () => {
+        const project = uniqueProject();
+        const slotKey = `host:${uniqueResourceKey()}:slot:1`;
+        const portKey = uniqueResourceKey();
+        await insertCard(project, '0001');
+        await leases.acquire(slotKey, project, '0001');
+        await leases.acquire(portKey, project, '0001');
+
+        await leases.releaseAll(project, '0001');
+
+        const held = await leases.list();
+        expect(held.some(l => l.resourceKey === slotKey)).toBe(true);
+        expect(held.some(l => l.resourceKey === portKey)).toBe(false);
+        await leases.release(slotKey, project, '0001');
+    });
+
     it('is safe to call for a card holding nothing', async () => {
         const project = uniqueProject();
         await insertCard(project, '0001');

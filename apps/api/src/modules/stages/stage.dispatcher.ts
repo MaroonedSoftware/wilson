@@ -59,7 +59,9 @@ export type NotDispatchableReason =
     | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] }
     | { readonly kind: 'needs-human' }
     /** A `placement: remote` stage found no registered host free to take it. Deferred, not poisoned. */
-    | { readonly kind: 'no-host' };
+    | { readonly kind: 'no-host' }
+    /** A stage that runs here found every `local-stage-slots` slot held. Deferred, not poisoned. */
+    | { readonly kind: 'no-local-slot' };
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
@@ -302,7 +304,24 @@ export class StageDispatcher {
             throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} must run on a host, and ${placed.message}`);
         }
         if (!placed) {
-            return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            // A stage with no tree takes no slot: a slot is a worktree, an install and an agent here.
+            if (!this.placer || stage.worktree === 'none') {
+                return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            }
+            const slot = await this.placer.takeLocalSlot(this.config.project, cardId);
+            if ('busy' in slot) {
+                throw new NotDispatchableError(
+                    { kind: 'no-local-slot' },
+                    `${cardId} ${stageName} runs on this machine, and all ${slot.busy} of its local-stage-slots are in use`,
+                );
+            }
+            try {
+                return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            } finally {
+                await this.placer.releaseSlot(slot.key, this.config.project, cardId).catch(err => {
+                    this.logger.warn(`could not release ${cardId}'s ${slot.key}: ${(err as Error).message}`);
+                });
+            }
         }
 
         // A stage on a host gives its worktree and slot back as soon as it ends, however it ends:
@@ -328,6 +347,11 @@ export class StageDispatcher {
         } finally {
             await this.worktrees.reclaim(cardId, placed).catch(err => {
                 this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
+            });
+            // The slot outlives the worktree by a moment on purpose: until the host's tree is gone,
+            // the host is still busy with this card.
+            await this.placer?.releaseSlot(placed.slotKey, this.config.project, cardId).catch(err => {
+                this.logger.warn(`could not release ${cardId}'s ${placed.slotKey}: ${(err as Error).message}`);
             });
         }
     }

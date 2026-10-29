@@ -65,14 +65,30 @@ export const CARD_STAGE_CONCURRENCY_DEFAULT = 3;
 export const CARD_STAGE_CONCURRENCY_MIN = 1;
 
 /**
- * Ceiling for the `card-stage-concurrency` setting (card 0115): 8. Each unit of concurrency is a
- * git worktree, a `pnpm install`, and a live agent process on this host, per the disk/memory
- * headroom paragraph above — this bound exists to catch a fat-fingered value (an extra zero, say),
- * not to claim 8 is measured safe on any given host. "Raising it is a separate call from being
- * able to raise it" still holds exactly as written above; this only widens what is reachable
- * without a code change, never what is recommended.
+ * Ceiling for the `card-stage-concurrency` setting (card 0115): 32. It was 8 while every stage ran
+ * on this host; since registered hosts, a unit of concurrency is a stage anywhere, and this machine's
+ * own share is `local-stage-slots`, whose ceiling of 8 now carries the reasoning this one used to:
+ * each local slot is a git worktree, a `pnpm install` and a live agent process here, and that bound
+ * catches a fat-fingered value rather than claiming 8 is measured safe. 32 is four hosts of eight
+ * slots on top, and like 8 before it, catches an extra zero rather than recommending anything.
  */
-export const CARD_STAGE_CONCURRENCY_MAX = 8;
+export const CARD_STAGE_CONCURRENCY_MAX = 32;
+
+/**
+ * Default for the `local-stage-slots` setting: how many stages may hold a worktree on this machine at
+ * once. 8, its own ceiling, so that until an operator lowers it the only limit in force is
+ * `card-stage-concurrency`, exactly as before the setting existed.
+ */
+export const LOCAL_STAGE_SLOTS_DEFAULT = 8;
+
+/** Floor for `local-stage-slots`. Zero is "run nothing here", which `placement: remote` already says. */
+export const LOCAL_STAGE_SLOTS_MIN = 1;
+
+/**
+ * Ceiling for `local-stage-slots`: the 8 `CARD_STAGE_CONCURRENCY_MAX` held while every stage ran
+ * here, for the reasons its doc above gives.
+ */
+export const LOCAL_STAGE_SLOTS_MAX = 8;
 
 /**
  * How often the poller (`poller.ts`) checks the board for a card to enqueue.

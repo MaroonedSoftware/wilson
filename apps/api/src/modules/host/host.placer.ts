@@ -2,10 +2,12 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { DateTime } from 'luxon';
 import { LeaseService } from '#modules/lease/lease.service.js';
+import { LOCAL_STAGE_SLOTS } from '#modules/settings/local.stage.slots.setting.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import { HostConnector } from './host.connector.js';
 import { HostRepository, type HostRow } from './host.repository.js';
-import { hostSlotKey, type RemotePlacement } from './placement.js';
+import { hostSlotKey, localSlotKey, type RemotePlacement } from './placement.js';
 
 /**
  * Margin past a stage's `maxWallClockMs` a host must still have before it expires: setup, the
@@ -42,7 +44,27 @@ export class HostPlacer {
         private readonly connector: HostConnector,
         private readonly leases: LeaseService,
         private readonly logger: Logger,
+        // Optional so a test can build a placer without one; unset reads as the setting's default.
+        private readonly settings?: SettingsStore,
     ) {}
+
+    /**
+     * Take one of this machine's `local-stage-slots` for `cardId`: its key, or how many slots there
+     * are when every one is held. The caller releases it with `releaseSlot` when the stage ends.
+     */
+    async takeLocalSlot(project: string, cardId: string): Promise<{ key: string } | { busy: number }> {
+        const slots = this.settings ? await this.settings.get(LOCAL_STAGE_SLOTS) : LOCAL_STAGE_SLOTS.defaultValue;
+        for (let slot = 1; slot <= slots; slot++) {
+            const key = localSlotKey(slot);
+            if ((await this.leases.acquire(key, project, cardId)).acquired) return { key };
+        }
+        return { busy: slots };
+    }
+
+    /** Give back a slot a stage held, here or on a host. Safe when it is no longer held. */
+    async releaseSlot(key: string, project: string, cardId: string): Promise<void> {
+        await this.leases.release(key, project, cardId);
+    }
 
     /**
      * Place `stage` for `cardId`. `undefined` means run it here: the stage is `local`, has no

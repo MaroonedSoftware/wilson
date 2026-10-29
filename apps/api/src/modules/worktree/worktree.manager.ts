@@ -330,12 +330,7 @@ export class WorktreeManager {
         // Same "never block the reclaim" contract as the preservation above: a card that cannot be
         // reclaimed is worse than a lease that needs sweeping later (LeaseService.acquire does
         // that sweeping on the next attempt to take it).
-        // A placed stage took its slot before its worktree is cut, and cutting one lands here first,
-        // so the slot is kept. A reclaim that ends the stage passes no placement to keep.
-        const releasing = placement
-            ? this.leases?.releaseAll(this.config.project, cardId, [placement.slotKey])
-            : this.leases?.releaseAll(this.config.project, cardId);
-        await releasing?.catch(err => {
+        await this.leases?.releaseAll(this.config.project, cardId).catch(err => {
             this.logger.warn(`could not release leases for ${cardId} before reclaim: ${(err as Error).message}`);
         });
         await git(this.config.codeRoot, ['worktree', 'remove', '--force', path]).catch(() => undefined);

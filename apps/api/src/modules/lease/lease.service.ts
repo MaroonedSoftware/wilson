@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import type { DB } from '#modules/data/db.js';
+import { SLOT_KEY_MARKER } from '#modules/host/placement.js';
 
 /** Who holds a resource, and which resource — what `acquire` reports back either way. */
 export interface LeaseHolder {
@@ -99,14 +100,17 @@ export class LeaseService {
      * ids are per-project (card 0149) — without it, releasing card `0001` in one project could
      * release a same-numbered card's leases in another.
      *
-     * `except` names keys to keep. A stage placed on another host takes its slot there before its
-     * worktree is cut, and cutting one reclaims first; without this, that reclaim would hand the
-     * slot straight back.
+     * Stage slots (`SLOT_KEY_MARKER`, placement.ts) are left alone: a slot belongs to a stage, which
+     * takes it before its worktree is cut, and cutting one reclaims first. The dispatcher releases a
+     * slot itself when its stage ends, and a slot left by a killed daemon is swept like any lease.
      */
-    async releaseAll(project: string, cardId: string, except: readonly string[] = []): Promise<void> {
-        let query = this.db.deleteFrom('runner.leases').where('project', '=', project).where('cardId', '=', cardId);
-        if (except.length > 0) query = query.where('resourceKey', 'not in', except);
-        await query.execute();
+    async releaseAll(project: string, cardId: string): Promise<void> {
+        await this.db
+            .deleteFrom('runner.leases')
+            .where('project', '=', project)
+            .where('cardId', '=', cardId)
+            .where('resourceKey', 'not like', `%${SLOT_KEY_MARKER}%`)
+            .execute();
     }
 
     /**

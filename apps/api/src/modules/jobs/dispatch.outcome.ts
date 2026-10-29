@@ -114,7 +114,7 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
         }
         // Every host busy, draining or down is "not now": a slot frees when another stage ends,
         // and the poller enqueues the card again on its next tick.
-        if (error.reason.kind === 'no-host') {
+        if (error.reason.kind === 'no-host' || error.reason.kind === 'no-local-slot') {
             return { kind: 'defer', reason: error.message };
         }
         if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {

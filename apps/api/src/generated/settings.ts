@@ -81,6 +81,24 @@ export const SetCardStageConcurrencyRequest = z.strictObject({
 export type SetCardStageConcurrencyRequest = z.infer<typeof SetCardStageConcurrencyRequest>;
 
 /**
+ * How many stages may hold a worktree on this machine at once, out of `card-stage-concurrency`'s
+ * total across every machine. Bounds enforced by `LocalStageSlotsSettingService.set`.
+ * generated from [LocalStageSlots](../../data/contracts/settings.ck)
+ */
+export const LocalStageSlots = z.strictObject({
+    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type LocalStageSlots = z.infer<typeof LocalStageSlots>;
+
+/**
+ * generated from [SetLocalStageSlotsRequest](../../data/contracts/settings.ck)
+ */
+export const SetLocalStageSlotsRequest = z.strictObject({
+    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type SetLocalStageSlotsRequest = z.infer<typeof SetLocalStageSlotsRequest>;
+
+/**
  * `null` means unset — off, exactly like the environment variables these fields replace being
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the

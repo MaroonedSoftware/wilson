@@ -61,7 +61,7 @@ stages:
 const build = async (
     place: HostPlacer['place'],
     createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>,
-    options: { passes?: boolean; alive?: boolean } = {},
+    options: { passes?: boolean; alive?: boolean; localBusy?: boolean } = {},
 ) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-placement-'));
     const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
@@ -101,7 +101,13 @@ const build = async (
     const portAllocator = { acquire: vi.fn(async () => ({ ok: true, port: 49000 })) };
     const settings = { get: vi.fn(async () => ({ start: 49000, end: 49099 })) };
 
-    const placer = { place: vi.fn(place), isAlive: vi.fn(async () => options.alive ?? true), markLost: vi.fn(async () => {}) };
+    const placer = {
+        place: vi.fn(place),
+        isAlive: vi.fn(async () => options.alive ?? true),
+        markLost: vi.fn(async () => {}),
+        takeLocalSlot: vi.fn(async () => (options.localBusy ? { busy: 2 } : { key: 'local:slot:1' })),
+        releaseSlot: vi.fn(async () => {}),
+    };
 
     const dispatcher = new StageDispatcher(
         config,
@@ -148,7 +154,7 @@ describe('StageDispatcher placement', () => {
     it('runs a placed stage on its host end to end, then gives the host’s worktree and slot back', async () => {
         const host = new MemoryHost();
         const placement = placementOn(host);
-        const { dispatcher, worktrees, events, contexts, portAllocator } = await build(async () => placement);
+        const { dispatcher, worktrees, events, contexts, portAllocator, placer } = await build(async () => placement);
 
         const outcome = await dispatcher.run('0001', 'implementing');
 
@@ -167,6 +173,8 @@ describe('StageDispatcher placement', () => {
         expect(portAllocator.acquire).not.toHaveBeenCalled();
         expect(worktrees.fetchBack).toHaveBeenCalledTimes(1);
         expect(worktrees.reclaim).toHaveBeenCalledWith('0001', placement);
+        expect(placer.releaseSlot).toHaveBeenCalledWith('host:agent-3:slot:1', expect.any(String), '0001');
+        expect(placer.takeLocalSlot).not.toHaveBeenCalled();
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'stage.placed', payload: { host: 'agent-3', slot: 'host:agent-3:slot:1' } }),
         );
@@ -231,6 +239,26 @@ describe('StageDispatcher placement', () => {
 
         expect(error).toBeInstanceOf(HostLostError);
         expect(error.cause).toBe(original);
+    });
+
+    it('holds one of this machine’s slots for a stage it runs here, and gives it back when the stage ends', async () => {
+        const { dispatcher, placer } = await build(async () => undefined);
+
+        await dispatcher.run('0001', 'implementing');
+
+        expect(placer.takeLocalSlot).toHaveBeenCalledTimes(1);
+        expect(placer.releaseSlot).toHaveBeenCalledWith('local:slot:1', expect.any(String), '0001');
+    });
+
+    it('defers a stage that runs here when every local slot is held, without cutting a worktree', async () => {
+        const { dispatcher, worktrees } = await build(async () => undefined, undefined, { localBusy: true });
+
+        const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
+
+        expect((error as NotDispatchableError).reason).toEqual({ kind: 'no-local-slot' });
+        expect((error as Error).message).toContain('all 2 of its local-stage-slots are in use');
+        expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'defer' });
+        expect(worktrees.create).not.toHaveBeenCalled();
     });
 
     it('runs here, exactly as before, when the placer places nothing', async () => {
