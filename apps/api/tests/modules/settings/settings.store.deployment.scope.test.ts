@@ -69,9 +69,8 @@ describe('SettingsStore.get/set — a deployment-scoped setting', () => {
 
     /**
      * The mechanism behind the two behavioural tests above: the row is not keyed by the writing
-     * project at all. `'__deployment__'` is the reserved value `SettingsStore.DEPLOYMENT_SCOPE`
-     * (settings.store.ts) and the migration that carries existing rows onto it
-     * (data/migrations/20260829120000_deployment_scoped_settings.sql) both agree on.
+     * project at all. It is keyed by the reserved value `'__deployment__'`
+     * (`SettingsStore.DEPLOYMENT_SCOPE`, settings.store.ts).
      */
     it('is stored under the reserved deployment project, not the writing project', async () => {
         const setting = deploymentSetting();

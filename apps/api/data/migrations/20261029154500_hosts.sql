@@ -2,10 +2,20 @@
 
 -- =========================================================================
 -- runner.hosts: machines other than the daemon's own that a card stage can
--- run on, reached over SSH. TGA's agent VMs (`agent-1` to `agent-8`, made by
+-- run on. TGA's agent VMs (`agent-1` to `agent-8`, made by
 -- infra/agents/scripts/agent_vm.sh) are the first, but nothing here is
--- specific to them: a host is anything `ssh <ssh_target>` reaches without a
--- prompt.
+-- specific to them.
+--
+-- `kind` is how the daemon reaches a host. An `ssh` host is anything
+-- `ssh <ssh_target>` reaches without a prompt: the daemon connects out and
+-- runs each command, and carries each git transfer, over that connection. A
+-- `worker` host connects in instead: a worker program on the machine opens a
+-- connection to the API and carries out what the daemon sends over it, so the
+-- daemon needs no route to the machine and no key for it. It has no SSH
+-- target, which is why `ssh_target` is set exactly when the kind is `ssh`.
+-- The kind is not changeable once registered: a host's slots, leases and
+-- probe all describe one way of reaching it, so moving a machine from one
+-- kind to the other is removing the host and registering it again.
 --
 -- Deployment-scoped like `runner.projects`, not per project: one machine can
 -- serve several projects, and a host's slots are shared by every project
@@ -28,7 +38,8 @@
 
 CREATE TABLE runner.hosts (
     name TEXT PRIMARY KEY,
-    ssh_target TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'ssh' CHECK (kind IN ('ssh', 'worker')),
+    ssh_target TEXT,
     -- How many stages may run on the host at once. The same 1 to 8 range
     -- `card-stage-concurrency` allows, for the same reason: each slot is a
     -- worktree, an install and a Claude process on one machine.
@@ -40,7 +51,43 @@ CREATE TABLE runner.hosts (
     probe_detail TEXT,
     engine_version TEXT,
     expires_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- How long the host runs after it boots before it stops by itself, when it
+    -- does. TGA's agent VMs are deleted by Compute Engine 12 hours after they
+    -- start (`max_run_duration` in infra/agents), so theirs is 720. The probe
+    -- reads the host's boot time and adds this to report `expires_at`, which
+    -- placement uses to keep a stage off a host that will be gone before the
+    -- stage could finish. A host cannot report this itself in any portable
+    -- way, which is why it is the operator's to set. Null is a host with no
+    -- known end.
+    lifetime_minutes INTEGER CHECK (lifetime_minutes > 0),
+    -- Names of variables the host's own environment supplies to the commands
+    -- stage config runs there (setup, build, test, format), and to nothing
+    -- else. Every command on a host starts from an empty environment
+    -- (`env -i`), so a secret the host's shell holds does not leak into a
+    -- stage by accident; that also strips what a configured command genuinely
+    -- needs, such as the GITHUB_TOKEN a TGA agent VM's `yarn install` reads
+    -- (infra/agents/README.md). Naming it here passes the host's own value
+    -- through, taken on the host, so it never travels from this machine. The
+    -- agent's own tools and the engine never get these.
+    command_env TEXT[] NOT NULL DEFAULT '{}',
+    -- The one credential a worker host's worker program connects with. Only
+    -- the SHA-256 of the token is kept, as `runner.api_keys` keeps its
+    -- secrets: the token is shown once when it is minted and never again.
+    -- `worker_token_hint` is its last four characters, so an operator can tell
+    -- which token a machine holds without the row giving it away. One per
+    -- host, and minting another replaces it. Only the worker connection
+    -- endpoint accepts one, and it names exactly one host, so a stolen token
+    -- can pose as that host and do nothing else.
+    worker_token_hash TEXT UNIQUE,
+    worker_token_hint TEXT,
+    worker_token_issued_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT hosts_ssh_target_matches_kind CHECK ((kind = 'ssh') = (ssh_target IS NOT NULL)),
+    CONSTRAINT hosts_worker_token_only_for_workers CHECK (worker_token_hash IS NULL OR kind = 'worker'),
+    CONSTRAINT hosts_worker_token_whole CHECK (
+        (worker_token_hash IS NULL) = (worker_token_hint IS NULL)
+        AND (worker_token_hash IS NULL) = (worker_token_issued_at IS NULL)
+    )
 );
 
 -- =========================================================================

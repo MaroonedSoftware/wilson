@@ -34,6 +34,12 @@ CREATE TABLE runner.cards (
     -- The version downstream stages read. Null means "not approved yet", and a
     -- stage then runs against current state, which is what an absent planSha did.
     pinned_version_id BIGINT,
+    -- A person has to look at this card before it runs again. A property the
+    -- card carries wherever it sits, so it can stay in its stage and keep its
+    -- worktree rather than moving to a lane that loses both.
+    needs_human BOOLEAN NOT NULL DEFAULT FALSE,
+    -- What the runner or the operator said when they set the flag.
+    needs_human_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (project, id)
@@ -65,6 +71,8 @@ CREATE TABLE runner.card_versions (
 
 CREATE INDEX card_versions_project_card_id_idx ON runner.card_versions (project, card_id, id);
 
+-- The one ALTER in the schema, and a necessary one: cards and card_versions
+-- reference each other, so whichever is created first cannot name the other.
 ALTER TABLE runner.cards
     ADD CONSTRAINT cards_pinned_version_id_fkey
     FOREIGN KEY (pinned_version_id) REFERENCES runner.card_versions (id);

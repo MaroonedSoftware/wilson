@@ -12,8 +12,11 @@
 -- than a check-then-insert behind an advisory lock. Multi-user would drop
 -- this index and nothing else here.
 --
--- A username rather than an email address: signing in needs no mail
--- setup, and there is nobody else to tell apart.
+-- The operator signs in with an email address, but there is still no mail
+-- setup: wilson never sends to the address, so it is only the name the
+-- operator signs in with. The check is a shape check, not validation; the
+-- API's contract checks the format before a row is written. 254 is the
+-- longest address SMTP's path limit allows.
 --
 -- Passwords are one row per account, keyed by it, as
 -- @maroonedsoftware/authentication's PasswordFactorRepository expects.
@@ -23,13 +26,13 @@
 
 CREATE TABLE runner.accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT NOT NULL CHECK (length(username) BETWEEN 1 AND 64),
+    email TEXT NOT NULL CHECK (length(email) BETWEEN 3 AND 254 AND position('@' IN email) > 1),
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE UNIQUE INDEX accounts_one_row ON runner.accounts ((true));
-CREATE UNIQUE INDEX accounts_username_lower ON runner.accounts (lower(username));
+CREATE UNIQUE INDEX accounts_email_lower ON runner.accounts (lower(email));
 
 CREATE TABLE runner.account_passwords (
     account_id UUID PRIMARY KEY REFERENCES runner.accounts (id),

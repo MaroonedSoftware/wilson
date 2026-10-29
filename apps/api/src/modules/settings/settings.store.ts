@@ -13,8 +13,8 @@ import type { SettingDefinition } from './setting.definition.js';
  * Not a real project name: `runner.projects.name` (and so every `BoardConfig.project`) comes from
  * `PROJECT_NAME` or a directory, never from this constant, and registering a project is out of
  * scope for card 0152 that introduced this — so there is nothing for it to collide with today.
- * Reserved here, once, so `SettingsStore` and the migration that carries existing rows onto it
- * (`data/migrations/20260829120000_deployment_scoped_settings.sql`) agree on the exact string.
+ * Reserved here, once, so every reader and writer of a deployment-scoped row agrees on the exact
+ * string.
  */
 export const DEPLOYMENT_SCOPE = '__deployment__';
 

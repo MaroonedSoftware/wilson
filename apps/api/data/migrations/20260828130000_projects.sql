@@ -1,11 +1,11 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.projects — a project's identity: its name, plus the four paths
--- `BoardConfig` exposes (board root, code root, worktree root, run root).
+-- runner.projects — a project's identity: its name, plus the three paths
+-- `BoardConfig` exposes (code root, worktree root, run root).
 --
 -- Card 0148: `BoardConfig` used to be assembled fresh from PROJECT_NAME,
--- PROJECT_CODE_ROOT, PROJECT_BOARD_ROOT and friends every time the daemon
+-- PROJECT_CODE_ROOT and friends every time the daemon
 -- booted, with no record of it an operator could read. This table is that
 -- record. `BoardModule.setup` reads the row for the configured project on
 -- boot; if none exists yet (a first boot), it creates one from the
@@ -25,7 +25,6 @@
 
 CREATE TABLE runner.projects (
     name TEXT PRIMARY KEY,
-    board_root TEXT NOT NULL,
     code_root TEXT NOT NULL,
     worktree_root TEXT NOT NULL,
     run_root TEXT NOT NULL,

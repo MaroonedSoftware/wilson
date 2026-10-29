@@ -22,13 +22,10 @@ const silentLogger: Logger = {
 
 /**
  * Card 0165. Exercises the real migration this card added
- * (apps/api/data/migrations/20260831120000_leases.sql) against the real test database, the same
- * idea empty_needs_human_lane.test.ts and deployment_scoped_settings.test.ts already use: `pnpm
+ * (apps/api/data/migrations/20260831120000_leases.sql) against the real test database: `pnpm
  * migrate:up` is not on this stage's allowlist, so this reads the migration's own `-- migrate:up`
- * SQL text off disk and applies it directly. Unlike those two — which only ever alter tables a much
- * earlier migration already created in this shared database — `runner.leases` may not exist here
- * yet at all, so this applies the up migration for real rather than inside a rolled-back
- * transaction; every test below needs the table to still be there afterward, and needs it visible to
+ * SQL text off disk and applies it directly. `runner.leases` may not exist here yet at all, so this
+ * applies the up migration for real rather than inside a rolled-back transaction; every test below needs the table to still be there afterward, and needs it visible to
  * more than one pooled connection at once for the concurrent-acquisition case. Idempotent against an
  * environment where `dbmate` already created the table for real: Postgres's "already exists" error
  * (42P07) is swallowed, anything else is not.
