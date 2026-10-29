@@ -252,12 +252,9 @@ export class WorktreeManager {
     async fetchBack(worktree: Worktree): Promise<void> {
         const placement = worktree.placement;
         if (!placement) return;
-        await this.transport(placement, [
-            'fetch',
-            '--no-tags',
-            this.remoteUrl(placement),
-            `+refs/heads/${worktree.branch}:refs/heads/${worktree.branch}`,
-        ]);
+        await this.transfer(placement, 'fetch', () =>
+            placement.git.fetch(this.config.codeRoot, placement.codeRoot, [`+refs/heads/${worktree.branch}:refs/heads/${worktree.branch}`]),
+        );
     }
 
     /**
@@ -279,30 +276,18 @@ export class WorktreeManager {
         return { path, branch, baseSha, host: placement.host, placement };
     }
 
-    /** `git push` from this machine's code repo to the host's clone. */
+    /** Push from this machine's code repo to the host's clone. */
     private async pushToHost(placement: RemotePlacement, refspecs: string[]): Promise<void> {
-        await this.transport(placement, ['push', '--quiet', '--no-verify', this.remoteUrl(placement), ...refspecs]);
+        await this.transfer(placement, 'push', () => placement.git.push(this.config.codeRoot, placement.codeRoot, refspecs));
     }
 
-    /** The host's clone as a git remote: `target:path`, which git reaches with `ssh`. */
-    private remoteUrl(placement: RemotePlacement): string {
-        return `${placement.sshTarget}:${placement.codeRoot}`;
-    }
-
-    /**
-     * Run git in this machine's code repo with `GIT_SSH_COMMAND` set, so a push or fetch to a host
-     * rides the same multiplexed connection, with the same no-prompt options, as its other commands.
-     */
-    private async transport(placement: RemotePlacement, args: string[]): Promise<void> {
+    /** Run one of the placement's git transfers, naming the host when it fails. */
+    private async transfer(placement: RemotePlacement, verb: 'push' | 'fetch', run: () => Promise<void>): Promise<void> {
         try {
-            await localHost.exec('git', args, {
-                cwd: this.config.codeRoot,
-                maxBuffer: 32 * 1024 * 1024,
-                env: { ...process.env, GIT_SSH_COMMAND: placement.gitSsh },
-            });
+            await run();
         } catch (err) {
             const e = err as { stderr?: string; message: string };
-            throw new Error(`git ${args[0]} to ${placement.hostName} failed: ${e.stderr?.trim() || e.message}`, { cause: err });
+            throw new Error(`git ${verb} to ${placement.hostName} failed: ${e.stderr?.trim() || e.message}`, { cause: err });
         }
     }
 

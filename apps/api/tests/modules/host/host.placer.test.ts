@@ -17,6 +17,7 @@ import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
+import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
@@ -120,11 +121,11 @@ describe('HostPlacer', () => {
 
         expect(placed).toMatchObject({
             hostName: name,
-            sshTarget: name,
             codeRoot: '/opt/agent/TGA',
             worktreeRoot: '/opt/agent/wt',
             runRoot: '/opt/agent/run',
         });
+        expect(placed.git).toBeInstanceOf(SshGitTransport);
         expect(placed.slotKey).toBe(`host:${name}:slot:1`);
         expect(await leases.list()).toContainEqual({ resourceKey: placed.slotKey, project, cardId: '0001' });
         // And the host reports the slot as running that card.

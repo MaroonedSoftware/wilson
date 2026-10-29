@@ -13,6 +13,7 @@ import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
 import { NoHostAvailable, type HostPlacer } from '#modules/host/host.placer.js';
 import { HostLostError, type RemotePlacement } from '#modules/host/placement.js';
+import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { Worktree, WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -129,9 +130,8 @@ const build = async (
 
 const placementOn = (host: MemoryHost): RemotePlacement => ({
     hostName: 'agent-3',
-    sshTarget: 'agent-3',
     host,
-    gitSsh: 'ssh',
+    git: new SshGitTransport('agent-3', 'ssh'),
     codeRoot: '/opt/agent/TGA',
     worktreeRoot: '/opt/agent/wt',
     runRoot: '/opt/agent/run',

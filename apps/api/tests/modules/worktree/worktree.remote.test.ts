@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { gitSshCommand, SshHost } from '#modules/host/ssh.execution.host.js';
+import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 
 const exec = promisify(execFile);
@@ -47,9 +48,8 @@ describe('WorktreeManager on a host', () => {
 
         placement = {
             hostName: 'agent-t',
-            sshTarget: 'agent-t',
             host: new SshHost('agent-t', FAKE_SSH),
-            gitSsh: gitSshCommand(FAKE_SSH),
+            git: new SshGitTransport('agent-t', gitSshCommand(FAKE_SSH)),
             codeRoot: hostClone,
             worktreeRoot: join(base, 'host', 'wt'),
             runRoot: join(base, 'host', 'run'),
