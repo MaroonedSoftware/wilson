@@ -113,6 +113,7 @@ export const toHost = (row: HostRow): Host => ({
     draining: row.draining,
     ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
     projects: row.projects,
+    running: row.running,
     ...(row.probe && { probe: row.probe }),
 });
 

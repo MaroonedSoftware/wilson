@@ -11,7 +11,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const HostsRouter = ServerKitRouter();
 
 /**
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L83)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L95)
  * anonymous access, no security required
  */
 HostsRouter.get('/api/hosts', async ctx => {
@@ -24,7 +24,7 @@ HostsRouter.get('/api/hosts', async ctx => {
 });
 
 /**
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L92)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L104)
  * anonymous access, no security required
  */
 HostsRouter.post('/api/hosts', bodyParserMiddleware(['json']), async ctx => {
@@ -39,7 +39,7 @@ HostsRouter.post('/api/hosts', bodyParserMiddleware(['json']), async ctx => {
 });
 
 /**
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L114)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L126)
  * anonymous access, no security required
  */
 HostsRouter.get('/api/hosts/:name', async ctx => {
@@ -59,7 +59,7 @@ HostsRouter.get('/api/hosts/:name', async ctx => {
 });
 
 /**
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L124)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L136)
  * anonymous access, no security required
  */
 HostsRouter.patch('/api/hosts/:name', bodyParserMiddleware(['json']), async ctx => {
@@ -81,7 +81,7 @@ HostsRouter.patch('/api/hosts/:name', bodyParserMiddleware(['json']), async ctx 
 });
 
 /**
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L139)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L151)
  * anonymous access, no security required
  */
 HostsRouter.delete('/api/hosts/:name', async ctx => {
@@ -102,7 +102,7 @@ HostsRouter.delete('/api/hosts/:name', async ctx => {
  * Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
  * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
  * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L156)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L168)
  * anonymous access, no security required
  */
 HostsRouter.post('/api/hosts/:name/probe', async ctx => {
@@ -124,7 +124,7 @@ HostsRouter.post('/api/hosts/:name/probe', async ctx => {
 /**
  * `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
  * cut worktrees from a clone that is not there.
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L177)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L189)
  * anonymous access, no security required
  */
 HostsRouter.put('/api/hosts/:name/projects/:project', bodyParserMiddleware(['json']), async ctx => {
@@ -149,7 +149,7 @@ HostsRouter.put('/api/hosts/:name/projects/:project', bodyParserMiddleware(['jso
 /**
  * `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
  * cut worktrees from a clone that is not there.
- * from [hosts.ck](file://./../../data/contracts/hosts.ck#L193)
+ * from [hosts.ck](file://./../../data/contracts/hosts.ck#L205)
  * anonymous access, no security required
  */
 HostsRouter.delete('/api/hosts/:name/projects/:project', async ctx => {

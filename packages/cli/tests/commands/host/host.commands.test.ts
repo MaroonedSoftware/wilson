@@ -35,6 +35,7 @@ const host = {
     enabled: true,
     draining: true,
     projects: [{ project: 'tga', codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' }],
+    running: [{ slot: 1, project: 'tga', cardId: '0042', since: '2026-10-29T11:40:00Z' }],
 };
 
 const sentBody = (): unknown => JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
@@ -95,6 +96,7 @@ describe('wilson host list', () => {
                     enabled: false,
                     draining: false,
                     projects: [],
+                    running: [],
                     probe: { probedAt: '2026-10-29T12:00:00Z', ok: false, detail: 'ssh timed out' },
                 },
             ]),
@@ -104,9 +106,10 @@ describe('wilson host list', () => {
         await (listCommand.run as unknown as Handler<object>)({}, ctx, []);
 
         const lines = logger.info.mock.calls.map(call => String(call[0]));
-        expect(lines[0]).toBe('agent-3  draining  2 slots  never probed');
-        expect(lines[1]).toBe('  tga  /opt/agent/TGA  worktrees /opt/agent/wt  run /opt/agent/run');
-        expect(lines[2]).toBe('box (ssh dev@box)  disabled  1 slot  probe failed: ssh timed out at 2026-10-29T12:00:00Z');
-        expect(lines[3]).toContain('serves no project yet');
+        expect(lines[0]).toBe('agent-3  draining  1/2 slots in use  never probed');
+        expect(lines[1]).toBe('  slot 1: tga 0042 since 2026-10-29T11:40:00Z');
+        expect(lines[2]).toBe('  tga  /opt/agent/TGA  worktrees /opt/agent/wt  run /opt/agent/run');
+        expect(lines[3]).toBe('box (ssh dev@box)  disabled  0/1 slot in use  probe failed: ssh timed out at 2026-10-29T12:00:00Z');
+        expect(lines[4]).toContain('serves no project yet');
     });
 });

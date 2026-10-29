@@ -27,9 +27,22 @@ export interface HostProbe {
 }
 
 /**
+ * A slot on a host held by a running stage: which card, of which project, since when. Read from the
+ * slot's `runner.leases` row, so a slot a killed daemon left behind shows here until something takes
+ * it back (placement does, the next time it needs one).
+ * generated from [HostSlotUse](file://./../../../../apps/api/data/contracts/hosts.ck#L43)
+ */
+export interface HostSlotUse {
+    slot: number;
+    project: string;
+    cardId: string;
+    since: string;
+}
+
+/**
  * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
  * expects. `slots` defaults to 1.
- * generated from [CreateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L57)
+ * generated from [CreateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L69)
  */
 export interface CreateHostRequest {
     name: string;
@@ -41,7 +54,7 @@ export interface CreateHostRequest {
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry.
- * generated from [UpdateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L66)
+ * generated from [UpdateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L78)
  */
 export interface UpdateHostRequest {
     sshTarget?: string;
@@ -54,7 +67,7 @@ export interface UpdateHostRequest {
 
 /**
  * The three paths for one project on one host. All three are absolute paths on the host.
- * generated from [PutHostProjectRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L76)
+ * generated from [PutHostProjectRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L88)
  */
 export interface PutHostProjectRequest {
     codeRoot: string;
@@ -65,7 +78,7 @@ export interface PutHostProjectRequest {
 /**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
  * takes no new stage but lets the ones already there finish.
- * generated from [Host](file://./../../../../apps/api/data/contracts/hosts.ck#L42)
+ * generated from [Host](file://./../../../../apps/api/data/contracts/hosts.ck#L52)
  */
 export interface Host {
     name: string;
@@ -79,5 +92,7 @@ export interface Host {
      */
     lifetimeMinutes?: number;
     projects: HostProject[];
+    /** The slots in use right now, slot order. `slots` minus this many are free. */
+    running: HostSlotUse[];
     probe?: HostProbe;
 }

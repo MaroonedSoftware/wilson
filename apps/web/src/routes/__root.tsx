@@ -1,7 +1,7 @@
 import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
 import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconMoon, IconRefresh, IconServer2, IconSettings, IconSun } from '@tabler/icons-react';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
@@ -95,6 +95,11 @@ function Root() {
                                     </ActionIcon>
                                 </Tooltip>
                                 <ColorSchemeToggle />
+                                <Tooltip label="Hosts">
+                                    <ActionIcon component={Link} to="/hosts" variant="subtle" aria-label="Hosts">
+                                        <IconServer2 size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
                                         <IconSettings size={18} />

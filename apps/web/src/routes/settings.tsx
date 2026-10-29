@@ -4,7 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Code, Group, Loader, NumberInput, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
 import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
-import { SdkError } from '@wilson/sdk';
+import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
@@ -22,25 +22,6 @@ const POLLER_INTERVAL_MIN_MS = 5_000;
 const POLLER_INTERVAL_MAX_MS = 300_000;
 const CARD_STAGE_CONCURRENCY_MIN = 1;
 const CARD_STAGE_CONCURRENCY_MAX = 8;
-
-/**
- * The server's own sentence for a refusal. `errorMiddleware`'s body is `{ statusCode, message,
- * details }` (`@maroonedsoftware/koa`); a specific refusal (out-of-range interval, an unsafe
- * webhook destination) pins `message` to the generic HTTP status text and carries the actual
- * sentence in `details.reason` (`httpError(...).withDetails({ reason })` — same convention
- * `useMoveCard`/`useStartCard`'s `reasonFor` reads, `apps/web/src/lib/mutations.ts`), so this reads
- * `details.reason` first and only falls back to `message` where a route has no such detail. Falls
- * back further to the SDK's generic "<status> <statusText>" only when the body isn't that shape,
- * which happens for a network failure that never reached the server.
- */
-function apiErrorMessage(error: unknown): string {
-    if (error instanceof SdkError && error.body && typeof error.body === 'object') {
-        const body = error.body as { details?: { reason?: unknown }; message?: unknown };
-        if (typeof body.details?.reason === 'string') return body.details.reason;
-        if (typeof body.message === 'string') return body.message;
-    }
-    return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * The one control this card adds: `POLLER_ENABLED`, readable and settable at runtime (card 0106).

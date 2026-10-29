@@ -37,6 +37,16 @@ contract HostProbe: {
     expiresAt?: datetime
 }
 
+# A slot on a host held by a running stage: which card, of which project, since when. Read from the
+# slot's `runner.leases` row, so a slot a killed daemon left behind shows here until something takes
+# it back (placement does, the next time it needs one).
+contract HostSlotUse: {
+    slot: int
+    project: string
+    cardId: string
+    since: datetime
+}
+
 # One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
 # takes no new stage but lets the ones already there finish.
 contract Host: {
@@ -49,6 +59,8 @@ contract Host: {
     # adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.
     lifetimeMinutes?: int
     projects: array(HostProject)
+    # The slots in use right now, slot order. `slots` minus this many are free.
+    running: array(HostSlotUse)
     probe?: HostProbe
 }
 

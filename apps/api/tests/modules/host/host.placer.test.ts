@@ -127,6 +127,8 @@ describe('HostPlacer', () => {
         });
         expect(placed.slotKey).toBe(`host:${name}:slot:1`);
         expect(await leases.list()).toContainEqual({ resourceKey: placed.slotKey, project, cardId: '0001' });
+        // And the host reports the slot as running that card.
+        expect((await service.get(name)).running).toEqual([{ slot: 1, project, cardId: '0001', since: expect.anything() }]);
     });
 
     it('defers a remote stage when every slot is held by a running card, and runs an `any` stage here', async () => {

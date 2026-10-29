@@ -4,6 +4,10 @@ import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
 import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
+import { hostSlotKey } from './placement.js';
+
+/** What every slot key on `hostName` starts with: `hostSlotKey` with the slot number left off. */
+const slotPrefix = (hostName: string): string => hostSlotKey(hostName, 0).slice(0, -1);
 
 /** Where one project lives on a host: its clone, and the roots worktrees and plans go under. */
 export interface HostProjectRow {
@@ -12,6 +16,17 @@ export interface HostProjectRow {
     worktreeRoot: string;
     runRoot: string;
 }
+
+/** A slot on a host held by a stage, from its `runner.leases` row. */
+export interface HostSlotUseRow {
+    slot: number;
+    project: string;
+    cardId: string;
+    since: DateTime;
+}
+
+/** A host slot's `runner.leases` row, before it is matched to a host. */
+type SlotLease = { resourceKey: string; project: string; cardId: string; acquiredAt: DateTime };
 
 /** What the last probe of a host found. */
 export interface HostProbeRow {
@@ -32,6 +47,8 @@ export interface HostRow {
     /** Minutes it runs after boot before it stops by itself; absent when it has no known end. */
     lifetimeMinutes?: number;
     projects: HostProjectRow[];
+    /** Slots held by stages right now, slot order. */
+    running: HostSlotUseRow[];
     /** Absent until the host has been probed once. */
     probe?: HostProbeRow;
 }
@@ -66,10 +83,12 @@ export class HostRepository {
             .orderBy('project')
             .execute();
 
+        const slots = await this.slotsInUse();
         return hosts.map(host =>
             toRow(
                 host,
                 projects.filter(p => p.host === host.name),
+                slots,
             ),
         );
     }
@@ -80,7 +99,19 @@ export class HostRepository {
         if (!host) return undefined;
 
         const projects = await this.db.selectFrom('runner.hostProjects').selectAll().where('host', '=', name).orderBy('project').execute();
-        return toRow(host, projects);
+        return toRow(host, projects, await this.slotsInUse());
+    }
+
+    /**
+     * Every held host slot. Read whole and matched to hosts in code, by `hostSlotKey`'s prefix, rather
+     * than with a `LIKE` per host, since a host name may hold `%` or `_`; there are only ever a handful.
+     */
+    private async slotsInUse(): Promise<SlotLease[]> {
+        return this.db
+            .selectFrom('runner.leases')
+            .select(['resourceKey', 'project', 'cardId', 'acquiredAt'])
+            .where('resourceKey', 'like', 'host:%')
+            .execute();
     }
 
     /** Register a host. Fails if the name is already taken. */
@@ -158,7 +189,7 @@ type HostSelection = {
     lifetimeMinutes?: number | null;
 };
 
-const toRow = (host: HostSelection, projects: HostProjectRow[]): HostRow => ({
+const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease[]): HostRow => ({
     name: host.name,
     sshTarget: host.sshTarget,
     slots: host.slots,
@@ -166,6 +197,15 @@ const toRow = (host: HostSelection, projects: HostProjectRow[]): HostRow => ({
     draining: host.draining,
     ...(host.lifetimeMinutes && { lifetimeMinutes: host.lifetimeMinutes }),
     projects: projects.map(({ project, codeRoot, worktreeRoot, runRoot }) => ({ project, codeRoot, worktreeRoot, runRoot })),
+    running: slots
+        .filter(lease => lease.resourceKey.startsWith(slotPrefix(host.name)))
+        .map(lease => ({
+            slot: Number(lease.resourceKey.slice(slotPrefix(host.name).length)),
+            project: lease.project,
+            cardId: lease.cardId,
+            since: lease.acquiredAt,
+        }))
+        .sort((a, b) => a.slot - b.slot),
     ...(host.probedAt && typeof host.probeOk === 'boolean'
         ? {
               probe: {

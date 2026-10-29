@@ -39,7 +39,7 @@ describe('HostsService', () => {
 
         const host = await service.create({ name });
 
-        expect(host).toEqual({ name, sshTarget: name, slots: 1, enabled: true, draining: false, projects: [] });
+        expect(host).toEqual({ name, sshTarget: name, slots: 1, enabled: true, draining: false, projects: [], running: [] });
         expect(await service.list()).toContainEqual(host);
     });
 
