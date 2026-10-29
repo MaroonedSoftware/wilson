@@ -1,6 +1,6 @@
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 import type { Card } from '#modules/board/card.js';
-import type { Worktree } from '#modules/worktree/worktree.manager.js';
+import { worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 
@@ -60,7 +60,7 @@ export interface StageVerifier {
  */
 export const checkFormat = async (worktree: Worktree, stage: StageConfig): Promise<string[]> => {
     if (!stage.formatCommand) return [];
-    const failure = await runConfiguredCommand(worktree.path, stage.formatCommand);
+    const failure = await runConfiguredCommand(worktree.path, stage.formatCommand, undefined, undefined, worktreeHost(worktree));
     return failure ? [failure.reason] : [];
 };
 

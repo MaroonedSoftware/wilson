@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0274: `LiveActivity` (`apps/web/src/components/LiveActivity.tsx`) is new — the card page's
@@ -77,7 +78,7 @@ const cardEvent = (overrides: Partial<CardEvent> = {}): CardEvent => ({
     type: 'tool.executed',
     stage: 'implementing',
     payload: { tool: 'bash', command: 'pnpm test' },
-    createdAt: '2026-01-10T11:59:00.000Z',
+    createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'),
     ...overrides,
 });
 
@@ -135,7 +136,7 @@ describe('LiveActivity seeding (AC6)', () => {
 describe('LiveActivity ordering', () => {
     it('lists a live event ahead of the (older) seeded tail', () => {
         renderLiveActivity({
-            seedEvents: [cardEvent({ id: 'ev-1', createdAt: '2026-01-10T11:00:00.000Z', payload: { tool: 'bash', command: 'first command' } })],
+            seedEvents: [cardEvent({ id: 'ev-1', createdAt: DateTime.fromISO('2026-01-10T11:00:00.000Z'), payload: { tool: 'bash', command: 'first command' } })],
             toolLog: {
                 '0043': [toolEvent({ id: 1, ts: '2026-01-10T11:59:30.000Z', payload: { tool: 'bash', command: 'newest command' } })],
             },
@@ -183,7 +184,7 @@ describe('LiveActivity dedupe', () => {
     it('drops a live event that exactly matches the newest seed event\'s own (type, ts), rather than showing it twice', () => {
         renderLiveActivity({
             seedEvents: [
-                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: '2026-01-10T11:59:00.000Z', payload: { tool: 'bash', command: 'same command' } }),
+                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'), payload: { tool: 'bash', command: 'same command' } }),
             ],
             toolLog: {
                 '0043': [
@@ -198,7 +199,7 @@ describe('LiveActivity dedupe', () => {
     it('keeps a live event that differs from the newest seed only by ts, rather than dropping it as a false match', () => {
         renderLiveActivity({
             seedEvents: [
-                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: '2026-01-10T11:59:00.000Z', payload: { tool: 'bash', command: 'repeated command' } }),
+                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'), payload: { tool: 'bash', command: 'repeated command' } }),
             ],
             toolLog: {
                 '0043': [
@@ -216,7 +217,7 @@ describe('LiveActivity cap', () => {
         const seedEvents = Array.from({ length: MAX_LIVE_TOOL_EVENTS + 10 }, (_, i) =>
             cardEvent({
                 id: `ev-${i}`,
-                createdAt: `2026-01-10T00:${String(i % 60).padStart(2, '0')}:00.000Z`,
+                createdAt: DateTime.fromISO(`2026-01-10T00:${String(i % 60).padStart(2, '0')}:00.000Z`),
                 payload: { tool: 'bash', command: `command ${i}` },
             }),
         );

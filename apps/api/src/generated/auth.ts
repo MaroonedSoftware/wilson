@@ -9,7 +9,7 @@ const _ZodDatetime = z.preprocess(
 );
 
 /**
- * generated from [TokenRequest](file://./../../data/contracts/auth.ck#L18)
+ * generated from [TokenRequest](../../data/contracts/auth.ck)
  */
 export const TokenRequest = z.strictObject({
     grant_type: z.enum(['password', 'refresh_token', 'authenticator', 'passkey']),
@@ -36,7 +36,7 @@ export type TokenRequest = z.infer<typeof TokenRequest>;
 
 /**
  * A second factor a sign-in may be completed with, as `mfa_required` lists them.
- * generated from [MfaFactor](file://./../../data/contracts/auth.ck#L37)
+ * generated from [MfaFactor](../../data/contracts/auth.ck)
  */
 export const MfaFactor = z.strictObject({
     method: z.enum(['authenticator', 'passkey']),
@@ -46,7 +46,7 @@ export const MfaFactor = z.strictObject({
 export type MfaFactor = z.infer<typeof MfaFactor>;
 
 /**
- * generated from [PasskeyChallengeRequest](file://./../../data/contracts/auth.ck#L63)
+ * generated from [PasskeyChallengeRequest](../../data/contracts/auth.ck)
  */
 export const PasskeyChallengeRequest = z.strictObject({
     challenge_id: z.string(),
@@ -56,7 +56,7 @@ export type PasskeyChallengeRequest = z.infer<typeof PasskeyChallengeRequest>;
 /**
  * What to call `navigator.credentials.get` with to complete a sign-in, and the id the `passkey`
  * grant names it by.
- * generated from [PasskeyChallenge](file://./../../data/contracts/auth.ck#L69)
+ * generated from [PasskeyChallenge](../../data/contracts/auth.ck)
  */
 export const PasskeyChallenge = z.strictObject({
     passkeyChallengeId: z.string(),
@@ -66,7 +66,7 @@ export type PasskeyChallenge = z.infer<typeof PasskeyChallenge>;
 
 /**
  * The session the caller's bearer token names.
- * generated from [CurrentSession](file://./../../data/contracts/auth.ck#L75)
+ * generated from [CurrentSession](../../data/contracts/auth.ck)
  */
 export const CurrentSession = z.strictObject({
     accountId: z.string(),
@@ -87,13 +87,13 @@ export type CurrentSession = z.infer<typeof CurrentSession>;
  * With a second factor enrolled, a correct password answers `result: mfa_required` instead, with no
  * tokens: `challengeId` and the `factors` to choose from, for an `authenticator` grant to complete
  * within five minutes. Otherwise `result` is `token`.
- * generated from [TokenResponse](file://./../../data/contracts/auth.ck#L53)
+ * generated from [TokenResponse](../../data/contracts/auth.ck)
  */
 export const TokenResponse = z.strictObject({
     result: z.enum(['token', 'mfa_required']),
     accessToken: z.string().optional(),
     refreshToken: z.string().optional(),
-    expiresIn: z.coerce.number().optional(),
+    expiresIn: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number()).optional(),
     tokenType: z.string().optional(),
     challengeId: z.string().optional(),
     factors: z.array(MfaFactor).optional(),

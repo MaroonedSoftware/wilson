@@ -26,7 +26,7 @@ import { z } from 'zod';
  * doc for exactly what this does and does not stop: in short, it narrows *where* this daemon can be
  * pointed. The check stays as defence in depth behind authentication: a leaked `manage` key should
  * still not be able to aim the daemon at the cloud metadata address.
- * generated from [PollerSetting](file://./../../data/contracts/settings.ck#L40)
+ * generated from [PollerSetting](../../data/contracts/settings.ck)
  */
 export const PollerSetting = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -34,7 +34,7 @@ export const PollerSetting = z.strictObject({
 export type PollerSetting = z.infer<typeof PollerSetting>;
 
 /**
- * generated from [SetPollerSettingRequest](file://./../../data/contracts/settings.ck#L44)
+ * generated from [SetPollerSettingRequest](../../data/contracts/settings.ck)
  */
 export const SetPollerSettingRequest = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -44,36 +44,36 @@ export type SetPollerSettingRequest = z.infer<typeof SetPollerSettingRequest>;
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [PollerInterval](file://./../../data/contracts/settings.ck#L50)
+ * generated from [PollerInterval](../../data/contracts/settings.ck)
  */
 export const PollerInterval = z.strictObject({
-    intervalMs: z.coerce.number().int(),
+    intervalMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type PollerInterval = z.infer<typeof PollerInterval>;
 
 /**
- * generated from [SetPollerIntervalRequest](file://./../../data/contracts/settings.ck#L54)
+ * generated from [SetPollerIntervalRequest](../../data/contracts/settings.ck)
  */
 export const SetPollerIntervalRequest = z.strictObject({
-    intervalMs: z.coerce.number().int(),
+    intervalMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type SetPollerIntervalRequest = z.infer<typeof SetPollerIntervalRequest>;
 
 /**
  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
- * generated from [CardStageConcurrency](file://./../../data/contracts/settings.ck#L60)
+ * generated from [CardStageConcurrency](../../data/contracts/settings.ck)
  */
 export const CardStageConcurrency = z.strictObject({
-    concurrency: z.coerce.number().int(),
+    concurrency: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type CardStageConcurrency = z.infer<typeof CardStageConcurrency>;
 
 /**
- * generated from [SetCardStageConcurrencyRequest](file://./../../data/contracts/settings.ck#L64)
+ * generated from [SetCardStageConcurrencyRequest](../../data/contracts/settings.ck)
  */
 export const SetCardStageConcurrencyRequest = z.strictObject({
-    concurrency: z.coerce.number().int(),
+    concurrency: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type SetCardStageConcurrencyRequest = z.infer<typeof SetCardStageConcurrencyRequest>;
 
@@ -82,7 +82,7 @@ export type SetCardStageConcurrencyRequest = z.infer<typeof SetCardStageConcurre
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
  * card in its payload (`board.config.ts`'s own comment on the pair).
- * generated from [NotifyWebhookSetting](file://./../../data/contracts/settings.ck#L147)
+ * generated from [NotifyWebhookSetting](../../data/contracts/settings.ck)
  */
 export const NotifyWebhookSetting = z.strictObject({
     webhookUrl: z.string().nullable(),
@@ -91,7 +91,7 @@ export const NotifyWebhookSetting = z.strictObject({
 export type NotifyWebhookSetting = z.infer<typeof NotifyWebhookSetting>;
 
 /**
- * generated from [SetNotifyWebhookSettingRequest](file://./../../data/contracts/settings.ck#L152)
+ * generated from [SetNotifyWebhookSettingRequest](../../data/contracts/settings.ck)
  */
 export const SetNotifyWebhookSettingRequest = z.strictObject({
     webhookUrl: z.string().nullable(),
@@ -110,7 +110,7 @@ export type SetNotifyWebhookSettingRequest = z.infer<typeof SetNotifyWebhookSett
  * directory exists, is writable, or holds working credentials is deliberately not this card's
  * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
  * stage failing at the model call, not by a check here guessing at what "working" means.
- * generated from [ClaudeConfigDirSetting](file://./../../data/contracts/settings.ck#L195)
+ * generated from [ClaudeConfigDirSetting](../../data/contracts/settings.ck)
  */
 export const ClaudeConfigDirSetting = z.strictObject({
     configDir: z.string().nullable(),
@@ -118,7 +118,7 @@ export const ClaudeConfigDirSetting = z.strictObject({
 export type ClaudeConfigDirSetting = z.infer<typeof ClaudeConfigDirSetting>;
 
 /**
- * generated from [SetClaudeConfigDirSettingRequest](file://./../../data/contracts/settings.ck#L199)
+ * generated from [SetClaudeConfigDirSettingRequest](../../data/contracts/settings.ck)
  */
 export const SetClaudeConfigDirSettingRequest = z.strictObject({
     configDir: z.string().nullable(),
@@ -130,7 +130,7 @@ export type SetClaudeConfigDirSettingRequest = z.infer<typeof SetClaudeConfigDir
  * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
  * (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
  * is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
- * generated from [DryRunSetting](file://./../../data/contracts/settings.ck#L234)
+ * generated from [DryRunSetting](../../data/contracts/settings.ck)
  */
 export const DryRunSetting = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -138,9 +138,22 @@ export const DryRunSetting = z.strictObject({
 export type DryRunSetting = z.infer<typeof DryRunSetting>;
 
 /**
- * generated from [SetDryRunSettingRequest](file://./../../data/contracts/settings.ck#L238)
+ * generated from [SetDryRunSettingRequest](../../data/contracts/settings.ck)
  */
 export const SetDryRunSettingRequest = z.strictObject({
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
 });
 export type SetDryRunSettingRequest = z.infer<typeof SetDryRunSettingRequest>;
+
+/**
+ * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
+ * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
+ * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
+ * generated from [ChatEngineSetting](../../data/contracts/settings.ck)
+ */
+export const ChatEngineSetting = z.strictObject({
+    engine: z.enum(['api', 'cli']),
+    provider: z.enum(['anthropic', 'openai', 'xai']),
+    model: z.string(),
+});
+export type ChatEngineSetting = z.infer<typeof ChatEngineSetting>;

@@ -81,11 +81,11 @@ describe('an unmatched URL', () => {
         expect(await screen.findByText('Page not found')).toBeTruthy();
     });
 
-    it('links back to the dashboard at /', async () => {
+    it('links back to the dashboard at /projects', async () => {
         renderApp('/this/path/does/not/exist');
 
         const home = (await screen.findByRole('link', { name: 'Back to the dashboard' })) as HTMLAnchorElement;
-        expect(home.getAttribute('href')).toBe('/');
+        expect(home.getAttribute('href')).toBe('/projects');
     });
 
     it('actually navigates home on click, not just a link that looks right', async () => {
@@ -93,7 +93,7 @@ describe('an unmatched URL', () => {
 
         fireEvent.click(await screen.findByRole('link', { name: 'Back to the dashboard' }));
 
-        await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+        await waitFor(() => expect(router.state.location.pathname).toBe('/projects'));
         expect(await screen.findByRole('link', { name: 'demo' })).toBeTruthy();
     });
 });

@@ -2,14 +2,17 @@ import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import { BoardModule } from './board/board.module.js';
+import { ChatModule } from './chat/chat.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
+import { HostModule } from './host/host.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { PolicyModule } from './policy/policy.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SourcesModule } from './sources/sources.module.js';
 import { StagesModule } from './stages/stages.module.js';
@@ -45,6 +48,10 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * Policy and then Authentication are listed right after Sources: `AuthenticationSessionService`
  * stores sessions through the `CacheProvider` that Sources registers, and `PasswordFactorService`
  * asks `PolicyService` whether a password may be stored.
+ *
+ * Mcp is listed after every module whose service a contract operation calls: its catalog handlers
+ * resolve those services per call, not at registration, so this too is for a reader rather than
+ * for the container. Chat follows it, since the chat reaches the board through that catalog.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
@@ -56,10 +63,13 @@ export const modules: ServerKitModule[] = [
     ContextModule,
     HealthModule,
     LeaseModule,
+    HostModule,
     WorktreeModule,
     AgentModule,
     StagesModule,
     LearningsModule,
     SettingsModule,
+    McpModule,
+    ChatModule,
     JobsModule,
 ];

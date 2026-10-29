@@ -7,11 +7,12 @@ import type {
     VerifyAuthenticatorRequest,
     VerifyPasskeyRequest,
 } from './types/factors.js';
+import { reviveSecondFactorSummary } from './types/factors.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
 /**
- * generated from [factors.ck](file://./../../../apps/api/data/contracts/factors.ck)
+ * generated from [factors.ck](../../../apps/api/data/contracts/factors.ck)
  */
 export class FactorsClient {
     constructor(private fetch: SdkFetch) {}
@@ -19,7 +20,7 @@ export class FactorsClient {
     /** @name List second factors */
     async listSecondFactors(): Promise<SecondFactorSummary[]> {
         const result = await this.fetch(`/api/auth/factors`, { method: 'GET' });
-        return await parseJson<SecondFactorSummary[]>(result);
+        return (await parseJson<SecondFactorSummary[]>(result)).map(reviveSecondFactorSummary);
     }
 
     /** @name Start enrolling an authenticator app */
@@ -39,7 +40,7 @@ export class FactorsClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<SecondFactorSummary>(result);
+        return reviveSecondFactorSummary(await parseJson<SecondFactorSummary>(result));
     }
 
     /** @name Start enrolling a passkey */
@@ -59,7 +60,7 @@ export class FactorsClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<SecondFactorSummary>(result);
+        return reviveSecondFactorSummary(await parseJson<SecondFactorSummary>(result));
     }
 
     /** @name Remove a second factor */

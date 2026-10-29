@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as HostsRouteImport } from './routes/hosts'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
 import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
@@ -20,9 +22,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HostsRoute = HostsRouteImport.update({
+  id: '/hosts',
+  path: '/hosts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
@@ -44,14 +56,18 @@ const ProjectsProjectCardsCardIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -59,7 +75,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
@@ -68,21 +86,27 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/hosts'
     | '/settings'
+    | '/projects/'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/hosts'
     | '/settings'
+    | '/projects'
     | '/projects/$project/flagged'
     | '/projects/$project'
     | '/projects/$project/cards/$cardId'
   id:
     | '__root__'
     | '/'
+    | '/hosts'
     | '/settings'
+    | '/projects/'
     | '/projects/$project/flagged'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
@@ -90,7 +114,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  HostsRoute: typeof HostsRoute
   SettingsRoute: typeof SettingsRoute
+  ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
   ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
   ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
@@ -105,11 +131,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/hosts': {
+      id: '/hosts'
+      path: '/hosts'
+      fullPath: '/hosts'
+      preLoaderRoute: typeof HostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$project/': {
@@ -138,7 +178,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  HostsRoute: HostsRoute,
   SettingsRoute: SettingsRoute,
+  ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
   ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
   ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,

@@ -6,7 +6,7 @@ import { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, Update
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [projects.ck](file://./../../data/contracts/projects.ck)
+ * generated from [projects.ck](../../data/contracts/projects.ck)
  */
 export const ProjectsRouter = ServerKitRouter();
 
@@ -16,7 +16,7 @@ export const ProjectsRouter = ServerKitRouter();
  * falls back to the daemon's own configured project and calls `next`, the same as every other route
  * on this surface. That catch-all is already correct for a route that lists every project, so no
  * exemption was added for it.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L99)
+ * from [projects.ck](../../data/contracts/projects.ck) `GET /api/projects`
  */
 ProjectsRouter.get('/api/projects', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(ProjectsService);
@@ -33,7 +33,7 @@ ProjectsRouter.get('/api/projects', requirePolicy({ policy: 'wilson.view' }), as
  * unauthenticated read surface on purpose; echoing them back from a write would reverse that
  * quietly, for a caller that already has them. `ProjectsService.create` is where the path
  * validation and the duplicate-name refusal live.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L116)
+ * from [projects.ck](../../data/contracts/projects.ck) `POST /api/projects`
  */
 ProjectsRouter.post('/api/projects', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, CreateProjectRequest);
@@ -50,7 +50,7 @@ ProjectsRouter.post('/api/projects', requirePolicy({ policy: 'wilson.manage' }),
  * Not `put`. Fields present in the body are set; fields absent are left as they are — see
  * `UpdateProjectRequest`'s own comment, and `board.ck`'s `PATCH /api/cards/{id}` for the same
  * reasoning stated once and not repeated differently here.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L146)
+ * from [projects.ck](../../data/contracts/projects.ck) `PATCH /api/projects/{name}`
  */
 ProjectsRouter.patch('/api/projects/:name', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { name } = await parseAndValidate(
@@ -77,7 +77,7 @@ ProjectsRouter.patch('/api/projects/:name', requirePolicy({ policy: 'wilson.mana
  * and the operator can already read the disk as this user.
  * The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
  * Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
- * from [projects.ck](file://./../../data/contracts/projects.ck#L171)
+ * from [projects.ck](../../data/contracts/projects.ck) `GET /api/projects/directories`
  */
 ProjectsRouter.get('/api/projects/directories', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const query = await parseAndValidate(ctx.query, DirectoryQuery.strict());

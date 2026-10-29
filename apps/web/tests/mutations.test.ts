@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0037's `lib/mutations.ts` is new: `useMoveCard` and `useStartCard`, each a thin
@@ -552,7 +553,7 @@ describe('useAddPlanComment', () => {
         suffix: ' jumps over',
         text: 'nice catch',
         resolved: false,
-        createdAt: '2026-08-27T00:00:00.000Z',
+        createdAt: DateTime.fromISO('2026-08-27T00:00:00.000Z'),
     };
 
     it('sends the anchor and text straight through to addAPlanComment and resolves with the created comment', async () => {
@@ -627,7 +628,7 @@ describe('useResolvePlanComment', () => {
         suffix: '',
         text: 'nice catch',
         resolved: true,
-        createdAt: '2026-08-27T00:00:00.000Z',
+        createdAt: DateTime.fromISO('2026-08-27T00:00:00.000Z'),
     };
 
     it('resolves the comment by id through resolveAPlanComment', async () => {
@@ -877,11 +878,11 @@ describe('useAttachContext', () => {
     const snapshot: ContextSnapshot = {
         id: 'ctx-1',
         sourceUrl: 'https://example.com/doc',
-        fetchedAt: '2026-09-01T00:00:00.000Z',
+        fetchedAt: DateTime.fromISO('2026-09-01T00:00:00.000Z'),
         fetchedBy: 'human',
         content: 'the fetched body',
         contentHash: 'abc123',
-        createdAt: '2026-09-01T00:00:00.000Z',
+        createdAt: DateTime.fromISO('2026-09-01T00:00:00.000Z'),
     };
 
     it('sends the typed sourceUrl to attachContextToACard', async () => {
@@ -999,11 +1000,11 @@ describe('the context list invalidation predicate', () => {
         vi.spyOn(wilson.context, 'attachContextToACard').mockResolvedValue({
             id: 'ctx-1',
             sourceUrl: 'https://example.com/doc',
-            fetchedAt: '2026-09-01T00:00:00.000Z',
+            fetchedAt: DateTime.fromISO('2026-09-01T00:00:00.000Z'),
             fetchedBy: 'human',
             content: 'the fetched body',
             contentHash: 'abc123',
-            createdAt: '2026-09-01T00:00:00.000Z',
+            createdAt: DateTime.fromISO('2026-09-01T00:00:00.000Z'),
         });
         const queryClient = new QueryClient();
         queryClient.setQueryData(['project', 'demo', 'card', '0007', 'context'], []);

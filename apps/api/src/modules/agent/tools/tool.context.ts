@@ -1,5 +1,7 @@
 import type { Logger } from '@maroonedsoftware/logger';
 import type { EventLog } from '#modules/events/event.log.js';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 import type { CommandAllowlist } from '../command.allowlist.js';
 import type { ScopeGuard } from '../scope.guard.js';
 
@@ -29,7 +31,17 @@ export interface ToolContext {
      * range is configured — the default, and the only case most stages are in.
      */
     port?: number;
+    /**
+     * The machine `worktreeRoot` is on, which every tool reads, writes and runs commands through.
+     * Read it with `toolHost`, never directly. Optional for the same reason `StageDispatcher`'s
+     * `settings` is: the suite builds this object by hand in dozens of places, and every one of them
+     * means this machine. `StageDispatcher.runAgent` always sets it.
+     */
+    host?: ExecutionHost;
 }
+
+/** The host a tool's work goes through: the context's own, or this machine when it names none. */
+export const toolHost = (ctx: ToolContext): ExecutionHost => ctx.host ?? localHost;
 
 /** Raised when `request_scope` is refused under the `kickback` policy, to fail the stage. */
 export class ScopeKickbackError extends Error {

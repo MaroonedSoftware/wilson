@@ -5,12 +5,12 @@ import { CurrentSession, PasskeyChallenge, PasskeyChallengeRequest, TokenRequest
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [auth.ck](file://./../../data/contracts/auth.ck)
+ * generated from [auth.ck](../../data/contracts/auth.ck)
  */
 export const AuthRouter = ServerKitRouter();
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L83)
+ * from [auth.ck](../../data/contracts/auth.ck) `POST /api/auth/token`
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => {
@@ -28,7 +28,7 @@ AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => 
  * The passkey half of the second step: a challenge for the browser to sign, issued against the
  * sign-in the password started. `security: none`, like `token`: the pending sign-in's challenge is
  * what authorizes it, and it is good for one sign-in.
- * from [auth.ck](file://./../../data/contracts/auth.ck#L109)
+ * from [auth.ck](../../data/contracts/auth.ck) `POST /api/auth/passkey/challenge`
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/passkey/challenge', bodyParserMiddleware(['json']), async ctx => {
@@ -43,7 +43,7 @@ AuthRouter.post('/api/auth/passkey/challenge', bodyParserMiddleware(['json']), a
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L129)
+ * from [auth.ck](../../data/contracts/auth.ck) `GET /api/auth/session`
  */
 AuthRouter.get('/api/auth/session', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(CurrentSessionService);
@@ -55,7 +55,7 @@ AuthRouter.get('/api/auth/session', requirePolicy({ policy: 'wilson.view' }), as
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L147)
+ * from [auth.ck](../../data/contracts/auth.ck) `POST /api/auth/logout`
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/logout', async ctx => {

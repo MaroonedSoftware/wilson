@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * generated from [PasskeyRelyingParty](file://./../../data/contracts/passkey.types.ck#L6)
+ * generated from [PasskeyRelyingParty](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyRelyingParty = z.strictObject({
     id: z.string(),
@@ -10,7 +10,7 @@ export const PasskeyRelyingParty = z.strictObject({
 export type PasskeyRelyingParty = z.infer<typeof PasskeyRelyingParty>;
 
 /**
- * generated from [PasskeyUser](file://./../../data/contracts/passkey.types.ck#L11)
+ * generated from [PasskeyUser](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyUser = z.strictObject({
     id: z.string(),
@@ -20,16 +20,16 @@ export const PasskeyUser = z.strictObject({
 export type PasskeyUser = z.infer<typeof PasskeyUser>;
 
 /**
- * generated from [PasskeyKeyParam](file://./../../data/contracts/passkey.types.ck#L17)
+ * generated from [PasskeyKeyParam](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyKeyParam = z.strictObject({
     type: z.string(),
-    alg: z.coerce.number(),
+    alg: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number()),
 });
 export type PasskeyKeyParam = z.infer<typeof PasskeyKeyParam>;
 
 /**
- * generated from [PasskeyCredentialDescriptor](file://./../../data/contracts/passkey.types.ck#L22)
+ * generated from [PasskeyCredentialDescriptor](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyCredentialDescriptor = z.strictObject({
     type: z.string(),
@@ -39,7 +39,7 @@ export const PasskeyCredentialDescriptor = z.strictObject({
 export type PasskeyCredentialDescriptor = z.infer<typeof PasskeyCredentialDescriptor>;
 
 /**
- * generated from [PasskeyCredProps](file://./../../data/contracts/passkey.types.ck#L47)
+ * generated from [PasskeyCredProps](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyCredProps = z.strictObject({
     rk: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
@@ -47,7 +47,7 @@ export const PasskeyCredProps = z.strictObject({
 export type PasskeyCredProps = z.infer<typeof PasskeyCredProps>;
 
 /**
- * generated from [PasskeyAttestationResponse](file://./../../data/contracts/passkey.types.ck#L57)
+ * generated from [PasskeyAttestationResponse](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyAttestationResponse = z.strictObject({
     clientDataJSON: z.string(),
@@ -57,7 +57,7 @@ export const PasskeyAttestationResponse = z.strictObject({
 export type PasskeyAttestationResponse = z.infer<typeof PasskeyAttestationResponse>;
 
 /**
- * generated from [PasskeyAssertionResponse](file://./../../data/contracts/passkey.types.ck#L63)
+ * generated from [PasskeyAssertionResponse](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyAssertionResponse = z.strictObject({
     clientDataJSON: z.string(),
@@ -69,25 +69,25 @@ export type PasskeyAssertionResponse = z.infer<typeof PasskeyAssertionResponse>;
 
 /**
  * What `navigator.credentials.create` is called with, to make a passkey.
- * generated from [PasskeyCreationOptions](file://./../../data/contracts/passkey.types.ck#L29)
+ * generated from [PasskeyCreationOptions](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyCreationOptions = z.strictObject({
     rp: PasskeyRelyingParty,
     user: PasskeyUser,
     challenge: z.string(),
     pubKeyCredParams: z.array(PasskeyKeyParam),
-    timeout: z.coerce.number().optional(),
+    timeout: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number()).optional(),
     attestation: z.string(),
 });
 export type PasskeyCreationOptions = z.infer<typeof PasskeyCreationOptions>;
 
 /**
  * What `navigator.credentials.get` is called with, to prove one.
- * generated from [PasskeyRequestOptions](file://./../../data/contracts/passkey.types.ck#L39)
+ * generated from [PasskeyRequestOptions](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyRequestOptions = z.strictObject({
     challenge: z.string(),
-    timeout: z.coerce.number().optional(),
+    timeout: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number()).optional(),
     rpId: z.string().optional(),
     userVerification: z.string().optional(),
     allowCredentials: z.array(PasskeyCredentialDescriptor).optional(),
@@ -95,7 +95,7 @@ export const PasskeyRequestOptions = z.strictObject({
 export type PasskeyRequestOptions = z.infer<typeof PasskeyRequestOptions>;
 
 /**
- * generated from [PasskeyExtensionResults](file://./../../data/contracts/passkey.types.ck#L51)
+ * generated from [PasskeyExtensionResults](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyExtensionResults = z.strictObject({
     appid: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
@@ -106,7 +106,7 @@ export type PasskeyExtensionResults = z.infer<typeof PasskeyExtensionResults>;
 
 /**
  * A new passkey, as the browser made it.
- * generated from [PasskeyAttestationCredential](file://./../../data/contracts/passkey.types.ck#L71)
+ * generated from [PasskeyAttestationCredential](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyAttestationCredential = z.strictObject({
     id: z.string(),
@@ -120,7 +120,7 @@ export type PasskeyAttestationCredential = z.infer<typeof PasskeyAttestationCred
 
 /**
  * A passkey proving itself against a challenge.
- * generated from [PasskeyAssertionCredential](file://./../../data/contracts/passkey.types.ck#L81)
+ * generated from [PasskeyAssertionCredential](../../data/contracts/passkey.types.ck)
  */
 export const PasskeyAssertionCredential = z.strictObject({
     id: z.string(),

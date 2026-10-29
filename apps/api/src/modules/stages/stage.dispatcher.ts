@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
@@ -15,13 +15,15 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
+import { HostLostError, type RemotePlacement } from '#modules/host/placement.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
@@ -55,7 +57,9 @@ export type NotDispatchableReason =
     | { readonly kind: 'wrong-stage'; readonly actualStage: string }
     | { readonly kind: 'empty-scope' }
     | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] }
-    | { readonly kind: 'needs-human' };
+    | { readonly kind: 'needs-human' }
+    /** A `placement: remote` stage found no registered host free to take it. Deferred, not poisoned. */
+    | { readonly kind: 'no-host' };
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
@@ -250,6 +254,9 @@ export class StageDispatcher {
         // reaches — so a test that supplies none behaves exactly as it did before this card.
         // Production wiring (`stages.module.ts`'s `useClass`) always supplies the real one.
         private readonly learnings?: LearningsStore,
+        // Optional for the reason the three above are. Left undefined, every stage runs on this
+        // machine whatever its `placement` says, which is how every stage ran before hosts existed.
+        private readonly placer?: HostPlacer,
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
@@ -288,6 +295,60 @@ export class StageDispatcher {
             }
         }
 
+        // Before any worktree is cut: where it is cut is the placement. A `remote` stage with no host
+        // free is deferred, the same "not now" an unsatisfied dependency is.
+        const placed = this.placer ? await this.placer.place(this.config.project, cardId, stage) : undefined;
+        if (placed instanceof NoHostAvailable) {
+            throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} must run on a host, and ${placed.message}`);
+        }
+        if (!placed) {
+            return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+        }
+
+        // A stage on a host gives its worktree and slot back as soon as it ends, however it ends:
+        // the branch has already been fetched back if it passed, and anything uncommitted is saved
+        // to this machine's patch path, so nothing the next stage needs is left on the host. A slot
+        // held past its stage would keep the next card off a host with nothing running on it.
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'stage.placed',
+            payload: { host: placed.hostName, slot: placed.slotKey },
+        });
+        try {
+            return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed });
+        } catch (err) {
+            // Anything thrown on a host, from cutting the worktree to the commit, may be the host
+            // going away rather than the stage going wrong. Only a host that no longer answers turns
+            // it into a retry; one that answers leaves the error to mean what it says.
+            if (err instanceof HostLostError) throw err;
+            await this.throwIfHostLost(placed, cardId, stageName, (err as Error).message, err);
+            throw err;
+        } finally {
+            await this.worktrees.reclaim(cardId, placed).catch(err => {
+                this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
+            });
+        }
+    }
+
+    /**
+     * `run` from the worktree on: cut it (on `placement`'s host when there is one), prepare it, run
+     * the stage and record what happened. Split from `run` so a placed stage's cleanup wraps all of
+     * this, including a rebase conflict or a failed setup, in one `finally`.
+     */
+    private async runCut(input: {
+        cardId: string;
+        stageName: string;
+        stages: ProjectStages;
+        stage: StageConfig;
+        head: Card;
+        card: Card;
+        pinnedSha: string | undefined;
+        boardCards: Card[];
+        placement?: RemotePlacement;
+    }): Promise<StageOutcome> {
+        const { cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement } = input;
         const branch = this.worktrees.resolveBranch(head);
 
         // `base` means "start fresh if there is nothing to resume", not "always discard". A card
@@ -296,7 +357,13 @@ export class StageDispatcher {
         // already wrote. Since only a passing stage commits, a branch carrying work is by
         // construction the last state that satisfied an exit condition, so resuming is always safe.
         const resumable = stage.worktreeFrom === 'branch' || (await this.worktrees.hasWork(branch));
-        let worktree = resumable ? await this.worktrees.resume(cardId, branch) : await this.worktrees.create(cardId, branch);
+        let worktree = placement
+            ? resumable
+                ? await this.worktrees.resume(cardId, branch, placement)
+                : await this.worktrees.create(cardId, branch, undefined, placement)
+            : resumable
+              ? await this.worktrees.resume(cardId, branch)
+              : await this.worktrees.create(cardId, branch);
 
         // A resumed branch may be many merges behind. Left alone the stage implements against a tree
         // that no longer matches main, and neither its exit condition nor the review can distinguish
@@ -316,7 +383,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'worktree.created',
-            payload: { branch, baseSha: worktree.baseSha, path: worktree.path },
+            payload: { branch, baseSha: worktree.baseSha, path: worktree.path, ...(placement && { host: placement.hostName }) },
         });
 
         // Recorded only now, after the worktree above has actually landed — a branch recorded for a
@@ -347,7 +414,9 @@ export class StageDispatcher {
         // `PORT`, identical to every dispatch before this card. A `worktree: none` stage has no tree
         // to bind a dev server in, so it takes no lease at all, configured range or not.
         let port: number | undefined;
-        if (stage.worktree !== 'none' && this.settings && this.portAllocator) {
+        // A port lease is a port on this machine; a host's ports are its own, and nothing here
+        // allocates them, so a placed stage takes none.
+        if (stage.worktree !== 'none' && !placement && this.settings && this.portAllocator) {
             const range = await this.settings.get(DEV_SERVER_PORT_RANGE);
             if (range) {
                 const allocation = await this.portAllocator.acquire(range, this.config.project, cardId);
@@ -380,7 +449,7 @@ export class StageDispatcher {
             const failure = await pnpmStoreLock.run(
                 `${cardId} ${stageName} setup`,
                 message => this.logger.info(message),
-                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port),
+                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port, worktreeHost(worktree)),
                 waitedMs => {
                     installWaitedMs = waitedMs;
                 },
@@ -409,7 +478,10 @@ export class StageDispatcher {
             this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
-        const planPath = await this.materializePlan(card, pinnedSha, stages, stage);
+        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage);
+        // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
+        // under the host's run root, outside its worktree for the same reason the local one is.
+        const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath) : localPlanPath;
 
         // Card 0244: the project's human-approved learnings document, materialized outside the
         // worktree the same way the plan is — so it can never be committed to the card's branch
@@ -418,13 +490,14 @@ export class StageDispatcher {
         // comment) both mean no file is written and no path reaches the adapter at all — an empty
         // document means "no learnings", not an empty file to hand the agent.
         const learningsMarkdown = (await this.learnings?.load()) ?? '';
-        const learningsPath =
+        const localLearningsPath =
             learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
+        const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
 
         // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
         // for the file defining a type it is already using because something in scope imports it.
         const scoped = [...filesInScope(card), ...stage.extraScope];
-        const collateral = await collateralPaths(worktree.path, scoped);
+        const collateral = await collateralPaths(worktree.path, scoped, worktreeHost(worktree));
 
         // Every card's preserved patch, not just this one's (card 0161): a split card's plan
         // routinely names its parent's `last-failed-attempt.patch` as the single most useful
@@ -434,7 +507,13 @@ export class StageDispatcher {
         // most of these paths do not exist, and an unconditional grant just lets that read fail with
         // an ordinary "no such file" — the same as any other in-scope path that happens to be
         // absent — rather than the scope refusal this card exists to remove.
-        const preservedPatchPaths = boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
+        //
+        // A placed stage gets its own card's patch only, copied to the host when there is one: the
+        // rest live on this machine, and copying every card's would cost a round trip per card for
+        // files that mostly do not exist.
+        const preservedPatchPaths = placement
+            ? await this.mirrorOwnPatch(placement, cardId)
+            : boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
 
         const scope = new ScopeGuard({
             worktreeRoot: worktree.path,
@@ -448,6 +527,7 @@ export class StageDispatcher {
             // `learningsPath` joins them on the same footing, present only when the document is
             // non-empty — see its own comment above.
             readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
+            host: worktreeHost(worktree),
         });
 
         await this.events.append({
@@ -476,11 +556,21 @@ export class StageDispatcher {
             }
             const outcome = withCollateralCaveats(ran, collateralHits);
 
+            // A stage that failed on a host whose engine or tools lost their connection failed for
+            // a reason that is not the card's. Checked before anything is committed or transitioned,
+            // so a lost host never costs the card a kickback.
+            if (placement && !outcome.passed) {
+                await this.throwIfHostLost(placement, cardId, stageName, outcome.failures.join('; ') || 'the stage did not pass');
+            }
+
             // Only a passing stage commits. A failed stage leaves its work in the worktree for
             // inspection, and the next attempt starts from the base rather than building on a tree
             // that did not satisfy its exit condition.
             if (outcome.passed) {
                 const sha = await this.worktrees.commit(worktree, `${cardId}: ${stageName}\n\n${describe(outcome.result)}`);
+                // Before the transition below is written: a stage recorded as passed on a host must
+                // have its work here, where the next stage and the merge will look for it.
+                if (sha && worktree.placement) await this.worktrees.fetchBack(worktree);
                 if (sha) {
                     await this.events.append({
                         project: this.config.project,
@@ -902,10 +992,46 @@ export class StageDispatcher {
         return path;
     }
 
+    /**
+     * Throw a `HostLostError` when `placement`'s host no longer answers, after marking it failed and
+     * recording why. Returns quietly when it answers: then whatever went wrong is the stage's own.
+     */
+    private async throwIfHostLost(placement: RemotePlacement, cardId: string, stageName: string, reason: string, cause?: unknown): Promise<void> {
+        if (!this.placer || (await this.placer.isAlive(placement))) return;
+        await this.placer.markLost(placement, `${cardId} ${stageName}: ${reason}`);
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'stage.host-lost',
+            payload: { host: placement.hostName, reason },
+        });
+        throw new HostLostError(placement.hostName, reason, { cause });
+    }
+
+    /** Copy a file materialized here to the same card's folder under the host's run root. */
+    private async mirrorToHost(placement: RemotePlacement, cardId: string, localPath: string): Promise<string> {
+        const dir = posix.join(placement.runRoot, 'cards', cardId);
+        const remotePath = posix.join(dir, posix.basename(localPath));
+        await placement.host.mkdir(dir);
+        await placement.host.writeFile(remotePath, await readFile(localPath, 'utf8'));
+        return remotePath;
+    }
+
+    /** This card's last preserved patch, copied to the host, as a one-entry list; empty when it has none. */
+    private async mirrorOwnPatch(placement: RemotePlacement, cardId: string): Promise<string[]> {
+        const local = this.worktrees.failedAttemptPatchPath(cardId);
+        const exists = await readFile(local, 'utf8').then(
+            () => true,
+            () => false,
+        );
+        return exists ? [await this.mirrorToHost(placement, cardId, local)] : [];
+    }
+
     private async runAgent(input: {
         card: Card;
         stage: StageConfig;
-        worktree: Awaited<ReturnType<WorktreeManager['create']>>;
+        worktree: Worktree;
         scope: ScopeGuard;
         planPath: string;
         /** Set only when the project's learnings document is non-empty — see `materializeLearnings`. */
@@ -927,6 +1053,7 @@ export class StageDispatcher {
             // exactly as it did before this field existed (`stage.config.ts`).
             scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
             port,
+            host: worktreeHost(worktree),
             events: this.events,
             logger: this.logger,
         };

@@ -1,9 +1,10 @@
 import type { AttachContextRequest, ContextSnapshot } from './types/context.js';
+import { reviveContextSnapshot } from './types/context.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
 /**
- * generated from [context.ck](file://./../../../apps/api/data/contracts/context.ck)
+ * generated from [context.ck](../../../apps/api/data/contracts/context.ck)
  */
 export class ContextClient {
     constructor(private fetch: SdkFetch) {}
@@ -15,13 +16,13 @@ export class ContextClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<ContextSnapshot>(result);
+        return reviveContextSnapshot(await parseJson<ContextSnapshot>(result));
     }
 
     /** @name List card context */
     async listCardContext(id: string): Promise<ContextSnapshot[]> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/context`, { method: 'GET' });
-        return await parseJson<ContextSnapshot[]>(result);
+        return (await parseJson<ContextSnapshot[]>(result)).map(reviveContextSnapshot);
     }
 
     /**

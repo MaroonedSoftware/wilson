@@ -1,8 +1,7 @@
-import { stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
-import type { ToolContext } from './tool.context.js';
+import { toolHost, type ToolContext } from './tool.context.js';
 
 /**
  * Delete one file in the worktree.
@@ -34,11 +33,13 @@ export const deleteFile = async (ctx: ToolContext, path: string): Promise<string
     }
 
     const absolute = join(ctx.worktreeRoot, decision.path);
-    const info = await stat(absolute).catch((err: Error) => err);
+    const info = await toolHost(ctx)
+        .stat(absolute)
+        .catch((err: Error) => err);
     if (info instanceof Error) return `error: could not delete ${decision.path}: ${info.message}`;
-    if (info.isDirectory()) return `error: ${decision.path} is a directory; delete takes a single file, not a directory`;
+    if (info.isDirectory) return `error: ${decision.path} is a directory; delete takes a single file, not a directory`;
 
-    await unlink(absolute);
+    await toolHost(ctx).unlink(absolute);
     await ctx.events.append({
         project: ctx.project,
         cardId: ctx.cardId,

@@ -1,9 +1,18 @@
-import { readFile, rm, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { createSdkMcpServer, query, tool, type CanUseTool, type HookCallback, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import {
+    createSdkMcpServer,
+    query,
+    tool,
+    type CanUseTool,
+    type HookCallback,
+    type PermissionResult,
+    type SpawnedProcess,
+    type SpawnOptions,
+} from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
@@ -12,7 +21,7 @@ import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { deleteFile } from './tools/delete.tool.js';
 import { requestScope } from './tools/scope.tool.js';
-import type { ToolContext } from './tools/index.js';
+import { toolHost, type ToolContext } from './tools/index.js';
 
 /**
  * The environment the engine runs with, minus any provider API key.
@@ -61,8 +70,22 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
         // away from a stage. A prefix for `AUTH_`, for `DATABASE_`'s reason.
         if (key.startsWith('AUTH_') || key === 'WILSON_API_KEY') delete env[key];
     }
+    // The token a remote engine signs in with (`HostConnector`). It reaches a host over stdin, never
+    // by way of this environment, and the engine here has no use for it.
+    delete env.REMOTE_CLAUDE_CODE_OAUTH_TOKEN;
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
+};
+
+/**
+ * The `query()` options that start the engine on `host` rather than here: the binary named plainly so
+ * the SDK passes its flags straight through (it treats anything not ending in `.js` as a native
+ * binary), and the host's own spawn. Nothing for a host without `spawnClaude`.
+ */
+const remoteEngine = (host: ExecutionHost): { pathToClaudeCodeExecutable?: string; spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess } => {
+    const spawnClaude = host.spawnClaude?.bind(host);
+    if (!spawnClaude) return {};
+    return { pathToClaudeCodeExecutable: 'claude', spawnClaudeCodeProcess: options => spawnClaude(options) as SpawnedProcess };
 };
 
 /**
@@ -235,7 +258,7 @@ export class CliStageAgent extends StageAgent {
 
                         let text: string;
                         try {
-                            text = await readFile(join(context.worktreeRoot, decision.path), 'utf8');
+                            text = await toolHost(context).readFile(join(context.worktreeRoot, decision.path));
                         } catch (err) {
                             const message = `error: could not read ${decision.path}: ${(err as Error).message}`;
                             this.logger.warn(`report_result: ${message}`);
@@ -493,6 +516,11 @@ export class CliStageAgent extends StageAgent {
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
                 env: subscriptionEnv(configDir),
+                // A worktree on another machine needs the engine there too: its built-in tools read
+                // and write the tree directly. The host starts `claude` from its own PATH, and the
+                // SDK's callbacks above still run here, over the same stdio. A host with no
+                // `spawnClaude` is this machine, where the SDK's own spawn is already right.
+                ...remoteEngine(toolHost(context)),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
                 stderr: (data: string) => {
@@ -842,8 +870,12 @@ export class CliStageAgent extends StageAgent {
             // treatment, recursively — it may hold anything the stage wrote for its own inspection,
             // and letting any of it survive would turn SCRATCH_PREFIX into a second, uncontrolled
             // `alwaysAllowed` entry instead of the throwaway path it is meant to be.
-            await unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
-            await rm(join(context.worktreeRoot, SCRATCH_PREFIX), { recursive: true, force: true }).catch(() => {});
+            await toolHost(context)
+                .unlink(join(context.worktreeRoot, REPORT_RESULT_PATH))
+                .catch(() => {});
+            await toolHost(context)
+                .removeTree(join(context.worktreeRoot, SCRATCH_PREFIX))
+                .catch(() => {});
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher

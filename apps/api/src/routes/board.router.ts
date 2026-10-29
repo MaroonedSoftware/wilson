@@ -39,12 +39,12 @@ import {
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [board.ck](file://./../../data/contracts/board.ck)
+ * generated from [board.ck](../../data/contracts/board.ck)
  */
 export const BoardRouter = ServerKitRouter();
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L400)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards`
  */
 BoardRouter.get('/api/cards', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(BoardService);
@@ -56,7 +56,7 @@ BoardRouter.get('/api/cards', requirePolicy({ policy: 'wilson.view' }), async ct
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L412)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards`
  */
 BoardRouter.post('/api/cards', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, CreateCardRequest);
@@ -70,7 +70,7 @@ BoardRouter.post('/api/cards', requirePolicy({ policy: 'wilson.manage' }), bodyP
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L430)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}`
  */
 BoardRouter.get('/api/cards/:id', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -92,7 +92,7 @@ BoardRouter.get('/api/cards/:id', requirePolicy({ policy: 'wilson.view' }), asyn
  * Not `put`. This is a partial update — only the body changes, frontmatter is not editable here
  * (decision 5: stage, branch, retries are runner state; `move` is the recorded way to override
  * stage) — which is exactly what `patch` means and `put`, a full replace, does not.
- * from [board.ck](file://./../../data/contracts/board.ck#L446)
+ * from [board.ck](../../data/contracts/board.ck) `PATCH /api/cards/{id}`
  */
 BoardRouter.patch('/api/cards/:id', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -125,7 +125,7 @@ BoardRouter.patch('/api/cards/:id', requirePolicy({ policy: 'wilson.manage' }), 
  * recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
  * them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
  * above is allowed to touch `body` freely.
- * from [board.ck](file://./../../data/contracts/board.ck#L477)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/rename`
  */
 BoardRouter.post('/api/cards/:id/rename', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -151,7 +151,7 @@ BoardRouter.post('/api/cards/:id/rename', requirePolicy({ policy: 'wilson.manage
  * 0080's other five mutations — depend, ack, approve, start, release — are transitions of exactly
  * this shape. `POST .../move` establishes that convention once so five more operations can copy it
  * rather than each inventing its own.
- * from [board.ck](file://./../../data/contracts/board.ck#L508)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/move`
  */
 BoardRouter.post('/api/cards/:id/move', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -179,7 +179,7 @@ BoardRouter.post('/api/cards/:id/move', requirePolicy({ policy: 'wilson.manage' 
  * reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
  * card three rows down did not change what the runner will do with it. Follows the same sub-resource
  * shape `move` established above.
- * from [board.ck](file://./../../data/contracts/board.ck#L537)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/reposition`
  */
 BoardRouter.post('/api/cards/:id/reposition', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -204,7 +204,7 @@ BoardRouter.post('/api/cards/:id/reposition', requirePolicy({ policy: 'wilson.ma
  * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
  * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
  * `EditCardRequest` replaces `body`.
- * from [board.ck](file://./../../data/contracts/board.ck#L564)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/depend`
  */
 BoardRouter.post('/api/cards/:id/depend', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -225,7 +225,7 @@ BoardRouter.post('/api/cards/:id/depend', requirePolicy({ policy: 'wilson.manage
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L587)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/ack`
  */
 BoardRouter.post('/api/cards/:id/ack', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -244,7 +244,7 @@ BoardRouter.post('/api/cards/:id/ack', requirePolicy({ policy: 'wilson.manage' }
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L606)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/approve`
  */
 BoardRouter.post('/api/cards/:id/approve', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -263,7 +263,7 @@ BoardRouter.post('/api/cards/:id/approve', requirePolicy({ policy: 'wilson.manag
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L625)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/start`
  */
 BoardRouter.post('/api/cards/:id/start', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -282,7 +282,7 @@ BoardRouter.post('/api/cards/:id/start', requirePolicy({ policy: 'wilson.manage'
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L644)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/release`
  */
 BoardRouter.post('/api/cards/:id/release', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -306,7 +306,7 @@ BoardRouter.post('/api/cards/:id/release', requirePolicy({ policy: 'wilson.manag
  * why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
  * Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
  * was, this endpoint just performs what a human used to type by hand.
- * from [board.ck](file://./../../data/contracts/board.ck#L668)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/merge`
  */
 BoardRouter.post('/api/cards/:id/merge', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -328,7 +328,7 @@ BoardRouter.post('/api/cards/:id/merge', requirePolicy({ policy: 'wilson.manage'
  * Card 0113. Reads without writing: renders the division a client would confirm, before anything is
  * created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
  * empty confirmation prompt.
- * from [board.ck](file://./../../data/contracts/board.ck#L691)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/division`
  */
 BoardRouter.get('/api/cards/:id/division', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -353,7 +353,7 @@ BoardRouter.get('/api/cards/:id/division', requirePolicy({ policy: 'wilson.view'
  * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
  * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
  * already confirmed.
- * from [board.ck](file://./../../data/contracts/board.ck#L720)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/split`
  */
 BoardRouter.post('/api/cards/:id/split', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -379,7 +379,7 @@ BoardRouter.post('/api/cards/:id/split', requirePolicy({ policy: 'wilson.manage'
  * line — and reports what it finds. Read-only, like `division` above: nothing here blocks `approve`
  * or any other transition (see `PlanLintService`'s own doc comment for why), so a client is free to
  * call this whenever it wants a second opinion, not only right before approving.
- * from [board.ck](file://./../../data/contracts/board.ck#L747)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/lint`
  */
 BoardRouter.get('/api/cards/:id/lint', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -401,7 +401,7 @@ BoardRouter.get('/api/cards/:id/lint', requirePolicy({ policy: 'wilson.view' }),
  * Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
  * refuses one whose real branch already has work (re-planning a card with code on it is a different,
  * more dangerous operation). Cuts nothing on a refusal.
- * from [board.ck](file://./../../data/contracts/board.ck#L769)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/open`
  */
 BoardRouter.post('/api/cards/:id/plan/open', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -427,7 +427,7 @@ BoardRouter.post('/api/cards/:id/plan/open', requirePolicy({ policy: 'wilson.man
  * operation here), and reusing it for "no draft yet" would leave a client unable to tell the two
  * apart without inspecting `details`. [[0138]] renders an empty draft the same way it renders any
  * other, with no special-case error path for a state that is completely normal.
- * from [board.ck](file://./../../data/contracts/board.ck#L793)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/plan/draft`
  */
 BoardRouter.get('/api/cards/:id/plan/draft', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -451,7 +451,7 @@ BoardRouter.get('/api/cards/:id/plan/draft', requirePolicy({ policy: 'wilson.vie
  * can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
  * (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
  * unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
- * from [board.ck](file://./../../data/contracts/board.ck#L817)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/save`
  */
 BoardRouter.post('/api/cards/:id/plan/save', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -475,7 +475,7 @@ BoardRouter.post('/api/cards/:id/plan/save', requirePolicy({ policy: 'wilson.man
  * Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
  * and safe to call for a session that opened but was never saved — because that is exactly what a CLI
  * dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
- * from [board.ck](file://./../../data/contracts/board.ck#L841)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/close`
  */
 BoardRouter.post('/api/cards/:id/plan/close', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -498,7 +498,7 @@ BoardRouter.post('/api/cards/:id/plan/close', requirePolicy({ policy: 'wilson.ma
  * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
  * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
  * real branch already has work.
- * from [board.ck](file://./../../data/contracts/board.ck#L860)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/turn`
  */
 BoardRouter.post('/api/cards/:id/plan/turn', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -523,7 +523,7 @@ BoardRouter.post('/api/cards/:id/plan/turn', requirePolicy({ policy: 'wilson.man
  * already captured plus what the person said. Comments never touch `plan.md`, a card version or
  * the card body (PROJECT.md: only the resulting plan text binds downstream stages); they reach the
  * agent only as anchored instructions prepended to the card's next `POST .../plan/turn`.
- * from [board.ck](file://./../../data/contracts/board.ck#L884)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/comments`
  */
 BoardRouter.post('/api/cards/:id/plan/comments', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -548,7 +548,7 @@ BoardRouter.post('/api/cards/:id/plan/comments', requirePolicy({ policy: 'wilson
  * already captured plus what the person said. Comments never touch `plan.md`, a card version or
  * the card body (PROJECT.md: only the resulting plan text binds downstream stages); they reach the
  * agent only as anchored instructions prepended to the card's next `POST .../plan/turn`.
- * from [board.ck](file://./../../data/contracts/board.ck#L897)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/plan/comments`
  */
 BoardRouter.get('/api/cards/:id/plan/comments', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -570,7 +570,7 @@ BoardRouter.get('/api/cards/:id/plan/comments', requirePolicy({ policy: 'wilson.
  * Card 0146. Marks one comment resolved — a state the comment moves through, not a delete; it
  * stays on record afterward, readable from `GET .../plan/comments`. The same 404 covers either id
  * not existing — the card, or a comment id not belonging to it.
- * from [board.ck](file://./../../data/contracts/board.ck#L920)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/comments/{commentId}/resolve`
  */
 BoardRouter.post('/api/cards/:id/plan/comments/:commentId/resolve', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id, commentId } = await parseAndValidate(
@@ -590,7 +590,7 @@ BoardRouter.post('/api/cards/:id/plan/comments/:commentId/resolve', requirePolic
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L936)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/events`
  */
 BoardRouter.get('/api/cards/:id/events', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -616,7 +616,7 @@ BoardRouter.get('/api/cards/:id/events', requirePolicy({ policy: 'wilson.view' }
  * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
  * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
  * surface gives.
- * from [board.ck](file://./../../data/contracts/board.ck#L960)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/usage`
  */
 BoardRouter.get('/api/cards/:id/usage', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -641,7 +641,7 @@ BoardRouter.get('/api/cards/:id/usage', requirePolicy({ policy: 'wilson.view' })
  * `main` gained since the fork as a deletion this card never made. Nothing here cuts, resumes or
  * reclaims a worktree; the branch's own history in `codeRoot`'s object database is enough to answer
  * this, so the endpoint still answers for a card whose worktree was already reclaimed.
- * from [board.ck](file://./../../data/contracts/board.ck#L985)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/diff`
  */
 BoardRouter.get('/api/cards/:id/diff', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -668,7 +668,7 @@ BoardRouter.get('/api/cards/:id/diff', requirePolicy({ policy: 'wilson.view' }),
  * code change. Not a runner kickback: `retries` is left untouched (this is not a stage failing, it
  * is a human's review) and the event's `by` is `'human'`, the same convention `move` uses for an
  * operator-initiated transition.
- * from [board.ck](file://./../../data/contracts/board.ck#L1017)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/findings`
  */
 BoardRouter.post('/api/cards/:id/findings', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -689,7 +689,7 @@ BoardRouter.post('/api/cards/:id/findings', requirePolicy({ policy: 'wilson.mana
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L1039)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/versions`
  */
 BoardRouter.get('/api/cards/:id/versions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -710,7 +710,7 @@ BoardRouter.get('/api/cards/:id/versions', requirePolicy({ policy: 'wilson.view'
 });
 
 /**
- * from [board.ck](file://./../../data/contracts/board.ck#L1055)
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/stages`
  */
 BoardRouter.get('/api/stages', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(StagesService);
@@ -726,7 +726,7 @@ BoardRouter.get('/api/stages', requirePolicy({ policy: 'wilson.view' }), async c
  * `runner.stage_configs` row holding the default document. This used to scaffold the sibling board
  * repo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config
  * included, so the row is all there is to initialise, and no path is involved.
- * from [board.ck](file://./../../data/contracts/board.ck#L1074)
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/board/init`
  */
 BoardRouter.post('/api/board/init', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const service = ctx.container.get(BoardBootstrapService);

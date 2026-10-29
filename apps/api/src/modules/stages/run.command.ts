@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import type { ExecFailure, ExecutionHost } from '#modules/host/execution.host.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 import { Mutex } from '#shared/mutex.js';
-
-const exec = promisify(execFile);
 
 export interface CommandFailure {
     reason: string;
@@ -50,21 +48,29 @@ export const scrubbedEnv = (port?: number): NodeJS.ProcessEnv => {
  * `port` is threaded straight through to `scrubbedEnv` (card 0027) — optional and defaulting to
  * `undefined`, so the exit-condition verifiers, which never have a port to give, are unaffected.
  * Only `StageDispatcher`'s `setupCommand` call passes one, and only when a range is configured.
+ *
+ * `host` is the machine `cwd` is on: a caller with a `Worktree` passes `worktreeHost(worktree)`, so
+ * the command runs where the tree is. Defaults to this machine, which every caller meant before it
+ * existed.
  */
 export const runConfiguredCommand = async (
     cwd: string,
     command: string,
     timeoutMs = 10 * 60 * 1000,
     port?: number,
+    host: ExecutionHost = localHost,
 ): Promise<CommandFailure | undefined> => {
     const [file, ...args] = command.trim().split(/\s+/).filter(Boolean);
     if (!file) return { reason: 'configured command is empty' };
 
     try {
-        await exec(file, args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv(port) });
+        // `hostEnv`: what the host says its own environment supplies to configured commands (a
+        // package token on an agent VM). Only here, never in the bash tool: those are the setup and
+        // test commands' business, not the agent's.
+        await host.exec(file, args, { cwd, timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv(port), hostEnv: host.commandEnv });
         return undefined;
     } catch (err) {
-        const e = err as Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean };
+        const e = err as ExecFailure;
         if (e.killed) return { reason: `\`${command}\` timed out` };
         const output = [e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n').slice(-4000);
         return { reason: `\`${command}\` failed (exit ${e.code ?? 'unknown'})\n${output}` };

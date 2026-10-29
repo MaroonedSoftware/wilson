@@ -1,5 +1,6 @@
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
+import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
@@ -7,6 +8,7 @@ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
     CardStageConcurrency,
+    ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
     NotifyWebhookSetting,
@@ -22,12 +24,12 @@ import {
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [settings.ck](file://./../../data/contracts/settings.ck)
+ * generated from [settings.ck](../../data/contracts/settings.ck)
  */
 export const SettingsRouter = ServerKitRouter();
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L69)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/poller-enabled`
  */
 SettingsRouter.get('/api/settings/poller-enabled', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(PollerSettingService);
@@ -39,7 +41,7 @@ SettingsRouter.get('/api/settings/poller-enabled', requirePolicy({ policy: 'wils
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L79)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/poller-enabled`
  */
 SettingsRouter.put('/api/settings/poller-enabled', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetPollerSettingRequest);
@@ -53,7 +55,7 @@ SettingsRouter.put('/api/settings/poller-enabled', requirePolicy({ policy: 'wils
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L92)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/poller-interval-ms`
  */
 SettingsRouter.get('/api/settings/poller-interval-ms', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(PollerIntervalSettingService);
@@ -65,7 +67,7 @@ SettingsRouter.get('/api/settings/poller-interval-ms', requirePolicy({ policy: '
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L102)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/poller-interval-ms`
  */
 SettingsRouter.put('/api/settings/poller-interval-ms', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetPollerIntervalRequest);
@@ -79,7 +81,7 @@ SettingsRouter.put('/api/settings/poller-interval-ms', requirePolicy({ policy: '
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L118)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/card-stage-concurrency`
  */
 SettingsRouter.get('/api/settings/card-stage-concurrency', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(CardStageConcurrencySettingService);
@@ -91,7 +93,7 @@ SettingsRouter.get('/api/settings/card-stage-concurrency', requirePolicy({ polic
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L128)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/card-stage-concurrency`
  */
 SettingsRouter.put('/api/settings/card-stage-concurrency', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetCardStageConcurrencyRequest);
@@ -105,7 +107,7 @@ SettingsRouter.put('/api/settings/card-stage-concurrency', requirePolicy({ polic
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L158)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/notify-webhook`
  */
 SettingsRouter.get('/api/settings/notify-webhook', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(NotifyWebhookSettingService);
@@ -117,7 +119,7 @@ SettingsRouter.get('/api/settings/notify-webhook', requirePolicy({ policy: 'wils
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L168)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/notify-webhook`
  */
 SettingsRouter.put('/api/settings/notify-webhook', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetNotifyWebhookSettingRequest);
@@ -131,7 +133,7 @@ SettingsRouter.put('/api/settings/notify-webhook', requirePolicy({ policy: 'wils
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L204)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/claude-config-dir`
  */
 SettingsRouter.get('/api/settings/claude-config-dir', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(ClaudeConfigDirSettingService);
@@ -143,7 +145,7 @@ SettingsRouter.get('/api/settings/claude-config-dir', requirePolicy({ policy: 'w
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L214)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/claude-config-dir`
  */
 SettingsRouter.put('/api/settings/claude-config-dir', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetClaudeConfigDirSettingRequest);
@@ -157,7 +159,7 @@ SettingsRouter.put('/api/settings/claude-config-dir', requirePolicy({ policy: 'w
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L243)
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/dry-run`
  */
 SettingsRouter.get('/api/settings/dry-run', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(DryRunSettingService);
@@ -169,13 +171,39 @@ SettingsRouter.get('/api/settings/dry-run', requirePolicy({ policy: 'wilson.view
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L253)
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/dry-run`
  */
 SettingsRouter.put('/api/settings/dry-run', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetDryRunSettingRequest);
 
     const service = ctx.container.get(DryRunSettingService);
     const result: DryRunSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/chat-engine`
+ */
+SettingsRouter.get('/api/settings/chat-engine', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/chat-engine`
+ */
+SettingsRouter.put('/api/settings/chat-engine', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, ChatEngineSetting);
+
+    const service = ctx.container.get(ChatEngineSettingService);
+    const result: ChatEngineSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

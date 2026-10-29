@@ -47,6 +47,7 @@ contract IssuedApiKey: {
 operation /api/auth/keys: {
     get: {
         name: List API keys
+        mcp: exclude # Credentials are never handed to an agent
         sdk: listApiKeys
         security: {
             policy: wilson.view
@@ -61,6 +62,7 @@ operation /api/auth/keys: {
     }
     post: {
         name: Create an API key
+        mcp: exclude # Credentials are never handed to an agent
         sdk: createApiKey
         security: {
             policy: wilson.step.up
@@ -87,6 +89,7 @@ operation /api/auth/keys/{id}/rotate: {
     }
     post: {
         name: Rotate an API key
+        mcp: exclude # Credentials are never handed to an agent
         sdk: rotateApiKey
         security: {
             policy: wilson.step.up
@@ -109,6 +112,7 @@ operation /api/auth/keys/{id}: {
     }
     delete: {
         name: Revoke an API key
+        mcp: exclude # Credentials are never handed to an agent
         sdk: revokeApiKey
         security: {
             policy: wilson.view

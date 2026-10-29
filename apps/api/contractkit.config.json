@@ -21,6 +21,16 @@
                     "types": "src/types/{filename}.ts",
                     "clients": "src/{filename}.client.ts"
                 }
+            },
+            "mcp": {
+                "baseDir": "apps/api/",
+                "output": {
+                    "tools": "src/modules/mcp/generated/{filename}.mcp.ts",
+                    "index": "src/modules/mcp/generated/mcp.tools.ts"
+                },
+                "emitRouter": false,
+                "resolve": "perCall",
+                "catalog": true
             }
         }
     }

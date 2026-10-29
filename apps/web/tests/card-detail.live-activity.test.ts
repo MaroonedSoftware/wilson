@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0274: `CardDetail.tsx` wires `LiveActivity` (covered directly, in isolation, by
@@ -43,7 +44,7 @@ const toolEvent = (overrides: Partial<CardEvent> = {}): CardEvent => ({
     type: 'tool.executed',
     stage: 'testing',
     payload: { tool: 'bash', command: 'pnpm test' },
-    createdAt: '2026-01-10T11:59:00.000Z',
+    createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'),
     ...overrides,
 });
 

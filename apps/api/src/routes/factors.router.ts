@@ -13,12 +13,12 @@ import {
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [factors.ck](file://./../../data/contracts/factors.ck)
+ * generated from [factors.ck](../../data/contracts/factors.ck)
  */
 export const FactorsRouter = ServerKitRouter();
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L67)
+ * from [factors.ck](../../data/contracts/factors.ck) `GET /api/auth/factors`
  */
 FactorsRouter.get('/api/auth/factors', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(FactorsService);
@@ -30,7 +30,7 @@ FactorsRouter.get('/api/auth/factors', requirePolicy({ policy: 'wilson.view' }),
 });
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L83)
+ * from [factors.ck](../../data/contracts/factors.ck) `POST /api/auth/factors/authenticator`
  */
 FactorsRouter.post('/api/auth/factors/authenticator', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, StartAuthenticatorRequest);
@@ -44,7 +44,7 @@ FactorsRouter.post('/api/auth/factors/authenticator', requirePolicy({ policy: 'w
 });
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L101)
+ * from [factors.ck](../../data/contracts/factors.ck) `POST /api/auth/factors/authenticator/verify`
  */
 FactorsRouter.post(
     '/api/auth/factors/authenticator/verify',
@@ -63,7 +63,7 @@ FactorsRouter.post(
 );
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L120)
+ * from [factors.ck](../../data/contracts/factors.ck) `POST /api/auth/factors/passkey`
  */
 FactorsRouter.post('/api/auth/factors/passkey', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, StartPasskeyRequest);
@@ -77,7 +77,7 @@ FactorsRouter.post('/api/auth/factors/passkey', requirePolicy({ policy: 'wilson.
 });
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L139)
+ * from [factors.ck](../../data/contracts/factors.ck) `POST /api/auth/factors/passkey/verify`
  */
 FactorsRouter.post('/api/auth/factors/passkey/verify', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, VerifyPasskeyRequest);
@@ -91,7 +91,7 @@ FactorsRouter.post('/api/auth/factors/passkey/verify', requirePolicy({ policy: '
 });
 
 /**
- * from [factors.ck](file://./../../data/contracts/factors.ck#L162)
+ * from [factors.ck](../../data/contracts/factors.ck) `DELETE /api/auth/factors/{id}`
  */
 FactorsRouter.delete('/api/auth/factors/:id', requirePolicy({ policy: 'wilson.step.up' }), async ctx => {
     const { id } = await parseAndValidate(

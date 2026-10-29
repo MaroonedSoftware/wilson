@@ -9,13 +9,13 @@ const _ZodDatetime = z.preprocess(
 );
 
 /**
- * generated from [SecondFactorMethod](file://./../../data/contracts/factors.ck#L20)
+ * generated from [SecondFactorMethod](../../data/contracts/factors.ck)
  */
 export const SecondFactorMethod = z.enum(['authenticator', 'passkey']);
 export type SecondFactorMethod = z.infer<typeof SecondFactorMethod>;
 
 /**
- * generated from [StartAuthenticatorRequest](file://./../../data/contracts/factors.ck#L29)
+ * generated from [StartAuthenticatorRequest](../../data/contracts/factors.ck)
  */
 export const StartAuthenticatorRequest = z.strictObject({
     label: z.string().max(64).optional().describe('What the authenticator app shows beside the code, after the issuer.'),
@@ -26,7 +26,7 @@ export type StartAuthenticatorRequest = z.infer<typeof StartAuthenticatorRequest
  * What to scan. `uri` is the `otpauth://` URI, `qrCode` the same as a PNG data URL, and `secret` the
  * base32 seed for an app that cannot scan. Nothing is enrolled until a code from the app is checked
  * (`verify`), within ten minutes.
- * generated from [AuthenticatorRegistration](file://./../../data/contracts/factors.ck#L37)
+ * generated from [AuthenticatorRegistration](../../data/contracts/factors.ck)
  */
 export const AuthenticatorRegistration = z.strictObject({
     registrationId: z.string(),
@@ -37,7 +37,7 @@ export const AuthenticatorRegistration = z.strictObject({
 export type AuthenticatorRegistration = z.infer<typeof AuthenticatorRegistration>;
 
 /**
- * generated from [VerifyAuthenticatorRequest](file://./../../data/contracts/factors.ck#L44)
+ * generated from [VerifyAuthenticatorRequest](../../data/contracts/factors.ck)
  */
 export const VerifyAuthenticatorRequest = z.strictObject({
     registrationId: z.string(),
@@ -46,7 +46,7 @@ export const VerifyAuthenticatorRequest = z.strictObject({
 export type VerifyAuthenticatorRequest = z.infer<typeof VerifyAuthenticatorRequest>;
 
 /**
- * generated from [StartPasskeyRequest](file://./../../data/contracts/factors.ck#L49)
+ * generated from [StartPasskeyRequest](../../data/contracts/factors.ck)
  */
 export const StartPasskeyRequest = z.strictObject({
     label: z.string().max(64).optional().describe('A name to tell this passkey apart from others, such as the device it is on.'),
@@ -56,7 +56,7 @@ export type StartPasskeyRequest = z.infer<typeof StartPasskeyRequest>;
 /**
  * What to call `navigator.credentials.create` with. Nothing is enrolled until the browser's answer is
  * checked (`passkey/verify`).
- * generated from [PasskeyRegistration](file://./../../data/contracts/factors.ck#L56)
+ * generated from [PasskeyRegistration](../../data/contracts/factors.ck)
  */
 export const PasskeyRegistration = z.strictObject({
     registrationId: z.string(),
@@ -65,7 +65,7 @@ export const PasskeyRegistration = z.strictObject({
 export type PasskeyRegistration = z.infer<typeof PasskeyRegistration>;
 
 /**
- * generated from [VerifyPasskeyRequest](file://./../../data/contracts/factors.ck#L61)
+ * generated from [VerifyPasskeyRequest](../../data/contracts/factors.ck)
  */
 export const VerifyPasskeyRequest = z.strictObject({
     registrationId: z.string(),
@@ -74,7 +74,7 @@ export const VerifyPasskeyRequest = z.strictObject({
 export type VerifyPasskeyRequest = z.infer<typeof VerifyPasskeyRequest>;
 
 /**
- * generated from [SecondFactorSummary](file://./../../data/contracts/factors.ck#L22)
+ * generated from [SecondFactorSummary](../../data/contracts/factors.ck)
  */
 export const SecondFactorSummary = z.strictObject({
     id: z.string(),

@@ -82,6 +82,7 @@ contract CurrentSession: {
 operation /api/auth/token: {
     post: {
         name: Sign in
+        mcp: exclude # Signing in is for people and their clients, not an agent
         sdk: requestToken
         service: TokenService.requestToken
         request: {
@@ -108,6 +109,7 @@ operation /api/auth/token: {
 operation /api/auth/passkey/challenge: {
     post: {
         name: Start a passkey sign-in step
+        mcp: exclude # Signing in is for people and their clients, not an agent
         sdk: startPasskeyChallenge
         service: TokenService.startPasskeyChallenge
         request: {
@@ -128,6 +130,7 @@ operation /api/auth/passkey/challenge: {
 operation /api/auth/session: {
     get: {
         name: Get the current session
+        mcp: exclude # Signing in is for people and their clients, not an agent
         sdk: getCurrentSession
         service: CurrentSessionService.get
         security: {
@@ -146,6 +149,7 @@ operation /api/auth/session: {
 operation /api/auth/logout: {
     post: {
         name: Sign out
+        mcp: exclude # Signing in is for people and their clients, not an agent
         sdk: logout
         service: CurrentSessionService.logout
         response: {

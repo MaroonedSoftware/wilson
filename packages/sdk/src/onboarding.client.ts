@@ -3,7 +3,7 @@ import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
 /**
- * generated from [onboarding.ck](file://./../../../apps/api/data/contracts/onboarding.ck)
+ * generated from [onboarding.ck](../../../apps/api/data/contracts/onboarding.ck)
  */
 export class OnboardingClient {
     constructor(private fetch: SdkFetch) {}

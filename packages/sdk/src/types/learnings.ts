@@ -1,3 +1,13 @@
+import { DateTime } from 'luxon';
+const __dt = (v: unknown, path: string): DateTime => {
+    if (typeof v !== 'string') {
+        throw new TypeError(`ContractKit: expected an ISO 8601 string at '${path}', received ${typeof v}.`);
+    }
+    const d = DateTime.fromISO(v);
+    if (!d.isValid) throw new TypeError(`ContractKit: '${v}' at '${path}' is not a valid ISO 8601 datetime.`);
+    return d;
+};
+
 /**
  * A project's human-approved learnings document (card 0239) — the operator's surface, cloned from
  * `stages.ck`'s `StageConfigDocument` shape: `wilson learnings show|edit|set|versions` all call
@@ -15,20 +25,29 @@
  * /api/learnings` answers with an empty document rather than a `404`, since an operator retiring
  * every learning at once (an empty save) must read back the same way a project that never saved one
  * does.
- * generated from [LearningsDocument](file://./../../../../apps/api/data/contracts/learnings.ck#L26)
+ * generated from [LearningsDocument](../../../../apps/api/data/contracts/learnings.ck)
  */
 export interface LearningsDocument {
     id?: string;
     markdown: string;
     message: string;
-    createdAt?: string;
+    createdAt?: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a LearningsDocument into its runtime type. Mutates and returns `raw`. */
+export function reviveLearningsDocument(raw: LearningsDocument): LearningsDocument {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    if (__o0['createdAt'] != null) {
+        __o0['createdAt'] = __dt(__o0['createdAt'], 'LearningsDocument.createdAt');
+    }
+    return raw;
 }
 
 /**
  * `message` optional, same reasoning as `SetStageConfigRequest`: `wilson learnings edit` has no
  * commit-message prompt the way `git commit` does, and a default ("Edited learnings") beats forcing
  * one.
- * generated from [SetLearningsRequest](file://./../../../../apps/api/data/contracts/learnings.ck#L36)
+ * generated from [SetLearningsRequest](../../../../apps/api/data/contracts/learnings.ck)
  */
 export interface SetLearningsRequest {
     markdown: string;
@@ -36,16 +55,23 @@ export interface SetLearningsRequest {
 }
 
 /**
- * generated from [LearningsVersion](file://./../../../../apps/api/data/contracts/learnings.ck#L41)
+ * generated from [LearningsVersion](../../../../apps/api/data/contracts/learnings.ck)
  */
 export interface LearningsVersion {
     id: string;
     message: string;
-    createdAt: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a LearningsVersion into its runtime type. Mutates and returns `raw`. */
+export function reviveLearningsVersion(raw: LearningsVersion): LearningsVersion {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'LearningsVersion.createdAt');
+    return raw;
 }
 
 /**
- * generated from [LearningsVersionsQuery](file://./../../../../apps/api/data/contracts/learnings.ck#L47)
+ * generated from [LearningsVersionsQuery](../../../../apps/api/data/contracts/learnings.ck)
  */
 export interface LearningsVersionsQuery {
     limit?: number;

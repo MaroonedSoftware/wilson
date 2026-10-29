@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0245. `CriteriaPanel` lists a plan's acceptance criteria with the status the latest review
@@ -31,7 +32,7 @@ const reviewEvent = (
     type,
     stage: 'review',
     payload: { result: { criteria } },
-    createdAt: '2026-01-01T00:00:00.000Z',
+    createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
     ...overrides,
 });
 
@@ -82,7 +83,7 @@ describe('CriteriaPanel', () => {
 
     it('shows no status badge when events exist but none is a review stage result', () => {
         const events: CardEvent[] = [
-            { id: 'e0', type: 'stage.passed', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' },
+            { id: 'e0', type: 'stage.passed', stage: 'implementing', payload: {}, createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') },
         ];
         renderPanel(CRITERIA, events);
 
@@ -105,8 +106,8 @@ describe('CriteriaPanel', () => {
 
     it('reads the most recent review event, not an earlier one, when several reviews have run', () => {
         const events = [
-            reviewEvent('stage.failed', [{ id: 'AC1', status: 'unmet' }], { id: 'e1', createdAt: '2026-01-01T00:00:00.000Z' }),
-            reviewEvent('stage.passed', [{ id: 'AC1', status: 'met' }], { id: 'e2', createdAt: '2026-01-02T00:00:00.000Z' }),
+            reviewEvent('stage.failed', [{ id: 'AC1', status: 'unmet' }], { id: 'e1', createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') }),
+            reviewEvent('stage.passed', [{ id: 'AC1', status: 'met' }], { id: 'e2', createdAt: DateTime.fromISO('2026-01-02T00:00:00.000Z') }),
         ];
         renderPanel([CRITERIA[0]!], events);
 
@@ -116,7 +117,7 @@ describe('CriteriaPanel', () => {
 
     it('ignores a payload whose criteria array is missing or malformed, showing criteria with no badge rather than throwing', () => {
         const events: CardEvent[] = [
-            { id: 'e1', type: 'stage.passed', stage: 'review', payload: { result: {} }, createdAt: '2026-01-01T00:00:00.000Z' },
+            { id: 'e1', type: 'stage.passed', stage: 'review', payload: { result: {} }, createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') },
         ];
 
         expect(() => renderPanel(CRITERIA, events)).not.toThrow();

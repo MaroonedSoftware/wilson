@@ -112,6 +112,11 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
         if (error.reason.kind === 'needs-human') {
             return { kind: 'defer-flagged', reason: error.message };
         }
+        // Every host busy, draining or down is "not now": a slot frees when another stage ends,
+        // and the poller enqueues the card again on its next tick.
+        if (error.reason.kind === 'no-host') {
+            return { kind: 'defer', reason: error.message };
+        }
         if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {
             return { kind: 'stale', actualStage: error.reason.actualStage };
         }

@@ -4,12 +4,12 @@ import { LearningsDocument, LearningsVersion, LearningsVersionsQuery, SetLearnin
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [learnings.ck](file://./../../data/contracts/learnings.ck)
+ * generated from [learnings.ck](../../data/contracts/learnings.ck)
  */
 export const LearningsRouter = ServerKitRouter();
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L52)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `GET /api/learnings`
  */
 LearningsRouter.get('/api/learnings', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(LearningsService);
@@ -24,7 +24,7 @@ LearningsRouter.get('/api/learnings', requirePolicy({ policy: 'wilson.view' }), 
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything. An empty `markdown` is a valid save.
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L67)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `PUT /api/learnings`
  */
 LearningsRouter.put('/api/learnings', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetLearningsRequest);
@@ -38,7 +38,7 @@ LearningsRouter.put('/api/learnings', requirePolicy({ policy: 'wilson.manage' })
 });
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L82)
+ * from [learnings.ck](../../data/contracts/learnings.ck) `GET /api/learnings/versions`
  */
 LearningsRouter.get('/api/learnings/versions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const query = await parseAndValidate(ctx.query, LearningsVersionsQuery.strict());

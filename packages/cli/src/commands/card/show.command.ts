@@ -17,7 +17,7 @@ interface ShowOpts {
  * does, on purpose.
  */
 const describeEvent = (event: CardEvent): string => {
-    const base = `${event.createdAt}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`;
+    const base = `${event.createdAt.toUTC().toISO()}  ${event.type}${event.stage ? ` (${event.stage})` : ''}`;
     if (event.type !== 'daemon.stale') return base;
 
     const payload = event.payload as unknown as { daemonCommit?: string; baseCommit?: string; behindBy?: number } | null;

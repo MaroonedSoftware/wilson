@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 // @vitest-environment jsdom
 //
 // Card 0037: the card detail page gains its two operator actions — move the card to another
@@ -744,7 +745,7 @@ describe('the events timeline', () => {
                 type: 'dispatch.deferred',
                 stage: 'implementing',
                 payload: { reason: '"apps/api/src/modules/board/**" overlaps apps/api/src/** on 0099 (in flight): this card will wait for it' },
-                createdAt: '2026-09-19T00:00:00.000Z',
+                createdAt: DateTime.fromISO('2026-09-19T00:00:00.000Z'),
             },
         ]);
 
@@ -765,7 +766,7 @@ describe('the events timeline', () => {
                 type: 'stage.poisoned',
                 stage: 'implementing',
                 payload: { reason: 'should not render — wrong event type' },
-                createdAt: '2026-09-19T00:00:00.000Z',
+                createdAt: DateTime.fromISO('2026-09-19T00:00:00.000Z'),
             },
         ]);
 
@@ -779,7 +780,7 @@ describe('the events timeline', () => {
     it('renders no reason text for a dispatch.deferred event whose payload carries no reason', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([
-            { id: 'ev-1', type: 'dispatch.deferred', stage: 'implementing', payload: { outstanding: ['0099'] }, createdAt: '2026-09-19T00:00:00.000Z' },
+            { id: 'ev-1', type: 'dispatch.deferred', stage: 'implementing', payload: { outstanding: ['0099'] }, createdAt: DateTime.fromISO('2026-09-19T00:00:00.000Z') },
         ]);
 
         renderApp(CARD_PATH);

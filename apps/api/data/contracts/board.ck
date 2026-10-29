@@ -768,6 +768,7 @@ operation /api/cards/{id}/plan/open: {
     }
     post: {
         name: Open a planning session
+        mcp: exclude # Planning has its own conversation, on the card's page
         service: PlanService.open
         response: {
             200: {
@@ -816,6 +817,7 @@ operation /api/cards/{id}/plan/save: {
     }
     post: {
         name: Save a plan draft
+        mcp: exclude # Planning has its own conversation, on the card's page
         service: PlanService.save
         request: {
             application/json: SaveDraftRequest
@@ -840,6 +842,7 @@ operation /api/cards/{id}/plan/close: {
     }
     post: {
         name: Close a planning session
+        mcp: exclude # Planning has its own conversation, on the card's page
         service: PlanService.close
         response: {
             204:
@@ -859,6 +862,7 @@ operation /api/cards/{id}/plan/turn: {
     }
     post: {
         name: Send a plan turn
+        mcp: exclude # Planning has its own conversation, on the card's page
         service: PlanService.turn
         request: {
             application/json: PlanTurnRequest
@@ -1016,6 +1020,7 @@ operation /api/cards/{id}/findings: {
     }
     post: {
         name: Record findings
+        mcp: exclude # A review stage's output: only the runner writes it (PROJECT.md decision 5)
         service: BoardWriteService.recordFindings
         request: {
             application/json: RecordFindingsRequest

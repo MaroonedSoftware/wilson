@@ -4,12 +4,12 @@ import { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageCo
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [stages.ck](file://./../../data/contracts/stages.ck)
+ * generated from [stages.ck](../../data/contracts/stages.ck)
  */
 export const StagesRouter = ServerKitRouter();
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L57)
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/config`
  */
 StagesRouter.get('/api/stages/config', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(StageConfigService);
@@ -24,7 +24,7 @@ StagesRouter.get('/api/stages/config', requirePolicy({ policy: 'wilson.view' }),
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything.
- * from [stages.ck](file://./../../data/contracts/stages.ck#L75)
+ * from [stages.ck](../../data/contracts/stages.ck) `PUT /api/stages/config`
  */
 StagesRouter.put('/api/stages/config', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetStageConfigRequest);
@@ -38,7 +38,7 @@ StagesRouter.put('/api/stages/config', requirePolicy({ policy: 'wilson.step.up' 
 });
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L97)
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/config/versions`
  */
 StagesRouter.get('/api/stages/config/versions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const query = await parseAndValidate(ctx.query, StageConfigVersionsQuery.strict());

@@ -6,7 +6,7 @@ import { z } from 'zod';
  * filesystem layout of the machine the daemon runs on — which are withheld here: a switcher needs
  * names, and returning the minimum that serves the consumer is the habit worth keeping even behind
  * authentication, not a licence to expose everything `ProjectRepository.list()` already reads.
- * generated from [Project](file://./../../data/contracts/projects.ck#L31)
+ * generated from [Project](../../data/contracts/projects.ck)
  */
 export const Project = z.strictObject({
     name: z.string(),
@@ -32,7 +32,7 @@ export type Project = z.infer<typeof Project>;
  * restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
  * is discovered by use, not by a check guessing at what "working" means. `ProjectsService.create`
  * normalises with `resolve()`, as `BoardModule` already does for the seeded row.
- * generated from [CreateProjectRequest](file://./../../data/contracts/projects.ck#L53)
+ * generated from [CreateProjectRequest](../../data/contracts/projects.ck)
  */
 export const CreateProjectRequest = z.strictObject({
     name: z.string(),
@@ -50,7 +50,7 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
  * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
  * orphan every card, event, version and setting rather than failing. The name lives in the path
  * (`/api/projects/{name}`) and nowhere in any request body on this contract.
- * generated from [UpdateProjectRequest](file://./../../data/contracts/projects.ck#L67)
+ * generated from [UpdateProjectRequest](../../data/contracts/projects.ck)
  */
 export const UpdateProjectRequest = z.strictObject({
     codeRoot: z.string().optional(),
@@ -63,7 +63,7 @@ export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
  * The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
  * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
  * folder, which is also the furthest up the listing will go.
- * generated from [DirectoryQuery](file://./../../data/contracts/projects.ck#L76)
+ * generated from [DirectoryQuery](../../data/contracts/projects.ck)
  */
 export const DirectoryQuery = z.strictObject({
     path: z.string().optional(),
@@ -78,7 +78,7 @@ export type DirectoryQuery = z.infer<typeof DirectoryQuery>;
  *
  * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
  * folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
- * generated from [DirectoryListing](file://./../../data/contracts/projects.ck#L87)
+ * generated from [DirectoryListing](../../data/contracts/projects.ck)
  */
 export const DirectoryListing = z.strictObject({
     path: z.string(),

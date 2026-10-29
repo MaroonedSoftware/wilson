@@ -152,6 +152,30 @@ export interface Projects {
  * (`data/migrations/20260831120000_leases.sql`) for why `resourceKey` alone is the primary key
  * rather than `(project, resourceKey)`.
  */
+export interface Hosts {
+    name: string;
+    sshTarget: string;
+    slots: Generated<number>;
+    enabled: Generated<boolean>;
+    draining: Generated<boolean>;
+    probedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    probeOk: boolean | null;
+    probeDetail: string | null;
+    engineVersion: string | null;
+    expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    lifetimeMinutes: number | null;
+    commandEnv: Generated<string[]>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+export interface HostProjects {
+    host: string;
+    project: string;
+    codeRoot: string;
+    worktreeRoot: string;
+    runRoot: string;
+}
+
 export interface Leases {
     resourceKey: string;
     project: string;
@@ -322,6 +346,53 @@ export interface Learnings {
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 
+/**
+ * A chat thread (`data/migrations/20261029120000_chat.sql`). Not project-scoped: one conversation
+ * can touch several projects. `engine` is 'api' or 'cli', left as `string` like `PlanTurns.role`.
+ */
+export interface ChatThreads {
+    id: Generated<string>;
+    title: string;
+    engine: string;
+    /** The 'cli' engine's own session id, once a turn has reported one. */
+    engineSessionId: string | null;
+    archivedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+    updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string>;
+}
+
+/** One message in a chat thread, numbered per thread like {@link PlanTurns}. */
+export interface ChatMessages {
+    threadId: string;
+    seq: number;
+    /** 'user' or 'assistant'. */
+    role: string;
+    content: string;
+    /** The catalog operations the agent ran while answering; '[]' on a person's message. */
+    operations: unknown;
+    /** The 'api' engine's own record of the turn, replayed on its next one; null otherwise. */
+    engineMessages: unknown;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+/** A change the chat's agent proposed, run only once the person confirms it. */
+export interface ChatPendingActions {
+    id: Generated<string>;
+    threadId: string;
+    /** The project the operation runs in; null for one that names none. */
+    project: string | null;
+    operation: string;
+    arguments: unknown;
+    summary: string;
+    /** 'pending', 'running', 'done', 'failed' or 'declined'. */
+    status: Generated<string>;
+    result: unknown;
+    error: string | null;
+    expiresAt: ColumnType<DateTime, DateTime | string, never>;
+    decidedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
 export interface DB {
     'runner.cards': Cards;
     'runner.cardVersions': CardVersions;
@@ -333,6 +404,8 @@ export interface DB {
     'runner.planComments': PlanComments;
     'runner.projects': Projects;
     'runner.leases': Leases;
+    'runner.hosts': Hosts;
+    'runner.hostProjects': HostProjects;
     'runner.stageConfigs': StageConfigs;
     'runner.cardContext': CardContext;
     'runner.sourceCursors': SourceCursors;
@@ -344,4 +417,7 @@ export interface DB {
     'runner.accountAuthenticators': AccountAuthenticators;
     'runner.accountPasskeys': AccountPasskeys;
     'runner.learnings': Learnings;
+    'runner.chatThreads': ChatThreads;
+    'runner.chatMessages': ChatMessages;
+    'runner.chatPendingActions': ChatPendingActions;
 }

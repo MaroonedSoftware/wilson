@@ -1,12 +1,15 @@
-import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
-import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { Link, Outlet, createRootRoute, useLocation, useParams } from '@tanstack/react-router';
+import { ActionIcon, AppShell, Badge, Box, Drawer, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
-import { IconLogout, IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconLayoutKanban, IconLogout, IconMoon, IconRefresh, IconServer2, IconSettings, IconSun } from '@tabler/icons-react';
 import { AuthGate } from '#src/components/AuthGate.js';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
+import { ChatDock, ChatDockToggle } from '#src/components/ChatDock.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { StepUpDialog } from '#src/components/StepUpDialog.js';
+import { setChatDockOpen, toggleChatDock, useChatDock } from '#src/lib/chat.dock.js';
 import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
 import { signOut } from '#src/lib/auth.js';
 import { wilson } from '#src/lib/sdk.js';
@@ -66,6 +69,14 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * component already gives the feed's `status`/`reconnect` — a board tile (`Board.tsx`) and a card
  * page's live tool list (`LiveActivity.tsx`) both read this instead of either opening its own
  * `EventSource`.
+ *
+ * `/` is the chat itself, the whole page (`routes/index.tsx`), as ats's home page is: it gets the
+ * full height under the header and no padding. The projects list that used to be `/` is a click away
+ * under Projects. On every other page the chat docks beside it (`ChatDock`, as ats's `AppLayout`
+ * does): on the right as `AppShell.Aside` or at the bottom as `AppShell.Footer`, sized from the dock's
+ * own store, or in a full-screen drawer on a phone; the header's `ChatDockToggle` or Ctrl/⌘+J opens
+ * and closes it. It is handed the matched route's `project`, so a message sent from a project's page
+ * is about that project unless it says otherwise. The dock and the home page show the same thread.
  */
 function Root() {
     return (
@@ -81,12 +92,25 @@ function Root() {
  */
 function Shell() {
     const { project } = useParams({ strict: false });
+    const home = useLocation({ select: location => location.pathname === '/' });
     const feed = useCardFeed(project);
+    const dock = useChatDock();
+    const phone = useMediaQuery('(max-width: 48em)') ?? false;
+    useHotkeys(home ? [] : [['mod+J', toggleChatDock]]);
+
+    const docked = dock.open && !home;
+    const right = docked && !phone && dock.position === 'right';
+    const bottom = docked && !phone && dock.position === 'bottom';
 
     return (
         <WilsonSdkProvider client={wilson}>
             <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
-                <AppShell header={{ height: 48 }} padding="md">
+                <AppShell
+                    header={{ height: 48 }}
+                    aside={{ width: dock.width, breakpoint: 'sm', collapsed: { desktop: !right, mobile: true } }}
+                    footer={{ height: dock.height, collapsed: !bottom }}
+                    padding={home ? 0 : 'md'}
+                >
                     <Notifications />
                     <StepUpDialog />
                     <AppShell.Header>
@@ -110,7 +134,18 @@ function Shell() {
                                         <IconRefresh size={18} />
                                     </ActionIcon>
                                 </Tooltip>
+                                <Tooltip label="Projects">
+                                    <ActionIcon component={Link} to="/projects" variant="subtle" aria-label="Projects">
+                                        <IconLayoutKanban size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
+                                {!home && <ChatDockToggle />}
                                 <ColorSchemeToggle />
+                                <Tooltip label="Hosts">
+                                    <ActionIcon component={Link} to="/hosts" variant="subtle" aria-label="Hosts">
+                                        <IconServer2 size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
                                         <IconSettings size={18} />
@@ -125,8 +160,28 @@ function Shell() {
                         </Group>
                     </AppShell.Header>
                     <AppShell.Main>
-                        <Outlet />
+                        {home ? (
+                            <Box h="calc(100dvh - var(--app-shell-header-offset, 48px))">
+                                <Outlet />
+                            </Box>
+                        ) : (
+                            <Outlet />
+                        )}
                     </AppShell.Main>
+                    <AppShell.Aside>{right && <ChatDock position="right" project={project} />}</AppShell.Aside>
+                    <AppShell.Footer>{bottom && <ChatDock position="bottom" project={project} />}</AppShell.Footer>
+                    <Drawer
+                        opened={docked && phone}
+                        onClose={() => setChatDockOpen(false)}
+                        position="bottom"
+                        size="100%"
+                        withCloseButton={false}
+                        padding={0}
+                    >
+                        <Box h="100dvh">
+                            <ChatDock project={project} />
+                        </Box>
+                    </Drawer>
                 </AppShell>
             </CardActivityContext.Provider>
         </WilsonSdkProvider>

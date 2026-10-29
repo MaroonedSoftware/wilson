@@ -4,12 +4,12 @@ import { CreateAccountRequest, OnboardingStatus } from '../generated/onboarding.
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [onboarding.ck](file://./../../data/contracts/onboarding.ck)
+ * generated from [onboarding.ck](../../data/contracts/onboarding.ck)
  */
 export const OnboardingRouter = ServerKitRouter();
 
 /**
- * from [onboarding.ck](file://./../../data/contracts/onboarding.ck#L29)
+ * from [onboarding.ck](../../data/contracts/onboarding.ck) `GET /api/onboarding`
  * anonymous access, no security required
  */
 OnboardingRouter.get('/api/onboarding', async ctx => {
@@ -22,7 +22,7 @@ OnboardingRouter.get('/api/onboarding', async ctx => {
 });
 
 /**
- * from [onboarding.ck](file://./../../data/contracts/onboarding.ck#L39)
+ * from [onboarding.ck](../../data/contracts/onboarding.ck) `POST /api/onboarding`
  * anonymous access, no security required
  */
 OnboardingRouter.post('/api/onboarding', bodyParserMiddleware(['json']), async ctx => {

@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import { acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
@@ -170,11 +171,11 @@ describe('acceptanceCriteria', () => {
 describe('formatTimestamp', () => {
     it('delegates to the platform locale formatting of the given instant', () => {
         const iso = '2026-01-15T10:30:00.000Z';
-        expect(formatTimestamp(iso)).toBe(new Date(iso).toLocaleString());
+        expect(formatTimestamp(DateTime.fromISO(iso))).toBe(new Date(iso).toLocaleString());
     });
 
     it('produces different output for different instants', () => {
-        expect(formatTimestamp('2026-01-15T10:30:00.000Z')).not.toBe(formatTimestamp('2020-06-01T00:00:00.000Z'));
+        expect(formatTimestamp(DateTime.fromISO('2026-01-15T10:30:00.000Z'))).not.toBe(formatTimestamp(DateTime.fromISO('2020-06-01T00:00:00.000Z')));
     });
 });
 

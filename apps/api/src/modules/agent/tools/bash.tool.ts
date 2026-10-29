@@ -1,11 +1,9 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { tool } from 'ai';
 import { z } from 'zod';
+import type { ExecFailure } from '#modules/host/execution.host.js';
 import { pnpmStoreLock, scrubbedEnv } from '#modules/stages/run.command.js';
-import type { ToolContext } from './tool.context.js';
+import { toolHost, type ToolContext } from './tool.context.js';
 
-const exec = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_OUTPUT = 512 * 1024;
 // What is handed back to the model, as opposed to what the process may produce. A build log's
@@ -15,8 +13,8 @@ const MAX_RETURNED = 12 * 1024;
 /**
  * Run one of the commands this stage is allowed to run.
  *
- * There is no shell. `CommandAllowlist` parses the request into argv and `execFile` runs it
- * directly, so shell syntax has nobody to interpret it rather than being escaped.
+ * There is no shell. `CommandAllowlist` parses the request into argv and the context's host runs it
+ * directly, as `execFile` would, so shell syntax has nobody to interpret it rather than being escaped.
  *
  * The environment is scrubbed: the runner's git credentials and the provider API keys are in this
  * process's env, and a build script is the obvious place to read them from (PROJECT.md, Agent
@@ -54,9 +52,9 @@ export const bashTool = (ctx: ToolContext) =>
 
             const [file, ...args] = decision.argv;
             const runOnce = () =>
-                exec(file!, args, {
+                toolHost(ctx).exec(file!, args, {
                     cwd: ctx.worktreeRoot,
-                    timeout: timeout_ms ?? DEFAULT_TIMEOUT_MS,
+                    timeoutMs: timeout_ms ?? DEFAULT_TIMEOUT_MS,
                     maxBuffer: MAX_OUTPUT,
                     // `ctx.port` is `StageDispatcher`'s allocated port for this stage's worktree (card
                     // 0027), so a dev server the agent starts here sees the same `PORT` a
@@ -74,10 +72,10 @@ export const bashTool = (ctx: ToolContext) =>
                 isStoreWrite
                     ? pnpmStoreLock.run(`${ctx.cardId} ${ctx.stage} bash`, message => ctx.logger.info(message), runOnce)
                     : runOnce()
-            ).catch((err: Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean }) => err);
+            ).catch((err: ExecFailure) => err);
 
             if (result instanceof Error) {
-                const e = result as Error & { stdout?: string; stderr?: string; code?: number; killed?: boolean };
+                const e = result as ExecFailure;
                 if (e.killed) return `error: command timed out`;
                 // A non-zero exit is information the agent needs, not a tool failure — return the
                 // output so it can read the compiler error it just caused.

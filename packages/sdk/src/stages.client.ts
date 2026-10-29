@@ -1,9 +1,10 @@
 import type { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from './types/stages.js';
+import { reviveStageConfigDocument, reviveStageConfigVersion } from './types/stages.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
- * generated from [stages.ck](file://./../../../apps/api/data/contracts/stages.ck)
+ * generated from [stages.ck](../../../apps/api/data/contracts/stages.ck)
  */
 export class StagesClient {
     constructor(private fetch: SdkFetch) {}
@@ -11,7 +12,7 @@ export class StagesClient {
     /** @name Get stage config */
     async getStageConfig(): Promise<StageConfigDocument> {
         const result = await this.fetch(`/api/stages/config`, { method: 'GET' });
-        return await parseJson<StageConfigDocument>(result);
+        return reviveStageConfigDocument(await parseJson<StageConfigDocument>(result));
     }
 
     /**
@@ -26,7 +27,7 @@ export class StagesClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
-        return await parseJson<StageConfigDocument>(result);
+        return reviveStageConfigDocument(await parseJson<StageConfigDocument>(result));
     }
 
     /** @name List stage config versions */
@@ -35,6 +36,6 @@ export class StagesClient {
         const result = await this.fetch(`/api/stages/config/versions${qs}`, {
             method: 'GET',
         });
-        return await parseJson<StageConfigVersion[]>(result);
+        return (await parseJson<StageConfigVersion[]>(result)).map(reviveStageConfigVersion);
     }
 }

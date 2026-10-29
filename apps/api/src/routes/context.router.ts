@@ -5,12 +5,12 @@ import { AttachContextRequest, ContextSnapshot } from '../generated/context.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
- * generated from [context.ck](file://./../../data/contracts/context.ck)
+ * generated from [context.ck](../../data/contracts/context.ck)
  */
 export const ContextRouter = ServerKitRouter();
 
 /**
- * from [context.ck](file://./../../data/contracts/context.ck#L43)
+ * from [context.ck](../../data/contracts/context.ck) `POST /api/cards/{id}/context`
  */
 ContextRouter.post('/api/cards/:id/context', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const { id } = await parseAndValidate(
@@ -31,7 +31,7 @@ ContextRouter.post('/api/cards/:id/context', requirePolicy({ policy: 'wilson.man
 });
 
 /**
- * from [context.ck](file://./../../data/contracts/context.ck#L61)
+ * from [context.ck](../../data/contracts/context.ck) `GET /api/cards/{id}/context`
  */
 ContextRouter.get('/api/cards/:id/context', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(
@@ -55,7 +55,7 @@ ContextRouter.get('/api/cards/:id/context', requirePolicy({ policy: 'wilson.view
  * verb genuinely isn't one of the four HTTP methods this repo's contracts use elsewhere. A snapshot
  * has no history worth keeping once removed (`CardContextRepository.remove`'s own doc comment), so
  * unlike `.../plan/comments/{commentId}/resolve` this is a real delete, not a state transition.
- * from [context.ck](file://./../../data/contracts/context.ck#L86)
+ * from [context.ck](../../data/contracts/context.ck) `DELETE /api/cards/{id}/context/{contextId}`
  */
 ContextRouter.delete('/api/cards/:id/context/:contextId', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
     const { id, contextId } = await parseAndValidate(

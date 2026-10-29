@@ -28,6 +28,7 @@ contract CreateAccountRequest: {
 operation /api/onboarding: {
     get: {
         name: Get onboarding status
+        mcp: exclude # First-run setup, before there is anyone to act for
         sdk: getOnboardingStatus
         service: OnboardingService.status
         response: {
@@ -38,6 +39,7 @@ operation /api/onboarding: {
     }
     post: {
         name: Create the operator account
+        mcp: exclude # First-run setup, before there is anyone to act for
         sdk: createAccount
         service: OnboardingService.createAccount
         request: {

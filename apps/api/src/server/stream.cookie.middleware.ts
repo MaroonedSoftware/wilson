@@ -1,12 +1,12 @@
 import type { ServerKitMiddleware } from '@maroonedsoftware/koa';
 import { STREAM_COOKIE } from '#modules/authentication/session.cookies.js';
 
-/** The two event streams: the board feed and a card's planning conversation. */
-const STREAM_PATHS = [/^\/api\/feed$/, /^\/api\/cards\/[^/]+\/plan\/stream$/];
+/** The event streams: the board feed, a card's planning conversation, and a chat thread. */
+const STREAM_PATHS = [/^\/api\/feed$/, /^\/api\/cards\/[^/]+\/plan\/stream$/, /^\/api\/chat\/threads\/[^/]+\/stream$/];
 
 /**
  * Lets the web app's `EventSource` authenticate. The browser's `EventSource` cannot set headers, so
- * on the two read-only stream routes, and only there, a request with no `Authorization` header but
+ * on the read-only stream routes, and only there, a request with no `Authorization` header but
  * the `wilson_at` cookie is treated as if it had sent that token as a bearer. It runs ahead of
  * `authenticationMiddleware`, which then resolves the session exactly as for a header.
  *

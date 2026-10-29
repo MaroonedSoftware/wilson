@@ -1,5 +1,5 @@
 /**
- * generated from [PasskeyRelyingParty](file://./../../../../apps/api/data/contracts/passkey.types.ck#L6)
+ * generated from [PasskeyRelyingParty](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyRelyingParty {
     id: string;
@@ -7,7 +7,7 @@ export interface PasskeyRelyingParty {
 }
 
 /**
- * generated from [PasskeyUser](file://./../../../../apps/api/data/contracts/passkey.types.ck#L11)
+ * generated from [PasskeyUser](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyUser {
     id: string;
@@ -16,7 +16,7 @@ export interface PasskeyUser {
 }
 
 /**
- * generated from [PasskeyKeyParam](file://./../../../../apps/api/data/contracts/passkey.types.ck#L17)
+ * generated from [PasskeyKeyParam](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyKeyParam {
     type: string;
@@ -24,7 +24,7 @@ export interface PasskeyKeyParam {
 }
 
 /**
- * generated from [PasskeyCredentialDescriptor](file://./../../../../apps/api/data/contracts/passkey.types.ck#L22)
+ * generated from [PasskeyCredentialDescriptor](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyCredentialDescriptor {
     type: string;
@@ -33,14 +33,14 @@ export interface PasskeyCredentialDescriptor {
 }
 
 /**
- * generated from [PasskeyCredProps](file://./../../../../apps/api/data/contracts/passkey.types.ck#L47)
+ * generated from [PasskeyCredProps](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyCredProps {
     rk: boolean;
 }
 
 /**
- * generated from [PasskeyAttestationResponse](file://./../../../../apps/api/data/contracts/passkey.types.ck#L57)
+ * generated from [PasskeyAttestationResponse](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyAttestationResponse {
     clientDataJSON: string;
@@ -49,7 +49,7 @@ export interface PasskeyAttestationResponse {
 }
 
 /**
- * generated from [PasskeyAssertionResponse](file://./../../../../apps/api/data/contracts/passkey.types.ck#L63)
+ * generated from [PasskeyAssertionResponse](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyAssertionResponse {
     clientDataJSON: string;
@@ -60,7 +60,7 @@ export interface PasskeyAssertionResponse {
 
 /**
  * What `navigator.credentials.create` is called with, to make a passkey.
- * generated from [PasskeyCreationOptions](file://./../../../../apps/api/data/contracts/passkey.types.ck#L29)
+ * generated from [PasskeyCreationOptions](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyCreationOptions {
     rp: PasskeyRelyingParty;
@@ -73,7 +73,7 @@ export interface PasskeyCreationOptions {
 
 /**
  * What `navigator.credentials.get` is called with, to prove one.
- * generated from [PasskeyRequestOptions](file://./../../../../apps/api/data/contracts/passkey.types.ck#L39)
+ * generated from [PasskeyRequestOptions](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyRequestOptions {
     challenge: string;
@@ -84,7 +84,7 @@ export interface PasskeyRequestOptions {
 }
 
 /**
- * generated from [PasskeyExtensionResults](file://./../../../../apps/api/data/contracts/passkey.types.ck#L51)
+ * generated from [PasskeyExtensionResults](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyExtensionResults {
     appid?: boolean;
@@ -94,7 +94,7 @@ export interface PasskeyExtensionResults {
 
 /**
  * A new passkey, as the browser made it.
- * generated from [PasskeyAttestationCredential](file://./../../../../apps/api/data/contracts/passkey.types.ck#L71)
+ * generated from [PasskeyAttestationCredential](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyAttestationCredential {
     id: string;
@@ -107,7 +107,7 @@ export interface PasskeyAttestationCredential {
 
 /**
  * A passkey proving itself against a challenge.
- * generated from [PasskeyAssertionCredential](file://./../../../../apps/api/data/contracts/passkey.types.ck#L81)
+ * generated from [PasskeyAssertionCredential](../../../../apps/api/data/contracts/passkey.types.ck)
  */
 export interface PasskeyAssertionCredential {
     id: string;

@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { tool } from 'ai';
 import { z } from 'zod';
-import type { ToolContext } from './tool.context.js';
+import type { ExecFailure } from '#modules/host/execution.host.js';
+import { toolHost, type ToolContext } from './tool.context.js';
 
-const exec = promisify(execFile);
 const MAX_RESULTS = 100;
 
 /**
@@ -32,10 +30,12 @@ export const searchTools = (ctx: ToolContext) => ({
         execute: async ({ pattern, include_ignored }) => {
             const args = ['ls-files', '--cached', '--others'];
             if (!include_ignored) args.push('--exclude-standard');
-            const result = await exec('git', [...args, '--', pattern], {
-                cwd: ctx.worktreeRoot,
-                maxBuffer: 8 * 1024 * 1024,
-            }).catch((err: Error) => err);
+            const result = await toolHost(ctx)
+                .exec('git', [...args, '--', pattern], {
+                    cwd: ctx.worktreeRoot,
+                    maxBuffer: 8 * 1024 * 1024,
+                })
+                .catch((err: Error) => err);
             if (result instanceof Error) return `error: glob failed: ${result.message}`;
 
             const files = result.stdout.split('\n').filter(Boolean);
@@ -68,12 +68,12 @@ export const searchTools = (ctx: ToolContext) => ({
                 args.push('--', decision.path);
             }
 
-            const result = await exec('git', args, { cwd: ctx.worktreeRoot, maxBuffer: 8 * 1024 * 1024 }).catch(
-                (err: Error & { code?: number }) => err,
-            );
+            const result = await toolHost(ctx)
+                .exec('git', args, { cwd: ctx.worktreeRoot, maxBuffer: 8 * 1024 * 1024 })
+                .catch((err: ExecFailure) => err);
             // git grep exits 1 with no output when nothing matched, which is not an error.
             if (result instanceof Error) {
-                const code = (result as Error & { code?: number }).code;
+                const code = (result as ExecFailure).code;
                 if (code === 1) return 'no matches';
                 return `error: grep failed: ${result.message}`;
             }

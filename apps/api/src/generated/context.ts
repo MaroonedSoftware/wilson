@@ -15,7 +15,7 @@ const _ZodDatetime = z.preprocess(
  * `fetchedAt` and `createdAt` are both `datetime` and are not redundant — see the migration's own
  * header comment (`data/migrations/20260902120000_card_context.sql`): `fetchedAt` is when the source
  * said the content was current, `createdAt` is when this row was written.
- * generated from [ContextSnapshot](file://./../../data/contracts/context.ck#L22)
+ * generated from [ContextSnapshot](../../data/contracts/context.ck)
  */
 export const ContextSnapshot = z.strictObject({
     id: z.string(),
@@ -32,7 +32,7 @@ export type ContextSnapshot = z.infer<typeof ContextSnapshot>;
 /**
  * `POST .../context`'s request: the URL to fetch, nothing else. `fetchedBy` is not a field here —
  * it is always `'human'` on this surface (this card's Constraints), never something a caller chooses.
- * generated from [AttachContextRequest](file://./../../data/contracts/context.ck#L35)
+ * generated from [AttachContextRequest](../../data/contracts/context.ck)
  */
 export const AttachContextRequest = z.strictObject({
     sourceUrl: z.string(),

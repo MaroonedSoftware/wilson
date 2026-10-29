@@ -35,6 +35,13 @@ import cardShowCommand from './commands/card/show.command.js';
 import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
+import hostAddCommand from './commands/host/add.command.js';
+import hostListCommand from './commands/host/list.command.js';
+import hostProbeCommand from './commands/host/probe.command.js';
+import hostRemoveCommand from './commands/host/remove.command.js';
+import hostServeCommand from './commands/host/serve.command.js';
+import hostSetCommand from './commands/host/set.command.js';
+import hostUnserveCommand from './commands/host/unserve.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
 import stagesShowCommand from './commands/stages/show.command.js';
 import stagesEditCommand from './commands/stages/edit.command.js';
@@ -93,6 +100,13 @@ const app = await createCliApp({
         reg(['card', 'start'], cardStartCommand),
         reg(['card', 'versions'], cardVersionsCommand),
         reg(['project', 'create'], projectCreateCommand),
+        reg(['host', 'add'], hostAddCommand),
+        reg(['host', 'list'], hostListCommand),
+        reg(['host', 'set'], hostSetCommand),
+        reg(['host', 'remove'], hostRemoveCommand),
+        reg(['host', 'serve'], hostServeCommand),
+        reg(['host', 'unserve'], hostUnserveCommand),
+        reg(['host', 'probe'], hostProbeCommand),
         reg(['stages', 'show'], stagesShowCommand),
         reg(['stages', 'edit'], stagesEditCommand),
         reg(['stages', 'set'], stagesSetCommand),

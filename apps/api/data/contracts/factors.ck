@@ -66,6 +66,7 @@ contract VerifyPasskeyRequest: {
 operation /api/auth/factors: {
     get: {
         name: List second factors
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: listSecondFactors
         service: FactorsService.list
         security: {
@@ -82,6 +83,7 @@ operation /api/auth/factors: {
 operation /api/auth/factors/authenticator: {
     post: {
         name: Start enrolling an authenticator app
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: startAuthenticator
         service: FactorsService.startAuthenticator
         request: {
@@ -100,6 +102,7 @@ operation /api/auth/factors/authenticator: {
 operation /api/auth/factors/authenticator/verify: {
     post: {
         name: Finish enrolling an authenticator app
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: verifyAuthenticator
         service: FactorsService.verifyAuthenticator
         request: {
@@ -119,6 +122,7 @@ operation /api/auth/factors/authenticator/verify: {
 operation /api/auth/factors/passkey: {
     post: {
         name: Start enrolling a passkey
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: startPasskey
         service: FactorsService.startPasskey
         request: {
@@ -138,6 +142,7 @@ operation /api/auth/factors/passkey: {
 operation /api/auth/factors/passkey/verify: {
     post: {
         name: Finish enrolling a passkey
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: verifyPasskey
         service: FactorsService.verifyPasskey
         request: {
@@ -161,6 +166,7 @@ operation /api/auth/factors/{id}: {
     }
     delete: {
         name: Remove a second factor
+        mcp: exclude # What it takes to sign in is never changed by an agent
         sdk: removeSecondFactor
         service: FactorsService.remove
         response: {

@@ -1,9 +1,10 @@
 import type { CurrentSession, PasskeyChallenge, PasskeyChallengeRequest, TokenRequest, TokenResponse } from './types/auth.js';
+import { reviveCurrentSession } from './types/auth.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
 /**
- * generated from [auth.ck](file://./../../../apps/api/data/contracts/auth.ck)
+ * generated from [auth.ck](../../../apps/api/data/contracts/auth.ck)
  */
 export class AuthClient {
     constructor(private fetch: SdkFetch) {}
@@ -36,7 +37,7 @@ export class AuthClient {
     /** @name Get the current session */
     async getCurrentSession(): Promise<CurrentSession> {
         const result = await this.fetch(`/api/auth/session`, { method: 'GET' });
-        return await parseJson<CurrentSession>(result);
+        return reviveCurrentSession(await parseJson<CurrentSession>(result));
     }
 
     /** @name Sign out */
