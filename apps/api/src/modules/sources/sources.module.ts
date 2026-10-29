@@ -88,7 +88,7 @@ export const SourcesModule: ServerKitModule = {
         // Card 0201: a third, independent loop — mirroring status outward is a different reason to
         // tick than `SourcePoller`'s importing, so this is its own class and its own registration,
         // never a branch inside `SourcePoller`. `.useFactory`, not `.useClass`: this needs the
-        // process's `Kysely<DB>` pool directly (to read `runner.card_events`, which `modules/events/`
+        // process's `Kysely<DB>` pool directly (to read `wilson.card_events`, which `modules/events/`
         // is outside this card's "Files in scope" to expose a query for), the same reason
         // `SourceCursorRepository` above gets one instead of a decorator's reflection.
         registry

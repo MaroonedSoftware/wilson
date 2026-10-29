@@ -146,7 +146,7 @@ export type SetClaudeConfigDirSettingRequest = z.infer<typeof SetClaudeConfigDir
 /**
  * Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
  * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
- * (a `runner.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
+ * (a `wilson.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here
  * is validated at write: unlike `claude-config-dir`, there is no shape a boolean can be wrong in.
  * generated from [DryRunSetting](../../data/contracts/settings.ck)
  */

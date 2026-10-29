@@ -11,7 +11,7 @@ const __dt = (v: unknown, path: string): DateTime => {
 };
 
 /**
- * The board's columns. They come from the project's stage config (a `runner.stage_configs` row,
+ * The board's columns. They come from the project's stage config (a `wilson.stage_configs` row,
  * `StageConfigStore`), which a browser has no business reading whole — and a board that hard-codes
  * its columns lies the first time a stage is added, which is cheap to do precisely because stages
  * are config.
@@ -300,7 +300,7 @@ export interface PlanTurnRequest {
 }
 
 /**
- * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
+ * One row of `wilson.plan_turns` — a turn in a card's planning conversation, whether this is
  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
  * generated from [PlanTurn](../../../../apps/api/data/contracts/board.ck)

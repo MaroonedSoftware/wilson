@@ -41,7 +41,7 @@ const isUnauthorised = (err: unknown): boolean => err instanceof SdkError && err
  *
  * This used to scaffold the sibling board repo — `cards/`, `config/`, `context/`, a `stages.yaml`,
  * and the git repo itself. The board is Postgres now, stage config included, so all that is left
- * to initialise is the `runner.stage_configs` row holding a default document an operator can start
+ * to initialise is the `wilson.stage_configs` row holding a default document an operator can start
  * a card against immediately (`BoardBootstrapService.init`, behind `POST /api/board/init`). It is
  * keyed by the project the request is for (`WILSON_PROJECT`, or the daemon's own), and refuses a
  * project that already has one — `wilson stages edit` is how a config changes from here.

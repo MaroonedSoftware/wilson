@@ -9,7 +9,7 @@ const __dt = (v: unknown, path: string): DateTime => {
 };
 
 /**
- * Third of six in the context-provider slice (PROJECT.md, "Context providers"). `runner.card_context`
+ * Third of six in the context-provider slice (PROJECT.md, "Context providers"). `wilson.card_context`
  * (card 0185) is where a snapshot lives; `ContextProvider`/`ContextProviderRegistry`/
  * `UrlContextProvider` (card 0186) is how one gets fetched. This is the seam between them: attaching a
  * document to a card, over HTTP.

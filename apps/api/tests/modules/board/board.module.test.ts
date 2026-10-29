@@ -14,7 +14,7 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
 /**
  * Card 0148. Before this card, `BoardModule.setup` assembled `BoardConfig` fresh from
  * `PROJECT_CODE_ROOT`/friends on every boot — nothing else. Now it reads (or,
- * the first time, creates) a `runner.projects` row and boots `BoardConfig` from that row instead,
+ * the first time, creates) a `wilson.projects` row and boots `BoardConfig` from that row instead,
  * with the row winning outright once it exists. These tests boot the app's own module list against
  * a real database, the same way `container.setup.test.ts` does, because the whole point is what
  * `BoardModule.setup` does against Postgres — a fake repository would only prove the test agrees
@@ -84,7 +84,7 @@ const bootBoardConfig = async (config: AppConfig): Promise<BoardConfig> => {
 };
 
 describe('BoardModule (card 0148)', () => {
-    it('creates a runner.projects row from the environment on a first boot, and boots BoardConfig from it', async () => {
+    it('creates a wilson.projects row from the environment on a first boot, and boots BoardConfig from it', async () => {
         const name = uniqueProject();
         const paths = await uniquePaths();
 
@@ -95,7 +95,7 @@ describe('BoardModule (card 0148)', () => {
         expect(boardConfig.worktreeRoot).toBe(paths.worktreeRoot);
         expect(boardConfig.runRoot).toBe(paths.runRoot);
 
-        const row = await db.selectFrom('runner.projects').selectAll().where('name', '=', name).executeTakeFirst();
+        const row = await db.selectFrom('wilson.projects').selectAll().where('name', '=', name).executeTakeFirst();
         expect(row?.codeRoot).toBe(paths.codeRoot);
         expect(row?.worktreeRoot).toBe(paths.worktreeRoot);
         expect(row?.runRoot).toBe(paths.runRoot);
@@ -108,7 +108,7 @@ describe('BoardModule (card 0148)', () => {
         await bootBoardConfig(config);
         await bootBoardConfig(config);
 
-        const rows = await db.selectFrom('runner.projects').selectAll().where('name', '=', name).execute();
+        const rows = await db.selectFrom('wilson.projects').selectAll().where('name', '=', name).execute();
         expect(rows).toHaveLength(1);
     });
 
@@ -131,7 +131,7 @@ describe('BoardModule (card 0148)', () => {
         expect(boardConfig.runRoot).toBe(firstPaths.runRoot);
         expect(boardConfig.codeRoot).not.toBe(secondPaths.codeRoot);
 
-        const rows = await db.selectFrom('runner.projects').selectAll().where('name', '=', name).execute();
+        const rows = await db.selectFrom('wilson.projects').selectAll().where('name', '=', name).execute();
         expect(rows).toHaveLength(1);
     });
 
@@ -141,7 +141,7 @@ describe('BoardModule (card 0148)', () => {
         await bootBoardConfig(config);
 
         const editedCodeRoot = '/tmp/wilson-0148/operator-edited-code';
-        await db.updateTable('runner.projects').set({ codeRoot: editedCodeRoot }).where('name', '=', name).execute();
+        await db.updateTable('wilson.projects').set({ codeRoot: editedCodeRoot }).where('name', '=', name).execute();
 
         // Same config as the first boot — an operator who edited the row and restarted with the
         // very environment that first created it still gets the edited row back, not a value the

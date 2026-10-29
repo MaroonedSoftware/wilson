@@ -24,7 +24,7 @@ const silentLogger: Logger = {
  * Card 0165. Exercises the real migration this card added
  * (apps/api/data/migrations/20260831120000_leases.sql) against the real test database: `pnpm
  * migrate:up` is not on this stage's allowlist, so this reads the migration's own `-- migrate:up`
- * SQL text off disk and applies it directly. `runner.leases` may not exist here yet at all, so this
+ * SQL text off disk and applies it directly. `wilson.leases` may not exist here yet at all, so this
  * applies the up migration for real rather than inside a rolled-back transaction; every test below needs the table to still be there afterward, and needs it visible to
  * more than one pooled connection at once for the concurrent-acquisition case. Idempotent against an
  * environment where `dbmate` already created the table for real: Postgres's "already exists" error
@@ -59,7 +59,7 @@ afterAll(async () => {
 });
 
 /**
- * `resource_key` is the primary key across the whole `runner.leases` table — not scoped by project
+ * `resource_key` is the primary key across the whole `wilson.leases` table — not scoped by project
  * (that is the point of card 0165) — so every test needs its own resource key or it would collide
  * with every other test in this file, and with any other suite that ever touches this table.
  */
@@ -67,7 +67,7 @@ const uniqueResourceKey = (): string => `test-resource-${randomUUID()}`;
 
 const insertCard = (project: string, id: string): Promise<unknown> =>
     db
-        .insertInto('runner.cards')
+        .insertInto('wilson.cards')
         .values({
             project,
             id,
@@ -86,7 +86,7 @@ const insertCard = (project: string, id: string): Promise<unknown> =>
 /** The live claim `CardStageJob` would hold while actually carrying a card — see `hasLiveClaim`. */
 const recordLiveClaim = (project: string, cardId: string): Promise<unknown> =>
     db
-        .insertInto('runner.cardJobs')
+        .insertInto('wilson.cardJobs')
         .values({ project, cardId, jobId: `job-${randomUUID()}` })
         .execute();
 
@@ -192,7 +192,7 @@ describe('LeaseService.acquire', () => {
 
         /**
          * Acceptance criterion: "A lease held by a card that is no longer running can be acquired
-         * by another card without manual intervention." No `runner.card_jobs` row for '0001' is
+         * by another card without manual intervention." No `wilson.card_jobs` row for '0001' is
          * exactly what "no longer running" means here (see `LeaseService.isOrphaned`'s doc), so this
          * models a daemon killed mid-stage without anything having to notice first.
          */

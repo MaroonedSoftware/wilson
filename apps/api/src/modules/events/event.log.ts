@@ -45,7 +45,7 @@ export type AppendableCardEvent = Omit<CardEvent, 'type'> & { type: AppendableCa
 /**
  * The operational record: append-only, never updated, never deleted.
  *
- * `runner.cards` records *what a card is*; this records *what happened to it*. Both are now in the
+ * `wilson.cards` records *what a card is*; this records *what happened to it*. Both are now in the
  * same database, which is what lets a transition and its event share a transaction — previously the
  * card was committed to git and the event appended here, with no way to reconcile a partial failure.
  */
@@ -65,7 +65,7 @@ export class EventLog {
      */
     async append(event: AppendableCardEvent, executor: Kysely<DB> | Transaction<DB> = this.db): Promise<void> {
         const row = await executor
-            .insertInto('runner.cardEvents')
+            .insertInto('wilson.cardEvents')
             .values({
                 project: event.project,
                 cardId: event.cardId,
@@ -131,7 +131,7 @@ export class EventLog {
      */
     async tail(project: string, cardId: string, limit = 100): Promise<CardEventRow[]> {
         const rows = await this.db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .orderBy('id', 'desc')
@@ -157,7 +157,7 @@ export class EventLog {
      */
     async totalInputTokens(project: string, cardId: string): Promise<number> {
         const row = await this.db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .select(sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('total'))
@@ -180,7 +180,7 @@ export class EventLog {
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .where('type', 'in', ['stage.passed', 'stage.failed'])
@@ -241,7 +241,7 @@ export class EventLog {
      */
     async outputTokensSince(project: string, since: DateTime): Promise<number> {
         const row = await this.db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('type', 'in', ['stage.passed', 'stage.failed'])
             .where(sql<boolean>`"created_at" >= ${since.toJSDate()}`)

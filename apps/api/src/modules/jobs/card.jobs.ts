@@ -46,7 +46,7 @@ export class CardJobs {
     /** Claim the card for a job. One job per card, so a second enqueue replaces the first. */
     async record(cardId: string, jobId: string): Promise<void> {
         await this.db
-            .insertInto('runner.cardJobs')
+            .insertInto('wilson.cardJobs')
             .values({ project: this.config.project, cardId, jobId })
             .onConflict(conflict => conflict.columns(['project', 'cardId']).doUpdateSet({ jobId }))
             .execute();
@@ -54,13 +54,13 @@ export class CardJobs {
 
     /** Release the card. Safe to call when it holds no claim. */
     async clear(cardId: string): Promise<void> {
-        await this.db.deleteFrom('runner.cardJobs').where('project', '=', this.config.project).where('cardId', '=', cardId).execute();
+        await this.db.deleteFrom('wilson.cardJobs').where('project', '=', this.config.project).where('cardId', '=', cardId).execute();
     }
 
     /** The job id this card last claimed, or undefined if it holds no claim at all. */
     private async claimedJobId(cardId: string): Promise<string | undefined> {
         const row = await this.db
-            .selectFrom('runner.cardJobs')
+            .selectFrom('wilson.cardJobs')
             .select('jobId')
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
@@ -148,7 +148,7 @@ export class CardJobs {
     }
 
     /**
-     * The `runner.cardJobs` claim row for a given job id, regardless of which project recorded it —
+     * The `wilson.cardJobs` claim row for a given job id, regardless of which project recorded it —
      * card 0272's fallback for an orphaned `card.stage` job whose own payload carries no `project`
      * (`CardStagePayload`'s own doc comment: `BoardWriteService.start` sends none). Unlike every
      * other query on this class, deliberately not scoped by `this.config.project`: the boot sweep
@@ -156,6 +156,6 @@ export class CardJobs {
      * exactly the question this answers.
      */
     async claimForJob(jobId: string): Promise<{ project: string; cardId: string } | undefined> {
-        return this.db.selectFrom('runner.cardJobs').select(['project', 'cardId']).where('jobId', '=', jobId).executeTakeFirst();
+        return this.db.selectFrom('wilson.cardJobs').select(['project', 'cardId']).where('jobId', '=', jobId).executeTakeFirst();
     }
 }

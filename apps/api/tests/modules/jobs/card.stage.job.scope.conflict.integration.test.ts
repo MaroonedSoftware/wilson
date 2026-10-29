@@ -122,7 +122,7 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
         await boardRepo.create(card('0002', 'implementing', 'apps/api/src/modules/events/card.event.ts'), 'create');
         // Card 0128: sitting in `implementing` is no longer sufficient by itself — 0001 must actually
         // be carried by a job, the same live claim a real `CardJobs.record` would leave behind.
-        await db.insertInto('runner.cardJobs').values({ project, cardId: '0001', jobId: 'external-job-1' }).execute();
+        await db.insertInto('wilson.cardJobs').values({ project, cardId: '0001', jobId: 'external-job-1' }).execute();
 
         await job.run({ cardId: '0002', stageName: 'implementing' });
 

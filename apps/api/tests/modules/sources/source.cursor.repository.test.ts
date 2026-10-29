@@ -19,9 +19,9 @@ const freshRepo = (project = uniqueProject()): { project: string; repo: SourceCu
 };
 
 /**
- * Card 0198, task 1. Against a real database (`runner.source_cursors`, the migration card 0192's
+ * Card 0198, task 1. Against a real database (`wilson.source_cursors`, the migration card 0192's
  * process leaves to the operator) — the same idiom `settings.store.test.ts` uses for
- * `runner.settings`.
+ * `wilson.settings`.
  */
 describe('SourceCursorRepository', () => {
     it('reports undefined for a source with no row yet — "since the beginning"', async () => {
@@ -45,7 +45,7 @@ describe('SourceCursorRepository', () => {
         await repo.set('linear', 'cursor-2');
         await repo.set('linear', 'cursor-3');
 
-        const rows = await db.selectFrom('runner.sourceCursors').selectAll().where('project', '=', project).where('source', '=', 'linear').execute();
+        const rows = await db.selectFrom('wilson.sourceCursors').selectAll().where('project', '=', project).where('source', '=', 'linear').execute();
         expect(rows).toHaveLength(1);
         expect(await repo.get('linear')).toBe('cursor-3');
     });

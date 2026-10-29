@@ -5,7 +5,7 @@ import { CARD_FEED_CHANNEL, cardFeed } from './card.feed.js';
 
 /**
  * The shape `EventLog.append` notifies with: the event's identity, not its contents. See the
- * comment above its `pg_notify` call. `id` is the row's primary key in `runner.card_events`, kept
+ * comment above its `pg_notify` call. `id` is the row's primary key in `wilson.card_events`, kept
  * here so this listener can go fetch `payload` — the one field too large to risk putting on this
  * channel.
  */
@@ -51,7 +51,7 @@ export const startCardFeedListener = async (pool: KyselyPool, logger: Logger, si
         void (async (): Promise<void> => {
             try {
                 const event = JSON.parse(raw) as CardFeedNotification;
-                const { rows } = await pool.query<{ payload: Record<string, unknown> }>(`select payload from runner.card_events where id = $1`, [
+                const { rows } = await pool.query<{ payload: Record<string, unknown> }>(`select payload from wilson.card_events where id = $1`, [
                     event.id,
                 ]);
                 const row = rows[0];

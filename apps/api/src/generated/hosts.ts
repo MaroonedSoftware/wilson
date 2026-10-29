@@ -35,7 +35,7 @@ export type HostProbe = z.infer<typeof HostProbe>;
 
 /**
  * A slot on a host held by a running stage: which card, of which project, since when. Read from the
- * slot's `runner.leases` row, so a slot a killed daemon left behind shows here until something takes
+ * slot's `wilson.leases` row, so a slot a killed daemon left behind shows here until something takes
  * it back (placement does, the next time it needs one).
  * generated from [HostSlotUse](../../data/contracts/hosts.ck)
  */

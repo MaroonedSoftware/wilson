@@ -18,7 +18,7 @@ import { AccountRepository } from './account.repository.js';
  * themselves (`CurrentSessionService` now, `requirePolicy` from rollout step 6).
  *
  * Also refuses a session whose account is gone or switched off, and deletes it. Sessions live in
- * `runner.cache_entries` and accounts in `runner.accounts`, and a restore of one without the other
+ * `wilson.cache_entries` and accounts in `wilson.accounts`, and a restore of one without the other
  * would otherwise leave a token naming nobody (PROJECT.md, Authentication: Enforcement).
  *
  * The sentinel is compared by identity downstream, so this returns the exported instance itself.

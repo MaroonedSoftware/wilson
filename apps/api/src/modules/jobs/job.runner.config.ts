@@ -18,7 +18,7 @@
  * not answer what it should be; see the paragraph below for what does.
  *
  * It was briefly and wrongly recorded as 2. A sweep over `stage.dispatched`/`stage.passed` pairs in
- * `runner.card_events` appeared to show two simultaneous stages, but that overlap was two *daemons*
+ * `wilson.card_events` appeared to show two simultaneous stages, but that overlap was two *daemons*
  * running at once — a `wilson run` process and an API server, which is the very confusion card 0079
  * exists to remove — not one daemon carrying two jobs. Card 0063 read the code and got this right;
  * the "measurement" that overrode it measured the wrong thing. Observed directly afterwards: two

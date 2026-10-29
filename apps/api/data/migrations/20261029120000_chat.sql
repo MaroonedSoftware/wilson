@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.chat_threads, runner.chat_messages, runner.chat_pending_actions —
+-- wilson.chat_threads, wilson.chat_messages, wilson.chat_pending_actions —
 -- the chat a person drives Wilson from.
 --
 -- Modelled on ats's web chat: the agent reads freely through the operation
@@ -13,7 +13,7 @@
 --
 -- Not project-scoped. The chat sits on every page, the project-less
 -- dashboard included, and one conversation can touch several projects, so
--- a thread has no `project` column and no FK into runner.cards. A pending
+-- a thread has no `project` column and no FK into wilson.cards. A pending
 -- action records the project its operation runs in instead (null for an
 -- operation that names none, such as registering a project).
 --
@@ -24,11 +24,11 @@
 -- thread between them would mean rebuilding one from the other.
 --
 -- `archived_at` is a state, not a delete, the same reasoning as
--- runner.plan_comments' `resolved`: an archived thread is out of the list,
+-- wilson.plan_comments' `resolved`: an archived thread is out of the list,
 -- not gone.
 -- =========================================================================
 
-CREATE TABLE runner.chat_threads (
+CREATE TABLE wilson.chat_threads (
     id BIGSERIAL PRIMARY KEY,
     -- Named after the first message; the person may rename it.
     title TEXT NOT NULL,
@@ -41,11 +41,11 @@ CREATE TABLE runner.chat_threads (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-SELECT runner.add_updated_at_trigger('runner.chat_threads');
+SELECT wilson.add_updated_at_trigger('wilson.chat_threads');
 
-CREATE INDEX chat_threads_updated_at_idx ON runner.chat_threads (updated_at DESC) WHERE archived_at IS NULL;
+CREATE INDEX chat_threads_updated_at_idx ON wilson.chat_threads (updated_at DESC) WHERE archived_at IS NULL;
 
--- One row per message, numbered per thread the way runner.plan_turns is.
+-- One row per message, numbered per thread the way wilson.plan_turns is.
 --
 -- `content` is what the person reads: their text, or the agent's answer.
 -- `operations` is what the agent ran during an answer — each catalog
@@ -54,8 +54,8 @@ CREATE INDEX chat_threads_updated_at_idx ON runner.chat_threads (updated_at DESC
 -- 'api' engine's own record of the turn (the AI SDK's response messages,
 -- tool calls and results included), replayed on its next turn so the
 -- model keeps what it read; null for 'cli', whose session already holds it.
-CREATE TABLE runner.chat_messages (
-    thread_id BIGINT NOT NULL REFERENCES runner.chat_threads (id) ON DELETE CASCADE,
+CREATE TABLE wilson.chat_messages (
+    thread_id BIGINT NOT NULL REFERENCES wilson.chat_threads (id) ON DELETE CASCADE,
     seq INTEGER NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
@@ -76,9 +76,9 @@ CREATE TABLE runner.chat_messages (
 -- `expires_at` a pending action can no longer be confirmed; that is read
 -- off the timestamp rather than written back as a status, so nothing has
 -- to sweep the table.
-CREATE TABLE runner.chat_pending_actions (
+CREATE TABLE wilson.chat_pending_actions (
     id BIGSERIAL PRIMARY KEY,
-    thread_id BIGINT NOT NULL REFERENCES runner.chat_threads (id) ON DELETE CASCADE,
+    thread_id BIGINT NOT NULL REFERENCES wilson.chat_threads (id) ON DELETE CASCADE,
     project TEXT,
     operation TEXT NOT NULL,
     arguments JSONB NOT NULL,
@@ -91,10 +91,10 @@ CREATE TABLE runner.chat_pending_actions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX chat_pending_actions_thread_id_idx ON runner.chat_pending_actions (thread_id, id);
+CREATE INDEX chat_pending_actions_thread_id_idx ON wilson.chat_pending_actions (thread_id, id);
 
 -- migrate:down
 
-DROP TABLE runner.chat_pending_actions;
-DROP TABLE runner.chat_messages;
-DROP TABLE runner.chat_threads;
+DROP TABLE wilson.chat_pending_actions;
+DROP TABLE wilson.chat_messages;
+DROP TABLE wilson.chat_threads;

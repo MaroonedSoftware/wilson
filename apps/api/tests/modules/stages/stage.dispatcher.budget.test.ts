@@ -180,7 +180,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(stored.frontmatter.retries).toEqual({});
 
         const version = await board.currentVersion('0001');
-        const row = await db.selectFrom('runner.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
         expect(row.message).toBe('0001: testing flagged for a human (over budget)');
     });
 

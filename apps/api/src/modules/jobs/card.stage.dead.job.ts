@@ -49,7 +49,7 @@ export class CardStageDeadJob extends Job<CardStagePayload> {
         // enqueued before this card, nothing, which means the daemon's own configured project). This
         // job reads and writes the card through `this.boardRepo`/`this.board`, both project-scoped via
         // `BoardConfig`, so getting this wrong would poison — or fail to find — a card in the wrong
-        // project's `runner.cards` entirely.
+        // project's `wilson.cards` entirely.
         await runAsProject(project ?? this.board.project, () => this.runDead(cardId, stageName));
     }
 

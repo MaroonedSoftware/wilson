@@ -63,7 +63,7 @@ const releaseTick = () => pending.shift()?.resolve();
 
 /**
  * Card 0201, the same idiom `source.poller.test.ts`'s own "end to end against a real board" section
- * uses (`testDb`, `uniqueProject`): the acceptance criteria here are about real `runner.card_events`
+ * uses (`testDb`, `uniqueProject`): the acceptance criteria here are about real `wilson.card_events`
  * rows and a real cursor row, which a fake event log could only ever assert agrees with itself about.
  */
 let db: Kysely<DB>;

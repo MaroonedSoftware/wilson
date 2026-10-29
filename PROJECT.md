@@ -51,7 +51,7 @@ These are settled. Challenge them only if you find a concrete blocker.
    readable state for an agent, and the plan is its only input. The write tool's deny
    list still covers `.runner/` for decision 8.
 7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
-   a provider is a config edit. The config is a versioned `runner.stage_configs` row —
+   a provider is a config edit. The config is a versioned `wilson.stage_configs` row —
    one YAML document per project, comments and all — read through `StageConfigStore` and
    edited with `wilson stages edit` (or `wilson stages set <file>`); every save is a new
    version, and the next dispatch reads it, no restart involved.
@@ -262,7 +262,7 @@ when run from inside a real stage, under the stage's own config directory, is st
 A stage that cuts a worktree runs where its `placement` says: `local` (the default) on the daemon's
 own machine, `remote` on a registered host, or `any` on a host when one has a free slot and here
 otherwise. Planning sessions and stages with `worktree: none` always run here. A host is a
-`runner.hosts` row (`wilson host add`, the web app's Hosts page) with a number of slots, the projects
+`wilson.hosts` row (`wilson host add`, the web app's Hosts page) with a number of slots, the projects
 it serves and where each one's clone lives on it, and a probe (`wilson host probe`) that has to pass
 before placement will choose it.
 
@@ -290,7 +290,7 @@ There are two kinds of host, fixed when one is registered:
   `CLAUDE_CODE_OAUTH_TOKEN`, which never leaves that machine.
 
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
-worker subscribed to it would hold a credential for `runner.cards` and `runner.stage_configs` on the
+worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the
 same machine as model-written code, which is the board readable from a worktree: exactly what
 decisions 6 and 8 rule out, and what card 0194 removed from the engine's environment. The connection
 is the only thing a worker holds, and Wilson drives it; a worker never decides what to run.
@@ -579,14 +579,14 @@ not provide.
 
 ```
 projects        id, name, code_root, worktree_root, port_range, ...
-runner.cards    (project, id) PK, title, stage, branch, body, retries,
+wilson.cards    (project, id) PK, title, stage, branch, body, retries,
                 external, source_closed, position, pinned_version_id, created_at
-runner.card_deps       (project, card_id, depends_on_id) — FK both ways
-runner.card_versions   id, project, card_id, frontmatter, body, message, created_at
-runner.card_events     append-only; every claim, denial, grant and transition
+wilson.card_deps       (project, card_id, depends_on_id) — FK both ways
+wilson.card_versions   id, project, card_id, frontmatter, body, message, created_at
+wilson.card_events     append-only; every claim, denial, grant and transition
 ```
 
-`runner.cards` is current state — what `card list` and dispatch read. `runner.card_versions`
+`wilson.cards` is current state — what `card list` and dispatch read. `wilson.card_versions`
 is append-only history: the replacement for `git log` on the board repo, carrying the
 message that used to be the commit message (`0018: implementing -> testing`).
 
@@ -617,7 +617,7 @@ file, because that is what the agent reads.
 constraint retired there is nothing clever to do here — no fractional ranks, no merge
 semantics. A reorder is one `UPDATE` per moved card in one transaction.
 
-**Stage config is a row too**, `runner.stage_configs`: the whole YAML document, stored
+**Stage config is a row too**, `wilson.stage_configs`: the whole YAML document, stored
 verbatim so its commentary survives, validated on every write and read, and versioned the
 way cards are (the newest row per project is current; the rest are what `git log` on
 `config/stages.yaml` used to be). It is machinery, not board state: human-write-only
@@ -1075,7 +1075,7 @@ only when retrying cannot help.
 The development stack keeps the board in `wilson-db`'s anonymous volume. Move it with a dump, never
 by copying or recreating that container: stop the daemon so no stage is running, `pg_dump -Fc` from
 `wilson-db`, start the server stack's `db`, and `pg_restore` into it before starting `api`. Then
-update every `runner.projects` row's `codeRoot`, `worktreeRoot` and `runRoot` to the container's
+update every `wilson.projects` row's `codeRoot`, `worktreeRoot` and `runRoot` to the container's
 paths, since they still name the development machine's.
 
 ## Build order
@@ -1116,7 +1116,7 @@ what is done, what is not, and what each remaining one is actually waiting on.
   into `backlog` is the gate instead.
 - **ContractKit contract, the API, and the web board.**
 - **Multi-project registry, port allocation, dry-run toggle.** The registry landed as
-  cards 0148–0156 and 0162: `runner.projects`, ambient project context, the
+  cards 0148–0156 and 0162: `wilson.projects`, ambient project context, the
   `X-Wilson-Project` header, project-scoped app routes, and `GET /api/projects`. Port
   allocation followed on top of it — card 0165 built leasing as a mechanism with no
   consumer, card 0027 made ports its first resource type, and card 0167 closed the one
@@ -1124,7 +1124,7 @@ what is done, what is not, and what each remaining one is actually waiting on.
   dry-run toggle is card 0144. Filesystem reconciliation was once on this list and is
   not coming: with the board in Postgres there is no file to reconcile against.
 - **Plugins: context providers.** Cards 0185–0189, the narrower of the two plugin seams:
-  `runner.card_context` and its repository, a `ContextProvider` interface with a URL
+  `wilson.card_context` and its repository, a `ContextProvider` interface with a URL
   provider that reuses card 0107's destination check rather than writing a second one,
   the `context.ck` contract and its SDK, the planning agent reading a card's snapshots
   as quoted source material on the turn they are attached, and attach-and-review on the
@@ -1138,7 +1138,7 @@ what is done, what is not, and what each remaining one is actually waiting on.
   A ticket source is a stateful bidirectional sync with identity mapping and webhooks,
   as against the stateless one-shot read that shipped, which is why this document treats
   them as two extension points rather than one. `cards.external` and `source_closed` are
-  already columns on `runner.cards`, put there for this.
+  already columns on `wilson.cards`, put there for this.
 - **Compose stack.** Card 0074's remaining half — mounting a `CLAUDE_CONFIG_DIR` at a
   volume — waits here. The setting itself does not (card 0141).
 

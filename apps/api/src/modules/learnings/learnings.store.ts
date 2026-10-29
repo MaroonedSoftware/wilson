@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 
-/** One stored learnings document — a `runner.learnings` row, as a caller sees it. */
+/** One stored learnings document — a `wilson.learnings` row, as a caller sees it. */
 export interface LearningsDocument {
     id: string;
     markdown: string;
@@ -24,7 +24,7 @@ export interface LearningsVersionSummary {
  *
  * Clones `StageConfigStore`'s shape (`apps/api/src/modules/stages/stage.config.store.ts`): append-only,
  * the newest row per project is the current document, and every save carries a `message` — the same
- * `git log` on a file used to answer, now a `runner.learnings` row.
+ * `git log` on a file used to answer, now a `wilson.learnings` row.
  *
  * Unlike stage config, a learnings document has no schema to validate: `markdown` is free text, so
  * `save` never refuses one, and `load` never throws — this document is human-write-only (PROJECT.md
@@ -53,7 +53,7 @@ export abstract class LearningsStore {
 }
 
 /**
- * `runner.learnings`, in Postgres.
+ * `wilson.learnings`, in Postgres.
  *
  * Keyed by `BoardConfig.project` the way `PostgresStageConfigStore` is, read fresh on every call —
  * so under `runAsProject` (project.context.ts) the same instance answers for whichever project's
@@ -80,7 +80,7 @@ export class PostgresLearningsStore extends LearningsStore {
 
     async save(markdown: string, message: string): Promise<LearningsDocument> {
         const row = await this.db
-            .insertInto('runner.learnings')
+            .insertInto('wilson.learnings')
             .values({ project: this.config.project, markdown, message })
             .returning(['id', 'markdown', 'message', 'createdAt'])
             .executeTakeFirstOrThrow();
@@ -89,7 +89,7 @@ export class PostgresLearningsStore extends LearningsStore {
 
     async versions(limit = 20): Promise<LearningsVersionSummary[]> {
         const rows = await this.db
-            .selectFrom('runner.learnings')
+            .selectFrom('wilson.learnings')
             .select(['id', 'message', 'createdAt'])
             .where('project', '=', this.config.project)
             .orderBy('id', 'desc')
@@ -100,7 +100,7 @@ export class PostgresLearningsStore extends LearningsStore {
 
     /** The current project's newest row — its current document. */
     private newest() {
-        return this.db.selectFrom('runner.learnings').where('project', '=', this.config.project).orderBy('id', 'desc').limit(1);
+        return this.db.selectFrom('wilson.learnings').where('project', '=', this.config.project).orderBy('id', 'desc').limit(1);
     }
 }
 

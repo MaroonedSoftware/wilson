@@ -10,7 +10,7 @@ options {
 }
 
 # The registry of machines other than the daemon's own that a card stage can run on, reached over
-# SSH or by a worker that connects in (`runner.hosts`, `runner.host_projects`). Deployment-scoped like `projects.ck`, not per
+# SSH or by a worker that connects in (`wilson.hosts`, `wilson.host_projects`). Deployment-scoped like `projects.ck`, not per
 # project, and in a file of its own for the same reason that one is.
 #
 # Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
@@ -44,7 +44,7 @@ contract HostProbe: {
 }
 
 # A slot on a host held by a running stage: which card, of which project, since when. Read from the
-# slot's `runner.leases` row, so a slot a killed daemon left behind shows here until something takes
+# slot's `wilson.leases` row, so a slot a killed daemon left behind shows here until something takes
 # it back (placement does, the next time it needs one).
 contract HostSlotUse: {
     slot: int

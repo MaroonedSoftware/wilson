@@ -108,7 +108,7 @@ describe('CardContextRepository', () => {
     });
 
     it('rejects attach for a card id with no matching card row, the composite FK\'s other half', async () => {
-        // The FK is `(project, card_id) REFERENCES runner.cards (project, id)` — cascade-on-delete
+        // The FK is `(project, card_id) REFERENCES wilson.cards (project, id)` — cascade-on-delete
         // is only half of what that buys; a snapshot must never land for a card that never existed
         // in the first place.
         await expect(repo.attach('no-such-card', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a')).rejects.toThrow();
@@ -121,7 +121,7 @@ describe('CardContextRepository', () => {
 
         // `PostgresBoardRepository` has no delete method — the composite FK's `ON DELETE CASCADE`
         // is exercised directly against the card row it references.
-        await db.deleteFrom('runner.cards').where('project', '=', config.project).where('id', '=', '0001').execute();
+        await db.deleteFrom('wilson.cards').where('project', '=', config.project).where('id', '=', '0001').execute();
 
         expect(await repo.get(snapshot.id)).toBeUndefined();
         expect(await repo.list('0001')).toEqual([]);

@@ -1,6 +1,6 @@
 {
     "camelCase": true,
     "outFile": "./src/modules/data/db.ts",
-    "schema": "runner",
+    "schema": "wilson",
     "excludePattern": "public.schema_migrations"
 }

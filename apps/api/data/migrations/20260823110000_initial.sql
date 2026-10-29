@@ -2,7 +2,7 @@
 
 -- =========================================================================
 -- What every later migration assumes: the runtime role, its grants, the
--- `runner` schema, and the updated_at trigger.
+-- `wilson` schema, and the updated_at trigger.
 --
 -- app_user is the role the API is meant to run as, so the process that
 -- serves requests cannot change the schema or read past its grants. dbmate
@@ -34,20 +34,20 @@ ALTER DEFAULT PRIVILEGES GRANT USAGE ON SCHEMAS TO app_user;
 -- misses it.
 GRANT USAGE ON SCHEMA public TO app_user;
 
-CREATE SCHEMA IF NOT EXISTS runner;
+CREATE SCHEMA IF NOT EXISTS wilson;
 
 -- =========================================================================
--- runner.set_updated_at(): a BEFORE UPDATE trigger that moves updated_at to
+-- wilson.set_updated_at(): a BEFORE UPDATE trigger that moves updated_at to
 -- the transaction's timestamp when the row actually changed, so no writer has
 -- to remember to. An update that changes nothing keeps the old row, and the
 -- old updated_at with it.
 --
--- runner.add_updated_at_trigger(table) installs it, and does nothing on a
+-- wilson.add_updated_at_trigger(table) installs it, and does nothing on a
 -- table without an updated_at column. Every table with one calls it right
 -- after its CREATE TABLE.
 -- =========================================================================
 
-CREATE FUNCTION runner.set_updated_at() RETURNS TRIGGER
+CREATE FUNCTION wilson.set_updated_at() RETURNS TRIGGER
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -59,7 +59,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION runner.add_updated_at_trigger(tbl REGCLASS) RETURNS VOID
+CREATE FUNCTION wilson.add_updated_at_trigger(tbl REGCLASS) RETURNS VOID
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -68,7 +68,7 @@ BEGIN
          WHERE attrelid = tbl AND attname = 'updated_at' AND NOT attisdropped
     ) THEN
         EXECUTE format('DROP TRIGGER IF EXISTS set_updated_at ON %s', tbl);
-        EXECUTE format('CREATE TRIGGER set_updated_at BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION runner.set_updated_at()', tbl);
+        EXECUTE format('CREATE TRIGGER set_updated_at BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION wilson.set_updated_at()', tbl);
     END IF;
 END;
 $$;
@@ -88,6 +88,6 @@ BEGIN
     END IF;
 END $$;
 
-DROP FUNCTION runner.add_updated_at_trigger(REGCLASS);
-DROP FUNCTION runner.set_updated_at();
-DROP SCHEMA IF EXISTS runner;
+DROP FUNCTION wilson.add_updated_at_trigger(REGCLASS);
+DROP FUNCTION wilson.set_updated_at();
+DROP SCHEMA IF EXISTS wilson;

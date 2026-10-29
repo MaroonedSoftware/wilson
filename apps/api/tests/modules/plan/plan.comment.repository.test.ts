@@ -33,7 +33,7 @@ describe('PlanCommentRepository', () => {
         config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         repo = new PlanCommentRepository(config, db);
         board = new PostgresBoardRepository(config, db, fakeEvents);
-        // The table's FK ties a comment to a real (project, card_id) — unlike `runner.plan_turns`,
+        // The table's FK ties a comment to a real (project, card_id) — unlike `wilson.plan_turns`,
         // which carries no such constraint — so every test needs a card row to attach comments to.
         await board.create(card('0001'), 'seed');
     });

@@ -74,5 +74,5 @@ export const uniqueProject = (): string => `test-${process.pid}-${randomUUID()}`
  * (`#modules/stages/stage.config.store.js`) with the same string and skip the row.
  */
 export const seedStageConfig = async (db: Kysely<DB>, project: string, yaml: string, message = 'test'): Promise<void> => {
-    await db.insertInto('runner.stageConfigs').values({ project, yaml, message }).execute();
+    await db.insertInto('wilson.stageConfigs').values({ project, yaml, message }).execute();
 };

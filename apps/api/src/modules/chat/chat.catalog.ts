@@ -33,7 +33,7 @@ export const explainError = (err: unknown): string => {
  * name, and run in the project an operation is for.
  *
  * Running an operation does what an HTTP request does. `ProjectContextRouter` (`routes.setup.ts`)
- * checks a named project against `runner.projects`, registers its row, and runs the request inside
+ * checks a named project against `wilson.projects`, registers its row, and runs the request inside
  * `runAsProject`; {@link run} does the same, so a catalog handler reads `BoardConfig` exactly as the
  * route it mirrors would. Each call gets its own scoped container, as each request does, which is
  * where the handler resolves its service (`resolve: perCall`).

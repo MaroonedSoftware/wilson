@@ -18,7 +18,7 @@ const toFactor = (row: Selectable<AccountAuthenticators>): AuthenticatorFactor =
 });
 
 /**
- * `runner.account_authenticators` behind the library's `AuthenticatorFactorRepository`, after
+ * `wilson.account_authenticators` behind the library's `AuthenticatorFactorRepository`, after
  * deadair's. `secretHash` is the library's name for the seed it encrypted before handing it here.
  */
 @Injectable()
@@ -29,7 +29,7 @@ export class AccountAuthenticatorRepository extends AuthenticatorFactorRepositor
 
     async createFactor(actorId: string, options: AuthenticatorFactorOptions): Promise<AuthenticatorFactor> {
         const row = await this.db
-            .insertInto('runner.accountAuthenticators')
+            .insertInto('wilson.accountAuthenticators')
             .values({
                 accountId: actorId,
                 secret: options.secretHash,
@@ -46,14 +46,14 @@ export class AccountAuthenticatorRepository extends AuthenticatorFactorRepositor
     }
 
     async listFactors(actorId: string, active?: boolean): Promise<AuthenticatorFactor[]> {
-        let query = this.db.selectFrom('runner.accountAuthenticators').selectAll().where('accountId', '=', actorId);
+        let query = this.db.selectFrom('wilson.accountAuthenticators').selectAll().where('accountId', '=', actorId);
         if (active !== undefined) query = query.where('active', '=', active);
         return (await query.orderBy('createdAt').execute()).map(toFactor);
     }
 
     async lookupFactor(actorId: string, label: string): Promise<AuthenticatorFactor | undefined> {
         const row = await this.db
-            .selectFrom('runner.accountAuthenticators')
+            .selectFrom('wilson.accountAuthenticators')
             .selectAll()
             .where('accountId', '=', actorId)
             .where('label', '=', label)
@@ -64,7 +64,7 @@ export class AccountAuthenticatorRepository extends AuthenticatorFactorRepositor
 
     async getFactor(actorId: string, factorId: string): Promise<AuthenticatorFactor> {
         const row = await this.db
-            .selectFrom('runner.accountAuthenticators')
+            .selectFrom('wilson.accountAuthenticators')
             .selectAll()
             .where('accountId', '=', actorId)
             .where('id', '=', factorId)
@@ -76,7 +76,7 @@ export class AccountAuthenticatorRepository extends AuthenticatorFactorRepositor
     /** Advance the replay guard past the step that just validated, so the same code works once. */
     async updateFactorCounter(actorId: string, factorId: string, counter: number): Promise<void> {
         await this.db
-            .updateTable('runner.accountAuthenticators')
+            .updateTable('wilson.accountAuthenticators')
             .set({ counter })
             .where('accountId', '=', actorId)
             .where('id', '=', factorId)
@@ -85,7 +85,7 @@ export class AccountAuthenticatorRepository extends AuthenticatorFactorRepositor
 
     async deleteFactor(actorId: string, factorId: string): Promise<void> {
         await this.db
-            .updateTable('runner.accountAuthenticators')
+            .updateTable('wilson.accountAuthenticators')
             .set({ active: false })
             .where('accountId', '=', actorId)
             .where('id', '=', factorId)

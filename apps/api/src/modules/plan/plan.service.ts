@@ -165,7 +165,7 @@ export class PlanService {
     /**
      * One turn of the conversation the daemon can now hold for a card in `planning`, instead of
      * that conversation existing only inside an operator's terminal. Appends the user's turn, hands
-     * it to the registry's live session (rehydrating it from `runner.plan_turns`'s last
+     * it to the registry's live session (rehydrating it from `wilson.plan_turns`'s last
      * `engine_session_id` when this process holds none), publishes assistant text to `planFeed` as
      * it arrives, and appends the assistant's turn once it completes.
      *
@@ -178,7 +178,7 @@ export class PlanService {
      * throwaway worktree `open` cuts, by calling `cutSession` — this class's own method, not a
      * duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
      * the engine ever sees. Every later turn resumes that same conversation instead: the model's
-     * own context, not `runner.plan_turns`, is what carries the instructions forward from there
+     * own context, not `wilson.plan_turns`, is what carries the instructions forward from there
      * (this card's Constraints — never rebuild model context by replaying stored turns into a fresh
      * session).
      */
@@ -270,7 +270,7 @@ export class PlanService {
         // it, the same way it ignores `model` on every call after the first.
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
 
-        // `planSessions.session` resolves `resume` itself, from `runner.plan_turns`'s last
+        // `planSessions.session` resolves `resume` itself, from `wilson.plan_turns`'s last
         // `engine_session_id`, on a miss — never passed here, so a process restart rehydrates the
         // engine's own conversation regardless of what `isFirstTurn` says about this card's stored
         // transcript.
@@ -326,7 +326,7 @@ export class PlanService {
      */
     async close(id: string): Promise<void> {
         // Disposes the live session, if this process is holding one — leaving the stored turns in
-        // `runner.plan_turns` untouched, exactly as reclaiming the worktree below leaves the saved
+        // `wilson.plan_turns` untouched, exactly as reclaiming the worktree below leaves the saved
         // draft version untouched. Idempotent for the same reason `planSessions.dispose` itself is.
         planSessions.dispose(id);
         await this.worktrees.reclaim(planId(id));

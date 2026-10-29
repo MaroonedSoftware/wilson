@@ -49,7 +49,7 @@ export const StagesModule: ServerKitModule = {
                 return map;
             })
             .asSingleton();
-        // Stage config is a `runner.stage_configs` row, read through this token everywhere
+        // Stage config is a `wilson.stage_configs` row, read through this token everywhere
         // `loadStages(boardRoot)` used to read the file — see `StageConfigStore`'s own doc comment.
         registry.register(StageConfigStore).useClass(PostgresStageConfigStore).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();

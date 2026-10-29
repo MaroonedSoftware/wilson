@@ -27,7 +27,7 @@ const toThread = (row: Selectable<ChatThreads>): ChatThread => ({
 });
 
 /**
- * `runner.chat_threads`. Not project-scoped, unlike every repository that takes `BoardConfig`: a
+ * `wilson.chat_threads`. Not project-scoped, unlike every repository that takes `BoardConfig`: a
  * thread can touch several projects (see the migration, `20261029120000_chat.sql`). A thread's
  * `engine` is fixed when it is created; nothing here changes it.
  */
@@ -36,19 +36,19 @@ export class ChatThreadRepository {
     constructor(private readonly db: Kysely<DB>) {}
 
     async create(title: string, engine: ChatEngineName): Promise<ChatThread> {
-        const row = await this.db.insertInto('runner.chatThreads').values({ title, engine }).returningAll().executeTakeFirstOrThrow();
+        const row = await this.db.insertInto('wilson.chatThreads').values({ title, engine }).returningAll().executeTakeFirstOrThrow();
         return toThread(row);
     }
 
     async get(id: string): Promise<ChatThread | undefined> {
-        const row = await this.db.selectFrom('runner.chatThreads').selectAll().where('id', '=', id).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.chatThreads').selectAll().where('id', '=', id).executeTakeFirst();
         return row && toThread(row);
     }
 
     /** Threads not archived, most recently active first. */
     async list(): Promise<ChatThread[]> {
         const rows = await this.db
-            .selectFrom('runner.chatThreads')
+            .selectFrom('wilson.chatThreads')
             .selectAll()
             .where('archivedAt', 'is', null)
             .orderBy('updatedAt', 'desc')
@@ -59,14 +59,14 @@ export class ChatThreadRepository {
 
     /** Undefined when there is no such thread. */
     async rename(id: string, title: string): Promise<ChatThread | undefined> {
-        const row = await this.db.updateTable('runner.chatThreads').set({ title }).where('id', '=', id).returningAll().executeTakeFirst();
+        const row = await this.db.updateTable('wilson.chatThreads').set({ title }).where('id', '=', id).returningAll().executeTakeFirst();
         return row && toThread(row);
     }
 
     /** Takes the thread out of {@link list}; its messages stay. Undefined when there is no such thread. */
     async archive(id: string): Promise<ChatThread | undefined> {
         const row = await this.db
-            .updateTable('runner.chatThreads')
+            .updateTable('wilson.chatThreads')
             .set({ archivedAt: DateTime.now() })
             .where('id', '=', id)
             .returningAll()
@@ -76,6 +76,6 @@ export class ChatThreadRepository {
 
     /** Record the 'cli' engine's session id, so the next turn resumes that session. */
     async setEngineSessionId(id: string, engineSessionId: string): Promise<void> {
-        await this.db.updateTable('runner.chatThreads').set({ engineSessionId }).where('id', '=', id).execute();
+        await this.db.updateTable('wilson.chatThreads').set({ engineSessionId }).where('id', '=', id).execute();
     }
 }

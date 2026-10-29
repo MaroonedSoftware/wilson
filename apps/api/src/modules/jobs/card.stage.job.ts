@@ -20,7 +20,7 @@ export interface CardStagePayload {
     cardId: string;
     stageName: string;
     /**
-     * Card 0149. Which project's `runner.projects` row this job dispatches against.
+     * Card 0149. Which project's `wilson.projects` row this job dispatches against.
      *
      * Optional so a `card.stage` row enqueued before this card shipped — `card.stage` job data was
      * `{ cardId, stageName }` then, and rows already in `pgboss.job` do not gain a field a migration

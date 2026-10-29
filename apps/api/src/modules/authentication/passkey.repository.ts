@@ -14,7 +14,7 @@ const toFactor = (row: Selectable<AccountPasskeys>): FidoFactor => ({
     ...(row.label === null ? {} : { label: row.label }),
 });
 
-/** `runner.account_passkeys` behind the library's `FidoFactorRepository`, after deadair's. */
+/** `wilson.account_passkeys` behind the library's `FidoFactorRepository`, after deadair's. */
 @Injectable()
 export class AccountPasskeyRepository extends FidoFactorRepository {
     constructor(private readonly db: Kysely<DB>) {
@@ -23,7 +23,7 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
 
     async createFactor(actorId: string, options: FidoFactorOptions): Promise<FidoFactor> {
         const row = await this.db
-            .insertInto('runner.accountPasskeys')
+            .insertInto('wilson.accountPasskeys')
             .values({
                 accountId: actorId,
                 publicKey: options.publicKey,
@@ -37,7 +37,7 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
     }
 
     async listFactors(actorId: string, active?: boolean): Promise<FidoFactor[]> {
-        let query = this.db.selectFrom('runner.accountPasskeys').selectAll().where('accountId', '=', actorId);
+        let query = this.db.selectFrom('wilson.accountPasskeys').selectAll().where('accountId', '=', actorId);
         if (active !== undefined) query = query.where('active', '=', active);
         return (await query.orderBy('createdAt').execute()).map(toFactor);
     }
@@ -45,7 +45,7 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
     /** By credential id, which is what a browser presents. */
     async lookupFactor(actorId: string, credentialId: string): Promise<FidoFactor | undefined> {
         const row = await this.db
-            .selectFrom('runner.accountPasskeys')
+            .selectFrom('wilson.accountPasskeys')
             .selectAll()
             .where('accountId', '=', actorId)
             .where('publicKeyId', '=', credentialId)
@@ -56,7 +56,7 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
 
     async getFactor(actorId: string, factorId: string): Promise<FidoFactor> {
         const row = await this.db
-            .selectFrom('runner.accountPasskeys')
+            .selectFrom('wilson.accountPasskeys')
             .selectAll()
             .where('accountId', '=', actorId)
             .where('id', '=', factorId)
@@ -66,12 +66,12 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
     }
 
     async updateFactorCounter(actorId: string, factorId: string, counter: number): Promise<void> {
-        await this.db.updateTable('runner.accountPasskeys').set({ counter }).where('accountId', '=', actorId).where('id', '=', factorId).execute();
+        await this.db.updateTable('wilson.accountPasskeys').set({ counter }).where('accountId', '=', actorId).where('id', '=', factorId).execute();
     }
 
     async deleteFactor(actorId: string, factorId: string): Promise<void> {
         await this.db
-            .updateTable('runner.accountPasskeys')
+            .updateTable('wilson.accountPasskeys')
             .set({ active: false })
             .where('accountId', '=', actorId)
             .where('id', '=', factorId)

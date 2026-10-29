@@ -33,7 +33,7 @@ export class NoHostAvailable {
  * A host is a candidate only when everything an operator and the last probe said about it allows it:
  * enabled, not draining, serving the card's project, its last probe passed, and not due to expire
  * before the stage could finish. Candidates are tried in name order, each slot in turn; a slot is a
- * `runner.leases` row, so two stages cannot hold one and a slot held by a card with no live job is
+ * `wilson.leases` row, so two stages cannot hold one and a slot held by a card with no live job is
  * swept the way any lease is (`LeaseService.acquire`). Before a slot is kept, the host is reached
  * once: a probe can be hours old, and an agent VM is gone the moment it is deleted.
  */

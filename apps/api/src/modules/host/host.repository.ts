@@ -17,7 +17,7 @@ export interface HostProjectRow {
     runRoot: string;
 }
 
-/** A slot on a host held by a stage, from its `runner.leases` row. */
+/** A slot on a host held by a stage, from its `wilson.leases` row. */
 export interface HostSlotUseRow {
     slot: number;
     project: string;
@@ -25,7 +25,7 @@ export interface HostSlotUseRow {
     since: DateTime;
 }
 
-/** A host slot's `runner.leases` row, before it is matched to a host. */
+/** A host slot's `wilson.leases` row, before it is matched to a host. */
 type SlotLease = { resourceKey: string; project: string; cardId: string; acquiredAt: DateTime };
 
 /** What the last probe of a host found. */
@@ -49,7 +49,7 @@ export interface WorkerTokenSummaryRow {
     issuedAt: DateTime;
 }
 
-/** One `runner.hosts` row with its `runner.host_projects` rows. */
+/** One `wilson.hosts` row with its `wilson.host_projects` rows. */
 export interface HostRow {
     name: string;
     kind: HostKind;
@@ -78,7 +78,7 @@ export interface HostRow {
 export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining' | 'commandEnv'>> & { lifetimeMinutes?: number | null };
 
 /**
- * `runner.hosts` and `runner.host_projects`, in Postgres: the machines a stage can run on besides
+ * `wilson.hosts` and `wilson.host_projects`, in Postgres: the machines a stage can run on besides
  * the daemon's own, and the projects each can serve.
  */
 @Injectable()
@@ -87,11 +87,11 @@ export class HostRepository {
 
     /** Every host, name ascending, each with its projects in project order. */
     async list(): Promise<HostRow[]> {
-        const hosts = await this.db.selectFrom('runner.hosts').selectAll().orderBy('name').execute();
+        const hosts = await this.db.selectFrom('wilson.hosts').selectAll().orderBy('name').execute();
         if (hosts.length === 0) return [];
 
         const projects = await this.db
-            .selectFrom('runner.hostProjects')
+            .selectFrom('wilson.hostProjects')
             .selectAll()
             .where(
                 'host',
@@ -113,10 +113,10 @@ export class HostRepository {
 
     /** The named host, or undefined when none is registered under it. */
     async find(name: string): Promise<HostRow | undefined> {
-        const host = await this.db.selectFrom('runner.hosts').selectAll().where('name', '=', name).executeTakeFirst();
+        const host = await this.db.selectFrom('wilson.hosts').selectAll().where('name', '=', name).executeTakeFirst();
         if (!host) return undefined;
 
-        const projects = await this.db.selectFrom('runner.hostProjects').selectAll().where('host', '=', name).orderBy('project').execute();
+        const projects = await this.db.selectFrom('wilson.hostProjects').selectAll().where('host', '=', name).orderBy('project').execute();
         return toRow(host, projects, await this.slotsInUse());
     }
 
@@ -126,7 +126,7 @@ export class HostRepository {
      */
     private async slotsInUse(): Promise<SlotLease[]> {
         return this.db
-            .selectFrom('runner.leases')
+            .selectFrom('wilson.leases')
             .select(['resourceKey', 'project', 'cardId', 'acquiredAt'])
             .where('resourceKey', 'like', 'host:%')
             .execute();
@@ -141,7 +141,7 @@ export class HostRepository {
         lifetimeMinutes?: number;
         commandEnv?: string[];
     }): Promise<void> {
-        await this.db.insertInto('runner.hosts').values(row).execute();
+        await this.db.insertInto('wilson.hosts').values(row).execute();
     }
 
     /**
@@ -153,20 +153,20 @@ export class HostRepository {
         if (Object.keys(patch).length === 0) {
             return (await this.find(name)) !== undefined;
         }
-        const result = await this.db.updateTable('runner.hosts').set(patch).where('name', '=', name).executeTakeFirst();
+        const result = await this.db.updateTable('wilson.hosts').set(patch).where('name', '=', name).executeTakeFirst();
         return result.numUpdatedRows > 0n;
     }
 
     /** Remove a host and, by the foreign key's cascade, its projects. Returns whether one matched. */
     async remove(name: string): Promise<boolean> {
-        const result = await this.db.deleteFrom('runner.hosts').where('name', '=', name).executeTakeFirst();
+        const result = await this.db.deleteFrom('wilson.hosts').where('name', '=', name).executeTakeFirst();
         return result.numDeletedRows > 0n;
     }
 
     /** Set one project's three paths on a host, replacing any it had. */
     async putProject(host: string, row: HostProjectRow): Promise<void> {
         await this.db
-            .insertInto('runner.hostProjects')
+            .insertInto('wilson.hostProjects')
             .values({ host, ...row })
             .onConflict(oc =>
                 oc.columns(['host', 'project']).doUpdateSet({ codeRoot: row.codeRoot, worktreeRoot: row.worktreeRoot, runRoot: row.runRoot }),
@@ -176,14 +176,14 @@ export class HostRepository {
 
     /** Stop a host serving a project. Returns whether it was serving it. */
     async removeProject(host: string, project: string): Promise<boolean> {
-        const result = await this.db.deleteFrom('runner.hostProjects').where('host', '=', host).where('project', '=', project).executeTakeFirst();
+        const result = await this.db.deleteFrom('wilson.hostProjects').where('host', '=', host).where('project', '=', project).executeTakeFirst();
         return result.numDeletedRows > 0n;
     }
 
     /** Keep `hash` as host `name`'s worker token, replacing any it had. Returns whether a row matched. */
     async setWorkerToken(name: string, token: { hash: string; hint: string; issuedAt: DateTime }): Promise<boolean> {
         const result = await this.db
-            .updateTable('runner.hosts')
+            .updateTable('wilson.hosts')
             .set({ workerTokenHash: token.hash, workerTokenHint: token.hint, workerTokenIssuedAt: token.issuedAt })
             .where('name', '=', name)
             .executeTakeFirst();
@@ -193,7 +193,7 @@ export class HostRepository {
     /** Forget host `name`'s worker token, so nothing can connect as it. Returns whether a row matched. */
     async clearWorkerToken(name: string): Promise<boolean> {
         const result = await this.db
-            .updateTable('runner.hosts')
+            .updateTable('wilson.hosts')
             .set({ workerTokenHash: null, workerTokenHint: null, workerTokenIssuedAt: null })
             .where('name', '=', name)
             .executeTakeFirst();
@@ -202,14 +202,14 @@ export class HostRepository {
 
     /** The host whose worker token hashes to `hash`, or undefined when none does. */
     async findByWorkerTokenHash(hash: string): Promise<HostRow | undefined> {
-        const host = await this.db.selectFrom('runner.hosts').select('name').where('workerTokenHash', '=', hash).executeTakeFirst();
+        const host = await this.db.selectFrom('wilson.hosts').select('name').where('workerTokenHash', '=', hash).executeTakeFirst();
         return host ? this.find(host.name) : undefined;
     }
 
     /** Record what a probe found, replacing the last one. Every probe column is written, set or not. */
     async recordProbe(name: string, probe: HostProbeRow): Promise<void> {
         await this.db
-            .updateTable('runner.hosts')
+            .updateTable('wilson.hosts')
             .set({
                 probedAt: probe.probedAt,
                 probeOk: probe.ok,
@@ -223,7 +223,7 @@ export class HostRepository {
 }
 
 /**
- * A `runner.hosts` row as Kysely hands it back. The nullable columns are `undefined` when unset, not
+ * A `wilson.hosts` row as Kysely hands it back. The nullable columns are `undefined` when unset, not
  * `null`: `KyselyDefaultPlugins` includes `NullToUndefinedPlugin`, whatever `db.ts` declares.
  */
 type HostSelection = {

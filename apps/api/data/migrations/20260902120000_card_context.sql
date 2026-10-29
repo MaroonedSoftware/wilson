@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.card_context — a snapshot of external context attached to a card.
+-- wilson.card_context — a snapshot of external context attached to a card.
 --
 -- First of six in the context-provider slice (PROJECT.md, "Context
 -- providers"). Rows, not files: the database is operator-private by
@@ -34,13 +34,13 @@
 -- here before this table holds any rows.
 --
 -- `remove` (`CardContextRepository`) is a real delete, not a `resolved`-
--- style state: unlike `runner.plan_comments`, a snapshot has no history
+-- style state: unlike `wilson.plan_comments`, a snapshot has no history
 -- worth keeping once a person says it was the wrong document. That is a
 -- different operation from retention's expiry, which keeps the manifest
 -- and clears only the content.
 -- =========================================================================
 
-CREATE TABLE runner.card_context (
+CREATE TABLE wilson.card_context (
     id BIGSERIAL PRIMARY KEY,
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
@@ -53,11 +53,11 @@ CREATE TABLE runner.card_context (
     content TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE
 );
 
-CREATE INDEX card_context_project_card_id_idx ON runner.card_context (project, card_id, id);
+CREATE INDEX card_context_project_card_id_idx ON wilson.card_context (project, card_id, id);
 
 -- migrate:down
 
-DROP TABLE runner.card_context;
+DROP TABLE wilson.card_context;

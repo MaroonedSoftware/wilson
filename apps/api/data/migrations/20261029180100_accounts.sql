@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.accounts and runner.account_passwords: the operator account
+-- wilson.accounts and wilson.account_passwords: the operator account
 -- (PROJECT.md decision 10 and Authentication).
 --
 -- One human account, created by first-run onboarding. `accounts_one_row`
@@ -24,18 +24,18 @@
 -- back alongside it.
 -- =========================================================================
 
-CREATE TABLE runner.accounts (
+CREATE TABLE wilson.accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL CHECK (length(email) BETWEEN 3 AND 254 AND position('@' IN email) > 1),
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX accounts_one_row ON runner.accounts ((true));
-CREATE UNIQUE INDEX accounts_email_lower ON runner.accounts (lower(email));
+CREATE UNIQUE INDEX accounts_one_row ON wilson.accounts ((true));
+CREATE UNIQUE INDEX accounts_email_lower ON wilson.accounts (lower(email));
 
-CREATE TABLE runner.account_passwords (
-    account_id UUID PRIMARY KEY REFERENCES runner.accounts (id),
+CREATE TABLE wilson.account_passwords (
+    account_id UUID PRIMARY KEY REFERENCES wilson.accounts (id),
     hash TEXT NOT NULL,
     salt TEXT NOT NULL,
     active BOOLEAN NOT NULL DEFAULT true,
@@ -44,9 +44,9 @@ CREATE TABLE runner.account_passwords (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-SELECT runner.add_updated_at_trigger('runner.account_passwords');
+SELECT wilson.add_updated_at_trigger('wilson.account_passwords');
 
 -- migrate:down
 
-DROP TABLE runner.account_passwords;
-DROP TABLE runner.accounts;
+DROP TABLE wilson.account_passwords;
+DROP TABLE wilson.accounts;

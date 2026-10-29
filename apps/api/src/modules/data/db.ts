@@ -397,30 +397,30 @@ export interface ChatPendingActions {
 }
 
 export interface DB {
-    'runner.cards': Cards;
-    'runner.cardVersions': CardVersions;
-    'runner.cardDeps': CardDeps;
-    'runner.cardJobs': CardJobs;
-    'runner.cardEvents': CardEvents;
-    'runner.settings': Settings;
-    'runner.planTurns': PlanTurns;
-    'runner.planComments': PlanComments;
-    'runner.projects': Projects;
-    'runner.leases': Leases;
-    'runner.hosts': Hosts;
-    'runner.hostProjects': HostProjects;
-    'runner.stageConfigs': StageConfigs;
-    'runner.cardContext': CardContext;
-    'runner.sourceCursors': SourceCursors;
-    'runner.cacheEntries': CacheEntries;
-    'runner.cacheSetMembers': CacheSetMembers;
-    'runner.accounts': Accounts;
-    'runner.accountPasswords': AccountPasswords;
-    'runner.apiKeys': ApiKeys;
-    'runner.accountAuthenticators': AccountAuthenticators;
-    'runner.accountPasskeys': AccountPasskeys;
-    'runner.learnings': Learnings;
-    'runner.chatThreads': ChatThreads;
-    'runner.chatMessages': ChatMessages;
-    'runner.chatPendingActions': ChatPendingActions;
+    'wilson.cards': Cards;
+    'wilson.cardVersions': CardVersions;
+    'wilson.cardDeps': CardDeps;
+    'wilson.cardJobs': CardJobs;
+    'wilson.cardEvents': CardEvents;
+    'wilson.settings': Settings;
+    'wilson.planTurns': PlanTurns;
+    'wilson.planComments': PlanComments;
+    'wilson.projects': Projects;
+    'wilson.leases': Leases;
+    'wilson.hosts': Hosts;
+    'wilson.hostProjects': HostProjects;
+    'wilson.stageConfigs': StageConfigs;
+    'wilson.cardContext': CardContext;
+    'wilson.sourceCursors': SourceCursors;
+    'wilson.cacheEntries': CacheEntries;
+    'wilson.cacheSetMembers': CacheSetMembers;
+    'wilson.accounts': Accounts;
+    'wilson.accountPasswords': AccountPasswords;
+    'wilson.apiKeys': ApiKeys;
+    'wilson.accountAuthenticators': AccountAuthenticators;
+    'wilson.accountPasskeys': AccountPasskeys;
+    'wilson.learnings': Learnings;
+    'wilson.chatThreads': ChatThreads;
+    'wilson.chatMessages': ChatMessages;
+    'wilson.chatPendingActions': ChatPendingActions;
 }

@@ -21,7 +21,7 @@ import { ProjectDirectoriesService } from './project.directories.service.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 /**
- * The configured project's row from `runner.projects` — created from the environment on a first
+ * The configured project's row from `wilson.projects` — created from the environment on a first
  * boot, used unchanged on every boot after.
  *
  * `BoardModule.setup` only receives a `Registry`, not a `Container`: `ServerKitServerBuilder.setup`
@@ -83,7 +83,7 @@ export const BoardModule: ServerKitModule = {
         // reader that runs before `start` below (or with no `runAsProject` on its call stack at all —
         // the HTTP surface, out of scope for this card) sees exactly what a single-project boot always
         // saw. `notifyWebhookUrl`/`notifyBaseUrl` are set through the setters, not `register`, because
-        // they are not `runner.projects` columns (see `BoardConfig`'s own doc comment on why they are
+        // they are not `wilson.projects` columns (see `BoardConfig`'s own doc comment on why they are
         // not `readonly`).
         const boardConfig = new ProjectScopedBoardConfig(projectName);
         boardConfig.register({ name: projectName, codeRoot: paths.codeRoot, worktreeRoot: paths.worktreeRoot, runRoot: paths.runRoot });
@@ -129,7 +129,7 @@ export const BoardModule: ServerKitModule = {
             .asSingleton();
     },
     /**
-     * Card 0149. Register every project already in `runner.projects`, not just the one this process's
+     * Card 0149. Register every project already in `wilson.projects`, not just the one this process's
      * own environment named — before `Jobs` starts (module order in `modules.ts`: `Board` starts
      * before `Jobs`), so a `card.stage` job pg-boss redelivers the moment its worker comes up — which
      * can happen before `Poller`'s own first tick, itself gated behind at least `POLLER_INTERVAL_MS_MIN`

@@ -5,7 +5,7 @@ import { ProjectRepository } from '#modules/board/project.repository.js';
 import type { CreateHostRequest, Host, PutHostProjectRequest, UpdateHostRequest } from '../../generated/hosts.js';
 import { HostRepository, type HostPatch, type HostRow } from './host.repository.js';
 
-/** The range `runner.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
+/** The range `wilson.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
 const MIN_SLOTS = 1;
 const MAX_SLOTS = 8;
 

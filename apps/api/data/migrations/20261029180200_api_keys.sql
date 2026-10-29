@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.api_keys: the operator's API keys (PROJECT.md, Authentication).
+-- wilson.api_keys: the operator's API keys (PROJECT.md, Authentication).
 --
 -- A key is `wl_` plus a random body and a checksum, minted by
 -- @maroonedsoftware/authentication's ApiKeyService. Only its SHA-256
@@ -16,9 +16,9 @@
 -- still say what a key was and when it stopped working.
 -- =========================================================================
 
-CREATE TABLE runner.api_keys (
+CREATE TABLE wilson.api_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL REFERENCES runner.accounts (id),
+    account_id UUID NOT NULL REFERENCES wilson.accounts (id),
     name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
     type TEXT,
     hint TEXT NOT NULL,
@@ -31,8 +31,8 @@ CREATE TABLE runner.api_keys (
     revoked_at TIMESTAMPTZ
 );
 
-CREATE INDEX api_keys_account ON runner.api_keys (account_id);
+CREATE INDEX api_keys_account ON wilson.api_keys (account_id);
 
 -- migrate:down
 
-DROP TABLE runner.api_keys;
+DROP TABLE wilson.api_keys;

@@ -20,7 +20,7 @@ import type { SettingDefinition } from './setting.definition.js';
  * enqueue exactly as they did before this setting existed. There is deliberately no coded minimum
  * above zero enforced here — this card adds no `set()` and no HTTP surface for the value, unlike
  * `CARD_STAGE_CONCURRENCY`'s own `SettingService` — but an operator setting one by hand (a
- * `runner.settings` row, or this `envVar` directly) should stay well clear of zero: something on the
+ * `wilson.settings` row, or this `envVar` directly) should stay well clear of zero: something on the
  * order of 10,000 or more, since anything close to a single stage's typical spend can pause a board
  * for the rest of the day on one attempt. A typo — an extra zero dropped, `1` instead of `10,000` —
  * is the exact failure this number exists to guard against, not something this setting should be able

@@ -10,7 +10,7 @@ import type { SettingDefinition } from './setting.definition.js';
  * The `project` column value every deployment-scoped row is keyed by, in place of whichever
  * project happens to be current.
  *
- * Not a real project name: `runner.projects.name` (and so every `BoardConfig.project`) comes from
+ * Not a real project name: `wilson.projects.name` (and so every `BoardConfig.project`) comes from
  * `PROJECT_NAME` or a directory, never from this constant, and registering a project is out of
  * scope for card 0152 that introduced this — so there is nothing for it to collide with today.
  * Reserved here, once, so every reader and writer of a deployment-scoped row agrees on the exact
@@ -27,11 +27,11 @@ export const DEPLOYMENT_SCOPE = '__deployment__';
  * nothing here reaches; this table exists to grow with more of the former, never the latter.
  *
  * A fresh database has no rows, so `get` falls through to the environment variable exactly as it
- * always has, and from there to the coded default — a deploy that never touches `runner.settings`
+ * always has, and from there to the coded default — a deploy that never touches `wilson.settings`
  * behaves identically to one that predates it.
  *
  * One row per `(project, key)`, keyed the same way every other operational table in this schema is
- * (`runner.card_jobs` among them) — see the migration (`data/migrations/20260826120000_settings.sql`)
+ * (`wilson.card_jobs` among them) — see the migration (`data/migrations/20260826120000_settings.sql`)
  * for the exact shape. Card 0152: `project` no longer always means "the current project's row".
  * `SettingDefinition.scope` says which a given key is; a `'project'` setting is still keyed by
  * `BoardConfig.project` exactly as every setting was before this, and a `'deployment'` setting is
@@ -49,7 +49,7 @@ export class SettingsStore {
     /** Resolve one setting: a database row, else its environment variable, else its coded default. */
     async get<T>(definition: SettingDefinition<T>): Promise<T> {
         const row = await this.db
-            .selectFrom('runner.settings')
+            .selectFrom('wilson.settings')
             .select('value')
             .where('project', '=', this.scopeKey(definition))
             .where('key', '=', definition.key)
@@ -66,7 +66,7 @@ export class SettingsStore {
     async set<T>(definition: SettingDefinition<T>, value: T): Promise<void> {
         const serialized = JSON.stringify(value);
         await this.db
-            .insertInto('runner.settings')
+            .insertInto('wilson.settings')
             .values({ project: this.scopeKey(definition), key: definition.key, value: serialized })
             .onConflict(oc => oc.columns(['project', 'key']).doUpdateSet({ value: serialized, updatedAt: new Date().toISOString() }))
             .execute();

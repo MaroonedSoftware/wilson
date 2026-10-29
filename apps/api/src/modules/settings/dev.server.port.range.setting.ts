@@ -36,7 +36,7 @@ const parsePortRange = (raw: string): DevServerPortRange => {
  *
  * `scope: 'deployment'` — the same reasoning `CARD_STAGE_CONCURRENCY` gives, one level down: a TCP
  * port is a property of the *machine* this daemon runs on, not of any one project, which is exactly
- * why `runner.leases.resource_key` (the migration's own comment) is a bare primary key rather than
+ * why `wilson.leases.resource_key` (the migration's own comment) is a bare primary key rather than
  * `(project, resource_key)`. Keying this setting by project would let two projects each configure
  * their own range and still collide on the machine the moment the ranges overlapped — one range for
  * the deployment avoids that by construction.

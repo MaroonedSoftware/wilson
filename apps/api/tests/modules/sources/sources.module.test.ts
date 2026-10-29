@@ -192,7 +192,7 @@ describe('SourcesModule.setup', () => {
     /**
      * Card 0201. `StatusMirrorPoller` is `.useFactory`, not `.useClass`, for the same reason
      * `SourceCursorRepository`/`CacheProvider` above are: it needs the process's `Kysely<DB>` pool
-     * directly (to read `runner.card_events`), which only a factory can hand it. Still a singleton —
+     * directly (to read `wilson.card_events`), which only a factory can hand it. Still a singleton —
      * it owns its own interval timer for the process, the same reason `SourcePoller` is one.
      */
     it('registers StatusMirrorPoller via useFactory, singleton, built from the resolved collaborators', async () => {

@@ -88,12 +88,12 @@ describe('ProjectScopedBoardConfig', () => {
     });
 
     /**
-     * `register` only carries the three `runner.projects` columns — `notifyWebhookUrl`/`notifyBaseUrl`
+     * `register` only carries the three `wilson.projects` columns — `notifyWebhookUrl`/`notifyBaseUrl`
      * are settings-store-backed (card 0107) and live nowhere in that table, so a re-register (every
      * `Poller` tick, per its own doc comment) must never clobber a value a settings write already
      * recorded for that project.
      */
-    it('preserves notifyWebhookUrl/notifyBaseUrl across a re-register, since neither lives in runner.projects', () => {
+    it('preserves notifyWebhookUrl/notifyBaseUrl across a re-register, since neither lives in wilson.projects', () => {
         const config = new ProjectScopedBoardConfig('alpha');
         config.register(row('alpha'));
         config.notifyWebhookUrl = 'https://hooks.example/alpha';

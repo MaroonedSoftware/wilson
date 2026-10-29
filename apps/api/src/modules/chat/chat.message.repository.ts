@@ -45,7 +45,7 @@ const toMessage = (row: Selectable<ChatMessages>): ChatMessage => ({
 });
 
 /**
- * `runner.chat_messages`, append-only and numbered per thread — `PlanTurnRepository`'s shape, keyed
+ * `wilson.chat_messages`, append-only and numbered per thread — `PlanTurnRepository`'s shape, keyed
  * by thread rather than by card.
  */
 @Injectable()
@@ -65,7 +65,7 @@ export class ChatMessageRepository {
             await sql`select pg_advisory_xact_lock(hashtext('chat'), hashtext(${threadId}))`.execute(trx);
 
             const last = await trx
-                .selectFrom('runner.chatMessages')
+                .selectFrom('wilson.chatMessages')
                 .select('seq')
                 .where('threadId', '=', threadId)
                 .orderBy('seq', 'desc')
@@ -73,7 +73,7 @@ export class ChatMessageRepository {
                 .executeTakeFirst();
 
             const row = await trx
-                .insertInto('runner.chatMessages')
+                .insertInto('wilson.chatMessages')
                 .values({
                     threadId,
                     seq: (last?.seq ?? 0) + 1,
@@ -85,7 +85,7 @@ export class ChatMessageRepository {
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await trx.updateTable('runner.chatThreads').set({ updatedAt: row.createdAt }).where('id', '=', threadId).execute();
+            await trx.updateTable('wilson.chatThreads').set({ updatedAt: row.createdAt }).where('id', '=', threadId).execute();
 
             return toMessage(row);
         });
@@ -94,7 +94,7 @@ export class ChatMessageRepository {
     /** A thread's messages with `seq` strictly greater than `afterSeq`, in order; 0 for all of them. */
     async since(threadId: string, afterSeq = 0): Promise<ChatMessage[]> {
         const rows = await this.db
-            .selectFrom('runner.chatMessages')
+            .selectFrom('wilson.chatMessages')
             .selectAll()
             .where('threadId', '=', threadId)
             .where('seq', '>', afterSeq)

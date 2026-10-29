@@ -184,7 +184,7 @@ describe('PostgresBoardRepository', () => {
      */
     /**
      * Card 0128. `hasLiveClaim` is the `scopeConflict` fix's other half — read directly from
-     * `runner.cardJobs` rather than through `CardJobs`, since `BoardRepository` has no dependency on
+     * `wilson.cardJobs` rather than through `CardJobs`, since `BoardRepository` has no dependency on
      * the jobs module. A row existing (however it got there) means true; nothing does, or nothing
      * any longer does, means false.
      */
@@ -193,10 +193,10 @@ describe('PostgresBoardRepository', () => {
 
         expect(await board.hasLiveClaim(config.project, '0001')).toBe(false);
 
-        await db.insertInto('runner.cardJobs').values({ project: config.project, cardId: '0001', jobId: 'job-1' }).execute();
+        await db.insertInto('wilson.cardJobs').values({ project: config.project, cardId: '0001', jobId: 'job-1' }).execute();
         expect(await board.hasLiveClaim(config.project, '0001')).toBe(true);
 
-        await db.deleteFrom('runner.cardJobs').where('project', '=', config.project).where('cardId', '=', '0001').execute();
+        await db.deleteFrom('wilson.cardJobs').where('project', '=', config.project).where('cardId', '=', '0001').execute();
         expect(await board.hasLiveClaim(config.project, '0001')).toBe(false);
     });
 
@@ -339,7 +339,7 @@ stages:
      * *other* card before `scopeConflict` will find it.
      */
     const claimCard = (project: string, cardId: string, jobId = `job-${cardId}`) =>
-        db.insertInto('runner.cardJobs').values({ project, cardId, jobId }).execute();
+        db.insertInto('wilson.cardJobs').values({ project, cardId, jobId }).execute();
 
     it('finds nothing when no other card is on the board', async () => {
         await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/a.ts\n'), 'create');
@@ -563,7 +563,7 @@ stages:
     });
 
     const claimCard = (project: string, cardId: string, jobId = `job-${cardId}`) =>
-        db.insertInto('runner.cardJobs').values({ project, cardId, jobId }).execute();
+        db.insertInto('wilson.cardJobs').values({ project, cardId, jobId }).execute();
 
     // AC1, and the exact 0240/0241 shape: a readonly stage, claimed, with nothing committed yet.
     // Before card 0242, `isRunningStage` + `hasLiveClaim` alone were enough, and this would defer.

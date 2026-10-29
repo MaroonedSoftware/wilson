@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.source_cursors — where each card source left off.
+-- wilson.source_cursors — where each card source left off.
 --
 -- Third of six in card sources (PROJECT.md, "Card sources"), the table
 -- card 0198's poll reads and writes. A CardSource answers
@@ -9,12 +9,12 @@
 -- between ticks, so a poll asks for what changed rather than re-reading a
 -- whole ticket system every interval.
 --
--- One row per (project, source), keyed the way runner.settings and
--- runner.card_jobs are already keyed. `source` is the same name a ref is
+-- One row per (project, source), keyed the way wilson.settings and
+-- wilson.card_jobs are already keyed. `source` is the same name a ref is
 -- stored under in cards.external — `linear`, `github` — so the cursor and
 -- the refs it produced agree on one spelling of a source.
 --
--- Deliberately not a row in runner.settings, which would have needed no
+-- Deliberately not a row in wilson.settings, which would have needed no
 -- migration at all. That table is scoped by its own note to operational
 -- policy an operator changes while the system runs; a cursor is the
 -- opposite, machine-written state no operator should be editing, and
@@ -34,7 +34,7 @@
 -- could not do, and the reason 0192 was filed at all.
 -- =========================================================================
 
-CREATE TABLE runner.source_cursors (
+CREATE TABLE wilson.source_cursors (
     project TEXT NOT NULL,
     source TEXT NOT NULL,
     cursor TEXT NOT NULL,
@@ -42,8 +42,8 @@ CREATE TABLE runner.source_cursors (
     PRIMARY KEY (project, source)
 );
 
-SELECT runner.add_updated_at_trigger('runner.source_cursors');
+SELECT wilson.add_updated_at_trigger('wilson.source_cursors');
 
 -- migrate:down
 
-DROP TABLE runner.source_cursors;
+DROP TABLE wilson.source_cursors;

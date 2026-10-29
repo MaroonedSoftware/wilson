@@ -10,7 +10,7 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
  * Card 0239. `LearningsStore` clones `StageConfigStore`'s append-only shape, but with none of its
  * validation: a learnings document is free text, so `load`/`read` never throw, and a project with
  * no row yet answers with an empty document rather than an error (AC3) — the behaviour these pin
- * against `PostgresLearningsStore` (a real `runner.learnings` row) and `StaticLearningsStore` (its
+ * against `PostgresLearningsStore` (a real `wilson.learnings` row) and `StaticLearningsStore` (its
  * in-memory test double) both.
  */
 let db: Kysely<DB>;

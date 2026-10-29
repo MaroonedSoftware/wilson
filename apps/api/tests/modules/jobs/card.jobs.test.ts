@@ -103,7 +103,7 @@ describe('CardJobs', () => {
         getJob.mockResolvedValue({ id: 'job-2', name: 'card.stage', state: 'active', data: {} });
 
         expect(await cardJobs.inFlight('0001')).toBe('job-2');
-        const rows = await db.selectFrom('runner.cardJobs').selectAll().where('project', '=', config.project).execute();
+        const rows = await db.selectFrom('wilson.cardJobs').selectAll().where('project', '=', config.project).execute();
         expect(rows).toHaveLength(1);
     });
 
@@ -173,7 +173,7 @@ describe('CardJobs.confirmInFlightAfterStop', () => {
         expect(await cardJobs.confirmInFlightAfterStop(cardId)).toBeUndefined();
 
         // Retired, not merely ignored: the next call must not need pgboss.job to reach the same answer.
-        const rows = await db.selectFrom('runner.cardJobs').selectAll().where('project', '=', config.project).where('cardId', '=', cardId).execute();
+        const rows = await db.selectFrom('wilson.cardJobs').selectAll().where('project', '=', config.project).where('cardId', '=', cardId).execute();
         expect(rows).toHaveLength(0);
     });
 
@@ -188,7 +188,7 @@ describe('CardJobs.confirmInFlightAfterStop', () => {
 
         expect(await cardJobs.confirmInFlightAfterStop(cardId)).toBeUndefined();
 
-        const rows = await db.selectFrom('runner.cardJobs').selectAll().where('project', '=', config.project).where('cardId', '=', cardId).execute();
+        const rows = await db.selectFrom('wilson.cardJobs').selectAll().where('project', '=', config.project).where('cardId', '=', cardId).execute();
         expect(rows).toHaveLength(0);
     });
 

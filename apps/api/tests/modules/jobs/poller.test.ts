@@ -543,7 +543,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
 
     /**
      * A `CardJobs` fake keyed by `(project, cardId)`, the same pair the real, Postgres-backed
-     * `CardJobs` keys its claims by (`runner.cardJobs`'s `(project, cardId)` conflict target,
+     * `CardJobs` keys its claims by (`wilson.cardJobs`'s `(project, cardId)` conflict target,
      * card.jobs.ts) — unlike `statefulCardJobs` above, which has no notion of project and would make
      * two different projects' identically-id'd cards falsely appear to claim each other.
      */

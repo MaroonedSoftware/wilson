@@ -10,7 +10,7 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
 /**
  * The host registry, against a real connection for the reason `project.repository.test.ts` gives:
  * a fake would only prove the test agrees with itself about what a write means. Host names come
- * from `uniqueProject()` too, since `runner.hosts` is deployment-scoped and shared by every test.
+ * from `uniqueProject()` too, since `wilson.hosts` is deployment-scoped and shared by every test.
  */
 let db: Kysely<DB>;
 let service: HostsService;
@@ -72,9 +72,9 @@ describe('HostsService', () => {
     });
 
     it('keeps the kind and the SSH target in step in the table itself', async () => {
-        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'worker', sshTarget: 'box' }).execute()).rejects.toThrow();
-        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'ssh', sshTarget: null }).execute()).rejects.toThrow();
-        await expect(db.insertInto('runner.hosts').values({ name: uniqueProject(), kind: 'pigeon', sshTarget: 'box' }).execute()).rejects.toThrow();
+        await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'worker', sshTarget: 'box' }).execute()).rejects.toThrow();
+        await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'ssh', sshTarget: null }).execute()).rejects.toThrow();
+        await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'pigeon', sshTarget: 'box' }).execute()).rejects.toThrow();
     });
 
     it('refuses a taken name with 409, and a bad target or slot count with 400', async () => {
@@ -159,7 +159,7 @@ describe('HostsService', () => {
         await service.remove(name);
 
         await expect(service.get(name)).rejects.toMatchObject({ statusCode: 404 });
-        expect(await db.selectFrom('runner.hostProjects').selectAll().where('host', '=', name).execute()).toEqual([]);
+        expect(await db.selectFrom('wilson.hostProjects').selectAll().where('host', '=', name).execute()).toEqual([]);
         await expect(service.remove(name)).rejects.toMatchObject({ statusCode: 404 });
     });
 

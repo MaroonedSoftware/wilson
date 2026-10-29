@@ -65,8 +65,8 @@ export { API_KEY_PREFIX, API_KEY_USE_WINDOW, SESSION_ISSUER, SESSION_LIFETIME } 
  * require one.
  *
  * Sessions are stored through `CacheProvider`, which `SourcesModule` binds to `PostgresCacheProvider`,
- * so a session is a `runner.cache_entries` row and the per-subject session index is
- * `runner.cache_set_members` rows. Listed after Sources in `modules.ts` for that reason, though, as
+ * so a session is a `wilson.cache_entries` row and the per-subject session index is
+ * `wilson.cache_set_members` rows. Listed after Sources in `modules.ts` for that reason, though, as
  * every ordering note there says, `setup` only registers tokens.
  *
  * `AuthenticationSessionService` and `PasswordFactorService` are factories, not `useClass`: each

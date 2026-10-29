@@ -33,7 +33,7 @@ beforeEach(async () => {
 const enrolPasskeyDirectly = async (): Promise<string> => {
     const account = await server.container.get(AccountRepository).findByEmail('operator@example.com');
     const row = await server.db
-        .insertInto('runner.accountPasskeys')
+        .insertInto('wilson.accountPasskeys')
         .values({ accountId: account!.id, publicKey: 'test-public-key', publicKeyId: 'Y3JlZGVudGlhbC1pZA', counter: 0, label: 'laptop' })
         .returning('id')
         .executeTakeFirstOrThrow();

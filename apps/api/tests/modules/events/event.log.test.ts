@@ -77,7 +77,7 @@ describe('EventLog.append publishing', () => {
         await waitFor(() => notifications.some(n => n.project === project));
         const notification = notifications.find(n => n.project === project);
         const row = await db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .selectAll()
@@ -118,7 +118,7 @@ describe('EventLog.append publishing', () => {
         // And the row itself never survived either — confirming this was a real rollback, not a
         // race in the test.
         const rows = await db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .selectAll()
@@ -138,7 +138,7 @@ describe('EventLog.append publishing', () => {
         await waitFor(() => notifications.some(n => n.project === project));
         const notification = notifications.find(n => n.project === project);
         const row = await db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .selectAll()
@@ -173,7 +173,7 @@ describe('EventLog.append publishing', () => {
         expect(notification).not.toHaveProperty('payload');
 
         const row = await db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .selectAll()
@@ -208,7 +208,7 @@ describe('EventLog.append publishing', () => {
         ).resolves.toBeUndefined();
 
         const row = await db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .selectAll()

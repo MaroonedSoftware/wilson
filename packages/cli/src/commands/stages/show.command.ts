@@ -3,7 +3,7 @@ import { withApi } from '../../api-client.js';
 
 /**
  * Print the project's stage config — the document that used to be `config/stages.yaml` in the board
- * repo, and is a `runner.stage_configs` row now (`GET /api/stages/config`).
+ * repo, and is a `wilson.stage_configs` row now (`GET /api/stages/config`).
  *
  * Written to stdout verbatim rather than through the logger, so `wilson stages show > stages.yaml`
  * round-trips: the file it produces is exactly what `wilson stages set` accepts.

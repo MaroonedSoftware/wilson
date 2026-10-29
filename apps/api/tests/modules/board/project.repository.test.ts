@@ -5,7 +5,7 @@ import { ProjectRepository, type ProjectRow } from '#modules/board/project.repos
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
- * Card 0148. `ProjectRepository` is the new `runner.projects` table's only reader/writer —
+ * Card 0148. `ProjectRepository` is the new `wilson.projects` table's only reader/writer —
  * `BoardModule.setup` is its one real caller, but that caller is exercised through a full boot in
  * `board.module.test.ts`. These tests go straight at the repository, against a real connection
  * (the same reasoning `postgres.board.repository.test.ts` gives for the board itself: a fake would
@@ -45,7 +45,7 @@ describe('ProjectRepository', () => {
     });
 
     /**
-     * `name` is `runner.projects`' primary key, deliberately — the plan calls it "the same value
+     * `name` is `wilson.projects`' primary key, deliberately — the plan calls it "the same value
      * every other table's `project` column already holds", so two rows for one name would be two
      * disagreeing identities for the same project. `BoardModule.setup`'s "find, else create" only
      * avoids that race in the common case; the constraint is what makes a genuine collision fail
@@ -162,7 +162,7 @@ describe('ProjectRepository', () => {
          * `PATCH /api/projects/{name}` with every field absent is a valid request under the
          * contract's own semantics (every `UpdateProjectRequest` field is optional), so `update`
          * must accept an empty patch rather than reaching Kysely's `set()` with nothing in it —
-         * `set({})` compiles to `update "runner"."projects" set  where "name" = $1`, a SET clause
+         * `set({})` compiles to `update "wilson"."projects" set  where "name" = $1`, a SET clause
          * with no assignments, which Postgres rejects with a syntax error rather than treating as a
          * no-op. This goes at the repository directly, against the real connection, because a fake
          * would only prove the test agrees with itself about what an empty `set()` does — the whole

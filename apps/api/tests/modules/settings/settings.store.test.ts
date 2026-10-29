@@ -23,7 +23,7 @@ const buildStore = (project: string, env: Record<string, string> = {}): Settings
 
 /**
  * Card 0106. `SettingsStore` is the one place the precedence this card exists for lives: a
- * `runner.settings` row, else the environment variable, else the coded default. A fresh database
+ * `wilson.settings` row, else the environment variable, else the coded default. A fresh database
  * has no rows, so these first prove the pre-existing behaviour (env var, or nothing) is unchanged,
  * before the tests that prove the new thing — a row overriding it.
  */
@@ -85,7 +85,7 @@ describe('SettingsStore.get/set — a database row', () => {
         await store.set(POLLER_ENABLED, true);
 
         const rows = await db
-            .selectFrom('runner.settings')
+            .selectFrom('wilson.settings')
             .selectAll()
             .where('project', '=', project)
             .where('key', '=', POLLER_ENABLED.key)

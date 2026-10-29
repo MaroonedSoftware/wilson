@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.settings — operational settings that can change without a restart.
+-- wilson.settings — operational settings that can change without a restart.
 --
 -- POLLER_ENABLED used to be read once, at boot, in JobsModule.setup — the
 -- only way to change it was to restart the API, and a restart abandons
@@ -11,7 +11,7 @@
 -- read, so a write takes effect immediately, no restart involved.
 --
 -- One row per (project, key), keyed the same way every other operational
--- table in this schema is (runner.card_jobs among them). `value` is JSONB
+-- table in this schema is (wilson.card_jobs among them). `value` is JSONB
 -- so a new setting is a new row, never a schema change — adding
 -- POLLER_INTERVAL_MS or CARD_STAGE_CONCURRENCY later does not touch this
 -- table.
@@ -23,7 +23,7 @@
 -- runs.
 -- =========================================================================
 
-CREATE TABLE runner.settings (
+CREATE TABLE wilson.settings (
     project TEXT NOT NULL,
     key TEXT NOT NULL,
     value JSONB NOT NULL,
@@ -31,8 +31,8 @@ CREATE TABLE runner.settings (
     PRIMARY KEY (project, key)
 );
 
-SELECT runner.add_updated_at_trigger('runner.settings');
+SELECT wilson.add_updated_at_trigger('wilson.settings');
 
 -- migrate:down
 
-DROP TABLE runner.settings;
+DROP TABLE wilson.settings;

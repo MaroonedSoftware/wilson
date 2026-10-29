@@ -49,7 +49,7 @@ export interface PlanSessionOptions {
      * literal this file pins). */
     model: string;
     /** The engine's own session id to resume — set only when this agent is rehydrating a
-     * conversation `runner.plan_turns` already has turns for, never for a brand-new one. */
+     * conversation `wilson.plan_turns` already has turns for, never for a brand-new one. */
     resume?: string;
     /** The resolved `claude-config-dir` setting (card 0141), or `undefined` when unset — passed
      * straight to `subscriptionEnv` below. This class has no DI and no store of its own, so the
@@ -131,7 +131,7 @@ export class PlanSessionAgent {
 
     /**
      * Tears the engine process down. Called from `PlanService.close` and from
-     * `plan.session.registry.ts`'s idle timeout alike; the transcript in `runner.plan_turns`
+     * `plan.session.registry.ts`'s idle timeout alike; the transcript in `wilson.plan_turns`
      * outlives it either way, which is exactly what lets a later turn resume it.
      */
     dispose(): void {

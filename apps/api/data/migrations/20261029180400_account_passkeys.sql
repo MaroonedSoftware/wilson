@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.account_passkeys: passkeys (WebAuthn credentials) enrolled as a
+-- wilson.account_passkeys: passkeys (WebAuthn credentials) enrolled as a
 -- second factor for the operator account (PROJECT.md, Authentication).
 --
 -- `public_key` is the credential's public key (a passkey's private key
@@ -14,9 +14,9 @@
 -- web app (localhost) does not work at another WEB_ORIGINS host.
 -- =========================================================================
 
-CREATE TABLE runner.account_passkeys (
+CREATE TABLE wilson.account_passkeys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL REFERENCES runner.accounts (id),
+    account_id UUID NOT NULL REFERENCES wilson.accounts (id),
     public_key TEXT NOT NULL,
     public_key_id TEXT NOT NULL UNIQUE,
     counter BIGINT NOT NULL DEFAULT 0 CHECK (counter >= 0),
@@ -25,8 +25,8 @@ CREATE TABLE runner.account_passkeys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX account_passkeys_account ON runner.account_passkeys (account_id);
+CREATE INDEX account_passkeys_account ON wilson.account_passkeys (account_id);
 
 -- migrate:down
 
-DROP TABLE runner.account_passkeys;
+DROP TABLE wilson.account_passkeys;

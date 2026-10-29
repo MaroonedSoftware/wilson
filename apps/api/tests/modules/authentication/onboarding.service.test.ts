@@ -52,7 +52,7 @@ describe('OnboardingService', () => {
     it('stores the password hashed, never as typed', async () => {
         await onboarding().createAccount({ email: 'operator@example.com', password: STRONG_PASSWORD });
 
-        const row = await db.selectFrom('runner.accountPasswords').select('hash').executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.accountPasswords').select('hash').executeTakeFirstOrThrow();
         expect(row.hash).not.toContain(STRONG_PASSWORD);
         expect(row.hash).toMatch(/^\$argon2id\$/);
     });
@@ -78,7 +78,7 @@ describe('OnboardingService', () => {
 
         expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
         expect(results.filter(r => r.status === 'rejected').map(r => (r as PromiseRejectedResult).reason.statusCode)).toEqual([409]);
-        expect(await db.selectFrom('runner.accounts').select('id').execute()).toHaveLength(1);
+        expect(await db.selectFrom('wilson.accounts').select('id').execute()).toHaveLength(1);
     });
 
     it('refuses a weak password with 400 and leaves no account behind', async () => {

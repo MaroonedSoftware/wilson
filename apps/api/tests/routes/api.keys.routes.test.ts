@@ -45,7 +45,7 @@ describe('API keys', () => {
     it('stores only a hash of the token', async () => {
         const { token } = await issued();
 
-        const rows = await server.db.selectFrom('runner.apiKeys').select(['secretHash', 'hint']).execute();
+        const rows = await server.db.selectFrom('wilson.apiKeys').select(['secretHash', 'hint']).execute();
         expect(rows).toHaveLength(1);
         expect(rows[0]!.secretHash).not.toContain(token);
         expect(JSON.stringify(rows)).not.toContain(token);
@@ -110,7 +110,7 @@ describe('API keys', () => {
     it('refuses a key whose account was switched off', async () => {
         const { token } = await issued();
 
-        await server.db.updateTable('runner.accounts').set({ active: false }).execute();
+        await server.db.updateTable('wilson.accounts').set({ active: false }).execute();
 
         expect((await request(server, 'GET', '/api/auth/session', { token })).status).toBe(401);
     });
@@ -119,7 +119,7 @@ describe('API keys', () => {
         const res = await createKey(accessToken, { name: 'short', scope: 'view', expiresInDays: 1 });
         const { key, token } = (await res.json()) as { key: { id: string }; token: string };
 
-        await server.db.updateTable('runner.apiKeys').set({ expiresAt: '2000-01-01T00:00:00Z' }).where('id', '=', key.id).execute();
+        await server.db.updateTable('wilson.apiKeys').set({ expiresAt: '2000-01-01T00:00:00Z' }).where('id', '=', key.id).execute();
 
         expect((await request(server, 'GET', '/api/auth/session', { token })).status).toBe(401);
     });

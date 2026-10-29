@@ -12,7 +12,7 @@ import type { ProjectRow } from './project.repository.js';
  * below, is unchanged and stays fixed to one project — the simple fake most tests already construct,
  * for a class under test that has no reason to know multiple projects exist.
  *
- * Card 0148: the values below are read from a `runner.projects` row, not assembled from the
+ * Card 0148: the values below are read from a `wilson.projects` row, not assembled from the
  * environment on every boot — see `BoardModule.setup`'s `resolveProjectRow` for how the configured
  * project's row is read, or created from the environment, on its first boot.
  */
@@ -41,7 +41,7 @@ export abstract class BoardConfig {
      * Where to POST a notification when a card needs a human (card 0050). Undefined means
      * notifications are off — no second channel, no webhook attempted, nothing logged.
      *
-     * Not `readonly` as of card 0107: this became a `runner.settings`-backed setting, and both its
+     * Not `readonly` as of card 0107: this became a `wilson.settings`-backed setting, and both its
      * readers (`StageDispatcher`, `CardStageJob`) already read it fresh on every notification rather
      * than caching it anywhere — so making it settable at runtime needed nothing from them. The
      * settings module owns writing it: `NotifyWebhookSettingService` mutates this field in place on
@@ -95,16 +95,16 @@ interface ProjectEntry {
  *
  * `register` is how a project's paths get here at all: `BoardModule` registers the boot-configured
  * project eagerly, at setup; `BoardModule`'s own `start` hook then registers every row already in
- * `runner.projects` before `JobsModule` starts accepting (or redelivering) `card.stage` work, so a
+ * `wilson.projects` before `JobsModule` starts accepting (or redelivering) `card.stage` work, so a
  * job for a project that existed before this boot can never dispatch into an unregistered
  * `BoardConfig`; and `Poller.tick` re-registers every registered project on every tick, which is also
  * how a project added by hand while the daemon is already running is picked up — see that method's
  * own doc for why re-registering (rather than registering once) is deliberate. Idempotent and cheap:
  * it only overwrites the three path fields, preserving whatever `notifyWebhookUrl`/`notifyBaseUrl` a
- * settings write already recorded for that project, since neither of those lives in `runner.projects`.
+ * settings write already recorded for that project, since neither of those lives in `wilson.projects`.
  *
  * Reading a project this class has never seen registered throws — a job or a tick that names an
- * unknown project is a genuine bug (the project's `runner.projects` row vanished, or a payload named
+ * unknown project is a genuine bug (the project's `wilson.projects` row vanished, or a payload named
  * one that was never created), not a case to paper over with a silent fallback that would run the
  * work against the wrong paths instead.
  */

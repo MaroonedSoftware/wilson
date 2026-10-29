@@ -5,7 +5,7 @@ import type { SettingDefinition } from './setting.definition.js';
  *
  * `POLLER_ENABLED` sets what a fresh database starts at, parsed identically to `configBoolean`
  * (`shared/require.config.ts`): only `"true"` or `"1"` enable it, everything else — including the
- * variable being unset — leaves it off. A `runner.settings` row then overrides that without a
+ * variable being unset — leaves it off. A `wilson.settings` row then overrides that without a
  * restart. See `SettingsStore.get` for the full precedence and `PollerSettingService` for what
  * makes a write take effect immediately.
  *

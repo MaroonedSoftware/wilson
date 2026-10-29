@@ -15,7 +15,7 @@ const key = (project: string, cardId: string): string => `${project}:${cardId}`;
 /**
  * Cards this process is mid-run on right now.
  *
- * `runner.card_jobs` (via `CardJobs`) is the durable claim — which job, if any, is carrying a card,
+ * `wilson.card_jobs` (via `CardJobs`) is the durable claim — which job, if any, is carrying a card,
  * queryable by any process at any time. It does not say which card THIS worker's `card.stage`
  * handler is inside `run()` for at this instant, and that is exactly what a bounded shutdown needs
  * to name: not every claimed card on the board, just the one this process would be abandoning.

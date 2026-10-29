@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCtx, connectionRefused, fetchMock, jsonResponse, reasonResponse, urlOf } from './sdk-fetch.helper.js';
 
 // `board.ready.ts` reads nothing for itself any more. Card 0078 took away its own `pg` connection
-// (whether the board has cards became an API question); now stage config is a `runner.stage_configs`
+// (whether the board has cards became an API question); now stage config is a `wilson.stage_configs`
 // row behind `GET /api/stages` rather than `config/stages.yaml` under `PROJECT_BOARD_ROOT`, so both
 // halves of the check are API calls, stubbed at `fetch` the same way every other ported command is —
 // see the module doc on `boardReady`.

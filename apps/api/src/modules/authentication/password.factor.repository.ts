@@ -14,7 +14,7 @@ const toFactor = (row: Selectable<AccountPasswords>): PasswordFactor => ({
 });
 
 /**
- * `runner.account_passwords` behind `@maroonedsoftware/authentication`'s `PasswordFactorRepository`,
+ * `wilson.account_passwords` behind `@maroonedsoftware/authentication`'s `PasswordFactorRepository`,
  * after deadair's. A password is one row per account and keyed by it, so the factor id is the
  * account id, and the library's `getFactor(actorId, actorId)` reads the same row both ways.
  */
@@ -26,7 +26,7 @@ export class AccountPasswordRepository extends PasswordFactorRepository {
 
     async createFactor(actorId: string, value: PasswordValue): Promise<PasswordFactor> {
         const row = await this.db
-            .insertInto('runner.accountPasswords')
+            .insertInto('wilson.accountPasswords')
             .values({ accountId: actorId, hash: value.hash, salt: value.salt, needsReset: value.needsReset ?? false })
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -38,12 +38,12 @@ export class AccountPasswordRepository extends PasswordFactorRepository {
      * so a missing row resolves to `undefined` as deadair's does.
      */
     async getFactor(actorId: string, _factorId: string): Promise<PasswordFactor> {
-        const row = await this.db.selectFrom('runner.accountPasswords').selectAll().where('accountId', '=', actorId).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.accountPasswords').selectAll().where('accountId', '=', actorId).executeTakeFirst();
         return (row ? toFactor(row) : undefined) as PasswordFactor;
     }
 
     async listFactors(actorId: string, active?: boolean): Promise<PasswordFactor[]> {
-        let query = this.db.selectFrom('runner.accountPasswords').selectAll().where('accountId', '=', actorId);
+        let query = this.db.selectFrom('wilson.accountPasswords').selectAll().where('accountId', '=', actorId);
         if (active !== undefined) query = query.where('active', '=', active);
         return (await query.execute()).map(toFactor);
     }
@@ -63,7 +63,7 @@ export class AccountPasswordRepository extends PasswordFactorRepository {
 
     async updateFactor(actorId: string, value: PasswordValue): Promise<PasswordFactor> {
         const row = await this.db
-            .updateTable('runner.accountPasswords')
+            .updateTable('wilson.accountPasswords')
             .set({ hash: value.hash, salt: value.salt, needsReset: value.needsReset ?? false, updatedAt: new Date().toISOString() })
             .where('accountId', '=', actorId)
             .returningAll()
@@ -72,6 +72,6 @@ export class AccountPasswordRepository extends PasswordFactorRepository {
     }
 
     async deleteFactor(actorId: string, _factorId?: string): Promise<void> {
-        await this.db.updateTable('runner.accountPasswords').set({ active: false }).where('accountId', '=', actorId).execute();
+        await this.db.updateTable('wilson.accountPasswords').set({ active: false }).where('accountId', '=', actorId).execute();
     }
 }

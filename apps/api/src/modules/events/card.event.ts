@@ -8,7 +8,7 @@
 export type CardEventType =
     | 'stage.dispatched'
     // Carries `host` and `slot`: the registered host a stage's `placement` put it on, and the
-    // `runner.leases` key holding its slot there. Absent for a stage that ran on this machine.
+    // `wilson.leases` key holding its slot there. Absent for a stage that ran on this machine.
     | 'stage.placed'
     // Carries `host` and `reason`: a placed stage's host stopped answering before the stage ended.
     // The attempt is retried, not kicked back, and the host is marked as failing its probe.
@@ -176,7 +176,7 @@ export type CardEventType =
     // `startedOn` (the job's own `started_on`, ISO-formatted, or null if pg-boss never recorded one);
     // `stage` (the event's own top-level field, as every other stage-scoped event already uses it)
     // carries the stage name the orphaned job was running. Skipped, not appended with a guessed
-    // project, when neither the job's own payload nor its `runner.cardJobs` claim names one — the job
+    // project, when neither the job's own payload nor its `wilson.cardJobs` claim names one — the job
     // is still failed either way; see `CardJobs.activeCardStageJobs`/`claimForJob`.
     | 'job.orphaned';
 

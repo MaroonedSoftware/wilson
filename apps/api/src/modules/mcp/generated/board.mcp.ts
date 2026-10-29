@@ -667,7 +667,7 @@ export class InitialiseBoardMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'initialise_board',
         description:
-            'Gives the project a stage config an operator can start a card against immediately — a\n`runner.stage_configs` row holding the default document. This used to scaffold the sibling board\nrepo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config\nincluded, so the row is all there is to initialise, and no path is involved.',
+            'Gives the project a stage config an operator can start a card against immediately — a\n`wilson.stage_configs` row holding the default document. This used to scaffold the sibling board\nrepo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config\nincluded, so the row is all there is to initialise, and no path is involved.',
         inputSchema: z.toJSONSchema(InitialiseBoardArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(BoardColumns, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

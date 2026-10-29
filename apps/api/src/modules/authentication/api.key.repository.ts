@@ -25,7 +25,7 @@ const toKey = (row: Selectable<ApiKeys>): ApiKey<AccountActor> => ({
 
 const iso = (at: DateTime): string => at.toUTC().toISO()!;
 
-/** `runner.api_keys` behind the library's `ApiKeyRepository`. */
+/** `wilson.api_keys` behind the library's `ApiKeyRepository`. */
 @Injectable()
 export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
     constructor(private readonly db: Kysely<DB>) {
@@ -34,7 +34,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
 
     async create(key: ApiKey<AccountActor>): Promise<ApiKey<AccountActor>> {
         const row = await this.db
-            .insertInto('runner.apiKeys')
+            .insertInto('wilson.apiKeys')
             .values({
                 id: key.id,
                 accountId: key.owner.actorId,
@@ -53,17 +53,17 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
     }
 
     async findById(id: string): Promise<ApiKey<AccountActor> | undefined> {
-        const row = await this.db.selectFrom('runner.apiKeys').selectAll().where('id', '=', id).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.apiKeys').selectAll().where('id', '=', id).executeTakeFirst();
         return row ? toKey(row) : undefined;
     }
 
     async findBySecretHash(secretHash: string): Promise<ApiKey<AccountActor> | undefined> {
-        const row = await this.db.selectFrom('runner.apiKeys').selectAll().where('secretHash', '=', secretHash).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.apiKeys').selectAll().where('secretHash', '=', secretHash).executeTakeFirst();
         return row ? toKey(row) : undefined;
     }
 
     async listByOwner(owner: TargetActor<AccountActor>, options?: ApiKeyListOptions): Promise<ApiKey<AccountActor>[]> {
-        let query = this.db.selectFrom('runner.apiKeys').selectAll().where('accountId', '=', owner.actorId);
+        let query = this.db.selectFrom('wilson.apiKeys').selectAll().where('accountId', '=', owner.actorId);
         if (!options?.includeInactive) {
             query = query
                 .where('revokedAt', 'is', null)
@@ -74,7 +74,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
 
     async update(id: string, patch: ApiKeyUpdatePatch): Promise<ApiKey<AccountActor>> {
         const row = await this.db
-            .updateTable('runner.apiKeys')
+            .updateTable('wilson.apiKeys')
             .set({
                 ...(patch.name === undefined ? {} : { name: patch.name }),
                 ...(patch.scopes === undefined ? {} : { scopes: patch.scopes }),
@@ -91,7 +91,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
 
     async revoke(id: string, at: DateTime): Promise<ApiKey<AccountActor>> {
         const row = await this.db
-            .updateTable('runner.apiKeys')
+            .updateTable('wilson.apiKeys')
             .set(eb => ({ revokedAt: eb.fn.coalesce('revokedAt', eb.val(iso(at))) }))
             .where('id', '=', id)
             .returningAll()
@@ -101,7 +101,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
 
     async revokeAllForOwner(owner: TargetActor<AccountActor>, at: DateTime): Promise<number> {
         const result = await this.db
-            .updateTable('runner.apiKeys')
+            .updateTable('wilson.apiKeys')
             .set({ revokedAt: iso(at) })
             .where('accountId', '=', owner.actorId)
             .where('revokedAt', 'is', null)
@@ -111,13 +111,13 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
 
     async touchLastUsed(id: string, at: DateTime): Promise<void> {
         await this.db
-            .updateTable('runner.apiKeys')
+            .updateTable('wilson.apiKeys')
             .set({ lastUsedAt: iso(at) })
             .where('id', '=', id)
             .execute();
     }
 
     async delete(id: string): Promise<void> {
-        await this.db.deleteFrom('runner.apiKeys').where('id', '=', id).execute();
+        await this.db.deleteFrom('wilson.apiKeys').where('id', '=', id).execute();
     }
 }

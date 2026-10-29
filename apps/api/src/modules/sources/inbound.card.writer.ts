@@ -16,7 +16,7 @@ import type { CardSourceItem } from './card.source.js';
  * of too *short* a retention here is not incorrectness — a version that outlives it just gets
  * reprocessed once more, exactly the rare case this card exists to make rare, not to prevent
  * absolutely — so this only needs to comfortably clear `SOURCE_POLL_INTERVAL_MS_DEFAULT`
- * (`source.poll.interval.setting.ts`, five minutes) while still bounding `runner.cache_entries`'s
+ * (`source.poll.interval.setting.ts`, five minutes) while still bounding `wilson.cache_entries`'s
  * growth. Seven days does both: hundreds of poll intervals of headroom even for an operator-raised
  * interval measured in hours, and a table that only ever holds roughly a week of keys.
  */

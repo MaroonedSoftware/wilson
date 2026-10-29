@@ -347,10 +347,10 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
 
         await writeTransition(stage, baseCard, outcome({ passed: true }));
 
-        // The append-only half of the board: `runner.cards` says where the card is now, and this
+        // The append-only half of the board: `wilson.cards` says where the card is now, and this
         // says how it got there — what `git log` on the board repo used to answer.
         const version = await board.currentVersion('0001');
-        const row = await db.selectFrom('runner.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
         expect(row.message).toBe('0001: testing -> review');
     });
 

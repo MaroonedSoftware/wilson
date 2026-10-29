@@ -5,7 +5,7 @@ import { apiClient, describeApiError } from '../api-client.js';
  * The board must be queryable and its stage config must load.
  *
  * Both halves are questions about the database behind the API now: stage config is a
- * `runner.stage_configs` row (it used to be `config/stages.yaml` under `PROJECT_BOARD_ROOT`, which
+ * `wilson.stage_configs` row (it used to be `config/stages.yaml` under `PROJECT_BOARD_ROOT`, which
  * this check could stat for itself), and whether the board has cards was already an API question
  * (card 0078 dropped the CLI's own `pg` connection). So this asks the API twice, the same way any
  * other command does — which doubles as this check's proof that the API is reachable at all, with

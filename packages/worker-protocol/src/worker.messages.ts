@@ -87,7 +87,7 @@ export interface CallResults {
     writeBytes: undefined;
 }
 
-/** Where a project lives on the worker's machine, as its host's `runner.host_projects` row says. */
+/** Where a project lives on the worker's machine, as its host's `wilson.host_projects` row says. */
 export const WorkerProject = z.object({
     project: z.string(),
     codeRoot: z.string(),

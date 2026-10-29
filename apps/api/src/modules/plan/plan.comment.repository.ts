@@ -14,7 +14,7 @@ export interface PlanComment {
 }
 
 /**
- * `runner.plan_comments` — a comment left on a passage of a plan draft. Follows
+ * `wilson.plan_comments` — a comment left on a passage of a plan draft. Follows
  * `postgres.board.repository.ts`'s shape the same way `PlanTurnRepository` does: constructed with
  * `BoardConfig` and the shared `Kysely<DB>` pool rather than resolved through the container.
  *
@@ -36,7 +36,7 @@ export class PlanCommentRepository {
     /** Record a new, open comment on a card's plan draft. */
     async append(cardId: string, quote: string, prefix: string, suffix: string, text: string): Promise<PlanComment> {
         const row = await this.db
-            .insertInto('runner.planComments')
+            .insertInto('wilson.planComments')
             .values({
                 project: this.config.project,
                 cardId,
@@ -55,7 +55,7 @@ export class PlanCommentRepository {
     /** Every comment on a card, open and resolved alike, oldest first. */
     async list(cardId: string): Promise<PlanComment[]> {
         const rows = await this.db
-            .selectFrom('runner.planComments')
+            .selectFrom('wilson.planComments')
             .selectAll()
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
@@ -71,7 +71,7 @@ export class PlanCommentRepository {
      */
     async open(cardId: string): Promise<PlanComment[]> {
         const rows = await this.db
-            .selectFrom('runner.planComments')
+            .selectFrom('wilson.planComments')
             .selectAll()
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
@@ -88,7 +88,7 @@ export class PlanCommentRepository {
      */
     async resolve(cardId: string, id: string): Promise<PlanComment | undefined> {
         const row = await this.db
-            .updateTable('runner.planComments')
+            .updateTable('wilson.planComments')
             .set({ resolved: true })
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)

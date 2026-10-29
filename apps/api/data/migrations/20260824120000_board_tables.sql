@@ -10,12 +10,12 @@
 -- tables exist so a transition and the event describing it land in one
 -- transaction.
 --
--- `runner.cards` is current state — what `card list` and dispatch read.
--- `runner.card_versions` is append-only history — the replacement for `git
+-- `wilson.cards` is current state — what `card list` and dispatch read.
+-- `wilson.card_versions` is append-only history — the replacement for `git
 -- log` on the board repo, and the thing `planSha` used to point at.
 -- =========================================================================
 
-CREATE TABLE runner.cards (
+CREATE TABLE wilson.cards (
     project TEXT NOT NULL,
     id TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE runner.cards (
     PRIMARY KEY (project, id)
 );
 
-SELECT runner.add_updated_at_trigger('runner.cards');
+SELECT wilson.add_updated_at_trigger('wilson.cards');
 
 -- =========================================================================
 -- Every write snapshots the whole card, not just the plan body.
@@ -60,7 +60,7 @@ SELECT runner.add_updated_at_trigger('runner.cards');
 -- narrative, kept deliberately: "0018: implementing -> testing".
 -- =========================================================================
 
-CREATE TABLE runner.card_versions (
+CREATE TABLE wilson.card_versions (
     id BIGSERIAL PRIMARY KEY,
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
@@ -68,16 +68,16 @@ CREATE TABLE runner.card_versions (
     body TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE
 );
 
-CREATE INDEX card_versions_project_card_id_idx ON runner.card_versions (project, card_id, id);
+CREATE INDEX card_versions_project_card_id_idx ON wilson.card_versions (project, card_id, id);
 
 -- The one ALTER in the schema, and a necessary one: cards and card_versions
 -- reference each other, so whichever is created first cannot name the other.
-ALTER TABLE runner.cards
+ALTER TABLE wilson.cards
     ADD CONSTRAINT cards_pinned_version_id_fkey
-    FOREIGN KEY (pinned_version_id) REFERENCES runner.card_versions (id);
+    FOREIGN KEY (pinned_version_id) REFERENCES wilson.card_versions (id);
 
 -- =========================================================================
 -- Dependencies as rows, so a dependency on a card that does not exist is
@@ -85,25 +85,25 @@ ALTER TABLE runner.cards
 -- missing dependency as unfinished — a good defensive choice made necessary by
 -- having no referential integrity, and no longer necessary.
 --
--- No foreign key from runner.card_events: its rows predate this table and
+-- No foreign key from wilson.card_events: its rows predate this table and
 -- carry board coordinates as text on purpose, so history survives a card
 -- format change. Adding one would require validating existing rows against a
 -- table that is empty until the importer runs.
 -- =========================================================================
 
-CREATE TABLE runner.card_deps (
+CREATE TABLE wilson.card_deps (
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
     depends_on_id TEXT NOT NULL,
     PRIMARY KEY (project, card_id, depends_on_id),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE,
-    FOREIGN KEY (project, depends_on_id) REFERENCES runner.cards (project, id) ON DELETE RESTRICT,
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE,
+    FOREIGN KEY (project, depends_on_id) REFERENCES wilson.cards (project, id) ON DELETE RESTRICT,
     CHECK (card_id <> depends_on_id)
 );
 
 -- migrate:down
 
-DROP TABLE runner.card_deps;
-ALTER TABLE runner.cards DROP CONSTRAINT cards_pinned_version_id_fkey;
-DROP TABLE runner.card_versions;
-DROP TABLE runner.cards;
+DROP TABLE wilson.card_deps;
+ALTER TABLE wilson.cards DROP CONSTRAINT cards_pinned_version_id_fkey;
+DROP TABLE wilson.card_versions;
+DROP TABLE wilson.cards;

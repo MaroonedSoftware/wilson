@@ -14,7 +14,7 @@ import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.servi
 import { DryRunSettingService } from './dry.run.setting.service.js';
 
 /**
- * Operational settings backed by `runner.settings` — the poller's on/off switch, its interval,
+ * Operational settings backed by `wilson.settings` — the poller's on/off switch, its interval,
  * `card.stage`'s concurrency (card 0115), the notify webhook and base URL (card 0107), the engine's
  * Claude config directory (card 0141), whether a merge rehearses instead of writing `main`
  * (card 0144), and whether a merge sends a card back to `review` when `main` moved under its files
@@ -51,7 +51,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
     },
-    // A `runner.settings` row already present before this boot must take effect immediately, the
+    // A `wilson.settings` row already present before this boot must take effect immediately, the
     // same as `BoundedCardStageJobRunner.start()` applying `POLLER_ENABLED` at startup
     // (jobs.module.ts) — otherwise `BoardConfig.notifyWebhookUrl`/`notifyBaseUrl` would sit at
     // whatever `BoardModule` read from the environment until the next write.

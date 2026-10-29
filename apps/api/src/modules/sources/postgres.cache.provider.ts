@@ -21,18 +21,18 @@ const now = () => sql<DateTime>`now()`;
 const expiresAtFor = (ttl: Duration) => sql<string>`now() + make_interval(secs => ${ttl.as('seconds')})`;
 
 /** Postgres's own "never" for a `timestamptz` column — used for a write with no `ttl` at all, so
- * `runner.cache_entries.expires_at` (`NOT NULL`, card 0197's own migration) never needs a nullable
+ * `wilson.cache_entries.expires_at` (`NOT NULL`, card 0197's own migration) never needs a nullable
  * column just to say "does not expire". Compares correctly against `now()` in every direction. */
 const NEVER = sql<string>`'infinity'`;
 
 /**
- * `CacheProvider` (`@maroonedsoftware/cache`) against `runner.cache_entries` — this deployment's
+ * `CacheProvider` (`@maroonedsoftware/cache`) against `wilson.cache_entries` — this deployment's
  * Postgres-only stand-in for the package's only shipped backend, `IoRedisCacheProvider`, which this
  * card's Constraints rule out (no Redis service, no client dependency, and adding one for this alone
  * is out of proportion). Follows `SourceCursorRepository`'s own reasoning for writing a repository
  * against a table that was already there, one level over.
  *
- * `key` is `runner.cache_entries`'s primary key, so every write below is a plain `WHERE key = ?`
+ * `key` is `wilson.cache_entries`'s primary key, so every write below is a plain `WHERE key = ?`
  * (or, for `add`, an `ON CONFLICT (key)`) — this class knows nothing about what a key means; that is
  * `CacheIdempotencyStore`'s (and, above it, `InboundCardWriter`'s) business.
  */
@@ -44,7 +44,7 @@ export class PostgresCacheProvider implements CacheProvider {
      * live data. */
     async get(key: string): Promise<string | null> {
         const row = await this.db
-            .selectFrom('runner.cacheEntries')
+            .selectFrom('wilson.cacheEntries')
             .select('value')
             .where('key', '=', key)
             .where('expiresAt', '>', now())
@@ -57,7 +57,7 @@ export class PostgresCacheProvider implements CacheProvider {
     async set(key: string, value: string, ttl: Duration): Promise<void> {
         const expiresAt = expiresAtFor(ttl);
         await this.db
-            .insertInto('runner.cacheEntries')
+            .insertInto('wilson.cacheEntries')
             .values({ key, value, expiresAt })
             .onConflict(oc => oc.column('key').doUpdateSet({ value, expiresAt }))
             .execute();
@@ -73,9 +73,9 @@ export class PostgresCacheProvider implements CacheProvider {
     async add(key: string, value: string, options?: { ttl?: Duration }): Promise<boolean> {
         const expiresAt = options?.ttl ? expiresAtFor(options.ttl) : NEVER;
         const claimed = await this.db
-            .insertInto('runner.cacheEntries')
+            .insertInto('wilson.cacheEntries')
             .values({ key, value, expiresAt })
-            .onConflict(oc => oc.column('key').doUpdateSet({ value, expiresAt }).where('runner.cacheEntries.expiresAt', '<=', now()))
+            .onConflict(oc => oc.column('key').doUpdateSet({ value, expiresAt }).where('wilson.cacheEntries.expiresAt', '<=', now()))
             .returning('key')
             .executeTakeFirst();
         return claimed !== undefined;
@@ -87,7 +87,7 @@ export class PostgresCacheProvider implements CacheProvider {
      * `SET` clause. */
     async update(key: string, value: string, ttl?: Duration): Promise<void> {
         await this.db
-            .updateTable('runner.cacheEntries')
+            .updateTable('wilson.cacheEntries')
             .set(ttl ? { value, expiresAt: expiresAtFor(ttl) } : { value })
             .where('key', '=', key)
             .where('expiresAt', '>', now())
@@ -100,8 +100,8 @@ export class PostgresCacheProvider implements CacheProvider {
      * statement, so no reader sees one half gone. */
     async delete(key: string): Promise<string | null> {
         const row = await this.db
-            .with('entry', db => db.deleteFrom('runner.cacheEntries').where('key', '=', key).returning('key'))
-            .with('members', db => db.deleteFrom('runner.cacheSetMembers').where('key', '=', key).returning('key'))
+            .with('entry', db => db.deleteFrom('wilson.cacheEntries').where('key', '=', key).returning('key'))
+            .with('members', db => db.deleteFrom('wilson.cacheSetMembers').where('key', '=', key).returning('key'))
             .selectNoFrom(eb => [
                 eb.or([eb.exists(eb.selectFrom('entry').select('key')), eb.exists(eb.selectFrom('members').select('key'))]).as('deleted'),
             ])
@@ -114,7 +114,7 @@ export class PostgresCacheProvider implements CacheProvider {
      * where it is, as `get` leaves it. */
     async take(key: string): Promise<string | null> {
         const row = await this.db
-            .deleteFrom('runner.cacheEntries')
+            .deleteFrom('wilson.cacheEntries')
             .where('key', '=', key)
             .where('expiresAt', '>', now())
             .returning('value')
@@ -138,18 +138,18 @@ export class PostgresCacheProvider implements CacheProvider {
             : sql<DateTime>`coalesce(live.expires_at, ${NEVER})`;
         const result = await sql<{ added: boolean }>`
             WITH live AS (
-                SELECT max(expires_at) AS expires_at FROM runner.cache_set_members
+                SELECT max(expires_at) AS expires_at FROM wilson.cache_set_members
                 WHERE key = ${key} AND expires_at > now()
             ), target AS (
                 SELECT ${deadline} AS expires_at FROM live
             ), extended AS (
-                UPDATE runner.cache_set_members m SET expires_at = target.expires_at FROM target
+                UPDATE wilson.cache_set_members m SET expires_at = target.expires_at FROM target
                 WHERE m.key = ${key} AND m.expires_at > now() AND m.expires_at < target.expires_at
             ), added AS (
-                INSERT INTO runner.cache_set_members (key, member, expires_at)
+                INSERT INTO wilson.cache_set_members (key, member, expires_at)
                 SELECT ${key}, ${member}, target.expires_at FROM target
                 ON CONFLICT (key, member) DO UPDATE SET expires_at = excluded.expires_at
-                WHERE runner.cache_set_members.expires_at <= now()
+                WHERE wilson.cache_set_members.expires_at <= now()
                 RETURNING 1
             )
             SELECT EXISTS (SELECT 1 FROM added) AS added
@@ -161,7 +161,7 @@ export class PostgresCacheProvider implements CacheProvider {
      * was not there. */
     async setRemove(key: string, member: string): Promise<boolean> {
         const row = await this.db
-            .deleteFrom('runner.cacheSetMembers')
+            .deleteFrom('wilson.cacheSetMembers')
             .where('key', '=', key)
             .where('member', '=', member)
             .where('expiresAt', '>', now())
@@ -174,7 +174,7 @@ export class PostgresCacheProvider implements CacheProvider {
      * expired set. */
     async setMembers(key: string): Promise<string[]> {
         const rows = await this.db
-            .selectFrom('runner.cacheSetMembers')
+            .selectFrom('wilson.cacheSetMembers')
             .select('member')
             .where('key', '=', key)
             .where('expiresAt', '>', now())

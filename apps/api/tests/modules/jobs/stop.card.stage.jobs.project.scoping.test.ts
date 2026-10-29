@@ -12,7 +12,7 @@ import { currentProject } from '#modules/board/project.context.js';
  * project *that specific card* ran under, every confirmation resolves against whatever project
  * happens to be ambient (typically none, or the daemon's own default) instead of the card's actual
  * project. A card belonging to a non-default project would then have its shutdown confirmation run
- * against the wrong project's `runner.cardJobs` row: find nothing there, and report a genuinely
+ * against the wrong project's `wilson.cardJobs` row: find nothing there, and report a genuinely
  * abandoned card as cleanly settled — silently losing exactly the "stop() resolved cleanly while a
  * job kept running" defect `RunningCards`/`stopCardStageJobs` exist to catch.
  *

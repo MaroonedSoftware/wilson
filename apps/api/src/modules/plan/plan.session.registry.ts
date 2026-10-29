@@ -63,7 +63,7 @@ class PlanSessionRegistry {
 
     /** Tear a card's live session down and drop it from the map. Idempotent: safe to call for a
      * card with no live session (a session that was opened but never conversed with, or closed
-     * twice). Leaves `runner.plan_turns` untouched — this only ever disposes the in-memory engine
+     * twice). Leaves `wilson.plan_turns` untouched — this only ever disposes the in-memory engine
      * process, never the stored transcript, which is what lets a later turn resume it. */
     dispose(cardId: string): void {
         const entry = this.sessions.get(cardId);

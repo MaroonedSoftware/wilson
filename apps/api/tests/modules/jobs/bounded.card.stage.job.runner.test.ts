@@ -575,7 +575,7 @@ describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', 
         await runner.stop();
     });
 
-    it("falls back to the runner.cardJobs claim's project when the job's own payload carries none", async () => {
+    it("falls back to the wilson.cardJobs claim's project when the job's own payload carries none", async () => {
         const inner = fakeInnerRunner();
         const events = fakeEvents();
         const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1', project: undefined, startedOn: '2026-09-21T12:09:36.000Z' })]);

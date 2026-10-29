@@ -179,7 +179,7 @@ export abstract class BoardRepository {
      * Card 0091. Set a card's `position` and nothing else.
      *
      * Deliberately not `write`: `write`/`writeWithEvent` snapshot frontmatter and body into
-     * `runner.card_versions` on every call, which is right for a plan edit and wrong for a
+     * `wilson.card_versions` on every call, which is right for a plan edit and wrong for a
      * reposition — a few minutes of tidying a column would bury the card's real history under
      * version rows whose body never changed. This updates the one column, mints no version, and
      * writes no event, matching ordering's status as not runner state (see the constraint on
@@ -306,7 +306,7 @@ export abstract class BoardRepository {
      * one (`CardJobs`, `modules/jobs/card.jobs.ts`) would pull the jobs module's shape into a class the
      * jobs module itself already depends on (`CardJobs` takes `BoardConfig`, `CardStageJob` takes
      * `BoardRepository`) — the reverse import would make the two modules depend on each other. The
-     * Postgres implementation answers this by reading `runner.card_jobs` directly instead.
+     * Postgres implementation answers this by reading `wilson.card_jobs` directly instead.
      */
     abstract hasLiveClaim(project: string, cardId: string): Promise<boolean>;
 }

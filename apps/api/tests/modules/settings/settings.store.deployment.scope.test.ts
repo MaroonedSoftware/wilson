@@ -80,7 +80,7 @@ describe('SettingsStore.get/set — a deployment-scoped setting', () => {
         await store.set(setting, 5);
 
         const ownRow = await db
-            .selectFrom('runner.settings')
+            .selectFrom('wilson.settings')
             .selectAll()
             .where('project', '=', project)
             .where('key', '=', setting.key)
@@ -88,7 +88,7 @@ describe('SettingsStore.get/set — a deployment-scoped setting', () => {
         expect(ownRow).toBeUndefined();
 
         const deploymentRow = await db
-            .selectFrom('runner.settings')
+            .selectFrom('wilson.settings')
             .selectAll()
             .where('project', '=', '__deployment__')
             .where('key', '=', setting.key)

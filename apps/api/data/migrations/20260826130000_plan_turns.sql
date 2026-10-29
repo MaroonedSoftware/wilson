@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.plan_turns — the append-only transcript of a planning conversation.
+-- wilson.plan_turns — the append-only transcript of a planning conversation.
 --
 -- Card 0131: a planning conversation gets somewhere to live. This table is
 -- what a later process appends a turn to and replays from on
@@ -19,7 +19,7 @@
 -- most recent non-null value to resume from after a restart.
 -- =========================================================================
 
-CREATE TABLE runner.plan_turns (
+CREATE TABLE wilson.plan_turns (
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -32,4 +32,4 @@ CREATE TABLE runner.plan_turns (
 
 -- migrate:down
 
-DROP TABLE runner.plan_turns;
+DROP TABLE wilson.plan_turns;

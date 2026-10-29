@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.leases — an exclusive claim on a resource, held for as long as the
+-- wilson.leases — an exclusive claim on a resource, held for as long as the
 -- card that took it holds its worktree.
 --
 -- Card 0165, the split card 0027's review asked for: 0027 wants a port per
@@ -11,8 +11,8 @@
 -- mechanism alone; nothing in the repo takes a lease yet.
 --
 -- `resource_key` is the primary key, and it is deliberately NOT scoped by
--- project — the one exception to how every other `runner` table in this
--- schema is keyed (`runner.card_jobs`, `runner.settings`, both
+-- project — the one exception to how every other `wilson` table in this
+-- schema is keyed (`wilson.card_jobs`, `wilson.settings`, both
 -- `(project, ...)`, per cards 0149/0150). Those tables are project-scoped
 -- because two projects' *board* state never collides. A lease is different:
 -- a TCP port or a database name is a property of the *machine*, not the
@@ -35,14 +35,14 @@
 -- what "no longer running" checks.
 -- =========================================================================
 
-CREATE TABLE runner.leases (
+CREATE TABLE wilson.leases (
     resource_key TEXT PRIMARY KEY,
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
     acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE
 );
 
 -- migrate:down
 
-DROP TABLE runner.leases;
+DROP TABLE wilson.leases;

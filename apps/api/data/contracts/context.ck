@@ -11,7 +11,7 @@ options {
 # or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
 # or key does. Anything without a credential gets 401 before a handler runs.
 
-# Third of six in the context-provider slice (PROJECT.md, "Context providers"). `runner.card_context`
+# Third of six in the context-provider slice (PROJECT.md, "Context providers"). `wilson.card_context`
 # (card 0185) is where a snapshot lives; `ContextProvider`/`ContextProviderRegistry`/
 # `UrlContextProvider` (card 0186) is how one gets fetched. This is the seam between them: attaching a
 # document to a card, over HTTP.

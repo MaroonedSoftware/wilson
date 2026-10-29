@@ -198,7 +198,7 @@ export interface ShutdownReport {
  * `RunningCards` recorded that entry under — the same project `CardStageJob.run` resolved and opened
  * its own `runAsProject` scope with. Without this, every confirmation here would resolve
  * `BoardConfig` to the daemon's own configured project regardless of which project the card actually
- * ran under, querying that project's `runner.cardJobs` row instead — finding nothing, and reporting a
+ * ran under, querying that project's `wilson.cardJobs` row instead — finding nothing, and reporting a
  * genuinely abandoned card as cleanly settled for every project but the default one.
  */
 export const stopCardStageJobs = async (runner: JobRunner, running: RunningCards, cardJobs: CardJobs): Promise<ShutdownReport> => {
@@ -258,7 +258,7 @@ export class AbandonedCardJobsError extends Error {
  * `poller` is registered and constructed unconditionally now (card 0106) — whether it actually
  * runs is `PollerSettingService`'s question, not this class's constructor's. Off by default still
  * holds: `PollerSettingService` resolves to `POLLER_ENABLED` (default `false`) absent a
- * `runner.settings` row, and `Poller.stop()` (called on every `start()` when the answer is "off")
+ * `wilson.settings` row, and `Poller.stop()` (called on every `start()` when the answer is "off")
  * is safe on a poller that was never running.
  *
  * Card 0115 adds `card-stage-concurrency`, and applying it here is the hard half of that card.
@@ -398,14 +398,14 @@ export class BoundedCardStageJobRunner extends JobRunner {
      * Fails one orphaned job through pg-boss's own `fail`, never `cancel` — see `CARD_STAGE_POLICY`'s
      * doc comment for why only `fail` spends this job's retry budget the same way an ordinary failure
      * would, which is what keeps a card whose stage kills the daemon every time from being redelivered
-     * forever. `runner.cardJobs`' claim is left untouched: a failed job moves to `retry`, which
+     * forever. `wilson.cardJobs`' claim is left untouched: a failed job moves to `retry`, which
      * `CardJobs.inFlight` still counts as live, so the poller does not enqueue a second job for the
      * same card while this one waits out its retry delay.
      *
      * The `job.orphaned` event is best-effort on top of that, not a condition of it: `fail` runs
      * first and unconditionally, and only once it has succeeded does this look for a project to
      * record the event under — the job's own payload first (`CardStagePayload.project`), the
-     * `runner.cardJobs` claim row second, for the one enqueue path (`BoardWriteService.start`) that
+     * `wilson.cardJobs` claim row second, for the one enqueue path (`BoardWriteService.start`) that
      * sends no `project` at all. Neither naming one still leaves the job failed; there is simply
      * nothing to append an event to.
      */

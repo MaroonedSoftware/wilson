@@ -3,7 +3,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 
 /**
- * `runner.source_cursors` — where each registered `CardSource` left off, one row per `(project,
+ * `wilson.source_cursors` — where each registered `CardSource` left off, one row per `(project,
  * source)`. Follows `CardContextRepository`'s shape (`#modules/context/card.context.repository.js`):
  * constructed with `BoardConfig` and the shared `Kysely<DB>` pool rather than resolved through the
  * container, and not `@Injectable()` for the same reason that class gives — `SourcesModule` registers
@@ -25,7 +25,7 @@ export class SourceCursorRepository {
      */
     async get(source: string): Promise<string | undefined> {
         const row = await this.db
-            .selectFrom('runner.sourceCursors')
+            .selectFrom('wilson.sourceCursors')
             .select('cursor')
             .where('project', '=', this.config.project)
             .where('source', '=', source)
@@ -36,11 +36,11 @@ export class SourceCursorRepository {
     /**
      * Persist where `source` left off, for the next tick to hand back to `changedSince`. Upserts on
      * `(project, source)` — the table's own primary key — rather than accumulating a row per write,
-     * the same idiom `SettingsStore.set` already uses for `runner.settings`.
+     * the same idiom `SettingsStore.set` already uses for `wilson.settings`.
      */
     async set(source: string, cursor: string): Promise<void> {
         await this.db
-            .insertInto('runner.sourceCursors')
+            .insertInto('wilson.sourceCursors')
             .values({ project: this.config.project, source, cursor })
             .onConflict(oc => oc.columns(['project', 'source']).doUpdateSet({ cursor, updatedAt: new Date().toISOString() }))
             .execute();

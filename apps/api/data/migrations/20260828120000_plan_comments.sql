@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.plan_comments — a comment on a passage of a plan draft.
+-- wilson.plan_comments — a comment on a passage of a plan draft.
 --
 -- Card 0122/0146: a comment on a passage has somewhere to live. What is
 -- stored is exactly what [[0145]]'s `Anchor` captures — `quote` plus its
@@ -24,7 +24,7 @@
 -- read by anything but `PlanService` and the endpoints this card adds.
 -- =========================================================================
 
-CREATE TABLE runner.plan_comments (
+CREATE TABLE wilson.plan_comments (
     id BIGSERIAL PRIMARY KEY,
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
@@ -37,11 +37,11 @@ CREATE TABLE runner.plan_comments (
     text TEXT NOT NULL,
     resolved BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE
 );
 
-CREATE INDEX plan_comments_project_card_id_idx ON runner.plan_comments (project, card_id, id);
+CREATE INDEX plan_comments_project_card_id_idx ON wilson.plan_comments (project, card_id, id);
 
 -- migrate:down
 
-DROP TABLE runner.plan_comments;
+DROP TABLE wilson.plan_comments;

@@ -124,7 +124,7 @@ describe('planSessions', () => {
 
         await vi.advanceTimersByTimeAsync(1);
         expect(disposeMock).toHaveBeenCalledWith(agent);
-        // Disposal is an in-memory teardown only; it must never read or write `runner.plan_turns`.
+        // Disposal is an in-memory teardown only; it must never read or write `wilson.plan_turns`.
         expect(repo.since).not.toHaveBeenCalled();
         expect(repo.append).not.toHaveBeenCalled();
     });

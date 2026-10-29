@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.projects — a project's identity: its name, plus the three paths
+-- wilson.projects — a project's identity: its name, plus the three paths
 -- `BoardConfig` exposes (code root, worktree root, run root).
 --
 -- Card 0148: `BoardConfig` used to be assembled fresh from PROJECT_NAME,
@@ -15,15 +15,15 @@
 -- stale environment variables gets the row's value, not whichever the
 -- shell that happened to start the daemon carried.
 --
--- `name` is the same value every other `runner` table's `project` column
+-- `name` is the same value every other `wilson` table's `project` column
 -- already holds — not a new identifier. One project for now (PROJECT.md,
 -- "not in step 0": multi-project): this table exists so the seam is there
 -- before there is a second row to put in it, not to serve one yet. It
 -- describes a project; it does not migrate, backfill or re-key any of the
--- eight existing `runner` tables that already carry `project`.
+-- eight existing `wilson` tables that already carry `project`.
 -- =========================================================================
 
-CREATE TABLE runner.projects (
+CREATE TABLE wilson.projects (
     name TEXT PRIMARY KEY,
     code_root TEXT NOT NULL,
     worktree_root TEXT NOT NULL,
@@ -33,4 +33,4 @@ CREATE TABLE runner.projects (
 
 -- migrate:down
 
-DROP TABLE runner.projects;
+DROP TABLE wilson.projects;

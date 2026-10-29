@@ -81,7 +81,7 @@ describe('enrolling an authenticator app', () => {
     it('stores the seed encrypted, never as the app shows it', async () => {
         const { secret } = await enrol();
 
-        const row = await server.db.selectFrom('runner.accountAuthenticators').select('secret').executeTakeFirstOrThrow();
+        const row = await server.db.selectFrom('wilson.accountAuthenticators').select('secret').executeTakeFirstOrThrow();
         expect(row.secret).not.toContain(secret);
     });
 

@@ -250,12 +250,12 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         vi.unstubAllGlobals();
     });
 
-    /** A row in `runner.cardJobs` is exactly what `BoardRepository.hasLiveClaim` treats as "a stage
+    /** A row in `wilson.cardJobs` is exactly what `BoardRepository.hasLiveClaim` treats as "a stage
      * is executing this card right now" (card 0128) — the same idiom
      * `postgres.board.repository.test.ts`'s own `hasLiveClaim` test uses to fake one without a real
      * job broker. */
     const claim = async (project: string, cardId: string) => {
-        await db.insertInto('runner.cardJobs').values({ project, cardId, jobId: 'job-1' }).execute();
+        await db.insertInto('wilson.cardJobs').values({ project, cardId, jobId: 'job-1' }).execute();
     };
 
     it('does nothing for a closed item naming a ref the board has never seen', async () => {

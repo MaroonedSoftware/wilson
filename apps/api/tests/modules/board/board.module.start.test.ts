@@ -16,10 +16,10 @@ import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
  * Card 0149. `BoardModule.start` — new this card — registers every row already sitting in
- * `runner.projects` onto the live `BoardConfig`, not just the one project this process's own
+ * `wilson.projects` onto the live `BoardConfig`, not just the one project this process's own
  * environment named at `setup`. These boot the app's own module list against a real database, the
  * same way `board.module.test.ts` does for `setup`, because the whole point is what `start` does
- * against Postgres: a project inserted "by hand" (`runner.projects` has no HTTP writer yet, per the
+ * against Postgres: a project inserted "by hand" (`wilson.projects` has no HTTP writer yet, per the
  * plan's Out of scope) between `setup` and `start` must still be reachable once `start` has run.
  */
 let db: Kysely<DB>;
@@ -88,7 +88,7 @@ describe('BoardModule.start (card 0149)', () => {
     /**
      * The acceptance criterion this pins down: "With two registered projects... each stage runs
      * against its own project's codeRoot and worktreeRoot." A second project registered by hand
-     * (an `insertInto('runner.projects')`, standing in for the manual row-insertion the plan's Out of
+     * (an `insertInto('wilson.projects')`, standing in for the manual row-insertion the plan's Out of
      * scope describes) between `setup` and `start` must be reachable through `boardConfig` once
      * `start` has run — this is the boot-time floor `Poller.tick`'s own re-registration builds on,
      * per `BoardModule.start`'s doc comment.
@@ -102,7 +102,7 @@ describe('BoardModule.start (card 0149)', () => {
         const handInsertedName = uniqueProject();
         const handInsertedPaths = await uniquePaths();
         await db
-            .insertInto('runner.projects')
+            .insertInto('wilson.projects')
             .values({
                 name: handInsertedName,
                 codeRoot: handInsertedPaths.codeRoot,
@@ -138,7 +138,7 @@ describe('BoardModule.start (card 0149)', () => {
         const nameB = uniqueProject();
         const pathsB = await uniquePaths();
         await db
-            .insertInto('runner.projects')
+            .insertInto('wilson.projects')
             .values({ name: nameB, codeRoot: pathsB.codeRoot, worktreeRoot: pathsB.worktreeRoot, runRoot: pathsB.runRoot })
             .execute();
 

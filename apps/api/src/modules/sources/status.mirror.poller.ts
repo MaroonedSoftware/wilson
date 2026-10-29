@@ -19,12 +19,12 @@ import { SourceCursorRepository } from './source.cursor.repository.js';
  * (`settings.store.ts`). `SourceCursorRepository`'s `(project, source) -> opaque string` shape (its
  * own doc comment describes only the inbound case, one `CardSource`'s place in `changedSince`) covers
  * this without a schema change: the "source" here is not a `CardSource` at all, it is a cursor over
- * `runner.card_events` itself, and the stored value is that table's own `id`, not anything a
+ * `wilson.card_events` itself, and the stored value is that table's own `id`, not anything a
  * `CardSource.changedSince` produced.
  */
 export const STATUS_MIRROR_CURSOR_KEY = '__status-mirror__';
 
-/** One row of `runner.card_events`, narrowed to what {@link mirroredMoment} and `mirrorOne` need. */
+/** One row of `wilson.card_events`, narrowed to what {@link mirroredMoment} and `mirrorOne` need. */
 interface MirroredTransitionRow {
     readonly id: string;
     readonly cardId: string;
@@ -73,7 +73,7 @@ const mirroredMoment = (payload: Record<string, unknown>): MirrorMoment | undefi
  * (dispatching board work, importing tickets, mirroring status outward), and folding any two together
  * would give one class two reasons to run on one interval.
  *
- * Unlike `SourcePoller`, this reads `runner.card_events` directly via the injected `Kysely<DB>` pool
+ * Unlike `SourcePoller`, this reads `wilson.card_events` directly via the injected `Kysely<DB>` pool
  * rather than through `EventLog` — `modules/events/` is outside this card's "Files in scope" — the
  * same reason `SourceCursorRepository` and `PostgresCacheProvider` are constructed with the pool
  * directly instead of resolving a repository that does not expose this query.
@@ -255,7 +255,7 @@ export class StatusMirrorPoller {
     /** `transition.written` events for the current project, `id` past `cursor`, oldest first. */
     private async transitionsSince(cursor: string | undefined): Promise<MirroredTransitionRow[]> {
         let query = this.db
-            .selectFrom('runner.cardEvents')
+            .selectFrom('wilson.cardEvents')
             .select(['id', 'cardId', 'payload'])
             .where('project', '=', this.boardConfig.project)
             .where('type', '=', 'transition.written')

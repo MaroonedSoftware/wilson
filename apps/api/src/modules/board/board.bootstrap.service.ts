@@ -22,7 +22,7 @@ export class BoardBootstrapService {
 
     /**
      * Give the project a stage config an operator can start a card against immediately — the
-     * `runner.stage_configs` row holding the default document below. No path is involved: the row
+     * `wilson.stage_configs` row holding the default document below. No path is involved: the row
      * is keyed by the project the request is for.
      *
      * Refuses rather than resets: a project that already has a stage config exists, and init

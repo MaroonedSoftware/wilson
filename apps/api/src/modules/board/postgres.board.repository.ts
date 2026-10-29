@@ -14,12 +14,12 @@ export class CardNotFoundError extends Error {}
 /**
  * The board, in Postgres.
  *
- * `runner.cards` is current state and `runner.card_versions` is append-only history — the two roles
+ * `wilson.cards` is current state and `wilson.card_versions` is append-only history — the two roles
  * the board repo used to fill with a working tree and `git log`. A version snapshots frontmatter and
  * body together because `readAt` replaces `git show <sha>:<path>`, and the dispatcher reads
  * frontmatter from the pinned card, not just its plan text.
  *
- * Dependencies live in `runner.card_deps` rather than in a column, so a dependency on a card that
+ * Dependencies live in `wilson.card_deps` rather than in a column, so a dependency on a card that
  * does not exist is refused by the database. `nextCard` still treats a missing dependency as
  * unfinished; that is now belt and braces rather than the only guard.
  */
@@ -35,7 +35,7 @@ export class PostgresBoardRepository extends BoardRepository {
 
     async list(): Promise<Card[]> {
         const rows = await this.db
-            .selectFrom('runner.cards')
+            .selectFrom('wilson.cards')
             .selectAll()
             .where('project', '=', this.config.project)
             .orderBy('position')
@@ -43,7 +43,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .execute();
 
         const deps = await this.db
-            .selectFrom('runner.cardDeps')
+            .selectFrom('wilson.cardDeps')
             .select(['cardId', 'dependsOnId'])
             .where('project', '=', this.config.project)
             .orderBy('dependsOnId')
@@ -62,7 +62,7 @@ export class PostgresBoardRepository extends BoardRepository {
 
     async readAt(id: string, version: string): Promise<Card> {
         const row = await this.db
-            .selectFrom('runner.cardVersions')
+            .selectFrom('wilson.cardVersions')
             .select(['frontmatter', 'body'])
             .where('project', '=', this.config.project)
             .where('cardId', '=', id)
@@ -77,7 +77,7 @@ export class PostgresBoardRepository extends BoardRepository {
 
     async currentVersion(id: string): Promise<string | undefined> {
         const row = await this.db
-            .selectFrom('runner.cardVersions')
+            .selectFrom('wilson.cardVersions')
             .select('id')
             .where('project', '=', this.config.project)
             .where('cardId', '=', id)
@@ -89,7 +89,7 @@ export class PostgresBoardRepository extends BoardRepository {
 
     async versions(id: string, limit: number): Promise<CardVersionSummary[]> {
         const rows = await this.db
-            .selectFrom('runner.cardVersions')
+            .selectFrom('wilson.cardVersions')
             .select(['id', 'message', 'createdAt'])
             .where('project', '=', this.config.project)
             .where('cardId', '=', id)
@@ -119,7 +119,7 @@ export class PostgresBoardRepository extends BoardRepository {
             // No upsert: `create` means create. The file-backed implementation used `writeFile`,
             // which silently overwrote an existing card — a real card was destroyed that way.
             await trx
-                .insertInto('runner.cards')
+                .insertInto('wilson.cards')
                 .values({
                     project: this.config.project,
                     id: fm.id,
@@ -145,11 +145,11 @@ export class PostgresBoardRepository extends BoardRepository {
      * write path already leaves this column alone; this is the one place that changes it.
      */
     async setPosition(id: string, position: number): Promise<void> {
-        await this.db.updateTable('runner.cards').set({ position }).where('project', '=', this.config.project).where('id', '=', id).execute();
+        await this.db.updateTable('wilson.cards').set({ position }).where('project', '=', this.config.project).where('id', '=', id).execute();
     }
 
     /**
-     * Card 0128. Whether a job is currently carrying `cardId` — read directly from `runner.card_jobs`
+     * Card 0128. Whether a job is currently carrying `cardId` — read directly from `wilson.card_jobs`
      * rather than through `CardJobs` (`modules/jobs/card.jobs.ts`): this class has no dependency on the
      * jobs module and must not grow one just for this question, the same reasoning `BoardRepository`
      * gives for declaring this abstract instead of importing `CardJobs` itself.
@@ -163,7 +163,7 @@ export class PostgresBoardRepository extends BoardRepository {
      */
     async hasLiveClaim(project: string, cardId: string): Promise<boolean> {
         const row = await this.db
-            .selectFrom('runner.cardJobs')
+            .selectFrom('wilson.cardJobs')
             .select('cardId')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
@@ -173,7 +173,7 @@ export class PostgresBoardRepository extends BoardRepository {
 
     private async readWith(executor: Executor, id: string): Promise<Card> {
         const row = await executor
-            .selectFrom('runner.cards')
+            .selectFrom('wilson.cards')
             .selectAll()
             .where('project', '=', this.config.project)
             .where('id', '=', id)
@@ -182,7 +182,7 @@ export class PostgresBoardRepository extends BoardRepository {
             throw new CardNotFoundError(`card ${id} does not exist`);
         }
         const deps = await executor
-            .selectFrom('runner.cardDeps')
+            .selectFrom('wilson.cardDeps')
             .select('dependsOnId')
             .where('project', '=', this.config.project)
             .where('cardId', '=', id)
@@ -203,7 +203,7 @@ export class PostgresBoardRepository extends BoardRepository {
      */
     private async writeIn(trx: Transaction<DB>, id: string, message: string, mutate: (card: Card) => Card | Promise<Card>): Promise<string> {
         await trx
-            .selectFrom('runner.cards')
+            .selectFrom('wilson.cards')
             .select('id')
             .where('project', '=', this.config.project)
             .where('id', '=', id)
@@ -215,7 +215,7 @@ export class PostgresBoardRepository extends BoardRepository {
         const fm = after.frontmatter;
 
         await trx
-            .updateTable('runner.cards')
+            .updateTable('wilson.cards')
             .set({
                 title: fm.title,
                 stage: fm.stage,
@@ -240,7 +240,7 @@ export class PostgresBoardRepository extends BoardRepository {
     /** Append the version row and return its id. */
     private async snapshot(trx: Transaction<DB>, card: Card, message: string): Promise<string> {
         const row = await trx
-            .insertInto('runner.cardVersions')
+            .insertInto('wilson.cardVersions')
             .values({
                 project: this.config.project,
                 cardId: card.frontmatter.id,
@@ -258,7 +258,7 @@ export class PostgresBoardRepository extends BoardRepository {
         const added = after.filter(d => !before.includes(d));
         if (removed.length > 0) {
             await trx
-                .deleteFrom('runner.cardDeps')
+                .deleteFrom('wilson.cardDeps')
                 .where('project', '=', this.config.project)
                 .where('cardId', '=', cardId)
                 .where('dependsOnId', 'in', removed)
@@ -266,7 +266,7 @@ export class PostgresBoardRepository extends BoardRepository {
         }
         if (added.length > 0) {
             await trx
-                .insertInto('runner.cardDeps')
+                .insertInto('wilson.cardDeps')
                 .values(added.map(dependsOnId => ({ project: this.config.project, cardId, dependsOnId })))
                 .execute();
         }
@@ -276,7 +276,7 @@ export class PostgresBoardRepository extends BoardRepository {
 /**
  * A version id as a string.
  *
- * `runner.card_versions.id` is `BIGSERIAL` and the driver hands back a JavaScript `BigInt`. `DB`
+ * `wilson.card_versions.id` is `BIGSERIAL` and the driver hands back a JavaScript `BigInt`. `DB`
  * declares the column as `string` — hand-written database types cannot be checked against the
  * database, so TypeScript sees a string here and every caller believed one. The value survives being
  * logged, compared and stored, and then `JSON.stringify` throws `Do not know how to serialize a
@@ -309,8 +309,8 @@ const toCard = (
         branch: row.branch ?? undefined,
         dependsOn,
         retries: (row.retries as Record<string, number> | null) ?? {},
-        // `pinnedVersionId` is `runner.cards.pinned_version_id`, a BIGINT — the pg driver parses
-        // BIGINT as a JS `BigInt`, same as `runner.card_versions.id` (see `versionId` below, and
+        // `pinnedVersionId` is `wilson.cards.pinned_version_id`, a BIGINT — the pg driver parses
+        // BIGINT as a JS `BigInt`, same as `wilson.card_versions.id` (see `versionId` below, and
         // `currentVersion`/`versions`, which already wrap it). This column went unconverted because
         // it was always null before card 0059 gave it a real value for the first time; left raw, the
         // very next `JSON.stringify(card.frontmatter)` — the next write to the card, in `snapshot` —

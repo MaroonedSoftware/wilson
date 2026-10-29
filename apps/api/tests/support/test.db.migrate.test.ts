@@ -87,11 +87,11 @@ describe('test.db.migrate.ts globalSetup', () => {
                 await setup();
 
                 // testDb() resolves its connection the same way setup() did (both read
-                // testDbConnection()), so if it can query the freshly created runner.stage_configs
+                // testDbConnection()), so if it can query the freshly created wilson.stage_configs
                 // table on *this* throwaway database, the two were never pointed at different places.
                 const db = testDb();
                 try {
-                    const rows = await db.selectFrom('runner.stageConfigs').selectAll().execute();
+                    const rows = await db.selectFrom('wilson.stageConfigs').selectAll().execute();
                     expect(rows).toEqual([]);
                 } finally {
                     await db.destroy();

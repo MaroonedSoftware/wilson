@@ -5,7 +5,7 @@ import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
  * Card 0194. `subscriptionEnv` copies `process.env` wholesale, and `AppConfigSourceDotenv` mutates
  * `process.env` when the daemon builds its config — so before this card every stage agent ran with
  * `DATABASE_URL` in its environment: a credentialed connection to the database holding
- * `runner.cards`, `runner.card_versions` and `runner.stage_configs`.
+ * `wilson.cards`, `wilson.card_versions` and `wilson.stage_configs`.
  *
  * Nothing exploited it, because no allowlisted command takes a connection string. That is the
  * command allowlist doing the work, which PROJECT.md's decision 8 note calls a guardrail rather than

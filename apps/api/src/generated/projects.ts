@@ -14,18 +14,18 @@ export const Project = z.strictObject({
 export type Project = z.infer<typeof Project>;
 
 /**
- * Card 0168. The three paths `runner.projects` carries beyond `name` — `BoardModule` seeds them from
+ * Card 0168. The three paths `wilson.projects` carries beyond `name` — `BoardModule` seeds them from
  * this same process's own environment on first boot (`resolveProjectRow`, board.module.ts), and
  * registering a second project needs the same three values from somewhere, since nothing else on this
  * machine knows them. (`boardRoot` was a fourth until the board repo went: stage config is a
- * `runner.stage_configs` row now, and a new project gets its first one from `wilson board init`.)
+ * `wilson.stage_configs` row now, and a new project gets its first one from `wilson board init`.)
  *
  * Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
  * `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
  * "a request that could name an arbitrary filesystem path would be a remote write primitive, which
  * this is not". That reasoning was weighed and not followed here. The grounds: this operation
  * needs `wilson.manage`, so only the operator, signed in or through a `manage` key, can name a path,
- * and the operator can already write `runner.projects` directly. No confinement root is added
+ * and the operator can already write `wilson.projects` directly. No confinement root is added
  * either: that would be new configuration, considered and rejected rather than overlooked.
  *
  * Only `isAbsolute` is checked — not existence, writability, or that a board lives there — the same
@@ -46,7 +46,7 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
  * Every field optional, unlike `CreateProjectRequest`: this is `patch`, not `put` (see the operation
  * below), so a field present is set and a field absent is left as it is — the same partial-update
  * meaning `board.ck`'s `PATCH /api/cards/{id}` comment gives `EditCardRequest`. There is deliberately
- * no `name` here — `runner.projects.name` is the same value the `project` column carries in every
+ * no `name` here — `wilson.projects.name` is the same value the `project` column carries in every
  * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
  * orphan every card, event, version and setting rather than failing. The name lives in the path
  * (`/api/projects/{name}`) and nowhere in any request body on this contract.

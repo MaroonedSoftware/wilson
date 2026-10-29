@@ -15,7 +15,7 @@ export interface CardContext {
 }
 
 /**
- * `runner.card_context` — a snapshot of external context attached to a card. Follows
+ * `wilson.card_context` — a snapshot of external context attached to a card. Follows
  * `PlanCommentRepository`'s shape: constructed with `BoardConfig` and the shared `Kysely<DB>` pool
  * rather than resolved through the container.
  *
@@ -47,7 +47,7 @@ export class CardContextRepository {
         contentHash: string,
     ): Promise<CardContext> {
         const row = await this.db
-            .insertInto('runner.cardContext')
+            .insertInto('wilson.cardContext')
             .values({
                 project: this.config.project,
                 cardId,
@@ -67,7 +67,7 @@ export class CardContextRepository {
     /** A card's context snapshots, oldest first. */
     async list(cardId: string): Promise<CardContext[]> {
         const rows = await this.db
-            .selectFrom('runner.cardContext')
+            .selectFrom('wilson.cardContext')
             .selectAll()
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
@@ -79,7 +79,7 @@ export class CardContextRepository {
     /** One snapshot by id, or `undefined` if it does not exist or belongs to another project. */
     async get(id: string): Promise<CardContext | undefined> {
         const row = await this.db
-            .selectFrom('runner.cardContext')
+            .selectFrom('wilson.cardContext')
             .selectAll()
             .where('project', '=', this.config.project)
             .where('id', '=', id)
@@ -98,7 +98,7 @@ export class CardContextRepository {
      */
     async remove(cardId: string, id: string): Promise<boolean> {
         const result = await this.db
-            .deleteFrom('runner.cardContext')
+            .deleteFrom('wilson.cardContext')
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
             .where('id', '=', id)

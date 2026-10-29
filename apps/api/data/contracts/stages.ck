@@ -10,7 +10,7 @@ options {
 # The stage config document itself — the operator's surface, beside `board.ck`'s `GET /api/stages`,
 # which exposes only the column names a board client needs. Stage config used to be
 # `config/stages.yaml` in the sibling board repo, edited in place and committed there; it is a
-# `runner.stage_configs` row now (`StageConfigStore`, apps/api/src/modules/stages), so this is how it
+# `wilson.stage_configs` row now (`StageConfigStore`, apps/api/src/modules/stages), so this is how it
 # is read and written: `wilson stages show|edit|set|versions` all call here.
 #
 # Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session

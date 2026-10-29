@@ -39,7 +39,7 @@ describe('WorkerTokensService', () => {
         expect(issued.host.workerToken).toMatchObject({ hint: issued.token.slice(-4) });
         expect((await tokens.authenticate(issued.token))?.name).toBe(name);
 
-        const row = await db.selectFrom('runner.hosts').select(['workerTokenHash']).where('name', '=', name).executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.hosts').select(['workerTokenHash']).where('name', '=', name).executeTakeFirstOrThrow();
         expect(row.workerTokenHash).toBe(hashWorkerToken(issued.token));
         expect(JSON.stringify(await hosts.get(name))).not.toContain(issued.token);
     });
@@ -88,7 +88,7 @@ describe('WorkerTokensService', () => {
 
         await expect(
             db
-                .updateTable('runner.hosts')
+                .updateTable('wilson.hosts')
                 .set({ workerTokenHash: 'x', workerTokenHint: 'x', workerTokenIssuedAt: new Date().toISOString() })
                 .where('name', '=', ssh)
                 .execute(),

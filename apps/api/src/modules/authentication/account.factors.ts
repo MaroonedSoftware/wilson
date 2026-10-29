@@ -26,14 +26,14 @@ export class AccountFactors {
 
     async list(accountId: string): Promise<SecondFactor[]> {
         const authenticators = await this.db
-            .selectFrom('runner.accountAuthenticators')
+            .selectFrom('wilson.accountAuthenticators')
             .select(['id', 'label', 'createdAt'])
             .where('accountId', '=', accountId)
             .where('active', '=', true)
             .orderBy('createdAt')
             .execute();
         const passkeys = await this.db
-            .selectFrom('runner.accountPasskeys')
+            .selectFrom('wilson.accountPasskeys')
             .select(['id', 'label', 'createdAt'])
             .where('accountId', '=', accountId)
             .where('active', '=', true)

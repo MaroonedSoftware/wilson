@@ -5,7 +5,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 import { parseStages, StageConfigError, type ProjectStages } from './stage.config.js';
 
-/** One stored stage config document — a `runner.stage_configs` row, as a caller sees it. */
+/** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
     id: string;
     yaml: string;
@@ -25,7 +25,7 @@ export interface StageConfigVersionSummary {
  *
  * Stage config used to be `config/stages.yaml` in the sibling board repo, read by a free function
  * (`loadStages(boardRoot)`) from every dispatch, every poller tick and several API routes. It is a
- * `runner.stage_configs` row now — the last piece of board state to move off disk after the cards
+ * `wilson.stage_configs` row now — the last piece of board state to move off disk after the cards
  * did (PROJECT.md decision 1) — and this is the seam every one of those callers reads it through.
  *
  * Abstract for the same reason `BoardRepository` and `BoardConfig` are: production wires the
@@ -76,7 +76,7 @@ export abstract class StageConfigStore {
 const parsedByProject = new Map<string, { id: string; value: ProjectStages }>();
 
 /**
- * `runner.stage_configs`, in Postgres.
+ * `wilson.stage_configs`, in Postgres.
  *
  * Keyed by `BoardConfig.project` the way `SettingsStore` and `PostgresBoardRepository` are, read
  * fresh on every call — so under `runAsProject` (project.context.ts) the same instance answers for
@@ -119,7 +119,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
         parseStages(yaml, 'the submitted stage config');
 
         const row = await this.db
-            .insertInto('runner.stageConfigs')
+            .insertInto('wilson.stageConfigs')
             .values({ project: this.config.project, yaml, message })
             .returning(['id', 'yaml', 'message', 'createdAt'])
             .executeTakeFirstOrThrow();
@@ -128,7 +128,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
 
     async versions(limit = 20): Promise<StageConfigVersionSummary[]> {
         const rows = await this.db
-            .selectFrom('runner.stageConfigs')
+            .selectFrom('wilson.stageConfigs')
             .select(['id', 'message', 'createdAt'])
             .where('project', '=', this.config.project)
             .orderBy('id', 'desc')
@@ -139,7 +139,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
 
     /** The current project's newest row — its current config. */
     private newest() {
-        return this.db.selectFrom('runner.stageConfigs').where('project', '=', this.config.project).orderBy('id', 'desc').limit(1);
+        return this.db.selectFrom('wilson.stageConfigs').where('project', '=', this.config.project).orderBy('id', 'desc').limit(1);
     }
 }
 

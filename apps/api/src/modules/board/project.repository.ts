@@ -10,7 +10,7 @@ import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 
-/** A project's identity, as read from or written to `runner.projects`. */
+/** A project's identity, as read from or written to `wilson.projects`. */
 export interface ProjectRow {
     name: string;
     codeRoot: string;
@@ -19,7 +19,7 @@ export interface ProjectRow {
 }
 
 /**
- * `runner.projects`, in Postgres — a project's name and the three paths `BoardConfig` exposes.
+ * `wilson.projects`, in Postgres — a project's name and the three paths `BoardConfig` exposes.
  *
  * Follows `postgres.board.repository.ts`'s shape, but is not registered in the DI registry the way
  * that class is: its one caller, `BoardModule.setup`, runs before the container exists — `setup`
@@ -35,7 +35,7 @@ export class ProjectRepository {
     /** The named project's row, or undefined if it has never been created. */
     async find(name: string): Promise<ProjectRow | undefined> {
         return this.db
-            .selectFrom('runner.projects')
+            .selectFrom('wilson.projects')
             .select(['name', 'codeRoot', 'worktreeRoot', 'runRoot'])
             .where('name', '=', name)
             .executeTakeFirst();
@@ -50,12 +50,12 @@ export class ProjectRepository {
      * see this class's own doc comment), so this is additive, not a replacement for either.
      */
     async list(): Promise<ProjectRow[]> {
-        return this.db.selectFrom('runner.projects').select(['name', 'codeRoot', 'worktreeRoot', 'runRoot']).orderBy('name').execute();
+        return this.db.selectFrom('wilson.projects').select(['name', 'codeRoot', 'worktreeRoot', 'runRoot']).orderBy('name').execute();
     }
 
     /** Create a project's row. Fails if the name is already taken. */
     async create(row: ProjectRow): Promise<void> {
-        await this.db.insertInto('runner.projects').values(row).execute();
+        await this.db.insertInto('wilson.projects').values(row).execute();
     }
 
     /**
@@ -72,7 +72,7 @@ export class ProjectRepository {
         if (Object.keys(patch).length === 0) {
             return (await this.find(name)) !== undefined;
         }
-        const result = await this.db.updateTable('runner.projects').set(patch).where('name', '=', name).executeTakeFirst();
+        const result = await this.db.updateTable('wilson.projects').set(patch).where('name', '=', name).executeTakeFirst();
         return result.numUpdatedRows > 0n;
     }
 }

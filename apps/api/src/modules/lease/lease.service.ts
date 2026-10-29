@@ -18,7 +18,7 @@ export type AcquireResult = { readonly acquired: true } | { readonly acquired: f
  *
  * Not a concurrency limit — under `CARD_STAGE_CONCURRENCY`'s handful of handlers, two callers
  * racing to steal the very same orphaned lease resolve on the first or second iteration (see the
- * loop's own comment). This only guards against looping forever if `runner.leases` is somehow
+ * loop's own comment). This only guards against looping forever if `wilson.leases` is somehow
  * being contested faster than this process can read and act on it, which every acceptance
  * criterion this card ships against gives no reason to expect.
  */
@@ -82,7 +82,7 @@ export class LeaseService {
             }
 
             await this.db
-                .deleteFrom('runner.leases')
+                .deleteFrom('wilson.leases')
                 .where('resourceKey', '=', resourceKey)
                 .where('project', '=', holder.project)
                 .where('cardId', '=', holder.cardId)
@@ -106,7 +106,7 @@ export class LeaseService {
      */
     async releaseAll(project: string, cardId: string): Promise<void> {
         await this.db
-            .deleteFrom('runner.leases')
+            .deleteFrom('wilson.leases')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
             .where('resourceKey', 'not like', `%${SLOT_KEY_MARKER}%`)
@@ -129,7 +129,7 @@ export class LeaseService {
      */
     async release(resourceKey: string, project: string, cardId: string): Promise<void> {
         await this.db
-            .deleteFrom('runner.leases')
+            .deleteFrom('wilson.leases')
             .where('resourceKey', '=', resourceKey)
             .where('project', '=', project)
             .where('cardId', '=', cardId)
@@ -138,12 +138,12 @@ export class LeaseService {
 
     /** What is currently held, across every project — the "way to see what is held" card 0165 asks for. */
     async list(): Promise<LeaseHolder[]> {
-        return this.db.selectFrom('runner.leases').select(['resourceKey', 'project', 'cardId']).orderBy('resourceKey').execute();
+        return this.db.selectFrom('wilson.leases').select(['resourceKey', 'project', 'cardId']).orderBy('resourceKey').execute();
     }
 
     private async tryInsert(resourceKey: string, project: string, cardId: string): Promise<boolean> {
         const result = await this.db
-            .insertInto('runner.leases')
+            .insertInto('wilson.leases')
             .values({ resourceKey, project, cardId })
             .onConflict(oc => oc.column('resourceKey').doNothing())
             .executeTakeFirst();
@@ -152,7 +152,7 @@ export class LeaseService {
 
     private async currentHolder(resourceKey: string): Promise<LeaseHolder | undefined> {
         return this.db
-            .selectFrom('runner.leases')
+            .selectFrom('wilson.leases')
             .select(['resourceKey', 'project', 'cardId'])
             .where('resourceKey', '=', resourceKey)
             .executeTakeFirst();

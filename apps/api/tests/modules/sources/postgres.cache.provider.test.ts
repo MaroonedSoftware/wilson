@@ -14,7 +14,7 @@ afterAll(async () => {
     await db.destroy();
 });
 
-/** A `runner.cache_entries.key` no other test uses — the same reasoning `uniqueProject` gives
+/** A `wilson.cache_entries.key` no other test uses — the same reasoning `uniqueProject` gives
  * (`test.db.ts`) for why cryptographic randomness, not a module counter, is what makes two calls
  * collide only by 128-bit accident regardless of which files vitest loads into which worker. */
 const uniqueKey = (): string => `test-cache-key-${randomUUID()}`;
@@ -23,16 +23,16 @@ const uniqueKey = (): string => `test-cache-key-${randomUUID()}`;
  * already-expired row in the table, since every one of the class's own writes computes `expiresAt`
  * in the future off a `ttl`. */
 const insertRow = async (key: string, value: string, expiresAt: DateTime): Promise<void> => {
-    await db.insertInto('runner.cacheEntries').values({ key, value, expiresAt: expiresAt.toISO()! }).execute();
+    await db.insertInto('wilson.cacheEntries').values({ key, value, expiresAt: expiresAt.toISO()! }).execute();
 };
 
 const expiresAtOf = async (key: string): Promise<DateTime> => {
-    const row = await db.selectFrom('runner.cacheEntries').select('expiresAt').where('key', '=', key).executeTakeFirstOrThrow();
+    const row = await db.selectFrom('wilson.cacheEntries').select('expiresAt').where('key', '=', key).executeTakeFirstOrThrow();
     return row.expiresAt;
 };
 
 const rawValueOf = async (key: string): Promise<string | undefined> => {
-    const row = await db.selectFrom('runner.cacheEntries').select('value').where('key', '=', key).executeTakeFirst();
+    const row = await db.selectFrom('wilson.cacheEntries').select('value').where('key', '=', key).executeTakeFirst();
     return row?.value;
 };
 
@@ -275,12 +275,12 @@ describe('PostgresCacheProvider.take', () => {
 
 /** Inserts a set member directly, the only way to put an already-expired one in the table. */
 const insertMember = async (key: string, member: string, expiresAt: DateTime): Promise<void> => {
-    await db.insertInto('runner.cacheSetMembers').values({ key, member, expiresAt: expiresAt.toISO()! }).execute();
+    await db.insertInto('wilson.cacheSetMembers').values({ key, member, expiresAt: expiresAt.toISO()! }).execute();
 };
 
 const memberExpiries = async (key: string): Promise<number[]> => {
     const rows = await db
-        .selectFrom('runner.cacheSetMembers')
+        .selectFrom('wilson.cacheSetMembers')
         .select('expiresAt')
         .where('key', '=', key)
         .where('expiresAt', '>', DateTime.now().toISO()!)
@@ -357,7 +357,7 @@ describe('PostgresCacheProvider.setAdd', () => {
         await provider.setAdd(key, 'a');
 
         const { rows } = await sql<{ never: boolean }>`
-            SELECT expires_at = 'infinity' AS never FROM runner.cache_set_members WHERE key = ${key}
+            SELECT expires_at = 'infinity' AS never FROM wilson.cache_set_members WHERE key = ${key}
         `.execute(db);
         expect(rows).toEqual([{ never: true }]);
     });

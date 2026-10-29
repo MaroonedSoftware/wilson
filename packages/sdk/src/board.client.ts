@@ -426,7 +426,7 @@ export class BoardClient {
     /**
      * @name Initialise board
      * @description Gives the project a stage config an operator can start a card against immediately — a
-     * `runner.stage_configs` row holding the default document. This used to scaffold the sibling board
+     * `wilson.stage_configs` row holding the default document. This used to scaffold the sibling board
      * repo (cards/, config/stages.yaml, context/, a git repo); the board is Postgres now, stage config
      * included, so the row is all there is to initialise, and no path is involved.
      */

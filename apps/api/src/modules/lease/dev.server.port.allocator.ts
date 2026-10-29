@@ -5,7 +5,7 @@ import { LeaseService } from './lease.service.js';
 
 export type PortAcquireResult = { readonly ok: true; readonly port: number } | { readonly ok: false; readonly reason: string };
 
-/** The `runner.leases.resource_key` a port lives under — namespaced so a future resource type sharing this table cannot collide with a port number. */
+/** The `wilson.leases.resource_key` a port lives under — namespaced so a future resource type sharing this table cannot collide with a port number. */
 const resourceKeyFor = (port: number): string => `port:${port}`;
 
 /**
@@ -40,7 +40,7 @@ export class DevServerPortAllocator {
      * Take the first port in `range` nobody else holds a lease on *and* that this machine does not
      * already have something bound to.
      *
-     * A lease is coordination between cards on this board (`runner.leases`); it knows nothing about
+     * A lease is coordination between cards on this board (`wilson.leases`); it knows nothing about
      * a Postgres container, an editor's dev server, or another developer's process already listening
      * on that port. So a won lease is checked against the machine with {@link isPortFree} before it is
      * handed back — and when the probe finds the port taken, the lease already won for it is released

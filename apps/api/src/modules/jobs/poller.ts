@@ -172,7 +172,7 @@ export class Poller {
      * `start()`" reasoning `loop`'s interval read already follows, so a project registered by hand
      * after this daemon booted is picked up without a restart. Each row is re-registered on
      * `boardConfig` before its project runs — cheap (an in-memory map write) and idempotent — which is
-     * also how a path an operator edited by hand in `runner.projects` reaches a running daemon.
+     * also how a path an operator edited by hand in `wilson.projects` reaches a running daemon.
      *
      * `tickProject` runs inside `runAsProject`, so every read `this.board`/`this.boardConfig` make
      * during that call answers for this one project — see `project.context.ts`. A project whose own

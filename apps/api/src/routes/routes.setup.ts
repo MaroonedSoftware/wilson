@@ -76,7 +76,7 @@ const ANY_PATH = /.*/;
  * it during `serverBuilder.setupRoutes`, which itself runs before `start`); only a request handler,
  * invoked once the server is live, has a container to resolve from.
  *
- * A header or query-named project with no `runner.projects` row is refused with the server's own
+ * A header or query-named project with no `wilson.projects` row is refused with the server's own
  * sentence (`httpError(400)`, matching every other validation failure's shape — see
  * `board.write.service.ts`) before `runAsProject` ever opens a scope for it, so nothing downstream
  * — a board read, a board write, an SSE stream — ever runs against, or leaks from, a project that
@@ -182,7 +182,7 @@ export const FeedRouter = (signal?: AbortSignal) => {
  *
  * Replays every stored turn after the client's `Last-Event-ID` (`0` for a fresh connection, so
  * every turn) before subscribing to `planFeed` for the assistant text still being written for the
- * turn in flight, if any — `runner.plan_turns` is a card's history, and `planFeed` is only ever the
+ * turn in flight, if any — `wilson.plan_turns` is a card's history, and `planFeed` is only ever the
  * deltas of the one turn a live session happens to be producing right now, so a client is caught up
  * on both without a gap between them.
  *

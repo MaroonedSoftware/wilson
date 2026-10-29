@@ -7,7 +7,7 @@ import type { SettingDefinition } from './setting.definition.js';
  * being the same number: twelve stages across three agent VMs is no reason to run twelve here when
  * the hosts are busy and a `placement: any` stage falls back to this machine.
  *
- * Enforced as `runner.leases` rows (`local:slot:N`), taken by `HostPlacer.takeLocalSlot` before a
+ * Enforced as `wilson.leases` rows (`local:slot:N`), taken by `HostPlacer.takeLocalSlot` before a
  * stage's worktree is cut and released by the dispatcher when the stage ends. A stage that finds
  * every slot held is deferred, not failed, the way a `remote` stage with no host is.
  *

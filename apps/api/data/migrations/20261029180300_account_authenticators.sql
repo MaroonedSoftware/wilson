@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.account_authenticators: authenticator apps (TOTP) enrolled as a
+-- wilson.account_authenticators: authenticator apps (TOTP) enrolled as a
 -- second factor for the operator account (PROJECT.md, Authentication).
 --
 -- `secret` is the TOTP seed encrypted under the root key
@@ -13,9 +13,9 @@
 -- Removing an authenticator sets `active` false rather than deleting it.
 -- =========================================================================
 
-CREATE TABLE runner.account_authenticators (
+CREATE TABLE wilson.account_authenticators (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL REFERENCES runner.accounts (id),
+    account_id UUID NOT NULL REFERENCES wilson.accounts (id),
     secret TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('totp', 'hotp')),
     algorithm TEXT NOT NULL CHECK (algorithm IN ('sha1', 'sha256', 'sha512')),
@@ -27,8 +27,8 @@ CREATE TABLE runner.account_authenticators (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX account_authenticators_account ON runner.account_authenticators (account_id);
+CREATE INDEX account_authenticators_account ON wilson.account_authenticators (account_id);
 
 -- migrate:down
 
-DROP TABLE runner.account_authenticators;
+DROP TABLE wilson.account_authenticators;

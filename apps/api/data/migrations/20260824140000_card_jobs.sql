@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.card_jobs — which job, if any, is currently carrying a card.
+-- wilson.card_jobs — which job, if any, is currently carrying a card.
 --
 -- The runner had no way to answer "is this card in flight right now?". Three
 -- problems came out of that one gap: a job could be redelivered while its stage
@@ -10,22 +10,22 @@
 -- one still working.
 --
 -- Operational state, not board state, so it is a table of its own rather than a
--- column on runner.cards. `Card` and its frontmatter say nothing about jobs.
+-- column on wilson.cards. `Card` and its frontmatter say nothing about jobs.
 --
 -- One row per card at most: a card has one job carrying it or none. The row is
 -- a claim, never the answer — the broker's view of that job id decides, and a
 -- row whose job has finished is deleted on read. See CardJobs.inFlight.
 -- =========================================================================
 
-CREATE TABLE runner.card_jobs (
+CREATE TABLE wilson.card_jobs (
     project TEXT NOT NULL,
     card_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
     enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (project, card_id),
-    FOREIGN KEY (project, card_id) REFERENCES runner.cards (project, id) ON DELETE CASCADE
+    FOREIGN KEY (project, card_id) REFERENCES wilson.cards (project, id) ON DELETE CASCADE
 );
 
 -- migrate:down
 
-DROP TABLE runner.card_jobs;
+DROP TABLE wilson.card_jobs;

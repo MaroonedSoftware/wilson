@@ -8,7 +8,7 @@ interface DependOpts {
 /**
  * Record or drop a dependency between two cards.
  *
- * `wilson card create` takes `dependsOn` and `syncDeps` reconciles `runner.card_deps` on every
+ * `wilson card create` takes `dependsOn` and `syncDeps` reconciles `wilson.card_deps` on every
  * write, but nothing reached that for a card that already exists — so a dependency discovered after
  * a card was written could not be recorded at all. `depends_on` is a hard block on dispatch, which
  * makes this the difference between a card waiting for the interface it needs and one racing it.

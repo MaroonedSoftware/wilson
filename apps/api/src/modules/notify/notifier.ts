@@ -16,7 +16,7 @@ const NOTIFY_TIMEOUT_MS = 5_000;
  * caller (`CardStageJob`) that has no injected `Logger`; `StageDispatcher` passes its real one.
  *
  * `webhookUrl` is `BoardConfig.notifyWebhookUrl`, which card 0107 made settable at runtime — a
- * `runner.settings` row can override it without a restart, pushed onto the same `BoardConfig`
+ * `wilson.settings` row can override it without a restart, pushed onto the same `BoardConfig`
  * instance both callers already read fresh on every call (`NotifyWebhookSettingService`, settings
  * module). Nothing here needed to change for that: this class already read the value at call time
  * rather than caching it, so the mechanism was free. What this class does add is the destination

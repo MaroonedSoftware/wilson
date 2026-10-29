@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- =========================================================================
--- runner.cache_entries — a generic key/value store with expiry, backing
+-- wilson.cache_entries — a generic key/value store with expiry, backing
 -- @maroonedsoftware/cache's CacheProvider for this deployment.
 --
 -- Card 0197's own note flags the cost up front: that package's only shipped
@@ -10,7 +10,7 @@
 -- This table is what lets card 0197 use IdempotencyStore (the actual thing
 -- PROJECT.md's "Card sources" asks for — claim, TTL, dead-letter after
 -- repeated failures) without standing up a second stateful service for it,
--- the same reasoning card 0198 gave for writing runner.source_cursors
+-- the same reasoning card 0198 gave for writing wilson.source_cursors
 -- rather than reaching for infrastructure that was not already there.
 --
 -- Deliberately generic — key/value/expiry, nothing about cards or sources —
@@ -30,7 +30,7 @@
 -- anyone ever deletes the row.
 -- =========================================================================
 
-CREATE TABLE runner.cache_entries (
+CREATE TABLE wilson.cache_entries (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
@@ -38,4 +38,4 @@ CREATE TABLE runner.cache_entries (
 
 -- migrate:down
 
-DROP TABLE runner.cache_entries;
+DROP TABLE wilson.cache_entries;

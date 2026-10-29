@@ -20,7 +20,7 @@ export const mintWorkerToken = (): MintedWorkerToken => {
 };
 
 /**
- * What `runner.hosts.worker_token_hash` holds for `token`. A plain SHA-256 rather than a slow
+ * What `wilson.hosts.worker_token_hash` holds for `token`. A plain SHA-256 rather than a slow
  * password hash, as for API keys: the token is 256 random bits, not something a person chose, so
  * there is nothing for a slow hash to protect, and a lookup by hash needs it to be deterministic.
  */

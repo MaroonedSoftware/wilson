@@ -9,7 +9,7 @@ import type { GitTransport } from './git.transport.js';
  * the verifiers, the commit) reaches the same machine without being told twice.
  */
 export interface RemotePlacement {
-    /** The host's registered name, as `runner.hosts` and events record it. */
+    /** The host's registered name, as `wilson.hosts` and events record it. */
     hostName: string;
     host: ExecutionHost;
     /** Pushes commits to the host's clone and fetches the branch back. */
@@ -18,7 +18,7 @@ export interface RemotePlacement {
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
-    /** The `runner.leases` key holding this stage's slot. Released when the worktree is reclaimed. */
+    /** The `wilson.leases` key holding this stage's slot. Released when the worktree is reclaimed. */
     slotKey: string;
 }
 
@@ -41,14 +41,14 @@ export class HostLostError extends Error {
 }
 
 /**
- * What every stage slot's `runner.leases` key contains. A slot belongs to a stage, not a worktree:
+ * What every stage slot's `wilson.leases` key contains. A slot belongs to a stage, not a worktree:
  * the dispatcher takes it before the worktree is cut and releases it when the stage ends, so
  * `LeaseService.releaseAll`, which ends a worktree's leases, leaves slots alone.
  */
 export const SLOT_KEY_MARKER = ':slot:';
 
-/** The `runner.leases` key for one slot on a host. Machine-wide, like every lease key. */
+/** The `wilson.leases` key for one slot on a host. Machine-wide, like every lease key. */
 export const hostSlotKey = (hostName: string, slot: number): string => `host:${hostName}${SLOT_KEY_MARKER}${slot}`;
 
-/** The `runner.leases` key for one of this machine's `local-stage-slots`. */
+/** The `wilson.leases` key for one of this machine's `local-stage-slots`. */
 export const localSlotKey = (slot: number): string => `local${SLOT_KEY_MARKER}${slot}`;

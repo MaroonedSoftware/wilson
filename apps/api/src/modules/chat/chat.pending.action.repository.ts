@@ -49,7 +49,7 @@ const toAction = (row: Selectable<ChatPendingActions>): PendingAction => ({
 });
 
 /**
- * `runner.chat_pending_actions`: the changes the chat's agent proposed, which only the person's
+ * `wilson.chat_pending_actions`: the changes the chat's agent proposed, which only the person's
  * decision runs. See the migration (`20261029120000_chat.sql`) for the status flow.
  *
  * Every transition out of 'pending' is one conditional UPDATE that matches only a pending action
@@ -63,7 +63,7 @@ export class ChatPendingActionRepository {
 
     async propose(threadId: string, action: NewPendingAction): Promise<PendingAction> {
         const row = await this.db
-            .insertInto('runner.chatPendingActions')
+            .insertInto('wilson.chatPendingActions')
             .values({
                 threadId,
                 project: action.project ?? null,
@@ -78,13 +78,13 @@ export class ChatPendingActionRepository {
     }
 
     async get(id: string): Promise<PendingAction | undefined> {
-        const row = await this.db.selectFrom('runner.chatPendingActions').selectAll().where('id', '=', id).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.chatPendingActions').selectAll().where('id', '=', id).executeTakeFirst();
         return row && toAction(row);
     }
 
     /** A thread's actions, oldest first, whatever their status. */
     async forThread(threadId: string): Promise<PendingAction[]> {
-        const rows = await this.db.selectFrom('runner.chatPendingActions').selectAll().where('threadId', '=', threadId).orderBy('id').execute();
+        const rows = await this.db.selectFrom('wilson.chatPendingActions').selectAll().where('threadId', '=', threadId).orderBy('id').execute();
         return rows.map(toAction);
     }
 
@@ -105,7 +105,7 @@ export class ChatPendingActionRepository {
     /** Record how a claimed action's operation went. Only a 'running' action can finish. */
     async finish(id: string, outcome: { result: unknown } | { error: string }): Promise<PendingAction | undefined> {
         const row = await this.db
-            .updateTable('runner.chatPendingActions')
+            .updateTable('wilson.chatPendingActions')
             .set(
                 'error' in outcome
                     ? { status: 'failed', error: outcome.error }
@@ -121,7 +121,7 @@ export class ChatPendingActionRepository {
     private async decide(id: string, status: 'running' | 'declined'): Promise<PendingAction | undefined> {
         const now = DateTime.now();
         const row = await this.db
-            .updateTable('runner.chatPendingActions')
+            .updateTable('wilson.chatPendingActions')
             .set({ status, decidedAt: now })
             .where('id', '=', id)
             .where('status', '=', 'pending')

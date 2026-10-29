@@ -11,7 +11,7 @@ import type { SettingDefinition } from './setting.definition.js';
  * (`poller.enabled.setting.ts`): only `"true"` or `"1"` count as an explicit env-var override,
  * everything else falls through. Unlike the poller, `defaultValue` here is `true` — the one place
  * PROJECT.md's "ship with dry run on" actually lives in code. A deployment that has supervised its
- * clean pass turns this off with a `runner.settings` row (`DryRunSettingService.set`), the same way
+ * clean pass turns this off with a `wilson.settings` row (`DryRunSettingService.set`), the same way
  * every other operational setting in this table is turned from its default — never by inverting the
  * default itself, which would ship every *other* deployment rehearsing nothing from its first merge.
  *

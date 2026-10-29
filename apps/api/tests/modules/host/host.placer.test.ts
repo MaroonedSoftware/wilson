@@ -22,7 +22,7 @@ import { LeaseService } from '#modules/lease/lease.service.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
- * Placement against the real `runner.hosts` and `runner.leases`, with the stand-in `ssh` for the
+ * Placement against the real `wilson.hosts` and `wilson.leases`, with the stand-in `ssh` for the
  * reachability check. A slot taken by another card only counts as held while that card has a live
  * claim, which is how `LeaseService` tells a running stage from one a killed daemon left behind.
  */
@@ -65,7 +65,7 @@ const placer = (ssh = FAKE_SSH) => new HostPlacer(hosts, new HostConnector(ssh),
 
 const insertCard = (project: string, id: string) =>
     db
-        .insertInto('runner.cards')
+        .insertInto('wilson.cards')
         .values({
             project,
             id,
@@ -83,7 +83,7 @@ const insertCard = (project: string, id: string) =>
 
 const recordLiveClaim = (project: string, cardId: string) =>
     db
-        .insertInto('runner.cardJobs')
+        .insertInto('wilson.cardJobs')
         .values({ project, cardId, jobId: `job-${randomUUID()}` })
         .execute();
 

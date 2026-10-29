@@ -341,7 +341,7 @@ const deepFreeze = <T>(value: T): T => {
 /**
  * Parse and validate one stage config document.
  *
- * Stage config is a `runner.stage_configs` row, not a file in the code repo, and the write tool
+ * Stage config is a `wilson.stage_configs` row, not a file in the code repo, and the write tool
  * denies the file name anyway — an agent that can edit its own exit condition passes every time
  * (PROJECT.md decision 8). This is the one place the document's text becomes a `ProjectStages`:
  * `StageConfigStore.load` runs it on read and `StageConfigStore.save` runs it on write, so a
