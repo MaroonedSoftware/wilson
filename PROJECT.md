@@ -712,11 +712,12 @@ is neither gated nor explicitly public. Each request also confirms the session's
 exists, so a database restored out of step with the session store cannot serve a deleted
 principal.
 
-**What this does not cover.** Authentication guards the HTTP API. Three other paths reach board
-state without it:
+**What this does not cover.** Authentication guards the HTTP API. Every `wilson` command reaches
+the board through it (card 0085 moved the last one, `card plan`, off a container of its own); the
+only CLI code that opens a database connection is three `wilson doctor` checks, and they ask only
+whether Postgres answers, whether pg-boss's schema exists, and which migrations the test database
+has, never a board row. Two other paths do reach board state without the API:
 
-- **CLI commands that bootstrap the database directly** (`card start`, `card plan` and some
-  doctor checks, through `cli-bootstrap`). For these the database credential is the boundary.
 - **The database itself.** The `cli` engine strips `DATABASE_*` from a stage's environment, but
   the compose credentials are the image defaults and project code can hard-code them.
 - **Files the operator's user can read.** A stage runs as the same OS user as the daemon, so
@@ -745,8 +746,9 @@ access or session token is ever inherited by a stage. A `wilson doctor` check ve
 6. Turn on enforcement: default policies on every contract, `security: none` on the public
    routes, and the coverage test. After this commit an unauthenticated request gets a 401.
 7. Add TOTP and passkeys, and step-up for key minting and stage config edits.
-8. Settle the CLI's direct-database commands: move them onto the API, or keep them and leave
-   the database credential as their boundary.
+8. Settle the CLI's direct-database commands. There were none to settle: every command already
+   goes through the API, and the doctor's database checks read no board state. This step corrects
+   the note above, which had said otherwise.
 9. Extend the stage environment scrub to wilson credentials, and add the doctor check.
 
 Steps 2 to 5 add capability without changing who can call what. Step 6 is the one commit that
