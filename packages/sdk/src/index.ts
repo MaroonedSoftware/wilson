@@ -1,4 +1,5 @@
 // Auto-generated barrel file
+export * from './auth.client.js';
 export * from './board.client.js';
 export * from './context.client.js';
 export * from './health.client.js';

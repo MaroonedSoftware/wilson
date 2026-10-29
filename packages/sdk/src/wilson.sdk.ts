@@ -8,6 +8,7 @@ import { LearningsClient } from './learnings.client.js';
 import { HealthClient } from './health.client.js';
 import { ContextClient } from './context.client.js';
 import { BoardClient } from './board.client.js';
+import { AuthClient } from './auth.client.js';
 
 export class WilsonSdk {
     readonly stages: StagesClient;
@@ -18,6 +19,7 @@ export class WilsonSdk {
     readonly health: HealthClient;
     readonly context: ContextClient;
     readonly board: BoardClient;
+    readonly auth: AuthClient;
 
     constructor(options: SdkOptions) {
         const sdkFetch = options.fetch ?? createSdkFetch(options);
@@ -29,5 +31,6 @@ export class WilsonSdk {
         this.health = new HealthClient(sdkFetch);
         this.context = new ContextClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
+        this.auth = new AuthClient(sdkFetch);
     }
 }
