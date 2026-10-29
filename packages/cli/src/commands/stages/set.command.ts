@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { withStepUp } from '../../sign.in.js';
 
 interface SetOpts {
     message?: string;
@@ -12,6 +13,7 @@ interface SetOpts {
  * The one-shot path: importing a board repo's `config/stages.yaml` into a project that has none,
  * or applying an edit made in a real editor session outside `$EDITOR`. The file is sent as-is and
  * validated by the API, exactly as `wilson stages edit` is; nothing is written when it is refused.
+ * Like `edit`, the save asks for the password (`withStepUp`).
  */
 const command: CommandModule<SetOpts> = {
     description: "Replace the project's stage config with a file's contents",
@@ -21,7 +23,7 @@ const command: CommandModule<SetOpts> = {
         const path = String(args[0]);
         const yaml = await readFile(path, 'utf8');
 
-        const saved = await api.stages.setStageConfig({ yaml, message: opts.message ?? `Set from ${path}` });
+        const saved = await withStepUp(ctx, api, client => client.stages.setStageConfig({ yaml, message: opts.message ?? `Set from ${path}` }));
         ctx.logger.info(`stage config updated from ${path} (version ${saved.id})`);
         return 0;
     }),

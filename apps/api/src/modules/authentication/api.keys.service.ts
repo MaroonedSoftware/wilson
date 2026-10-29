@@ -5,7 +5,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { ApiKeySummary, CreateApiKeyRequest, IssuedApiKey } from '../../generated/api.keys.js';
 import { ACCOUNT_ACTOR, type AccountActor } from './api.key.repository.js';
-import { isApiKeySession, requireSession } from './request.session.js';
+import { requireSession } from './request.session.js';
 
 /** What a key may do. `manage` implies `view`; rollout step 6 is what reads them. */
 export const API_KEY_SCOPES = ['view', 'manage'] as const;
@@ -24,10 +24,10 @@ const toSummary = (key: ApiKey<AccountActor>): ApiKeySummary => ({
 /**
  * The operator's API keys (`/api/auth/keys`): what the CLI and scripts authenticate with.
  *
- * A key cannot mint or rotate a key; only a signed-in session can. Otherwise one leaked key could
- * be turned into as many as its holder liked, each surviving the revocation of the first. Rollout
- * step 7 tightens this further, to a signed-in session whose strong factor is recent. A key may
- * list keys and revoke one, its own included, since revoking only ever takes authority away.
+ * A key cannot mint or rotate a key: those routes are gated `wilson.step.up` (`api.keys.ck`), which
+ * only a session that proved a factor in the last five minutes satisfies. Otherwise one leaked key
+ * could be turned into as many as its holder liked, each surviving the revocation of the first. A
+ * key may list keys and revoke one, its own included, since revoking only ever takes authority away.
  *
  * Takes `ServerKitContext`, so the container wiring test exempts it, as it does
  * `CurrentSessionService`.
@@ -43,12 +43,6 @@ export class ApiKeysService {
         return { kind: ACCOUNT_ACTOR, actorId: requireSession(this.context).subject } as const;
     }
 
-    private requireSignedIn(action: string): void {
-        if (isApiKeySession(requireSession(this.context))) {
-            throw httpError(403).withDetails({ reason: `an API key cannot ${action} a key; sign in to do that` });
-        }
-    }
-
     /** The key, if the caller owns it; 404 otherwise, so an id that is not yours reads as unknown. */
     private async ownKey(id: string): Promise<ApiKey<AccountActor>> {
         const key = await this.keys.get(id);
@@ -61,7 +55,6 @@ export class ApiKeysService {
     }
 
     async create(request: CreateApiKeyRequest): Promise<IssuedApiKey> {
-        this.requireSignedIn('create');
         const name = request.name.trim();
         if (name.length === 0) throw httpError(400).withDetails({ reason: 'name must not be blank' });
         const issued = await this.keys.create({
@@ -75,7 +68,6 @@ export class ApiKeysService {
 
     /** A new secret for the same key. The old token stops working at once. */
     async rotate(id: string): Promise<IssuedApiKey> {
-        this.requireSignedIn('rotate');
         await this.ownKey(id);
         const issued = await this.keys.rotate(id);
         return { key: toSummary(issued.key), token: issued.token };

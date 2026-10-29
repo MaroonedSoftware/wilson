@@ -666,7 +666,10 @@ container, so an unset key would stop every `wilson` command and the daemon's ne
 TOTP and passkeys are the second. Step-up, meaning a strong factor proven within the last five
 minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
 because those are the two actions that hand out or rewrite authority. An API-key session never
-satisfies step-up.
+satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
+answers that refusal by asking for the password and making that one call with a fresh session,
+signed out again straight after. A leaked key can read the stage config and cannot rewrite it.
+Until a second factor is enrolled, a password proved within the window is the step-up.
 
 **Transport.** The web app holds the access token in memory, never in storage a script could
 read, and sends it as a bearer header. It opts into cookies with `x-wilson-cookies: 1`, and the API

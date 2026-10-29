@@ -13,8 +13,8 @@ options {
 #
 # The floor is `wilson.manage`. Listing and revoking lower it to `wilson.view`, so any key can see
 # the keys and revoke one, its own included, since revoking only ever takes authority away. Creating
-# and rotating keep `manage`, and the service further refuses an API key there (403): only a
-# signed-in session can mint one.
+# and rotating raise it to `wilson.step.up`: only a session that proved a factor in the last five
+# minutes, never a key (403), so one leaked key cannot be turned into more.
 
 # What a key may do. `manage` includes `view`.
 contract ApiKeyScope: enum(view, manage)
@@ -62,6 +62,9 @@ operation /api/auth/keys: {
     post: {
         name: Create an API key
         sdk: createApiKey
+        security: {
+            policy: wilson.step.up
+        }
         service: ApiKeysService.create
         request: {
             application/json: CreateApiKeyRequest
@@ -72,7 +75,7 @@ operation /api/auth/keys: {
             }
             400:
             401:
-            # Called with an API key. Sign in to create one.
+            # Called with an API key, or a session whose factor is older than five minutes. Sign in.
             403:
         }
     }
@@ -85,6 +88,9 @@ operation /api/auth/keys/{id}/rotate: {
     post: {
         name: Rotate an API key
         sdk: rotateApiKey
+        security: {
+            policy: wilson.step.up
+        }
         service: ApiKeysService.rotate
         response: {
             200: {

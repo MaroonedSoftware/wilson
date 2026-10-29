@@ -1,15 +1,18 @@
 import { Injectable } from 'injectkit';
-import type { ApiKeySessionClaim, AuthenticationSession } from '@maroonedsoftware/authentication';
+import { Duration } from 'luxon';
+import { isFactorRecent, type ApiKeySessionClaim, type AuthenticationSession } from '@maroonedsoftware/authentication';
 import { Policy, type PolicyEnvelope, type PolicyResult } from '@maroonedsoftware/policies';
 
 /**
- * The two route gates (PROJECT.md decision 10). Every gated operation in a contract names one in
+ * The route gates (PROJECT.md decision 10). Every gated operation in a contract names one in
  * its `security` block, and the generated router asserts it through `requirePolicy`, which has
  * already answered 401 for a request with no session. What is left to decide is only whether this
  * session may do this kind of thing:
  *
  * - `wilson.view`: read. Any signed-in session, and any API key.
  * - `wilson.manage`: change anything. A signed-in session, or a key with the `manage` scope.
+ * - `wilson.step.up`: hand out or rewrite authority. A session that proved a factor within the last
+ *   five minutes, never a key (`StepUpPolicy`).
  *
  * There is one account, so there is no "whose board" question; a signed-in session is the operator
  * and may do anything a route allows. Scopes are what narrows a key.
@@ -50,4 +53,36 @@ export class ViewPolicy extends ScopedPolicy {
 export class ManagePolicy extends ScopedPolicy {
     protected readonly accepted = ['manage'];
     protected readonly scope = 'manage';
+}
+
+export const STEP_UP_POLICY = 'wilson.step.up';
+
+/** How recently a factor must have been proved for a step-up route. deadair's and ats's five minutes. */
+export const STEP_UP_WINDOW = Duration.fromObject({ minutes: 5 });
+
+/**
+ * `wilson.step.up`: the gate on the two things that hand out or rewrite authority, minting or
+ * rotating an API key and saving stage config (PROJECT.md, Authentication: Factors). Everything
+ * `wilson.manage` requires, and then a factor the operator proved within {@link STEP_UP_WINDOW}.
+ *
+ * An API key never satisfies it, whatever its scope: a key is a standing credential, and the point
+ * is that a leaked one cannot mint more keys or rewrite the exit conditions stages are judged by
+ * (decision 8). The refusal says so (`step_up_unavailable`), and a client answers it by signing in
+ * fresh for that one call, as `wilson stages edit` does. A signed-in session that is merely old gets
+ * `step_up_required` with the window, and proving a factor again satisfies it.
+ */
+@Injectable()
+export class StepUpPolicy extends ManagePolicy {
+    override async evaluate(context: RequirePolicyContext, envelope: PolicyEnvelope): Promise<PolicyResult> {
+        const scoped = await super.evaluate(context, envelope);
+        if (!scoped.allowed) return scoped;
+        if (keyScopes(context.session) !== undefined) {
+            return this.deny('step_up_unavailable', {
+                kind: 'step_up_unavailable',
+                reason: 'an API key cannot do this; sign in with your password',
+            });
+        }
+        const recent = context.session.factors.some(factor => factor.method !== 'apikey' && isFactorRecent(factor, envelope.now, STEP_UP_WINDOW));
+        return recent ? this.allow() : this.denyStepUp('step_up_required', { within: STEP_UP_WINDOW });
+    }
 }

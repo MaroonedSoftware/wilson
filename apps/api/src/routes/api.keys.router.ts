@@ -24,7 +24,7 @@ ApiKeysRouter.get('/api/auth/keys', requirePolicy({ policy: 'wilson.view' }), as
 /**
  * from [api.keys.ck](file://./../../data/contracts/api.keys.ck#L62)
  */
-ApiKeysRouter.post('/api/auth/keys', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+ApiKeysRouter.post('/api/auth/keys', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, CreateApiKeyRequest);
 
     const service = ctx.container.get(ApiKeysService);
@@ -36,9 +36,9 @@ ApiKeysRouter.post('/api/auth/keys', requirePolicy({ policy: 'wilson.manage' }),
 });
 
 /**
- * from [api.keys.ck](file://./../../data/contracts/api.keys.ck#L85)
+ * from [api.keys.ck](file://./../../data/contracts/api.keys.ck#L88)
  */
-ApiKeysRouter.post('/api/auth/keys/:id/rotate', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+ApiKeysRouter.post('/api/auth/keys/:id/rotate', requirePolicy({ policy: 'wilson.step.up' }), async ctx => {
     const { id } = await parseAndValidate(
         ctx.params,
         z.strictObject({
@@ -55,7 +55,7 @@ ApiKeysRouter.post('/api/auth/keys/:id/rotate', requirePolicy({ policy: 'wilson.
 });
 
 /**
- * from [api.keys.ck](file://./../../data/contracts/api.keys.ck#L104)
+ * from [api.keys.ck](file://./../../data/contracts/api.keys.ck#L110)
  */
 ApiKeysRouter.delete('/api/auth/keys/:id', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const { id } = await parseAndValidate(

@@ -1,40 +1,15 @@
 import { hostname } from 'node:os';
-import { isCancel, password as promptPassword, text as promptText } from '@clack/prompts';
 import type { CliContext, CommandModule } from '@maroonedsoftware/johnny5';
-import { SdkError, WilsonSdk } from '@wilson/sdk';
 import { describeApiError, resolveApiBase } from '../../api-client.js';
 import { keyStoreFor, type KeyStore } from '../../credentials.js';
-import { apiSettings } from '../../settings.js';
+import { sessionClient, signInWithPassword, SignInError, terminalIo, type LoginIo } from '../../sign.in.js';
+
+export type { LoginIo } from '../../sign.in.js';
 
 interface LoginOpts {
     username?: string;
     passwordStdin?: boolean;
 }
-
-/** What to ask for, or how to read it, so tests can answer without a terminal. */
-export interface LoginIo {
-    ask: (message: string) => Promise<string | undefined>;
-    askSecret: (message: string) => Promise<string | undefined>;
-    readStdin: () => Promise<string>;
-}
-
-const readAll = async (): Promise<string> => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-    return Buffer.concat(chunks).toString('utf8');
-};
-
-const terminalIo: LoginIo = {
-    ask: async message => {
-        const answer = await promptText({ message });
-        return isCancel(answer) ? undefined : answer;
-    },
-    askSecret: async message => {
-        const answer = await promptPassword({ message });
-        return isCancel(answer) ? undefined : answer;
-    },
-    readStdin: readAll,
-};
 
 /**
  * Sign this machine in: the operator's username and password buy a short-lived session, the session
@@ -44,14 +19,15 @@ const terminalIo: LoginIo = {
  *
  * A key rather than the session's own tokens: a key is revocable by name from anywhere
  * (`/api/auth/keys`), it does not need refreshing, and it is what a script would use anyway.
- * Signing in again replaces the stored key and revokes the one it replaces.
+ * Signing in again replaces the stored key and revokes the one it replaces. Minting a key needs a
+ * factor proved in the last five minutes (`wilson.step.up`), which a session signed in a moment
+ * ago is.
  *
  * `--password-stdin` reads the password from stdin for a non-interactive login, as `docker login`
  * does, so it never has to appear in a process list or shell history.
  */
 export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = terminalIo, store?: KeyStore): Promise<number> => {
-    const baseUrl = resolveApiBase(ctx);
-    const keys = store ?? keyStoreFor(ctx, baseUrl);
+    const keys = store ?? keyStoreFor(ctx, resolveApiBase(ctx));
 
     const username = opts.username ?? (await io.ask('Username'));
     const password = opts.passwordStdin ? (await io.readStdin()).replace(/\r?\n$/, '') : await io.askSecret('Password');
@@ -60,19 +36,15 @@ export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = term
         return 1;
     }
 
-    // Unsigned: this is how a credential is obtained, so none is sent.
-    const anonymous = new WilsonSdk({ baseUrl, headers: apiSettings(ctx).project ? { 'X-Wilson-Project': apiSettings(ctx).project! } : undefined });
     let accessToken: string;
     try {
-        ({ accessToken } = await anonymous.auth.requestToken({ grant_type: 'password', username, password }));
+        accessToken = await signInWithPassword(ctx, username, password);
     } catch (err) {
-        if (err instanceof SdkError && err.status === 401) ctx.logger.error('wrong username or password');
-        else if (err instanceof SdkError && err.status === 429) ctx.logger.error('too many wrong passwords; wait five minutes and try again');
-        else ctx.logger.error(describeApiError(err, ctx));
+        ctx.logger.error(err instanceof SignInError ? err.message : describeApiError(err, ctx));
         return 1;
     }
 
-    const session = new WilsonSdk({ baseUrl, headers: { Authorization: `Bearer ${accessToken}` } });
+    const session = sessionClient(ctx, accessToken);
     try {
         const previous = await keys.read();
         const issued = await session.apiKeys.createApiKey({ name: `wilson cli on ${hostname()}`, scope: 'manage' });

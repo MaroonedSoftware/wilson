@@ -4,7 +4,7 @@ import type { AppConfig } from '@maroonedsoftware/appconfig';
 import { PasswordAllowedPolicy, type ApiKeyAllowedPolicyContext, type PasswordAllowedPolicyContext } from '@maroonedsoftware/authentication';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AccountApiKeyAllowedPolicy } from '#modules/authentication/api.key.allowed.policy.js';
-import { MANAGE_POLICY, ManagePolicy, VIEW_POLICY, ViewPolicy, type RequirePolicyContext } from './access.policies.js';
+import { MANAGE_POLICY, ManagePolicy, STEP_UP_POLICY, StepUpPolicy, VIEW_POLICY, ViewPolicy, type RequirePolicyContext } from './access.policies.js';
 import { BasePolicyService, PolicyRegistryMap, PolicyService, type Policy, type PolicyEnvelope } from '@maroonedsoftware/policies';
 
 /**
@@ -22,6 +22,7 @@ export const POLICY_MAPPINGS = {
     // The route gates every contract names (`access.policies.ts`).
     [VIEW_POLICY]: ViewPolicy,
     [MANAGE_POLICY]: ManagePolicy,
+    [STEP_UP_POLICY]: StepUpPolicy,
 } as const;
 
 export interface WilsonPolicyContexts {
@@ -29,6 +30,7 @@ export interface WilsonPolicyContexts {
     'auth.api.key.allowed': ApiKeyAllowedPolicyContext;
     'wilson.view': RequirePolicyContext;
     'wilson.manage': RequirePolicyContext;
+    'wilson.step.up': RequirePolicyContext;
 }
 
 /**

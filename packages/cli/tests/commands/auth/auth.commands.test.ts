@@ -239,3 +239,51 @@ describe('wilson auth status and token', () => {
         expect(await token(buildCtx().ctx, keyStore(memoryEntry()), () => undefined)).toBe(1);
     });
 });
+
+describe('withStepUp', () => {
+    const stepUpRefusal = () => json({ details: { kind: 'step_up_unavailable', reason: 'an API key cannot do this' } }, 403);
+    const keyed = () => apiClient(buildCtx().ctx, keyStore(memoryEntry(JSON.stringify({ token: 'wl_stored', id: 'k', name: 'n' }))));
+
+    it('makes the call once with the key when the API accepts it', async () => {
+        fetchMock.mockResolvedValueOnce(json([]));
+        const { withStepUp } = await import('#src/sign.in.js');
+
+        await withStepUp(buildCtx().ctx, keyed(), api => api.apiKeys.listApiKeys(), io({}));
+
+        expect(calls()).toHaveLength(1);
+    });
+
+    it('on a step-up refusal, asks for the password, retries with a fresh session, and signs it out', async () => {
+        fetchMock
+            .mockResolvedValueOnce(stepUpRefusal())
+            .mockResolvedValueOnce(
+                json({ accountId: 'a', username: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+            )
+            .mockResolvedValueOnce(json({ accessToken: 'fresh-session', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ id: 'v2', yaml: 'x', message: 'm', createdAt: '2026-10-29T00:00:00Z' }))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const { withStepUp } = await import('#src/sign.in.js');
+
+        await withStepUp(buildCtx().ctx, keyed(), api => api.stages.setStageConfig({ yaml: 'x' }), io({ password: 'pw' }));
+
+        const [first, , signIn, retry, signOut] = calls();
+        expect(first!.headers.Authorization).toBe('Bearer wl_stored');
+        expect(signIn!.body).toMatchObject({ grant_type: 'password', username: 'operator', password: 'pw' });
+        expect(retry!.headers.Authorization).toBe('Bearer fresh-session');
+        expect(retry!.method).toBe('PUT');
+        expect(signOut!.url).toContain('/api/auth/logout');
+    });
+
+    it('rethrows any other refusal without prompting', async () => {
+        fetchMock.mockResolvedValueOnce(json({ details: { reason: 'invalid yaml' } }, 400));
+        const askSecret = vi.fn();
+        const { withStepUp } = await import('#src/sign.in.js');
+
+        await expect(
+            withStepUp(buildCtx().ctx, keyed(), api => api.stages.setStageConfig({ yaml: 'x' }), { ...io({}), askSecret }),
+        ).rejects.toMatchObject({
+            status: 400,
+        });
+        expect(askSecret).not.toHaveBeenCalled();
+    });
+});

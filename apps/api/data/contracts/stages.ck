@@ -20,7 +20,8 @@ options {
 # Worth saying plainly for this file in particular: the stage config is exactly the thing PROJECT.md
 # decision 8 keeps human-write-only, because an agent that can rewrite its own exit condition passes
 # every time. Before decision 10 nothing stopped project code a stage ran from calling this endpoint;
-# now it needs a credential no stage is given.
+# now saving needs `wilson.step.up`: a session that proved a factor in the last five minutes, which no
+# API key ever is, so `wilson stages edit|set` sign in fresh for the save.
 
 # One stored document. `yaml` is the text verbatim, comments included — the document is the config,
 # not a rendering of columns. `message` is what the commit message on `stages.yaml` used to be.
@@ -74,6 +75,9 @@ operation /api/stages/config: {
     put: {
         name: Set stage config
         service: StageConfigService.set
+        security: {
+            policy: wilson.step.up
+        }
         request: {
             application/json: SetStageConfigRequest
         }

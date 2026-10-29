@@ -1,5 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { withStepUp } from '../../sign.in.js';
 import { editBody } from '../card/editor.js';
 
 interface EditOpts {
@@ -20,6 +21,10 @@ interface EditOpts {
  * Re-run to fix it — the editor opens on the *stored* document, not the refused one, which is a
  * real loss on a long edit; the workaround is `wilson stages show > stages.yaml`, edit the file,
  * `wilson stages set stages.yaml`.
+ *
+ * Saving needs a factor proved in the last five minutes (`wilson.step.up`), which this machine's API
+ * key never is, so the save asks for the password and makes that one call with a fresh session
+ * (`withStepUp`). A leaked key can read the stage config and cannot rewrite it (decision 8).
  */
 const command: CommandModule<EditOpts> = {
     description: "Edit the project's stage config in $EDITOR",
@@ -36,7 +41,7 @@ const command: CommandModule<EditOpts> = {
             return 0;
         }
 
-        const saved = await api.stages.setStageConfig({ yaml, message: opts.message });
+        const saved = await withStepUp(ctx, api, client => client.stages.setStageConfig({ yaml, message: opts.message }));
         ctx.logger.info(`stage config updated (version ${saved.id})`);
         return 0;
     }),

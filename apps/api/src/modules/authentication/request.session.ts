@@ -14,6 +14,3 @@ export const requireSession = (context: ServerKitContext): AuthenticationSession
     if (!session) throw unauthorizedError('Bearer error="invalid_token"');
     return session;
 };
-
-/** Whether `session` came from an API key rather than from signing in. */
-export const isApiKeySession = (session: AuthenticationSession): boolean => session.factors.some(factor => factor.method === 'apikey');
