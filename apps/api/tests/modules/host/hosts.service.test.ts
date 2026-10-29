@@ -39,7 +39,7 @@ describe('HostsService', () => {
 
         const host = await service.create({ name });
 
-        expect(host).toEqual({ name, sshTarget: name, slots: 1, enabled: true, draining: false, projects: [], running: [] });
+        expect(host).toEqual({ name, sshTarget: name, slots: 1, enabled: true, draining: false, commandEnv: [], projects: [], running: [] });
         expect(await service.list()).toContainEqual(host);
     });
 
@@ -73,6 +73,16 @@ describe('HostsService', () => {
         expect(await service.create({ name, lifetimeMinutes: 720 })).toMatchObject({ lifetimeMinutes: 720 });
         expect(await service.update(name, { lifetimeMinutes: 0 })).not.toHaveProperty('lifetimeMinutes');
         await expect(service.update(name, { lifetimeMinutes: -5 })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('records the variables a host supplies to commands, deduplicated, and refuses one that is not a name', async () => {
+        const name = uniqueProject();
+
+        expect((await service.create({ name, commandEnv: ['GITHUB_TOKEN', 'GITHUB_TOKEN'] })).commandEnv).toEqual(['GITHUB_TOKEN']);
+        expect((await service.update(name, { commandEnv: ['GITHUB_TOKEN', 'NPM_TOKEN'] })).commandEnv).toEqual(['GITHUB_TOKEN', 'NPM_TOKEN']);
+        expect((await service.update(name, { commandEnv: [] })).commandEnv).toEqual([]);
+        await expect(service.update(name, { commandEnv: ['A"; rm -rf /'] })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.create({ name: uniqueProject(), commandEnv: ['1BAD'] })).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('sets a project’s paths on a host, replaces them on a second put, and removes them', async () => {

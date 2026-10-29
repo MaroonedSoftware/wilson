@@ -114,6 +114,21 @@ describe('HostProber', () => {
         expect(host.probe?.detail).toMatch(/^cannot reach .*Operation timed out/);
     });
 
+    it('reports a variable the host says it supplies to commands but does not have', async () => {
+        const name = await registerHost({ codeRoot: join(base, 'clone') });
+        await service.update(name, { commandEnv: ['WILSON_PROBE_SET', 'WILSON_PROBE_MISSING'] });
+        process.env.WILSON_PROBE_SET = 'yes';
+        try {
+            const host = await prober().probe(name);
+
+            expect(host.probe?.ok).toBe(false);
+            expect(host.probe?.detail).toContain('WILSON_PROBE_MISSING is not set in its environment');
+            expect(host.probe?.detail).not.toContain('WILSON_PROBE_SET is not set');
+        } finally {
+            delete process.env.WILSON_PROBE_SET;
+        }
+    });
+
     it('refuses an unknown host with 404 and a disabled one with 409, recording nothing', async () => {
         await expect(prober().probe(uniqueProject())).rejects.toMatchObject({ statusCode: 404 });
 

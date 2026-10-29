@@ -64,7 +64,10 @@ export const runConfiguredCommand = async (
     if (!file) return { reason: 'configured command is empty' };
 
     try {
-        await host.exec(file, args, { cwd, timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv(port) });
+        // `hostEnv`: what the host says its own environment supplies to configured commands (a
+        // package token on an agent VM). Only here, never in the bash tool: those are the setup and
+        // test commands' business, not the agent's.
+        await host.exec(file, args, { cwd, timeoutMs, maxBuffer: 16 * 1024 * 1024, env: scrubbedEnv(port), hostEnv: host.commandEnv });
         return undefined;
     } catch (err) {
         const e = err as ExecFailure;

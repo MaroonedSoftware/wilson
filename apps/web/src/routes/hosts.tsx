@@ -83,6 +83,7 @@ function HostPanel({ host, projects, now }: { host: Host; projects: string[]; no
                             {host.probe?.engineVersion && <> · claude {host.probe.engineVersion}</>}
                             {host.probe?.expiresAt && <> · expires {relativeTime(host.probe.expiresAt, now)}</>}
                             {host.lifetimeMinutes && !host.probe?.expiresAt && <> · lives {host.lifetimeMinutes}m after boot</>}
+                            {host.commandEnv.length > 0 && <> · commands get {host.commandEnv.join(', ')} from it</>}
                         </Text>
                     </Stack>
                     <Group gap="xs">
@@ -241,6 +242,7 @@ function RegisterHostForm() {
     const [sshTarget, setSshTarget] = useState('');
     const [slots, setSlots] = useState<number | ''>(1);
     const [lifetime, setLifetime] = useState<number | ''>('');
+    const [commandEnv, setCommandEnv] = useState('');
 
     const register = useMutation({
         mutationFn: () =>
@@ -249,12 +251,19 @@ function RegisterHostForm() {
                 ...(sshTarget.trim() && { sshTarget: sshTarget.trim() }),
                 ...(slots !== '' && { slots }),
                 ...(lifetime !== '' && { lifetimeMinutes: lifetime }),
+                ...(commandEnv.trim() && {
+                    commandEnv: commandEnv
+                        .split(',')
+                        .map(name => name.trim())
+                        .filter(Boolean),
+                }),
             }),
         onSuccess: () => {
             setName('');
             setSshTarget('');
             setSlots(1);
             setLifetime('');
+            setCommandEnv('');
             return queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY });
         },
     });
@@ -288,6 +297,14 @@ function RegisterHostForm() {
                         value={lifetime}
                         onChange={value => setLifetime(value === '' ? '' : Number(value))}
                         w={160}
+                        size="xs"
+                    />
+                    <TextInput
+                        label="Command env"
+                        description="From the host, for setup and tests"
+                        placeholder="GITHUB_TOKEN"
+                        value={commandEnv}
+                        onChange={e => setCommandEnv(e.currentTarget.value)}
                         size="xs"
                     />
                     <Button size="xs" disabled={!name.trim()} loading={register.isPending} onClick={() => register.mutate()}>

@@ -1,10 +1,12 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { variableNames } from '../../host-view.js';
 
 interface AddOpts {
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
+    commandEnv?: string;
 }
 
 /**
@@ -23,6 +25,11 @@ const command: CommandModule<AddOpts> = {
             description: 'Minutes it runs after boot before it stops by itself (720 for an agent VM)',
             type: 'number',
         },
+        {
+            flags: '--command-env <names>',
+            description: "Comma-separated variables the host's own environment gives setup, build and test commands, e.g. GITHUB_TOKEN",
+            type: 'string',
+        },
     ],
     run: withApi<AddOpts>(async (opts, ctx, args, api) => {
         const name = String(args[0]);
@@ -31,6 +38,7 @@ const command: CommandModule<AddOpts> = {
             ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
+            ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
         });
         ctx.logger.info(`${host.name} registered (ssh ${host.sshTarget}, ${host.slots} slot${host.slots === 1 ? '' : 's'})`);
         return 0;

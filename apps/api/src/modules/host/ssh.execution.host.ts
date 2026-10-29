@@ -60,13 +60,16 @@ export const shellQuote = (word: string): string => `'${word.replace(/'/g, `'\\'
 /**
  * An `env -i` prefix that starts from nothing and sets `env`, except that the keys `scrubbedEnv`
  * passes through from this machine (`PATH`, `HOME` and the rest) take the host's own values instead:
- * this machine's `PATH` names folders that do not exist there.
+ * this machine's `PATH` names folders that do not exist there. `hostEnv` names more variables to
+ * take from the host's environment the same way; each is expanded on the host, so its value never
+ * travels from this machine.
  */
-const envPrefix = (env: NodeJS.ProcessEnv): string => {
+const envPrefix = (env: NodeJS.ProcessEnv, hostEnv: readonly string[] = []): string => {
     const words = ['env', '-i'];
-    for (const key of PASSED_THROUGH) words.push(`${key}="\${${key}-}"`);
+    const fromHost = [...PASSED_THROUGH, ...hostEnv.filter(name => !PASSED_THROUGH.includes(name))];
+    for (const key of fromHost) words.push(`${key}="\${${key}-}"`);
     for (const [key, value] of Object.entries(env)) {
-        if (value === undefined || PASSED_THROUGH.includes(key)) continue;
+        if (value === undefined || fromHost.includes(key)) continue;
         words.push(shellQuote(`${key}=${value}`));
     }
     return words.join(' ');
@@ -93,9 +96,14 @@ export class SshHost implements ExecutionHost {
      * @param sshCommand The `ssh` binary. A test substitutes a script that runs the remote command
      *   locally, which exercises every quoting and shell path here without a second machine.
      */
+    /**
+     * @param commandEnv Variables the host's own environment supplies to configured commands, e.g.
+     *   GITHUB_TOKEN on an agent VM, whose `.bashrc` sets it for every shell `ssh` starts there.
+     */
     constructor(
         readonly target: string,
         private readonly sshCommand = 'ssh',
+        readonly commandEnv: readonly string[] = [],
     ) {
         this.name = `ssh:${target}`;
     }
@@ -147,7 +155,7 @@ export class SshHost implements ExecutionHost {
 
     async exec(file: string, args: readonly string[], options: ExecOptions): Promise<ExecResult> {
         const command = [file, ...args].map(shellQuote).join(' ');
-        const env = options.env ? `${envPrefix(options.env)} ` : '';
+        const env = options.env ? `${envPrefix(options.env, options.hostEnv)} ` : '';
         // `timeout` on the host as well as the kill here: killing the local `ssh` closes the channel,
         // but a remote process with no terminal is not sent a hangup, and a test suite left running
         // on the host would hold its slot after the stage has given up on it.

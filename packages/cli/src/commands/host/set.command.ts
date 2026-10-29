@@ -1,12 +1,13 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import type { UpdateHostRequest } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
-import { describeHost } from '../../host-view.js';
+import { describeHost, variableNames } from '../../host-view.js';
 
 interface SetOpts {
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
+    commandEnv?: string;
     enable?: boolean;
     disable?: boolean;
     drain?: boolean;
@@ -26,6 +27,12 @@ const command: CommandModule<SetOpts> = {
         { flags: '--ssh-target <target>', description: 'What `ssh` connects to', type: 'string' },
         { flags: '--slots <n>', description: 'Stages that may run on it at once, 1 to 8', type: 'number' },
         { flags: '--lifetime-minutes <n>', description: 'Minutes it runs after boot before it stops by itself; 0 clears it', type: 'number' },
+        {
+            flags: '--command-env <names>',
+            description:
+                "Comma-separated variables the host's own environment gives setup, build and test commands, replacing the list; empty clears it",
+            type: 'string',
+        },
         { flags: '--enable', description: 'Let it take work again', type: 'boolean' },
         { flags: '--disable', description: 'Stop it taking work and stop probing it', type: 'boolean' },
         { flags: '--drain', description: 'Take no new stage, but let running ones finish', type: 'boolean' },
@@ -46,6 +53,7 @@ const command: CommandModule<SetOpts> = {
             ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
+            ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
             ...((opts.enable || opts.disable) && { enabled: !!opts.enable }),
             ...((opts.drain || opts.undrain) && { draining: !!opts.drain }),
         };

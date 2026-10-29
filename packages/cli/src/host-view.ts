@@ -8,8 +8,9 @@ export const describeHost = (host: Host): string[] => {
     const state = !host.enabled ? 'disabled' : host.draining ? 'draining' : 'enabled';
     const target = host.sshTarget === host.name ? '' : ` (ssh ${host.sshTarget})`;
     const lifetime = host.lifetimeMinutes ? `  lives ${host.lifetimeMinutes}m after boot` : '';
+    const commandEnv = host.commandEnv.length > 0 ? `  commands get ${host.commandEnv.join(', ')} from it` : '';
     const lines = [
-        `${host.name}${target}  ${state}  ${host.running.length}/${host.slots} slot${host.slots === 1 ? '' : 's'} in use${lifetime}  ${describeProbe(host)}`,
+        `${host.name}${target}  ${state}  ${host.running.length}/${host.slots} slot${host.slots === 1 ? '' : 's'} in use${lifetime}${commandEnv}  ${describeProbe(host)}`,
     ];
     for (const use of host.running) {
         lines.push(`  slot ${use.slot}: ${use.project} ${use.cardId} since ${use.since}`);
@@ -29,3 +30,10 @@ const describeProbe = (host: Host): string => {
     const expires = probe.expiresAt ? `, expires ${probe.expiresAt}` : '';
     return `probe ${verdict} at ${probe.probedAt}${engine}${expires}`;
 };
+
+/** `--command-env`'s comma-separated list as names, blanks dropped, so `--command-env ''` clears it. */
+export const variableNames = (list: string): string[] =>
+    list
+        .split(',')
+        .map(name => name.trim())
+        .filter(Boolean);

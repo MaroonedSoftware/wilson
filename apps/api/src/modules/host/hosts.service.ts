@@ -38,12 +38,13 @@ export class HostsService {
         const sshTarget = request.sshTarget === undefined ? name : requireNonEmpty('sshTarget', request.sshTarget);
         const slots = request.slots === undefined ? MIN_SLOTS : requireSlots(request.slots);
         const lifetimeMinutes = request.lifetimeMinutes === undefined ? undefined : requireLifetime(request.lifetimeMinutes);
+        const commandEnv = request.commandEnv === undefined ? undefined : requireVariableNames(request.commandEnv);
 
         if (await this.hosts.find(name)) {
             throw httpError(409).withDetails({ reason: `host "${name}" is already registered` });
         }
 
-        await this.hosts.create({ name, sshTarget, slots, ...(lifetimeMinutes && { lifetimeMinutes }) });
+        await this.hosts.create({ name, sshTarget, slots, ...(lifetimeMinutes && { lifetimeMinutes }), ...(commandEnv && { commandEnv }) });
         return this.get(name);
     }
 
@@ -55,6 +56,7 @@ export class HostsService {
         if (request.enabled !== undefined) patch.enabled = request.enabled;
         if (request.draining !== undefined) patch.draining = request.draining;
         // 0 clears it: the contract's way of saying "no known end" without a null on the wire.
+        if (request.commandEnv !== undefined) patch.commandEnv = requireVariableNames(request.commandEnv);
         if (request.lifetimeMinutes !== undefined)
             patch.lifetimeMinutes = request.lifetimeMinutes === 0 ? null : requireLifetime(request.lifetimeMinutes);
 
@@ -112,6 +114,7 @@ export const toHost = (row: HostRow): Host => ({
     enabled: row.enabled,
     draining: row.draining,
     ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
+    commandEnv: row.commandEnv,
     projects: row.projects,
     running: row.running,
     ...(row.probe && { probe: row.probe }),
@@ -132,6 +135,19 @@ const requireSlots = (value: number): number => {
         throw httpError(400).withDetails({ reason: `slots must be a whole number from ${MIN_SLOTS} to ${MAX_SLOTS}, got ${value}` });
     }
     return value;
+};
+
+/**
+ * Names a shell can expand, deduplicated in the order given. Checked because each one is spliced into
+ * a remote command line as `NAME="${NAME-}"` (`SshHost`); a name with anything else in it would not
+ * be a name to that shell.
+ */
+const requireVariableNames = (names: string[]): string[] => {
+    const bad = names.filter(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+    if (bad.length > 0) {
+        throw httpError(400).withDetails({ reason: `commandEnv names must be environment variable names, got ${bad.map(n => `"${n}"`).join(', ')}` });
+    }
+    return [...new Set(names)];
 };
 
 const requireLifetime = (value: number): number => {

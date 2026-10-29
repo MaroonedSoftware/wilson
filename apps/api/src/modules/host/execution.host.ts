@@ -22,6 +22,12 @@ export interface ExecutionHost {
     /** How this host is named in logs and events, e.g. `local`. */
     readonly name: string;
 
+    /**
+     * Variables this host's own environment supplies to the commands stage config runs on it
+     * (`runConfiguredCommand`), and to nothing else. Unset or empty: none.
+     */
+    readonly commandEnv?: readonly string[];
+
     /** `readFile(path, 'utf8')`. */
     readFile(path: string): Promise<string>;
 
@@ -82,6 +88,11 @@ export interface ExecOptions {
     maxBuffer?: number;
     /** The process's whole environment. Unset inherits the host's own. */
     env?: NodeJS.ProcessEnv;
+    /**
+     * Names to add to `env` from the host's own environment, with the host's values: what a host's
+     * `commandEnv` says it supplies. Ignored when `env` is unset, since everything is inherited then.
+     */
+    hostEnv?: readonly string[];
 }
 
 export interface ExecResult {

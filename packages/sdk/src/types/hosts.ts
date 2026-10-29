@@ -42,19 +42,20 @@ export interface HostSlotUse {
 /**
  * `sshTarget` defaults to `name`, which is what an agent VM's `Host agent-*` SSH config entry
  * expects. `slots` defaults to 1.
- * generated from [CreateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L69)
+ * generated from [CreateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L72)
  */
 export interface CreateHostRequest {
     name: string;
     sshTarget?: string;
     slots?: number;
     lifetimeMinutes?: number;
+    commandEnv?: string[];
 }
 
 /**
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry.
- * generated from [UpdateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L78)
+ * generated from [UpdateHostRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L82)
  */
 export interface UpdateHostRequest {
     sshTarget?: string;
@@ -63,11 +64,13 @@ export interface UpdateHostRequest {
     draining?: boolean;
     /** 0 clears it: the host has no known end. */
     lifetimeMinutes?: number;
+    /** Replaces the whole list; an empty list clears it. */
+    commandEnv?: string[];
 }
 
 /**
  * The three paths for one project on one host. All three are absolute paths on the host.
- * generated from [PutHostProjectRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L88)
+ * generated from [PutHostProjectRequest](file://./../../../../apps/api/data/contracts/hosts.ck#L94)
  */
 export interface PutHostProjectRequest {
     codeRoot: string;
@@ -91,6 +94,11 @@ export interface Host {
      * adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.
      */
     lifetimeMinutes?: number;
+    /**
+     * Variables the host's own environment supplies to the commands stage config runs there (setup,
+     * build, test, format), e.g. GITHUB_TOKEN on an agent VM. Never given to the agent's tools.
+     */
+    commandEnv: string[];
     projects: HostProject[];
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];

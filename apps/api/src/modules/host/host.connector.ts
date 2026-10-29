@@ -12,8 +12,8 @@ import { gitSshCommand, SshHost } from './ssh.execution.host.js';
 export class HostConnector {
     constructor(private readonly sshCommand = 'ssh') {}
 
-    connect(host: Pick<HostRow, 'sshTarget'>): ExecutionHost {
-        return new SshHost(host.sshTarget, this.sshCommand);
+    connect(host: Pick<HostRow, 'sshTarget' | 'commandEnv'>): ExecutionHost {
+        return new SshHost(host.sshTarget, this.sshCommand, host.commandEnv);
     }
 
     /** `GIT_SSH_COMMAND` for pushing to and fetching from a host's clone. */

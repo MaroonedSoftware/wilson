@@ -164,6 +164,7 @@ export interface Hosts {
     engineVersion: string | null;
     expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
     lifetimeMinutes: number | null;
+    commandEnv: Generated<string[]>;
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 

@@ -32,6 +32,7 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  *   through `cli.engine.contract.probe.ts`, which is worth knowing before trusting it.
  * - Each project's `codeRoot` is a git repository, since worktrees are cut from it, and its worktree
  *   and run roots can be created.
+ * - Each variable it says it supplies to configured commands (`commandEnv`) is set there.
  * - Given a lifetime, when it will stop: boot time plus the lifetime.
  */
 @Injectable()
@@ -82,6 +83,14 @@ export class HostProber {
         }
         if (row.projects.length === 0) notes.push('serves no project yet');
 
+        // The way a configured command will see each one: taken from the host's own environment.
+        // A VM nobody has signed in to GitHub yet has no GITHUB_TOKEN, and its setup would fail later
+        // for a reason that is clearer said now.
+        for (const name of row.commandEnv) {
+            const set = await run(host, 'sh', ['-c', `test -n "\${${name}-}"`], [name]);
+            if (set instanceof Error) problems.push(`${name} is not set in its environment, so commands there would run without it`);
+        }
+
         let expiresAt: DateTime | undefined;
         if (row.lifetimeMinutes !== undefined) {
             const boot = await run(host, 'sh', ['-c', BOOT_TIME_SCRIPT]);
@@ -106,9 +115,9 @@ export class HostProber {
 }
 
 /** Run one check from `/`, with only the host's own `PATH` and `HOME`. Resolves to stdout or the failure. */
-const run = async (host: ExecutionHost, file: string, args: string[]): Promise<string | ExecFailure> =>
+const run = async (host: ExecutionHost, file: string, args: string[], hostEnv: readonly string[] = []): Promise<string | ExecFailure> =>
     host
-        .exec(file, args, { cwd: '/', env: {}, timeoutMs: PROBE_COMMAND_TIMEOUT_MS })
+        .exec(file, args, { cwd: '/', env: {}, hostEnv, timeoutMs: PROBE_COMMAND_TIMEOUT_MS })
         .then(result => result.stdout)
         .catch((err: ExecFailure) => err);
 

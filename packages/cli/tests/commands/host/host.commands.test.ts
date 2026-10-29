@@ -34,6 +34,7 @@ const host = {
     slots: 2,
     enabled: true,
     draining: true,
+    commandEnv: ['GITHUB_TOKEN'],
     projects: [{ project: 'tga', codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' }],
     running: [{ slot: 1, project: 'tga', cardId: '0042', since: '2026-10-29T11:40:00Z' }],
 };
@@ -74,6 +75,15 @@ describe('wilson host set', () => {
 });
 
 describe('wilson host add', () => {
+    it('sends --command-env as a list of names', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(host));
+        const { ctx } = buildCtx();
+
+        await (addCommand.run as unknown as Handler<object>)({ commandEnv: 'GITHUB_TOKEN, NPM_TOKEN,' }, ctx, ['agent-3']);
+
+        expect(sentBody()).toEqual({ name: 'agent-3', commandEnv: ['GITHUB_TOKEN', 'NPM_TOKEN'] });
+    });
+
     it('leaves the SSH target and slots to the server when they are not given', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({ ...host, slots: 1, projects: [] }));
         const { ctx } = buildCtx();
@@ -95,6 +105,7 @@ describe('wilson host list', () => {
                     slots: 1,
                     enabled: false,
                     draining: false,
+                    commandEnv: [],
                     projects: [],
                     running: [],
                     probe: { probedAt: '2026-10-29T12:00:00Z', ok: false, detail: 'ssh timed out' },
@@ -106,7 +117,7 @@ describe('wilson host list', () => {
         await (listCommand.run as unknown as Handler<object>)({}, ctx, []);
 
         const lines = logger.info.mock.calls.map(call => String(call[0]));
-        expect(lines[0]).toBe('agent-3  draining  1/2 slots in use  never probed');
+        expect(lines[0]).toBe('agent-3  draining  1/2 slots in use  commands get GITHUB_TOKEN from it  never probed');
         expect(lines[1]).toBe('  slot 1: tga 0042 since 2026-10-29T11:40:00Z');
         expect(lines[2]).toBe('  tga  /opt/agent/TGA  worktrees /opt/agent/wt  run /opt/agent/run');
         expect(lines[3]).toBe('box (ssh dev@box)  disabled  0/1 slot in use  probe failed: ssh timed out at 2026-10-29T12:00:00Z');

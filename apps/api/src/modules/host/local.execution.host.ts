@@ -53,11 +53,20 @@ export class LocalHost implements ExecutionHost {
             cwd: options.cwd,
             ...(options.timeoutMs !== undefined && { timeout: options.timeoutMs }),
             ...(options.maxBuffer !== undefined && { maxBuffer: options.maxBuffer }),
-            ...(options.env !== undefined && { env: options.env }),
+            ...(options.env !== undefined && { env: withHostEnv(options.env, options.hostEnv) }),
         });
         return { stdout, stderr };
     }
 }
+
+/** `env` plus each of `names` this process has, with this process's value. */
+const withHostEnv = (env: NodeJS.ProcessEnv, names: readonly string[] = []): NodeJS.ProcessEnv => {
+    const merged = { ...env };
+    for (const name of names) {
+        if (process.env[name] !== undefined) merged[name] = process.env[name];
+    }
+    return merged;
+};
 
 /** The one `LocalHost`; it holds no state, so nothing needs a second. */
 export const localHost: ExecutionHost = new LocalHost();

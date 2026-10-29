@@ -50,6 +50,7 @@ const agentHost: Host = {
     enabled: true,
     draining: false,
     lifetimeMinutes: 720,
+    commandEnv: ['GITHUB_TOKEN'],
     projects: [{ project: 'tga', codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' }],
     running: [{ slot: 1, project: 'tga', cardId: '0042', since: '2026-10-29T11:40:00Z' }],
     probe: { probedAt: '2026-10-29T11:55:00Z', ok: true, engineVersion: '2.1.280', expiresAt: '2026-10-29T20:00:00Z' },

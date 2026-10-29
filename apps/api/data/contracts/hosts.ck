@@ -58,6 +58,9 @@ contract Host: {
     # Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe
     # adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.
     lifetimeMinutes?: int
+    # Variables the host's own environment supplies to the commands stage config runs there (setup,
+    # build, test, format), e.g. GITHUB_TOKEN on an agent VM. Never given to the agent's tools.
+    commandEnv: array(string)
     projects: array(HostProject)
     # The slots in use right now, slot order. `slots` minus this many are free.
     running: array(HostSlotUse)
@@ -71,6 +74,7 @@ contract CreateHostRequest: {
     sshTarget?: string
     slots?: int
     lifetimeMinutes?: int
+    commandEnv?: array(string)
 }
 
 # A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
@@ -82,6 +86,8 @@ contract UpdateHostRequest: {
     draining?: boolean
     # 0 clears it: the host has no known end.
     lifetimeMinutes?: int
+    # Replaces the whole list; an empty list clears it.
+    commandEnv?: array(string)
 }
 
 # The three paths for one project on one host. All three are absolute paths on the host.
