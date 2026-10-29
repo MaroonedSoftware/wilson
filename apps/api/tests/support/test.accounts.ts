@@ -30,10 +30,11 @@ export const holdAccounts = async (): Promise<() => Promise<void>> => {
     };
 };
 
-/** Delete every account, its password and its API keys, so onboarding can run again. Only under
+/** Delete every account, its password, API keys and authenticators, so onboarding can run again. Only under
  * {@link holdAccounts}. */
 export const clearAccounts = async (db: Kysely<DB>): Promise<void> => {
     await db.deleteFrom('runner.apiKeys').execute();
+    await db.deleteFrom('runner.accountAuthenticators').execute();
     await db.deleteFrom('runner.accountPasswords').execute();
     await db.deleteFrom('runner.accounts').execute();
 };

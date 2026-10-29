@@ -3,6 +3,7 @@ export * from './api.keys.js';
 export * from './auth.js';
 export * from './board.js';
 export * from './context.js';
+export * from './factors.js';
 export * from './health.js';
 export * from './learnings.js';
 export * from './onboarding.js';

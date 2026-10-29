@@ -10,7 +10,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const AuthRouter = ServerKitRouter();
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L48)
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L68)
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => {
@@ -25,7 +25,7 @@ AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => 
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L70)
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L91)
  */
 AuthRouter.get('/api/auth/session', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(CurrentSessionService);
@@ -37,7 +37,7 @@ AuthRouter.get('/api/auth/session', requirePolicy({ policy: 'wilson.view' }), as
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L88)
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L109)
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/logout', async ctx => {

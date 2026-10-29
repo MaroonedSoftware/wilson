@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
+import { resolveEncryptionKey } from '#modules/authentication/encryption.key.js';
 import { readSessionKey, resolveSessionKey } from '#modules/authentication/session.key.js';
 
 const pem = (): string =>
@@ -72,7 +73,7 @@ describe('resolveSessionKey', () => {
         const resolved = await resolveSessionKey(configOf({ AUTH_SESSION_KEY_FILE: file }));
 
         expect(resolved).toContain('-----BEGIN PRIVATE KEY-----');
-        expect(await readFile(file, 'utf8')).toBe(resolved);
+        expect((await readFile(file, 'utf8')).trim()).toBe(resolved);
         expect((await stat(file)).mode & 0o777).toBe(0o600);
     });
 
@@ -95,5 +96,28 @@ describe('resolveSessionKey', () => {
 
         expect(a.trim()).toBe(onDisk);
         expect(b.trim()).toBe(onDisk);
+    });
+});
+
+describe('resolveEncryptionKey', () => {
+    it('reads a 64-hex-character AUTH_ENCRYPTION_KEY', async () => {
+        const hex = 'ab'.repeat(32);
+
+        expect((await resolveEncryptionKey(configOf({ AUTH_ENCRYPTION_KEY: hex }))).toString('hex')).toBe(hex);
+    });
+
+    it('refuses a key that is not 256 bits of hex, naming the variable', async () => {
+        await expect(resolveEncryptionKey(configOf({ AUTH_ENCRYPTION_KEY: 'too-short' }))).rejects.toThrow(/AUTH_ENCRYPTION_KEY/);
+    });
+
+    it('generates a 256-bit key file on first use, owner-only, and reads the same key after', async () => {
+        const file = join(await scratch(), 'encryption.key');
+        const config = configOf({ AUTH_ENCRYPTION_KEY_FILE: file });
+
+        const first = await resolveEncryptionKey(config);
+
+        expect(first).toHaveLength(32);
+        expect((await stat(file)).mode & 0o777).toBe(0o600);
+        expect((await resolveEncryptionKey(config)).equals(first)).toBe(true);
     });
 });

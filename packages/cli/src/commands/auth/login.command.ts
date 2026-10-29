@@ -24,7 +24,8 @@ interface LoginOpts {
  * ago is.
  *
  * `--password-stdin` reads the password from stdin for a non-interactive login, as `docker login`
- * does, so it never has to appear in a process list or shell history.
+ * does, so it never has to appear in a process list or shell history. With an authenticator app
+ * enrolled, its code is asked for after the password (`signInWithPassword`).
  */
 export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = terminalIo, store?: KeyStore): Promise<number> => {
     const keys = store ?? keyStoreFor(ctx, resolveApiBase(ctx));
@@ -38,7 +39,7 @@ export const login = async (opts: LoginOpts, ctx: CliContext, io: LoginIo = term
 
     let accessToken: string;
     try {
-        accessToken = await signInWithPassword(ctx, username, password);
+        accessToken = await signInWithPassword(ctx, username, password, io);
     } catch (err) {
         ctx.logger.error(err instanceof SignInError ? err.message : describeApiError(err, ctx));
         return 1;

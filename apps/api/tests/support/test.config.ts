@@ -35,6 +35,7 @@ export const buildTestServerConfig = async (): Promise<AppConfig> => {
             // `AuthenticationModule.setup` generates a session key when none exists. Inside this
             // fixture's own directory, so no test writes to the deployment's secrets directory.
             `AUTH_SESSION_KEY_FILE=${join(dir, 'session.pem')}`,
+            `AUTH_ENCRYPTION_KEY_FILE=${join(dir, 'encryption.key')}`,
         ].join('\n'),
         'utf8',
     );

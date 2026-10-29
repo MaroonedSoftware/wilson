@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Duration } from 'luxon';
 import { isFactorRecent, type ApiKeySessionClaim, type AuthenticationSession } from '@maroonedsoftware/authentication';
 import { Policy, type PolicyEnvelope, type PolicyResult } from '@maroonedsoftware/policies';
+import { AccountFactors, STRONG_METHODS } from '#modules/authentication/account.factors.js';
 
 /**
  * The route gates (PROJECT.md decision 10). Every gated operation in a contract names one in
@@ -69,10 +70,15 @@ export const STEP_UP_WINDOW = Duration.fromObject({ minutes: 5 });
  * is that a leaked one cannot mint more keys or rewrite the exit conditions stages are judged by
  * (decision 8). The refusal says so (`step_up_unavailable`), and a client answers it by signing in
  * fresh for that one call, as `wilson stages edit` does. A signed-in session that is merely old gets
- * `step_up_required` with the window, and proving a factor again satisfies it.
+ * `step_up_required` with the window, and proving a factor again satisfies it. Until a strong
+ * factor (an authenticator app, a passkey) is enrolled the password counts; after, only that does.
  */
 @Injectable()
 export class StepUpPolicy extends ManagePolicy {
+    constructor(private readonly factors: AccountFactors) {
+        super();
+    }
+
     override async evaluate(context: RequirePolicyContext, envelope: PolicyEnvelope): Promise<PolicyResult> {
         const scoped = await super.evaluate(context, envelope);
         if (!scoped.allowed) return scoped;
@@ -82,7 +88,16 @@ export class StepUpPolicy extends ManagePolicy {
                 reason: 'an API key cannot do this; sign in with your password',
             });
         }
-        const recent = context.session.factors.some(factor => factor.method !== 'apikey' && isFactorRecent(factor, envelope.now, STEP_UP_WINDOW));
-        return recent ? this.allow() : this.denyStepUp('step_up_required', { within: STEP_UP_WINDOW });
+        // Once a strong factor is enrolled, the password no longer steps up on its own: otherwise a
+        // stolen password would be enough to remove the authenticator that was meant to stop it.
+        const accepted = (await this.factors.hasStrongFactor(context.session.subject)) ? STRONG_METHODS : undefined;
+        const recent = context.session.factors.some(
+            factor =>
+                factor.method !== 'apikey' &&
+                (accepted === undefined || accepted.includes(factor.method)) &&
+                isFactorRecent(factor, envelope.now, STEP_UP_WINDOW),
+        );
+        if (recent) return this.allow();
+        return this.denyStepUp('step_up_required', { within: STEP_UP_WINDOW, ...(accepted ? { acceptableMethods: accepted } : {}) });
     }
 }

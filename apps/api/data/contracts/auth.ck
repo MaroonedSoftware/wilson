@@ -7,20 +7,33 @@ options {
 }
 
 # Signing in (PROJECT.md, Authentication). Every way of getting a session goes through
-# `POST /api/auth/token` with a `grant_type`, the OAuth shape deadair and ats use. Two grants exist so
-# far: `password` signs in, and `refresh_token` trades a refresh token for a fresh pair. The request
+# `POST /api/auth/token` with a `grant_type`, the OAuth shape deadair and ats use: `password` signs in
+# (or, with a second factor enrolled, starts signing in), `authenticator` finishes it with a code, and
+# `refresh_token` trades a refresh token for a fresh pair. The request
 # field names are OAuth's (`grant_type`, `refresh_token`); the response's are this API's own.
 #
 # `security: none` on `token` and `logout`: signing in is how a caller gets a session, and signing
 # out must work with a dead one. `session` needs one (`wilson.view`).
 
 contract TokenRequest: {
-    grant_type: enum(password, refresh_token)
+    grant_type: enum(password, refresh_token, authenticator)
     # `password` grant.
     username?: string(max=64)
     password?: string(max=256)
     # `refresh_token` grant.
     refresh_token?: string
+    # `authenticator` grant: the second step after a `password` grant answered `mfa_required`.
+    # `factor_id` may be left out when only one authenticator is enrolled.
+    challenge_id?: string
+    factor_id?: string
+    code?: string(max=10)
+}
+
+# A second factor a sign-in may be completed with, as `mfa_required` lists them.
+contract MfaFactor: {
+    method: enum(authenticator)
+    id: string
+    label?: string
 }
 
 # A signed-in session. `accessToken` goes in `Authorization: Bearer` on every request, and lasts as
@@ -29,11 +42,18 @@ contract TokenRequest: {
 #
 # A caller that sends `x-wilson-cookies: 1` (the web app) gets no `refreshToken` here: it arrives as
 # an httpOnly cookie instead, and a `refresh_token` grant with none in the body redeems that cookie.
+#
+# With a second factor enrolled, a correct password answers `result: mfa_required` instead, with no
+# tokens: `challengeId` and the `factors` to choose from, for an `authenticator` grant to complete
+# within five minutes. Otherwise `result` is `token`.
 contract TokenResponse: {
-    accessToken: string
+    result: enum(token, mfa_required)
+    accessToken?: string
     refreshToken?: string
-    expiresIn: number
-    tokenType: string
+    expiresIn?: number
+    tokenType?: string
+    challengeId?: string
+    factors?: array(MfaFactor)
 }
 
 # The session the caller's bearer token names.
@@ -58,9 +78,10 @@ operation /api/auth/token: {
             }
             # The grant's fields are missing.
             400:
-            # Wrong username or password, or a refresh token that is invalid, spent or revoked.
+            # Wrong username, password or code, a challenge that expired, or a refresh token that is
+            # invalid, spent or revoked.
             401:
-            # Too many wrong passwords. Wait five minutes.
+            # Too many wrong passwords or codes. Wait five minutes.
             429:
         }
     }

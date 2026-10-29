@@ -56,6 +56,9 @@ importers:
       '@maroonedsoftware/cache':
         specifier: ^0.6.0
         version: 0.6.0
+      '@maroonedsoftware/encryption':
+        specifier: ^0.5.13
+        version: 0.5.13
       '@maroonedsoftware/errors':
         specifier: ^1.9.1
         version: 1.9.1

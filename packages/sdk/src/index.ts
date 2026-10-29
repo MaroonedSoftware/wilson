@@ -3,6 +3,7 @@ export * from './api.keys.client.js';
 export * from './auth.client.js';
 export * from './board.client.js';
 export * from './context.client.js';
+export * from './factors.client.js';
 export * from './health.client.js';
 export * from './learnings.client.js';
 export * from './onboarding.client.js';

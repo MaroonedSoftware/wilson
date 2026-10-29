@@ -13,6 +13,7 @@ import { VIEW_POLICY } from '#modules/policy/access.policies.js';
 import { ApiKeysRouter } from './api.keys.router.js';
 import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
+import { FactorsRouter } from './factors.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { LearningsRouter } from './learnings.router.js';
@@ -265,6 +266,7 @@ export const routers = (signal?: AbortSignal) => [
     OnboardingRouter,
     AuthRouter,
     ApiKeysRouter,
+    FactorsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
 ];

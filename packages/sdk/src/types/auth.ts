@@ -1,13 +1,41 @@
 /**
- * generated from [TokenRequest](file://./../../../../apps/api/data/contracts/auth.ck#L17)
+ * generated from [TokenRequest](file://./../../../../apps/api/data/contracts/auth.ck#L18)
  */
 export interface TokenRequest {
-    grant_type: 'password' | 'refresh_token';
+    grant_type: 'password' | 'refresh_token' | 'authenticator';
     /** `password` grant. */
     username?: string;
     password?: string;
     /** `refresh_token` grant. */
     refresh_token?: string;
+    /**
+     * `authenticator` grant: the second step after a `password` grant answered `mfa_required`.
+     * `factor_id` may be left out when only one authenticator is enrolled.
+     */
+    challenge_id?: string;
+    factor_id?: string;
+    code?: string;
+}
+
+/**
+ * A second factor a sign-in may be completed with, as `mfa_required` lists them.
+ * generated from [MfaFactor](file://./../../../../apps/api/data/contracts/auth.ck#L33)
+ */
+export interface MfaFactor {
+    method: 'authenticator';
+    id: string;
+    label?: string;
+}
+
+/**
+ * The session the caller's bearer token names.
+ * generated from [CurrentSession](file://./../../../../apps/api/data/contracts/auth.ck#L60)
+ */
+export interface CurrentSession {
+    accountId: string;
+    username: string;
+    issuedAt: string;
+    expiresAt: string;
 }
 
 /**
@@ -17,22 +45,18 @@ export interface TokenRequest {
  *
  * A caller that sends `x-wilson-cookies: 1` (the web app) gets no `refreshToken` here: it arrives as
  * an httpOnly cookie instead, and a `refresh_token` grant with none in the body redeems that cookie.
- * generated from [TokenResponse](file://./../../../../apps/api/data/contracts/auth.ck#L32)
+ *
+ * With a second factor enrolled, a correct password answers `result: mfa_required` instead, with no
+ * tokens: `challengeId` and the `factors` to choose from, for an `authenticator` grant to complete
+ * within five minutes. Otherwise `result` is `token`.
+ * generated from [TokenResponse](file://./../../../../apps/api/data/contracts/auth.ck#L49)
  */
 export interface TokenResponse {
-    accessToken: string;
+    result: 'token' | 'mfa_required';
+    accessToken?: string;
     refreshToken?: string;
-    expiresIn: number;
-    tokenType: string;
-}
-
-/**
- * The session the caller's bearer token names.
- * generated from [CurrentSession](file://./../../../../apps/api/data/contracts/auth.ck#L40)
- */
-export interface CurrentSession {
-    accountId: string;
-    username: string;
-    issuedAt: string;
-    expiresAt: string;
+    expiresIn?: number;
+    tokenType?: string;
+    challengeId?: string;
+    factors?: MfaFactor[];
 }

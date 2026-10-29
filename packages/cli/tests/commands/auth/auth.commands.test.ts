@@ -37,9 +37,9 @@ const buildCtx = (env: Record<string, string> = {}) => {
     return { ctx: { env, logger, config: { get: (_k: string, f: string) => f } } as never, logger };
 };
 
-const io = (answers: { username?: string; password?: string; stdin?: string }): LoginIo => ({
+const io = (answers: { username?: string; password?: string; stdin?: string; code?: string }): LoginIo => ({
     ask: async () => answers.username,
-    askSecret: async () => answers.password,
+    askSecret: async (message: string) => (message.startsWith('Code') ? answers.code : answers.password),
     readStdin: async () => answers.stdin ?? '',
 });
 
@@ -113,7 +113,7 @@ describe('describeApiError', () => {
 describe('wilson auth login', () => {
     it('signs in, stores a manage key, and signs the password session out again', async () => {
         fetchMock
-            .mockResolvedValueOnce(json({ accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const entry = memoryEntry();
@@ -132,7 +132,7 @@ describe('wilson auth login', () => {
 
     it('revokes the key a second login replaces', async () => {
         fetchMock
-            .mockResolvedValueOnce(json({ accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(json({ ...KEY, id: 'key-0', revokedAt: '2026-10-29T00:00:00Z' }))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -146,13 +146,41 @@ describe('wilson auth login', () => {
 
     it('reads the password from stdin with --password-stdin, trimming the newline', async () => {
         fetchMock
-            .mockResolvedValueOnce(json({ accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
         await login({ username: 'operator', passwordStdin: true }, buildCtx().ctx, io({ stdin: 'from-stdin\n' }), keyStore(memoryEntry()));
 
         expect(calls()[0]!.body.password).toBe('from-stdin');
+    });
+
+    it('asks for the authenticator code when the password answers mfa_required, and signs in with it', async () => {
+        fetchMock
+            .mockResolvedValueOnce(
+                json({ result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'authenticator', id: 'f-1', label: 'phone' }] }),
+            )
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const entry = memoryEntry();
+
+        expect(await login({}, buildCtx().ctx, io({ username: 'operator', password: 'pw', code: '123456' }), keyStore(entry))).toBe(0);
+
+        expect(calls()[1]!.body).toEqual({ grant_type: 'authenticator', challenge_id: 'ch-1', factor_id: 'f-1', code: '123456' });
+        expect(calls()[2]!.headers.Authorization).toBe('Bearer session-jwt');
+        expect(JSON.parse(entry.value!).token).toBe('wl_new');
+    });
+
+    it('says the code was wrong', async () => {
+        fetchMock
+            .mockResolvedValueOnce(json({ result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'authenticator', id: 'f-1' }] }))
+            .mockResolvedValueOnce(json({}, 401));
+        const { ctx, logger } = buildCtx();
+
+        expect(await login({}, ctx, io({ username: 'operator', password: 'pw', code: '000000' }), keyStore(memoryEntry()))).toBe(1);
+
+        expect(logger.error).toHaveBeenCalledWith('wrong code');
     });
 
     it('says the password was wrong, and stores nothing', async () => {
@@ -168,7 +196,7 @@ describe('wilson auth login', () => {
 
     it('revokes the new key when the keyring cannot hold it', async () => {
         fetchMock
-            .mockResolvedValueOnce(json({ accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(json({ ...KEY, revokedAt: '2026-10-29T00:00:00Z' }))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -259,7 +287,7 @@ describe('withStepUp', () => {
             .mockResolvedValueOnce(
                 json({ accountId: 'a', username: 'operator', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
             )
-            .mockResolvedValueOnce(json({ accessToken: 'fresh-session', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(json({ result: 'token', accessToken: 'fresh-session', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
             .mockResolvedValueOnce(json({ id: 'v2', yaml: 'x', message: 'm', createdAt: '2026-10-29T00:00:00Z' }))
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const { withStepUp } = await import('#src/sign.in.js');

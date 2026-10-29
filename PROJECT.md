@@ -663,13 +663,21 @@ generates its keys. Refusing to boot without one would be stricter, but the CLI 
 container, so an unset key would stop every `wilson` command and the daemon's next restart.
 
 **Factors.** A password (Argon2id, rate-limited per account and per caller) is the first factor.
-TOTP and passkeys are the second. Step-up, meaning a strong factor proven within the last five
+An authenticator app (TOTP) and passkeys are the second. With one enrolled, a correct password
+answers `mfa_required` with a five-minute challenge instead of a session, and the `authenticator`
+grant completes it with a code; each code works once. The TOTP seed is stored encrypted under a
+root key (`AUTH_ENCRYPTION_KEY`, or generated into `../.wilson-secrets/encryption.key` like the
+signing key), because a code can only be checked against the seed itself. Lose that key and every
+enrolled authenticator stops working, so back it up with the database. Step-up, meaning a strong factor proven within the last five
 minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
 because those are the two actions that hand out or rewrite authority. An API-key session never
 satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
 answers that refusal by asking for the password and making that one call with a fresh session,
 signed out again straight after. A leaked key can read the stage config and cannot rewrite it.
-Until a second factor is enrolled, a password proved within the window is the step-up.
+Until a second factor is enrolled, a password proved within the window is the step-up; after, only
+the second factor is, so a stolen password cannot remove the authenticator meant to stop it. Adding
+or removing a factor is itself behind step-up, and the web app asks for it in a "confirm it's you"
+dialog when its session is older than the window.
 
 **Transport.** The web app holds the access token in memory, never in storage a script could
 read, and sends it as a bearer header. It opts into cookies with `x-wilson-cookies: 1`, and the API

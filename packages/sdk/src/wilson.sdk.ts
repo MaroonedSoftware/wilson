@@ -6,6 +6,7 @@ import { ProjectsClient } from './projects.client.js';
 import { OnboardingClient } from './onboarding.client.js';
 import { LearningsClient } from './learnings.client.js';
 import { HealthClient } from './health.client.js';
+import { FactorsClient } from './factors.client.js';
 import { ContextClient } from './context.client.js';
 import { BoardClient } from './board.client.js';
 import { AuthClient } from './auth.client.js';
@@ -18,6 +19,7 @@ export class WilsonSdk {
     readonly onboarding: OnboardingClient;
     readonly learnings: LearningsClient;
     readonly health: HealthClient;
+    readonly factors: FactorsClient;
     readonly context: ContextClient;
     readonly board: BoardClient;
     readonly auth: AuthClient;
@@ -31,6 +33,7 @@ export class WilsonSdk {
         this.onboarding = new OnboardingClient(sdkFetch);
         this.learnings = new LearningsClient(sdkFetch);
         this.health = new HealthClient(sdkFetch);
+        this.factors = new FactorsClient(sdkFetch);
         this.context = new ContextClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
         this.auth = new AuthClient(sdkFetch);

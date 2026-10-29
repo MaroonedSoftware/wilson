@@ -1,7 +1,17 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Alert, Button, Center, Loader, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
-import { onboard, onboardingFailure, restoreSession, signIn, signInFailure, type SessionState } from '#src/lib/auth.js';
+import {
+    codeFailure,
+    completeSignIn,
+    onboard,
+    onboardingFailure,
+    restoreSession,
+    signIn,
+    signInFailure,
+    type PendingSignIn,
+    type SessionState,
+} from '#src/lib/auth.js';
 import { currentAccessToken, onSessionChange } from '#src/lib/session.js';
 
 /**
@@ -68,49 +78,105 @@ function Panel({ title, description, children }: { title: string; description: s
     );
 }
 
-/** The sign-in form. A wrong password and a lockout are told apart, in plain words. */
-export function SignInForm({ unreachable = false }: { unreachable?: boolean }) {
+/**
+ * Username and password, then, if the account has an authenticator app enrolled, its code. Calls
+ * `onSignedIn` once a session is in place. Shared by the sign-in page and the step-up dialog.
+ */
+export function CredentialsSteps({
+    initialFailure,
+    submitLabel,
+    onSignedIn,
+}: {
+    initialFailure?: string;
+    submitLabel: string;
+    onSignedIn?: () => void;
+}) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [failure, setFailure] = useState<string | undefined>(unreachable ? 'Could not reach the API.' : undefined);
+    const [code, setCode] = useState('');
+    const [challenge, setChallenge] = useState<PendingSignIn | undefined>(undefined);
+    const [failure, setFailure] = useState<string | undefined>(initialFailure);
     const [pending, setPending] = useState(false);
 
-    const submit = async (event: FormEvent) => {
+    const submitPassword = async (event: FormEvent) => {
         event.preventDefault();
         setPending(true);
         setFailure(undefined);
         try {
-            await signIn(username, password);
+            const next = await signIn(username, password);
+            setPending(false);
+            if (next) setChallenge(next);
+            else onSignedIn?.();
         } catch (err) {
             setFailure(signInFailure(err));
             setPending(false);
         }
     };
 
-    return (
-        <Panel title="Sign in" description="Sign in to your wilson board.">
-            <form onSubmit={submit}>
+    const submitCode = async (event: FormEvent) => {
+        event.preventDefault();
+        if (!challenge) return;
+        setPending(true);
+        setFailure(undefined);
+        try {
+            await completeSignIn(challenge, code);
+            setPending(false);
+            onSignedIn?.();
+        } catch (err) {
+            setFailure(codeFailure(err));
+            setCode('');
+            setPending(false);
+        }
+    };
+
+    if (challenge) {
+        return (
+            <form onSubmit={submitCode}>
                 <Stack gap="sm">
                     <TextInput
-                        label="Username"
-                        autoComplete="username"
-                        value={username}
-                        onChange={e => setUsername(e.currentTarget.value)}
+                        label="Code"
+                        description={`From your authenticator app${challenge.label ? ` (${challenge.label})` : ''}.`}
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        value={code}
+                        onChange={e => setCode(e.currentTarget.value)}
                         required
-                    />
-                    <PasswordInput
-                        label="Password"
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={e => setPassword(e.currentTarget.value)}
-                        required
+                        autoFocus
                     />
                     {failure && <Alert color="red">{failure}</Alert>}
                     <Button type="submit" loading={pending}>
-                        Sign in
+                        Verify
                     </Button>
                 </Stack>
             </form>
+        );
+    }
+
+    return (
+        <form onSubmit={submitPassword}>
+            <Stack gap="sm">
+                <TextInput label="Username" autoComplete="username" value={username} onChange={e => setUsername(e.currentTarget.value)} required />
+                <PasswordInput
+                    label="Password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={e => setPassword(e.currentTarget.value)}
+                    required
+                />
+                {failure && <Alert color="red">{failure}</Alert>}
+                <Button type="submit" loading={pending}>
+                    {submitLabel}
+                </Button>
+            </Stack>
+        </form>
+    );
+}
+
+/** The sign-in page. A wrong password, a wrong code and a lockout are told apart, in plain words. */
+export function SignInForm({ unreachable = false }: { unreachable?: boolean }) {
+    return (
+        <Panel title="Sign in" description="Sign in to your wilson board.">
+            <CredentialsSteps submitLabel="Sign in" initialFailure={unreachable ? 'Could not reach the API.' : undefined} />
         </Panel>
     );
 }

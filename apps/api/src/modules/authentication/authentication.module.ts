@@ -12,24 +12,35 @@ import {
     AuthenticationSchemeHandler,
     AuthenticationSessionService,
     AuthenticationSessionServiceOptions,
+    AuthenticatorFactorRepository,
+    AuthenticatorFactorService,
+    AuthenticatorFactorServiceOptions,
     ChainedAuthenticationHandler,
     JwtAuthenticationHandler,
     JwtAuthenticationIssuerMap,
     JwtProvider,
+    MfaChallengeService,
+    MfaChallengeServiceOptions,
+    OtpProvider,
     PasswordFactorRepository,
     PasswordFactorService,
     PasswordHashProvider,
     PasswordStrengthProvider,
 } from '@maroonedsoftware/authentication';
 import { CacheProvider } from '@maroonedsoftware/cache';
+import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
 import { PolicyService } from '@maroonedsoftware/policies';
 import type { DB } from '#modules/data/db.js';
+import { AccountFactors } from './account.factors.js';
 import { AccountRepository } from './account.repository.js';
 import { AccountApiKeyRepository } from './api.key.repository.js';
 import { ApiKeysService } from './api.keys.service.js';
+import { AccountAuthenticatorRepository } from './authenticator.repository.js';
 import { CurrentSessionService } from './current.session.service.js';
+import { resolveEncryptionKey } from './encryption.key.js';
+import { FactorsService } from './factors.service.js';
 import { OnboardingService } from './onboarding.service.js';
 import { PasswordFactors, PasswordRateLimiter } from './password.factors.js';
 import { AccountPasswordRepository } from './password.factor.repository.js';
@@ -61,6 +72,7 @@ export const AuthenticationModule: ServerKitModule = {
         // Resolved once, at setup, so a missing or unreadable key file fails the boot that needed
         // it, naming the file, rather than the first sign-in.
         const sessionKey = await resolveSessionKey(config);
+        const encryptionKey = await resolveEncryptionKey(config);
 
         registry
             .register(JwtProvider)
@@ -131,6 +143,37 @@ export const AuthenticationModule: ServerKitModule = {
         registry.register(PasswordRateLimiter).useClass(PasswordRateLimiter).asSingleton();
         registry.register(PasswordFactorRepository).useClass(AccountPasswordRepository).asTransient();
         registry.register(PasswordFactors).useClass(PasswordFactors).asTransient();
+
+        // Second factors. An authenticator app's seed is encrypted at rest under the root key, since
+        // a code can only be checked against the seed itself. The challenge service holds the step
+        // between a correct password and the code, in the cache, for five minutes.
+        registry
+            .register(EncryptionProvider)
+            .useFactory(() => new EncryptionProvider(encryptionKey))
+            .asSingleton();
+        registry.register(OtpProvider).useClass(OtpProvider).asSingleton();
+        registry.register(AuthenticatorFactorServiceOptions).useValue(new AuthenticatorFactorServiceOptions(SESSION_ISSUER));
+        registry.register(AuthenticatorFactorRepository).useClass(AccountAuthenticatorRepository).asTransient();
+        registry
+            .register(AuthenticatorFactorService)
+            .useFactory(
+                container =>
+                    new AuthenticatorFactorService(
+                        container.get(AuthenticatorFactorServiceOptions),
+                        container.get(OtpProvider),
+                        container.get(AuthenticatorFactorRepository),
+                        container.get(EncryptionProvider),
+                        container.get(CacheProvider),
+                    ),
+            )
+            .asTransient();
+        registry.register(MfaChallengeServiceOptions).useValue(new MfaChallengeServiceOptions());
+        registry
+            .register(MfaChallengeService)
+            .useFactory(container => new MfaChallengeService(container.get(MfaChallengeServiceOptions), container.get(CacheProvider)))
+            .asTransient();
+        registry.register(AccountFactors).useClass(AccountFactors).asTransient();
+        registry.register(FactorsService).useClass(FactorsService).asTransient();
         registry
             .register(PasswordFactorService)
             .useFactory(container => container.get(PasswordFactors).over(container.get(Kysely<DB>)))

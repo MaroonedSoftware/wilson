@@ -27,6 +27,26 @@ export const onSessionChange = (listener: () => void): (() => void) => {
     return () => listeners.delete(listener);
 };
 
+/**
+ * Asks the operator to confirm it is them (`StepUpDialog`), resolving true once a fresh session is
+ * in place and false if they cancel. Registered by the dialog while it is mounted.
+ */
+let stepUpHandler: (() => Promise<boolean>) | undefined;
+
+export const setStepUpHandler = (handler: (() => Promise<boolean>) | undefined): void => {
+    stepUpHandler = handler;
+};
+
+/** Whether a response is the API asking for a recently proved factor (`wilson.step.up`). */
+const needsStepUp = async (res: Response): Promise<boolean> => {
+    if (res.status !== 403) return false;
+    try {
+        return ((await res.clone().json()) as { details?: { kind?: string } }).details?.kind === 'step_up_required';
+    } catch {
+        return false;
+    }
+};
+
 /** Sent on every request so the API uses cookies for this client; see `session.cookies.ts` in apps/api. */
 const COOKIE_OPT_IN = { 'x-wilson-cookies': '1' };
 
@@ -70,6 +90,10 @@ export const refreshSession = (baseUrl: string): Promise<boolean> => {
  * Adds the bearer token and the cookie opt-in, sends credentials so the API's cookies travel, and
  * on a 401 refreshes once and replays the request. A request to the token endpoint itself is never
  * replayed, so a wrong password is a 401 the sign-in form sees rather than a refresh attempt.
+ *
+ * A 403 asking for a step-up (adding or removing a second factor with a session older than five
+ * minutes) opens the step-up dialog, and once the operator has signed in again the request is
+ * replayed with the new session.
  */
 export const sessionFetch = (options: { baseUrl: string; headers?: Record<string, string> }): SdkFetch => {
     const send = (url: string, init: SdkRequestInit) =>
@@ -88,6 +112,9 @@ export const sessionFetch = (options: { baseUrl: string; headers?: Record<string
     return async (url, init) => {
         let res = await send(url, init);
         if (res.status === 401 && !url.startsWith(TOKEN_PATH) && (await refreshSession(options.baseUrl))) {
+            res = await send(url, init);
+        }
+        if (stepUpHandler && (await needsStepUp(res)) && (await stepUpHandler())) {
             res = await send(url, init);
         }
         if (!res.ok && !(init.expectStatuses ?? []).includes(res.status)) {

@@ -274,6 +274,24 @@ export interface ApiKeys {
 }
 
 /**
+ * An authenticator app (TOTP) enrolled as the operator's second factor. `secret` is the seed,
+ * encrypted under the root key; see the migration.
+ */
+export interface AccountAuthenticators {
+    id: ColumnType<string, string | undefined, never>;
+    accountId: string;
+    secret: string;
+    type: string;
+    algorithm: string;
+    tokenLength: number;
+    periodSeconds: number;
+    counter: ColumnType<number, number | undefined, number>;
+    label: string | null;
+    active: ColumnType<boolean, boolean | undefined, boolean>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+/**
  * A project's human-approved learnings document (card 0239). Append-only, the same shape as
  * {@link StageConfigs}: the newest row per project is the current document and the rest are its
  * history. Agents read it and never write it; an empty `markdown` means "no learnings".
@@ -307,5 +325,6 @@ export interface DB {
     'runner.accounts': Accounts;
     'runner.accountPasswords': AccountPasswords;
     'runner.apiKeys': ApiKeys;
+    'runner.accountAuthenticators': AccountAuthenticators;
     'runner.learnings': Learnings;
 }

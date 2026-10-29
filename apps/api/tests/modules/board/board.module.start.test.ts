@@ -53,9 +53,10 @@ const projectConfig = async (name: string, paths: { codeRoot: string }): Promise
             `DATABASE_NAME=${process.env.TEST_DATABASE_NAME ?? 'wilson_test'}`,
             `PROJECT_NAME=${name}`,
             `PROJECT_CODE_ROOT=${paths.codeRoot}`,
-            // Booting every module generates a session key when none exists; keep it in this
-            // test's own directory rather than the deployment's secrets directory.
+            // Booting every module generates the session and encryption keys when none exist; keep
+            // them in this test's own directory rather than the deployment's secrets directory.
             `AUTH_SESSION_KEY_FILE=${join(dir, 'session.pem')}`,
+            `AUTH_ENCRYPTION_KEY_FILE=${join(dir, 'encryption.key')}`,
         ].join('\n'),
         'utf8',
     );

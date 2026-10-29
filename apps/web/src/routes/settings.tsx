@@ -7,6 +7,7 @@ import type { SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { SdkError } from '@wilson/sdk';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
@@ -520,6 +521,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Engine credentials</Title>
                     <ClaudeConfigDirControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Security</Title>
+                    <SecurityControls />
                 </Stack>
             </Paper>
 

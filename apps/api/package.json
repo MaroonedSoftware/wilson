@@ -28,6 +28,7 @@
         "@maroonedsoftware/appconfig": "^2.6.1",
         "@maroonedsoftware/authentication": "^6.7.0",
         "@maroonedsoftware/cache": "^0.6.0",
+        "@maroonedsoftware/encryption": "^0.5.13",
         "@maroonedsoftware/errors": "^1.9.1",
         "@maroonedsoftware/jobbroker": "^1.12.2",
         "@maroonedsoftware/koa": "^4.1.3",

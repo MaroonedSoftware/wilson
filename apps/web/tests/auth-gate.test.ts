@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from '#src/components/AuthGate.js';
 import { signOut } from '#src/lib/auth.js';
 import { API_BASE } from '#src/lib/sdk.js';
-import { currentAccessToken, sessionFetch, setAccessToken } from '#src/lib/session.js';
+import { currentAccessToken, sessionFetch, setAccessToken, setStepUpHandler } from '#src/lib/session.js';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -79,7 +79,7 @@ describe('AuthGate on load', () => {
     it('restores the session from the refresh cookie and shows the app', async () => {
         route({
             '/api/onboarding': json(200, { accountExists: true }),
-            '/api/auth/token': json(200, { accessToken: 'restored', expiresIn: 1, tokenType: 'Bearer' }),
+            '/api/auth/token': json(200, { result: 'token', accessToken: 'restored', expiresIn: 1, tokenType: 'Bearer' }),
         });
 
         renderGate();
@@ -105,7 +105,11 @@ describe('the sign-in form', () => {
     beforeEach(() => {
         route({
             '/api/onboarding': json(200, { accountExists: true }),
-            '/api/auth/token': [json(401, {}), json(401, {}), json(200, { accessToken: 'signed-in', expiresIn: 1, tokenType: 'Bearer' })],
+            '/api/auth/token': [
+                json(401, {}),
+                json(401, {}),
+                json(200, { result: 'token', accessToken: 'signed-in', expiresIn: 1, tokenType: 'Bearer' }),
+            ],
         });
     });
 
@@ -125,6 +129,38 @@ describe('the sign-in form', () => {
         const [, init] = callsTo('/api/auth/token').at(-1)!;
         expect((init.headers as Record<string, string>)['x-wilson-cookies']).toBe('1');
         expect(JSON.parse(init.body as string)).toMatchObject({ grant_type: 'password', username: 'operator', password: 'right' });
+    });
+});
+
+describe('signing in with an authenticator app', () => {
+    it('asks for the code after the password, and signs in with it', async () => {
+        route({
+            '/api/onboarding': json(200, { accountExists: true }),
+            '/api/auth/token': [
+                json(401, {}),
+                json(200, { result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'authenticator', id: 'f-1', label: 'phone' }] }),
+                json(401, {}),
+                json(200, { result: 'token', accessToken: 'with-code', expiresIn: 1, tokenType: 'Bearer' }),
+            ],
+        });
+        renderGate();
+        await screen.findByRole('button', { name: 'Sign in' });
+        fill('Username', 'operator');
+        fill('Password', 'right');
+        fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+        await screen.findByText(/From your authenticator app \(phone\)/);
+        fill('Code', '000000');
+        fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+        expect(await screen.findByText(/That code is wrong/)).toBeTruthy();
+
+        fill('Code', '123456');
+        fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+        expect(await screen.findByText('the board')).toBeTruthy();
+        expect(currentAccessToken()).toBe('with-code');
+        const [, init] = callsTo('/api/auth/token').at(-1)!;
+        expect(JSON.parse(init.body as string)).toEqual({ grant_type: 'authenticator', challenge_id: 'ch-1', factor_id: 'f-1', code: '123456' });
     });
 });
 
@@ -164,7 +200,7 @@ describe('the onboarding form', () => {
     it('creates the account and signs straight in', async () => {
         route({
             '/api/onboarding': [json(200, { accountExists: false }), json(201, { accountExists: true })],
-            '/api/auth/token': json(200, { accessToken: 'new', expiresIn: 1, tokenType: 'Bearer' }),
+            '/api/auth/token': json(200, { result: 'token', accessToken: 'new', expiresIn: 1, tokenType: 'Bearer' }),
         });
         renderGate();
         await screen.findByText('Create your account');
@@ -193,6 +229,42 @@ describe('signing out', () => {
 
 describe('sessionFetch', () => {
     const sdkFetch = () => sessionFetch({ baseUrl: API_BASE });
+
+    afterEach(() => setStepUpHandler(undefined));
+
+    it('on a step-up refusal, asks the step-up handler and replays the request once it succeeds', async () => {
+        setAccessToken('old-session');
+        route({ '/api/auth/factors/authenticator': [json(403, { details: { kind: 'step_up_required' } }), json(200, { registrationId: 'r' })] });
+        setStepUpHandler(async () => {
+            setAccessToken('fresh-session');
+            return true;
+        });
+
+        const res = await sdkFetch()('/api/auth/factors/authenticator', { method: 'POST', body: '{}' });
+
+        expect(res.status).toBe(200);
+        const [, retry] = callsTo('/api/auth/factors/authenticator')[1]!;
+        expect((retry.headers as Record<string, string>).Authorization).toBe('Bearer fresh-session');
+    });
+
+    it('leaves the refusal in place when the operator cancels the step-up', async () => {
+        setAccessToken('old-session');
+        route({ '/api/auth/factors/authenticator': json(403, { details: { kind: 'step_up_required' } }) });
+        setStepUpHandler(async () => false);
+
+        await expect(sdkFetch()('/api/auth/factors/authenticator', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 403 });
+        expect(callsTo('/api/auth/factors/authenticator')).toHaveLength(1);
+    });
+
+    it('does not ask for a step-up on any other 403', async () => {
+        setAccessToken('t');
+        route({ '/api/cards': json(403, { details: { reason: 'nope' } }) });
+        const handler = vi.fn(async () => true);
+        setStepUpHandler(handler);
+
+        await expect(sdkFetch()('/api/cards', { method: 'GET' })).rejects.toMatchObject({ status: 403 });
+        expect(handler).not.toHaveBeenCalled();
+    });
 
     it('sends the bearer token, the cookie opt-in, and credentials', async () => {
         setAccessToken('token-a');

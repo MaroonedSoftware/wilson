@@ -6,6 +6,7 @@ import { AuthGate } from '#src/components/AuthGate.js';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
+import { StepUpDialog } from '#src/components/StepUpDialog.js';
 import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
 import { signOut } from '#src/lib/auth.js';
 import { wilson } from '#src/lib/sdk.js';
@@ -87,6 +88,7 @@ function Shell() {
             <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
                 <AppShell header={{ height: 48 }} padding="md">
                     <Notifications />
+                    <StepUpDialog />
                     <AppShell.Header>
                         <Group h="100%" px="md" justify="space-between">
                             <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
