@@ -1,9 +1,10 @@
-import { Container, Injectable, Registry } from 'injectkit';
+import { Container, Injectable, Registry, type Constructor } from 'injectkit';
 import { DateTime } from 'luxon';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
-import { PasswordAllowedPolicy, type PasswordAllowedPolicyContext } from '@maroonedsoftware/authentication';
+import { PasswordAllowedPolicy, type ApiKeyAllowedPolicyContext, type PasswordAllowedPolicyContext } from '@maroonedsoftware/authentication';
 import { ServerKitModule } from '@maroonedsoftware/koa';
-import { BasePolicyService, PolicyRegistryMap, PolicyService, type PolicyEnvelope } from '@maroonedsoftware/policies';
+import { AccountApiKeyAllowedPolicy } from '#modules/authentication/api.key.allowed.policy.js';
+import { BasePolicyService, PolicyRegistryMap, PolicyService, type Policy, type PolicyEnvelope } from '@maroonedsoftware/policies';
 
 /**
  * Every policy wilson can be asked to evaluate, by name. `@maroonedsoftware/authentication` asks for
@@ -15,10 +16,13 @@ export const POLICY_MAPPINGS = {
     // Asked by `PasswordFactorService` before it stores a password: zxcvbn strength, and no reuse of
     // a previous password.
     'auth.factor.password.allowed': PasswordAllowedPolicy,
+    // Asked by `ApiKeyService` when a key is created and whenever one is used.
+    'auth.api.key.allowed': AccountApiKeyAllowedPolicy,
 } as const;
 
 export interface WilsonPolicyContexts {
     'auth.factor.password.allowed': PasswordAllowedPolicyContext;
+    'auth.api.key.allowed': ApiKeyAllowedPolicyContext;
 }
 
 /**
@@ -40,7 +44,7 @@ export const PolicyModule: ServerKitModule = {
     name: 'Policy',
     setup: async (registry: Registry, _: AppConfig) => {
         const policies = new PolicyRegistryMap();
-        for (const [name, policy] of Object.entries(POLICY_MAPPINGS)) {
+        for (const [name, policy] of Object.entries(POLICY_MAPPINGS) as [string, Constructor<Policy>][]) {
             policies.set(name, policy);
             registry.register(policy).useClass(policy).asTransient();
         }

@@ -9,6 +9,7 @@ import { cardFeed } from '#modules/feed/card.feed.js';
 import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
+import { ApiKeysRouter } from './api.keys.router.js';
 import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
 import { ContextRouter } from './context.router.js';
@@ -261,6 +262,7 @@ export const routers = (signal?: AbortSignal) => [
     LearningsRouter,
     OnboardingRouter,
     AuthRouter,
+    ApiKeysRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
 ];

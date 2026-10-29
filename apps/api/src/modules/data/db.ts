@@ -256,6 +256,24 @@ export interface AccountPasswords {
 }
 
 /**
+ * One of the operator's API keys. Only the token's SHA-256 is stored; see the migration.
+ */
+export interface ApiKeys {
+    id: ColumnType<string, string | undefined, never>;
+    accountId: string;
+    name: string;
+    type: string | null;
+    hint: string;
+    secretHash: string;
+    scopes: string[];
+    metadata: ColumnType<Record<string, unknown>, string | undefined, string>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+    expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    lastUsedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    revokedAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+}
+
+/**
  * A project's human-approved learnings document (card 0239). Append-only, the same shape as
  * {@link StageConfigs}: the newest row per project is the current document and the rest are its
  * history. Agents read it and never write it; an empty `markdown` means "no learnings".
@@ -288,5 +306,6 @@ export interface DB {
     'runner.cacheSetMembers': CacheSetMembers;
     'runner.accounts': Accounts;
     'runner.accountPasswords': AccountPasswords;
+    'runner.apiKeys': ApiKeys;
     'runner.learnings': Learnings;
 }

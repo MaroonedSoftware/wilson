@@ -1,9 +1,10 @@
 import { Injectable } from 'injectkit';
-import { AuthenticationSessionService, invalidAuthenticationSession, type AuthenticationSession } from '@maroonedsoftware/authentication';
+import { AuthenticationSessionService } from '@maroonedsoftware/authentication';
 import { unauthorizedError } from '@maroonedsoftware/errors';
 import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { CurrentSession } from '../../generated/auth.js';
 import { AccountRepository } from './account.repository.js';
+import { requireSession, sessionOf } from './request.session.js';
 
 /**
  * `GET /api/auth/session` and `POST /api/auth/logout`: the session the caller's bearer token names,
@@ -20,17 +21,9 @@ export class CurrentSessionService {
         private readonly accounts: AccountRepository,
     ) {}
 
-    /** The caller's session, or 401. Rollout step 6 moves this refusal into `requirePolicy`. */
-    private require(): AuthenticationSession {
-        const session = this.context.authenticationSession;
-        if (!session || session === invalidAuthenticationSession) {
-            throw unauthorizedError('Bearer error="invalid_token"');
-        }
-        return session;
-    }
-
     async get(): Promise<CurrentSession> {
-        const session = this.require();
+        // Rollout step 6 moves this refusal into `requirePolicy`.
+        const session = requireSession(this.context);
         const account = await this.accounts.get(session.subject);
         if (!account) throw unauthorizedError('Bearer error="invalid_token"');
         return { accountId: account.id, username: account.username, issuedAt: session.issuedAt, expiresAt: session.expiresAt };
@@ -41,8 +34,8 @@ export class CurrentSessionService {
      * With no live session there is nothing to end, and that is still a successful sign-out.
      */
     async logout(): Promise<void> {
-        const session = this.context.authenticationSession;
-        if (!session || session === invalidAuthenticationSession) return;
+        const session = sessionOf(this.context);
+        if (!session) return;
         await this.sessions.deleteSession(session.sessionToken, 'logout');
     }
 }

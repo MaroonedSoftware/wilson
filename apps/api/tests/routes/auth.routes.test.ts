@@ -1,64 +1,25 @@
-import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Container } from 'injectkit';
-import { Kysely } from 'kysely';
-import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftware/koa';
-import { ConsoleLogger } from '@maroonedsoftware/logger';
-import type { DB } from '#modules/data/db.js';
-import { modules } from '#modules/modules.js';
-import { routers } from '#src/routes/routes.setup.js';
-import { setupMiddleware } from '#src/server/setup.middleware.js';
 import { clearAccounts, holdAccounts } from '#tests/support/test.accounts.js';
-import { buildTestServerConfig } from '#tests/support/test.config.js';
+import { request, startTestServer, STRONG_PASSWORD, type TestServer } from '#tests/support/test.server.js';
 
-/**
- * Signing in over real HTTP: the app's own container, middleware and routers, against the test
- * database. `listen` is reached through a subclass because `start` would also run every module's
- * `start` hook, the job runner's among them, which has no business running in a test.
- */
-class ListeningBuilder extends ServerKitServerBuilder {
-    serve(signal: AbortSignal): Promise<Server> {
-        return this.listen(0, signal);
-    }
-}
-
-const STRONG_PASSWORD = 'correct horse battery staple 47';
-
-let container: Container;
-let db: Kysely<DB>;
-let base: string;
+/** Signing in over real HTTP: the app's own container, middleware and routers (`startTestServer`). */
+let server: TestServer;
 let release: () => Promise<void>;
-const stop = new AbortController();
 
 beforeAll(async () => {
     release = await holdAccounts();
-    const builder = new ListeningBuilder();
-    container = await builder.setup(await buildTestServerConfig(), new ConsoleLogger(), modules);
-    db = container.get(Kysely<DB>);
-    builder.setupMiddleware(setupMiddleware).setupRoutes(routers(stop.signal) as ServerKitRouterType[]);
-    const server = await builder.serve(stop.signal);
-    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    server = await startTestServer();
 });
 afterAll(async () => {
-    stop.abort();
-    await clearAccounts(db);
-    await db.destroy();
+    await clearAccounts(server.db);
+    await server.stop();
     await release();
 });
 beforeEach(async () => {
-    await clearAccounts(db);
+    await clearAccounts(server.db);
 });
 
-const call = (method: string, path: string, options: { body?: unknown; token?: string } = {}) =>
-    fetch(`${base}${path}`, {
-        method,
-        headers: {
-            ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
-            ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
-        },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    });
+const call = (method: string, path: string, options: { body?: unknown; token?: string } = {}) => request(server, method, path, options);
 
 const onboard = () => call('POST', '/api/onboarding', { body: { username: 'operator', password: STRONG_PASSWORD } });
 
@@ -194,7 +155,7 @@ describe('the current session and sign-out', () => {
     it('refuses a token whose account has gone', async () => {
         const { accessToken } = await tokens();
 
-        await clearAccounts(db);
+        await clearAccounts(server.db);
 
         expect((await call('GET', '/api/auth/session', { token: accessToken })).status).toBe(401);
     });

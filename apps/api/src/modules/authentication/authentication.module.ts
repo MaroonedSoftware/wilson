@@ -3,11 +3,17 @@ import { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import {
+    ApiKeyAuthenticationHandler,
+    ApiKeyRepository,
+    ApiKeyService,
+    ApiKeyServiceOptions,
     Argon2idPasswordHashProvider,
+    AuthenticationHandlerChain,
     AuthenticationHandlerMap,
     AuthenticationSchemeHandler,
     AuthenticationSessionService,
     AuthenticationSessionServiceOptions,
+    ChainedAuthenticationHandler,
     JwtAuthenticationHandler,
     JwtAuthenticationIssuerMap,
     JwtProvider,
@@ -19,8 +25,11 @@ import {
 import { CacheProvider } from '@maroonedsoftware/cache';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
+import { PolicyService } from '@maroonedsoftware/policies';
 import type { DB } from '#modules/data/db.js';
 import { AccountRepository } from './account.repository.js';
+import { AccountApiKeyRepository } from './api.key.repository.js';
+import { ApiKeysService } from './api.keys.service.js';
 import { CurrentSessionService } from './current.session.service.js';
 import { OnboardingService } from './onboarding.service.js';
 import { PasswordFactors, PasswordRateLimiter } from './password.factors.js';
@@ -36,6 +45,12 @@ export const SESSION_ISSUER = 'wilson';
 /** How long a session lives, and so how long an access token naming it does: deadair's thirty days.
  * Revocation does not wait for it, since every token is checked against its session on use. */
 export const SESSION_LIFETIME = Duration.fromObject({ days: 30 });
+
+/** API keys are `wl_` plus a random body and a checksum. */
+export const API_KEY_PREFIX = 'wl';
+
+/** How often a key's `last_used_at` is written: at most once per window, not on every request. */
+export const API_KEY_USE_WINDOW = Duration.fromObject({ minutes: 5 });
 
 /**
  * PROJECT.md, Authentication. Sessions, the operator account and its password, and resolving a
@@ -78,18 +93,45 @@ export const AuthenticationModule: ServerKitModule = {
             )
             .asTransient();
 
-        // How `authenticationMiddleware` turns `Authorization: Bearer <token>` into a session: the
-        // scheme handler picks the `bearer` handler, which decodes the JWT and hands it to the
-        // issuer named by its `iss`. One issuer, wilson's own. Rollout step 4 puts an API-key
-        // handler ahead of the JWT one under the same scheme, as deadair's chain does.
+        // How `authenticationMiddleware` turns `Authorization: Bearer <token>` into a session. One
+        // `bearer` scheme with two credentials behind it, tried in turn by the chain, first session
+        // that is not the sentinel winning: an API key (`wl_...`), then a session JWT. The key
+        // handler goes first because its test is a string prefix and costs nothing, so a JWT is
+        // declined without a query; the other way round, every key would be decoded as a JWT
+        // first. deadair's order, for deadair's reason.
+        registry.register(ApiKeyServiceOptions).useValue(new ApiKeyServiceOptions(API_KEY_PREFIX, 32, undefined, undefined, API_KEY_USE_WINDOW));
+        registry.register(ApiKeyRepository).useClass(AccountApiKeyRepository).asTransient();
+        registry
+            .register(ApiKeyService)
+            .useFactory(
+                container =>
+                    new ApiKeyService(
+                        container.get(ApiKeyServiceOptions),
+                        container.get(ApiKeyRepository),
+                        container.get(CacheProvider),
+                        container.get(PolicyService),
+                        container.get(Logger),
+                    ),
+            )
+            .asTransient();
+        registry.register(ApiKeyAuthenticationHandler).useClass(ApiKeyAuthenticationHandler).asTransient();
+
         registry.register(WilsonJwtAuthenticationIssuer).useClass(WilsonJwtAuthenticationIssuer).asTransient();
         registry.register(JwtAuthenticationIssuerMap).useMap(JwtAuthenticationIssuerMap).set(SESSION_ISSUER, WilsonJwtAuthenticationIssuer);
         registry.register(JwtAuthenticationHandler).useClass(JwtAuthenticationHandler).asTransient();
-        registry.register(AuthenticationHandlerMap).useMap(AuthenticationHandlerMap).set('bearer', JwtAuthenticationHandler);
+
+        registry
+            .register(AuthenticationHandlerChain)
+            .useArray(AuthenticationHandlerChain)
+            .push(ApiKeyAuthenticationHandler)
+            .push(JwtAuthenticationHandler);
+        registry.register(ChainedAuthenticationHandler).useClass(ChainedAuthenticationHandler).asTransient();
+        registry.register(AuthenticationHandlerMap).useMap(AuthenticationHandlerMap).set('bearer', ChainedAuthenticationHandler);
         registry.register(AuthenticationSchemeHandler).useClass(AuthenticationSchemeHandler).asTransient();
 
         registry.register(TokenService).useClass(TokenService).asTransient();
         registry.register(CurrentSessionService).useClass(CurrentSessionService).asTransient();
+        registry.register(ApiKeysService).useClass(ApiKeysService).asTransient();
 
         registry.register(AccountRepository).useClass(AccountRepository).asTransient();
         registry.register(OnboardingService).useClass(OnboardingService).asTransient();
