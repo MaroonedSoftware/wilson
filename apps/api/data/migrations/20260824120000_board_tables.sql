@@ -45,6 +45,8 @@ CREATE TABLE runner.cards (
     PRIMARY KEY (project, id)
 );
 
+SELECT runner.add_updated_at_trigger('runner.cards');
+
 -- =========================================================================
 -- Every write snapshots the whole card, not just the plan body.
 --

@@ -31,6 +31,8 @@ CREATE TABLE runner.settings (
     PRIMARY KEY (project, key)
 );
 
+SELECT runner.add_updated_at_trigger('runner.settings');
+
 -- migrate:down
 
 DROP TABLE runner.settings;

@@ -44,6 +44,8 @@ CREATE TABLE runner.account_passwords (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+SELECT runner.add_updated_at_trigger('runner.account_passwords');
+
 -- migrate:down
 
 DROP TABLE runner.account_passwords;

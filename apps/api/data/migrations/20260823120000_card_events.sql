@@ -14,8 +14,6 @@
 -- format change cannot orphan history.
 -- =========================================================================
 
-CREATE SCHEMA IF NOT EXISTS runner;
-
 CREATE TABLE runner.card_events (
     id BIGSERIAL PRIMARY KEY,
     project TEXT NOT NULL,
@@ -32,4 +30,3 @@ CREATE INDEX card_events_project_card_id_idx ON runner.card_events (project, car
 -- migrate:down
 
 DROP TABLE runner.card_events;
-DROP SCHEMA IF EXISTS runner;

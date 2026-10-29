@@ -41,6 +41,8 @@ CREATE TABLE runner.chat_threads (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+SELECT runner.add_updated_at_trigger('runner.chat_threads');
+
 CREATE INDEX chat_threads_updated_at_idx ON runner.chat_threads (updated_at DESC) WHERE archived_at IS NULL;
 
 -- One row per message, numbered per thread the way runner.plan_turns is.

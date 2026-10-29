@@ -42,6 +42,8 @@ CREATE TABLE runner.source_cursors (
     PRIMARY KEY (project, source)
 );
 
+SELECT runner.add_updated_at_trigger('runner.source_cursors');
+
 -- migrate:down
 
 DROP TABLE runner.source_cursors;
