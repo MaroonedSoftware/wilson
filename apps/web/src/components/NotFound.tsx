@@ -9,8 +9,9 @@ import { WilsonMark } from '#src/components/brand/WilsonMark.js';
  * without every route having to opt in.
  *
  * Before this card an unmatched path hit TanStack Router's own built-in fallback: a bare, unstyled
- * "Not Found" with no way back except the browser's own back button. Links home instead — `/` is the
- * dashboard (card 0169), a real page with the registered projects on it, not a redirect and not a
+ * "Not Found" with no way back except the browser's own back button. Links to the dashboard instead —
+ * `/projects` (card 0169, at `/` before the chat took the home page), a real page with the registered
+ * projects on it, not a redirect and not a
  * second copy of the header's own home link (`__root.tsx`'s `Link to="/"` around `WilsonMark` and
  * the `wilson` title stays the only *header* affordance; this is the in-page one for whoever actually
  * landed on this screen).
@@ -21,7 +22,7 @@ export function NotFound() {
             <WilsonMark size={48} />
             <Title order={3}>Page not found</Title>
             <Text c="dimmed">There's nothing at this address.</Text>
-            <Link to="/">Back to the dashboard</Link>
+            <Link to="/projects">Back to the dashboard</Link>
         </Stack>
     );
 }

@@ -1,7 +1,7 @@
-import { Link, Outlet, createRootRoute, useParams } from '@tanstack/react-router';
-import { ActionIcon, AppShell, Badge, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { Link, Outlet, createRootRoute, useLocation, useParams } from '@tanstack/react-router';
+import { ActionIcon, AppShell, Badge, Box, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconLayoutKanban, IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { ChatPanel } from '#src/components/ChatPanel.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
@@ -68,15 +68,20 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * `ChatPanel` sits in the header for the same reason `ProjectSwitcher` does: the chat is reachable
  * from every screen, and follows the person between them. It is handed the matched route's
  * `project`, so a message sent from a project's page is about that project unless it says otherwise.
+ *
+ * `/` is the chat itself, the whole page (`routes/index.tsx`), as ats's home page is: it gets the
+ * full height under the header and no padding, and the header offers no second way into the chat
+ * there. The projects list that used to be `/` is a click away under Projects.
  */
 function Root() {
     const { project } = useParams({ strict: false });
+    const home = useLocation({ select: location => location.pathname === '/' });
     const feed = useCardFeed(project);
 
     return (
         <WilsonSdkProvider client={wilson}>
             <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
-                <AppShell header={{ height: 48 }} padding="md">
+                <AppShell header={{ height: 48 }} padding={home ? 0 : 'md'}>
                     <Notifications />
                     <AppShell.Header>
                         <Group h="100%" px="md" justify="space-between">
@@ -99,7 +104,12 @@ function Root() {
                                         <IconRefresh size={18} />
                                     </ActionIcon>
                                 </Tooltip>
-                                <ChatPanel project={project} />
+                                <Tooltip label="Projects">
+                                    <ActionIcon component={Link} to="/projects" variant="subtle" aria-label="Projects">
+                                        <IconLayoutKanban size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
+                                {!home && <ChatPanel project={project} />}
                                 <ColorSchemeToggle />
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
@@ -110,7 +120,13 @@ function Root() {
                         </Group>
                     </AppShell.Header>
                     <AppShell.Main>
-                        <Outlet />
+                        {home ? (
+                            <Box h="calc(100dvh - var(--app-shell-header-offset, 48px))">
+                                <Outlet />
+                            </Box>
+                        ) : (
+                            <Outlet />
+                        )}
                     </AppShell.Main>
                 </AppShell>
             </CardActivityContext.Provider>

@@ -129,7 +129,7 @@ describe('the board links to settings', () => {
     it('is reachable from the board by clicking, not just by knowing the URL', async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
 
-        renderApp('/');
+        renderApp('/projects');
 
         const link = await screen.findByLabelText('Settings');
         expect(link.getAttribute('href')).toBe('/settings');

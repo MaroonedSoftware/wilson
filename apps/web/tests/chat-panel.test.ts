@@ -13,9 +13,9 @@ import { routeTree } from '#src/routeTree.gen.js';
 
 /**
  * The chat panel (`ChatPanel.tsx`), driven through the real app: the header's Chat button on the
- * dashboard, the generated chat client stubbed on its prototype, and the stream through a fake
- * `EventSource`. What these pin is what the person sees: a change only ever runs from a Confirm
- * they clicked, and an answer shows as it streams in.
+ * dashboard (`/projects`; the home page is the chat itself), the generated chat client stubbed on its
+ * prototype, and the stream through a fake `EventSource`. What these pin is what the person sees: a
+ * change only ever runs from a Confirm they clicked, and an answer shows as it streams in.
  */
 
 const at = (iso: string) => DateTime.fromISO(iso);
@@ -92,7 +92,7 @@ class FakeResizeObserver {
     disconnect() {}
 }
 
-function renderApp(path = '/') {
+function renderApp(path = '/projects') {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

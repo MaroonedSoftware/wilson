@@ -169,7 +169,7 @@ describe('the project switcher in the header', () => {
     it('marks the daemon\'s own configured project as current on a route with no project param', async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
-        renderApp('/');
+        renderApp('/projects');
         await openSwitcher();
 
         const items = await screen.findAllByRole('menuitem');
