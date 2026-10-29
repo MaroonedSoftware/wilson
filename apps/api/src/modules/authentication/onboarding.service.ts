@@ -2,7 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
 import type { DB } from '#modules/data/db.js';
-import type { CreateAccountRequest, OnboardingStatus } from '../../generated/onboarding.js';
+import type { CreateAccountRequest, OnboardingRequirement, OnboardingStatus } from '../../generated/onboarding.js';
 import { AccountRepository } from './account.repository.js';
 import { PasswordFactors } from './password.factors.js';
 
@@ -10,6 +10,13 @@ import { PasswordFactors } from './password.factors.js';
 const UNIQUE_VIOLATION = '23505';
 
 const isUniqueViolation = (err: unknown): boolean => (err as { code?: string } | undefined)?.code === UNIQUE_VIOLATION;
+
+const ACCOUNT: OnboardingRequirement = {
+    key: 'account',
+    title: 'Operator account',
+    description: 'Create the one account that signs in to Wilson',
+    optional: false,
+};
 
 const alreadyOnboarded = () => httpError(409).withDetails({ reason: 'an account already exists; sign in instead' });
 
@@ -29,8 +36,15 @@ export class OnboardingService {
         private readonly passwords: PasswordFactors,
     ) {}
 
+    /**
+     * What first run still needs, as a list after deadair's onboarding requirements, so a later
+     * first-run step joins it rather than adding a field every client has to learn. Today the only
+     * one is the account.
+     */
     async status(): Promise<OnboardingStatus> {
-        return { accountExists: await this.accounts.exists() };
+        const requirements: OnboardingRequirement[] = [];
+        if (!(await this.accounts.exists())) requirements.push(ACCOUNT);
+        return { requirements };
     }
 
     /**

@@ -8,7 +8,7 @@ import { bigIntReplacer, parseJson } from './sdk-options.js';
 export class OnboardingClient {
     constructor(private fetch: SdkFetch) {}
 
-    /** @name Get onboarding status */
+    /** @name Get onboarding requirements */
     async getOnboardingStatus(): Promise<OnboardingStatus> {
         const result = await this.fetch(`/api/onboarding`, { method: 'GET' });
         return await parseJson<OnboardingStatus>(result);

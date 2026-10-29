@@ -14,6 +14,9 @@ import { API_BASE } from '#src/lib/sdk.js';
 import { currentAccessToken, sessionFetch, setAccessToken, setStepUpHandler } from '#src/lib/session.js';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+/** `GET /api/onboarding` before the account exists, and after. */
+const NEEDS_ACCOUNT = { requirements: [{ key: 'account', title: 'Operator account', description: 'Create it', optional: false }] };
+const ONBOARDED = { requirements: [] };
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -60,7 +63,7 @@ const callsTo = (path: string) => fetchMock.mock.calls.filter(([url]: [string]) 
 
 describe('AuthGate on load', () => {
     it('shows onboarding when there is no account yet', async () => {
-        route({ '/api/onboarding': json(200, { accountExists: false }) });
+        route({ '/api/onboarding': json(200, NEEDS_ACCOUNT) });
 
         renderGate();
 
@@ -69,7 +72,7 @@ describe('AuthGate on load', () => {
     });
 
     it('shows sign-in when there is an account but no session to restore', async () => {
-        route({ '/api/onboarding': json(200, { accountExists: true }), '/api/auth/token': json(401, {}) });
+        route({ '/api/onboarding': json(200, ONBOARDED), '/api/auth/token': json(401, {}) });
 
         renderGate();
 
@@ -78,7 +81,7 @@ describe('AuthGate on load', () => {
 
     it('restores the session from the refresh cookie and shows the app', async () => {
         route({
-            '/api/onboarding': json(200, { accountExists: true }),
+            '/api/onboarding': json(200, ONBOARDED),
             '/api/auth/token': json(200, { result: 'token', accessToken: 'restored', expiresIn: 1, tokenType: 'Bearer' }),
         });
 
@@ -104,7 +107,7 @@ describe('AuthGate on load', () => {
 describe('the sign-in form', () => {
     beforeEach(() => {
         route({
-            '/api/onboarding': json(200, { accountExists: true }),
+            '/api/onboarding': json(200, ONBOARDED),
             '/api/auth/token': [
                 json(401, {}),
                 json(401, {}),
@@ -135,7 +138,7 @@ describe('the sign-in form', () => {
 describe('signing in with an authenticator app', () => {
     it('asks for the code after the password, and signs in with it', async () => {
         route({
-            '/api/onboarding': json(200, { accountExists: true }),
+            '/api/onboarding': json(200, ONBOARDED),
             '/api/auth/token': [
                 json(401, {}),
                 json(200, { result: 'mfa_required', challengeId: 'ch-1', factors: [{ method: 'authenticator', id: 'f-1', label: 'phone' }] }),
@@ -166,7 +169,7 @@ describe('signing in with an authenticator app', () => {
 
 describe('the onboarding form', () => {
     it('refuses mismatched passwords without calling the API', async () => {
-        route({ '/api/onboarding': json(200, { accountExists: false }) });
+        route({ '/api/onboarding': json(200, NEEDS_ACCOUNT) });
         renderGate();
         await screen.findByText('Create your account');
 
@@ -182,7 +185,7 @@ describe('the onboarding form', () => {
     it("explains a weak password with the policy's own advice", async () => {
         route({
             '/api/onboarding': [
-                json(200, { accountExists: false }),
+                json(200, NEEDS_ACCOUNT),
                 json(400, { details: { password: 'This is a top-10 common password.', suggestions: ['Add more words.'] } }),
             ],
         });
@@ -199,7 +202,7 @@ describe('the onboarding form', () => {
 
     it('creates the account and signs straight in', async () => {
         route({
-            '/api/onboarding': [json(200, { accountExists: false }), json(201, { accountExists: true })],
+            '/api/onboarding': [json(200, NEEDS_ACCOUNT), json(201, ONBOARDED)],
             '/api/auth/token': json(200, { result: 'token', accessToken: 'new', expiresIn: 1, tokenType: 'Bearer' }),
         });
         renderGate();
@@ -216,7 +219,7 @@ describe('the onboarding form', () => {
 
 describe('signing out', () => {
     it('drops back to the sign-in form, and the token is gone', async () => {
-        route({ '/api/auth/logout': new Response(null, { status: 204 }), '/api/onboarding': json(200, { accountExists: true }) });
+        route({ '/api/auth/logout': new Response(null, { status: 204 }), '/api/onboarding': json(200, ONBOARDED) });
         setAccessToken('in-memory');
         renderGate();
 

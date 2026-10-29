@@ -36,11 +36,11 @@ const onboarding = () => container.get(OnboardingService);
 
 describe('OnboardingService', () => {
     it('reports no account before onboarding', async () => {
-        expect(await onboarding().status()).toEqual({ accountExists: false });
+        expect(await onboarding().status()).toEqual({ requirements: [expect.objectContaining({ key: 'account', optional: false })] });
     });
 
     it('creates the account with a password that then verifies', async () => {
-        expect(await onboarding().createAccount({ username: 'operator', password: STRONG_PASSWORD })).toEqual({ accountExists: true });
+        expect(await onboarding().createAccount({ username: 'operator', password: STRONG_PASSWORD })).toEqual({ requirements: [] });
 
         const account = await container.get(AccountRepository).findByUsername('operator');
         expect(account).toMatchObject({ username: 'operator', active: true });
@@ -84,7 +84,7 @@ describe('OnboardingService', () => {
     it('refuses a weak password with 400 and leaves no account behind', async () => {
         await expect(onboarding().createAccount({ username: 'operator', password: 'password' })).rejects.toMatchObject({ statusCode: 400 });
 
-        expect(await onboarding().status()).toEqual({ accountExists: false });
+        expect(await onboarding().status()).toEqual({ requirements: [expect.objectContaining({ key: 'account', optional: false })] });
     });
 
     it('refuses a blank username with 400', async () => {

@@ -47,6 +47,9 @@ const scripted = (asked: (string | undefined)[], secrets: (string | undefined)[]
     };
 };
 
+/** `GET /api/onboarding` before the account exists, and after. */
+const NEEDS_ACCOUNT = { requirements: [{ key: 'account', title: 'Operator account', description: 'Create it', optional: false }] };
+const ONBOARDED = { requirements: [] };
 const KEY = { id: 'key-1', name: 'wilson cli on host', hint: 'abcd1234', scope: 'manage', createdAt: '2026-10-29T00:00:00Z' };
 const COLUMNS = { stages: ['planning', 'implementing'], nonStages: ['parking-lot'] };
 const unauthorised = () => json({}, 401);
@@ -74,8 +77,8 @@ describe('wilson board init on a fresh install', () => {
     it('creates the operator account, signs this machine in, and initialises the board with the new key', async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: false }))
-            .mockResolvedValueOnce(json({ accountExists: true }, 201))
+            .mockResolvedValueOnce(json(NEEDS_ACCOUNT))
+            .mockResolvedValueOnce(json(ONBOARDED, 201))
             .mockResolvedValueOnce(token())
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(signedOut())
@@ -104,8 +107,8 @@ describe('wilson board init on a fresh install', () => {
     it('asks again when the two passwords differ', async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: false }))
-            .mockResolvedValueOnce(json({ accountExists: true }, 201))
+            .mockResolvedValueOnce(json(NEEDS_ACCOUNT))
+            .mockResolvedValueOnce(json(ONBOARDED, 201))
             .mockResolvedValueOnce(token())
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(signedOut())
@@ -121,9 +124,9 @@ describe('wilson board init on a fresh install', () => {
     it("explains a password the policy refuses, with zxcvbn's advice, and asks again", async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: false }))
+            .mockResolvedValueOnce(json(NEEDS_ACCOUNT))
             .mockResolvedValueOnce(json({ details: { password: 'This is a very common password.', suggestions: ['Add another word.'] } }, 400))
-            .mockResolvedValueOnce(json({ accountExists: true }, 201))
+            .mockResolvedValueOnce(json(ONBOARDED, 201))
             .mockResolvedValueOnce(token())
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(signedOut())
@@ -139,7 +142,7 @@ describe('wilson board init on a fresh install', () => {
     it('takes the password once from stdin, and fails rather than asking again when the policy refuses it', async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: false }))
+            .mockResolvedValueOnce(json(NEEDS_ACCOUNT))
             .mockResolvedValueOnce(json({ details: { password: 'Too short.' } }, 400));
         const io = scripted([], [], 'password1\n');
         const { ctx, logger } = buildCtx();
@@ -154,7 +157,7 @@ describe('wilson board init on a fresh install', () => {
     it('signs in to the account there is when one exists, and initialises the board', async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: true }))
+            .mockResolvedValueOnce(json(ONBOARDED))
             .mockResolvedValueOnce(token())
             .mockResolvedValueOnce(json({ key: KEY, token: 'wl_new' }, 201))
             .mockResolvedValueOnce(signedOut())
@@ -171,7 +174,7 @@ describe('wilson board init on a fresh install', () => {
     it('stops without initialising when that sign-in fails', async () => {
         fetchMock
             .mockResolvedValueOnce(unauthorised())
-            .mockResolvedValueOnce(json({ accountExists: true }))
+            .mockResolvedValueOnce(json(ONBOARDED))
             .mockResolvedValueOnce(unauthorised());
         const { ctx, logger } = buildCtx();
 

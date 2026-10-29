@@ -12,8 +12,8 @@ export type SessionState = 'checking' | 'onboarding' | 'signed-out' | 'signed-in
  */
 export const restoreSession = async (): Promise<SessionState> => {
     if (currentAccessToken()) return 'signed-in';
-    const { accountExists } = await wilson.onboarding.getOnboardingStatus();
-    if (!accountExists) return 'onboarding';
+    const { requirements } = await wilson.onboarding.getOnboardingStatus();
+    if (requirements.some(requirement => requirement.key === 'account')) return 'onboarding';
     return (await refreshSession(API_BASE)) ? 'signed-in' : 'signed-out';
 };
 

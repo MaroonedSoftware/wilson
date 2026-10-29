@@ -18,8 +18,12 @@ import { login } from '../auth/login.command.js';
 const signInForInit = async (ctx: CliContext, opts: CredentialOpts, keys: KeyStore, io: LoginIo): Promise<boolean> => {
     if (setting(ctx, 'WILSON_API_KEY', '')) return false;
 
-    const { accountExists } = await apiClient(ctx, keys).onboarding.getOnboardingStatus();
-    if (accountExists) {
+    const { requirements } = await apiClient(ctx, keys).onboarding.getOnboardingStatus();
+    // The terminal can meet the account requirement and nothing else, so it names any other.
+    for (const requirement of requirements.filter(each => each.key !== 'account' && !each.optional)) {
+        ctx.logger.warn(`first run also needs: ${requirement.title}. Finish it in the web app.`);
+    }
+    if (!requirements.some(requirement => requirement.key === 'account')) {
         ctx.logger.info('Sign in to initialise the board.');
         // `login` has already said why it failed.
         if ((await login(opts, ctx, io, keys)) !== 0) throw new SignInError('not signed in, so the board was not initialised');

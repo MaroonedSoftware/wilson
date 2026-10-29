@@ -34,13 +34,13 @@ const tokens = async () => {
 
 describe('onboarding over HTTP', () => {
     it('reports no account, creates one with 201, then reports it', async () => {
-        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({ accountExists: false });
+        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({ requirements: [expect.objectContaining({ key: 'account', optional: false })] });
 
         const created = await onboard();
 
         expect(created.status).toBe(201);
-        expect(await created.json()).toEqual({ accountExists: true });
-        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({ accountExists: true });
+        expect(await created.json()).toEqual({ requirements: [] });
+        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({ requirements: [] });
     });
 
     it('answers a second onboarding with 409', async () => {
