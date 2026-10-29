@@ -8,6 +8,7 @@ import { SettingsStore } from './settings.store.js';
 import { PollerSettingService } from './poller.setting.service.js';
 import { PollerIntervalSettingService } from './poller.interval.setting.service.js';
 import { CardStageConcurrencySettingService } from './card.stage.concurrency.setting.service.js';
+import { LocalStageSlotsSettingService } from './local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js';
 import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
 import { DryRunSettingService } from './dry.run.setting.service.js';
@@ -45,6 +46,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(PollerSettingService).useClass(PollerSettingService).asTransient();
         registry.register(PollerIntervalSettingService).useClass(PollerIntervalSettingService).asTransient();
         registry.register(CardStageConcurrencySettingService).useClass(CardStageConcurrencySettingService).asTransient();
+        registry.register(LocalStageSlotsSettingService).useClass(LocalStageSlotsSettingService).asTransient();
         registry.register(NotifyWebhookSettingService).useClass(NotifyWebhookSettingService).asTransient();
         registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();

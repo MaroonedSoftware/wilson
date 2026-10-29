@@ -41,5 +41,15 @@ export class HostLostError extends Error {
     }
 }
 
+/**
+ * What every stage slot's `runner.leases` key contains. A slot belongs to a stage, not a worktree:
+ * the dispatcher takes it before the worktree is cut and releases it when the stage ends, so
+ * `LeaseService.releaseAll`, which ends a worktree's leases, leaves slots alone.
+ */
+export const SLOT_KEY_MARKER = ':slot:';
+
 /** The `runner.leases` key for one slot on a host. Machine-wide, like every lease key. */
-export const hostSlotKey = (hostName: string, slot: number): string => `host:${hostName}:slot:${slot}`;
+export const hostSlotKey = (hostName: string, slot: number): string => `host:${hostName}${SLOT_KEY_MARKER}${slot}`;
+
+/** The `runner.leases` key for one of this machine's `local-stage-slots`. */
+export const localSlotKey = (slot: number): string => `local${SLOT_KEY_MARKER}${slot}`;

@@ -90,6 +90,9 @@ beforeEach(() => {
     // the default port; `chat-engine-setting.test.ts` covers the control itself.
     vi.spyOn(wilson.settings, 'getChatEngineSetting').mockResolvedValue({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' });
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    // Stubbed for the same reason as the chat engine above: the local slots control sits beside the
+    // concurrency control, and this file's cases are about the controls around it.
+    vi.spyOn(wilson.settings, 'getLocalStageSlots').mockResolvedValue({ slots: 8 });
     vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(emptyColumns);
     vi.spyOn(wilson.board, 'listCards').mockResolvedValue(emptyCards);
     vi.spyOn(wilson.health, 'getHealth').mockResolvedValue(baseHealth);

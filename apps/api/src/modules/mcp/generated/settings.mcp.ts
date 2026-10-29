@@ -10,6 +10,7 @@ import { CardStageConcurrencySettingService } from '#modules/settings/card.stage
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
+import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
@@ -18,12 +19,14 @@ import {
     ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
+    LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
+    SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -51,6 +54,8 @@ const GetDryRunSettingArgs = z.object({});
 const SetDryRunSettingArgs = z.object({ body: SetDryRunSettingRequest });
 const GetChatEngineSettingArgs = z.object({});
 const SetChatEngineSettingArgs = z.object({ body: ChatEngineSetting });
+const GetLocalStageSlotsArgs = z.object({});
+const SetLocalStageSlotsArgs = z.object({ body: SetLocalStageSlotsRequest });
 
 /**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/poller-enabled`
@@ -320,12 +325,12 @@ export class GetChatEngineSettingMcpTool implements McpToolHandler {
         inputSchema: z.toJSONSchema(GetChatEngineSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(ChatEngineSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
     };
 
     async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
         const container = requireMcpContainer(context);
-        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
         const result = await container.get(ChatEngineSettingService).get();
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
@@ -353,6 +358,51 @@ export class SetChatEngineSettingMcpTool implements McpToolHandler {
     }
 }
 
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/local-stage-slots`
+ */
+@Injectable()
+export class GetLocalStageSlotsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_local_stage_slots',
+        description: 'Read on every dispatch, so a write takes effect on the next stage; nothing to restart.',
+        inputSchema: z.toJSONSchema(GetLocalStageSlotsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(LocalStageSlots, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(LocalStageSlotsSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `PUT /api/settings/local-stage-slots`
+ */
+@Injectable()
+export class SetLocalStageSlotsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'set_local_stage_slots',
+        description: 'Read on every dispatch, so a write takes effect on the next stage; nothing to restart.',
+        inputSchema: z.toJSONSchema(SetLocalStageSlotsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(LocalStageSlots, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { body } = await parseAndValidate(args, SetLocalStageSlotsArgs);
+        const result = await container.get(LocalStageSlotsSettingService).set(body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('get_poller_setting', container.get(GetPollerSettingMcpTool));
@@ -369,6 +419,8 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_dry_run_setting', container.get(SetDryRunSettingMcpTool));
     map.set('get_chat_engine_setting', container.get(GetChatEngineSettingMcpTool));
     map.set('set_chat_engine_setting', container.get(SetChatEngineSettingMcpTool));
+    map.set('get_local_stage_slots', container.get(GetLocalStageSlotsMcpTool));
+    map.set('set_local_stage_slots', container.get(SetLocalStageSlotsMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
@@ -387,4 +439,6 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetDryRunSettingMcpTool).useClass(SetDryRunSettingMcpTool).asSingleton();
     registry.register(GetChatEngineSettingMcpTool).useClass(GetChatEngineSettingMcpTool).asSingleton();
     registry.register(SetChatEngineSettingMcpTool).useClass(SetChatEngineSettingMcpTool).asSingleton();
+    registry.register(GetLocalStageSlotsMcpTool).useClass(GetLocalStageSlotsMcpTool).asSingleton();
+    registry.register(SetLocalStageSlotsMcpTool).useClass(SetLocalStageSlotsMcpTool).asSingleton();
 }

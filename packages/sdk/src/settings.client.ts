@@ -3,12 +3,14 @@ import type {
     ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
+    LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
+    SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -132,5 +134,27 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<ChatEngineSetting>(result);
+    }
+
+    /**
+     * @name Get local stage slots
+     * @description Read on every dispatch, so a write takes effect on the next stage; nothing to restart.
+     */
+    async getLocalStageSlots(): Promise<LocalStageSlots> {
+        const result = await this.fetch(`/api/settings/local-stage-slots`, { method: 'GET' });
+        return await parseJson<LocalStageSlots>(result);
+    }
+
+    /**
+     * @name Set local stage slots
+     * @description Read on every dispatch, so a write takes effect on the next stage; nothing to restart.
+     */
+    async setLocalStageSlots(body: SetLocalStageSlotsRequest): Promise<LocalStageSlots> {
+        const result = await this.fetch(`/api/settings/local-stage-slots`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<LocalStageSlots>(result);
     }
 }

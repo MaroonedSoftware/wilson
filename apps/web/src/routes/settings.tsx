@@ -12,6 +12,7 @@ import { SecurityControls } from '#src/components/SecurityControls.js';
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
+const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
@@ -23,7 +24,9 @@ const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 const POLLER_INTERVAL_MIN_MS = 5_000;
 const POLLER_INTERVAL_MAX_MS = 300_000;
 const CARD_STAGE_CONCURRENCY_MIN = 1;
-const CARD_STAGE_CONCURRENCY_MAX = 8;
+const CARD_STAGE_CONCURRENCY_MAX = 32;
+const LOCAL_STAGE_SLOTS_MIN = 1;
+const LOCAL_STAGE_SLOTS_MAX = 8;
 
 /**
  * The one control this card adds: `POLLER_ENABLED`, readable and settable at runtime (card 0106).
@@ -182,11 +185,76 @@ function CardStageConcurrencyControl() {
         <Stack gap="xs">
             <NumberInput
                 label="Concurrent stages"
-                description="How many card.stage jobs this daemon runs at once. Applies once no stage is currently running — never mid-run."
+                description="How many card.stage jobs run at once, on this machine and every registered host together. Applies once no stage is currently running — never mid-run."
                 value={draft}
                 onChange={value => setDraft(value === '' ? '' : Number(value))}
                 min={CARD_STAGE_CONCURRENCY_MIN}
                 max={CARD_STAGE_CONCURRENCY_MAX}
+                disabled={mutation.isPending}
+                maw={220}
+            />
+            <Group gap="xs">
+                <Button size="xs" disabled={!dirty || mutation.isPending} onClick={() => dirty && mutation.mutate(draft as number)}>
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/**
+ * How many stages may hold a worktree on this machine at once (`local-stage-slots`), out of
+ * `CardStageConcurrencyControl`'s total across this machine and every registered host. Read on every
+ * dispatch, so unlike the total it applies to the next stage with nothing to wait for.
+ */
+function LocalStageSlotsControl() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: LOCAL_STAGE_SLOTS_QUERY_KEY, queryFn: () => wilson.settings.getLocalStageSlots() });
+    const [draft, setDraft] = useState<number | ''>('');
+
+    useEffect(() => {
+        if (setting.data) setDraft(setting.data.slots);
+    }, [setting.data]);
+
+    const mutation = useMutation({
+        mutationFn: (slots: number) => wilson.settings.setLocalStageSlots({ slots }),
+        onSuccess: result => {
+            queryClient.setQueryData(LOCAL_STAGE_SLOTS_QUERY_KEY, result);
+            setDraft(result.slots);
+        },
+        // A refusal must not leave the rejected draft on screen — revert to the setting's own
+        // current value, the same "only ever show what round-tripped" rule the query cache follows.
+        onError: () => {
+            if (setting.data) setDraft(setting.data.slots);
+        },
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load local stage slots">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    const dirty = draft !== '' && draft !== setting.data.slots;
+
+    return (
+        <Stack gap="xs">
+            <NumberInput
+                label="Stages on this machine"
+                description="How many stages may hold a worktree here at once, out of the total above. Applies to the next stage."
+                value={draft}
+                onChange={value => setDraft(value === '' ? '' : Number(value))}
+                min={LOCAL_STAGE_SLOTS_MIN}
+                max={LOCAL_STAGE_SLOTS_MAX}
                 disabled={mutation.isPending}
                 maw={220}
             />
@@ -573,6 +641,7 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Stage concurrency</Title>
                     <CardStageConcurrencyControl />
+                    <LocalStageSlotsControl />
                 </Stack>
             </Paper>
 

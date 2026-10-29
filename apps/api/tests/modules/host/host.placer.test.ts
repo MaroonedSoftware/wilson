@@ -170,6 +170,23 @@ describe('HostPlacer', () => {
         expect(((await placer().place(project, '0001', stage('remote'))) as NoHostAvailable).message).toContain(`${name} is disabled`);
     });
 
+    it('takes this machine’s slots up to local-stage-slots, then reports them busy, and frees one on release', async () => {
+        const { project } = await setUp();
+        await recordLiveClaim(project, '0001');
+        await recordLiveClaim(project, '0002');
+        const settings = { get: async () => 1 };
+        const local = new HostPlacer(hosts, new HostConnector(FAKE_SSH), leases, silentLogger, settings as never);
+
+        // `local:slot:1` is machine-wide; a holder left by an earlier run has no live claim, so it is swept.
+        const first = await local.takeLocalSlot(project, '0001');
+        expect(first).toEqual({ key: 'local:slot:1' });
+        expect(await local.takeLocalSlot(project, '0002')).toEqual({ busy: 1 });
+
+        await local.releaseSlot('local:slot:1', project, '0001');
+        expect(await local.takeLocalSlot(project, '0002')).toEqual({ key: 'local:slot:1' });
+        await local.releaseSlot('local:slot:1', project, '0002');
+    });
+
     it('passes a host over once it is marked lost, until a probe passes again', async () => {
         const { project, name } = await setUp();
         const placed = (await placer().place(project, '0001', stage('remote'))) as RemotePlacement;

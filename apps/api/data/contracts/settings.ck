@@ -3,6 +3,7 @@ options {
         PollerSettingService: "#modules/settings/poller.setting.service.js"
         PollerIntervalSettingService: "#modules/settings/poller.interval.setting.service.js"
         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
+        LocalStageSlotsSettingService: "#modules/settings/local.stage.slots.setting.service.js"
         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
@@ -64,6 +65,16 @@ contract CardStageConcurrency: {
 
 contract SetCardStageConcurrencyRequest: {
     concurrency: int
+}
+
+# How many stages may hold a worktree on this machine at once, out of `card-stage-concurrency`'s
+# total across every machine. Bounds enforced by `LocalStageSlotsSettingService.set`.
+contract LocalStageSlots: {
+    slots: int
+}
+
+contract SetLocalStageSlotsRequest: {
+    slots: int
 }
 
 operation /api/settings/poller-enabled: {
@@ -274,6 +285,9 @@ contract ChatEngineSetting: {
 
 operation /api/settings/chat-engine: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get chat engine setting
         service: ChatEngineSettingService.get
         response: {
@@ -289,6 +303,32 @@ operation /api/settings/chat-engine: {
         response: {
             200: { application/json: ChatEngineSetting }
             # An empty model, carried via `details.reason` like every other refusal here.
+            400:
+        }
+    }
+}
+
+# Read on every dispatch, so a write takes effect on the next stage; nothing to restart.
+operation /api/settings/local-stage-slots: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get local stage slots
+        service: LocalStageSlotsSettingService.get
+        response: {
+            200: { application/json: LocalStageSlots }
+        }
+    }
+    put: {
+        name: Set local stage slots
+        service: LocalStageSlotsSettingService.set
+        request: {
+            application/json: SetLocalStageSlotsRequest
+        }
+        response: {
+            200: { application/json: LocalStageSlots }
+            # Outside [LOCAL_STAGE_SLOTS_MIN, LOCAL_STAGE_SLOTS_MAX] (job.runner.config.ts).
             400:
         }
     }

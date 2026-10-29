@@ -70,6 +70,22 @@ export interface SetCardStageConcurrencyRequest {
 }
 
 /**
+ * How many stages may hold a worktree on this machine at once, out of `card-stage-concurrency`'s
+ * total across every machine. Bounds enforced by `LocalStageSlotsSettingService.set`.
+ * generated from [LocalStageSlots](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface LocalStageSlots {
+    slots: number;
+}
+
+/**
+ * generated from [SetLocalStageSlotsRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetLocalStageSlotsRequest {
+    slots: number;
+}
+
+/**
  * `null` means unset — off, exactly like the environment variables these fields replace being
  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the

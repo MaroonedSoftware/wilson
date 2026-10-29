@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -59,7 +59,9 @@ export type NotDispatchableReason =
     | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] }
     | { readonly kind: 'needs-human' }
     /** A `placement: remote` stage found no registered host free to take it. Deferred, not poisoned. */
-    | { readonly kind: 'no-host' };
+    | { readonly kind: 'no-host' }
+    /** A stage that runs here found every `local-stage-slots` slot held. Deferred, not poisoned. */
+    | { readonly kind: 'no-local-slot' };
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
@@ -302,7 +304,24 @@ export class StageDispatcher {
             throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} must run on a host, and ${placed.message}`);
         }
         if (!placed) {
-            return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            // A stage with no tree takes no slot: a slot is a worktree, an install and an agent here.
+            if (!this.placer || stage.worktree === 'none') {
+                return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            }
+            const slot = await this.placer.takeLocalSlot(this.config.project, cardId);
+            if ('busy' in slot) {
+                throw new NotDispatchableError(
+                    { kind: 'no-local-slot' },
+                    `${cardId} ${stageName} runs on this machine, and all ${slot.busy} of its local-stage-slots are in use`,
+                );
+            }
+            try {
+                return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+            } finally {
+                await this.placer.releaseSlot(slot.key, this.config.project, cardId).catch(err => {
+                    this.logger.warn(`could not release ${cardId}'s ${slot.key}: ${(err as Error).message}`);
+                });
+            }
         }
 
         // A stage on a host gives its worktree and slot back as soon as it ends, however it ends:
@@ -328,6 +347,11 @@ export class StageDispatcher {
         } finally {
             await this.worktrees.reclaim(cardId, placed).catch(err => {
                 this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
+            });
+            // The slot outlives the worktree by a moment on purpose: until the host's tree is gone,
+            // the host is still busy with this card.
+            await this.placer?.releaseSlot(placed.slotKey, this.config.project, cardId).catch(err => {
+                this.logger.warn(`could not release ${cardId}'s ${placed.slotKey}: ${(err as Error).message}`);
             });
         }
     }
@@ -481,7 +505,7 @@ export class StageDispatcher {
         const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage);
         // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
         // under the host's run root, outside its worktree for the same reason the local one is.
-        const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath) : localPlanPath;
+        const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
 
         // Card 0244: the project's human-approved learnings document, materialized outside the
         // worktree the same way the plan is — so it can never be committed to the card's branch
@@ -508,11 +532,11 @@ export class StageDispatcher {
         // an ordinary "no such file" — the same as any other in-scope path that happens to be
         // absent — rather than the scope refusal this card exists to remove.
         //
-        // A placed stage gets its own card's patch only, copied to the host when there is one: the
-        // rest live on this machine, and copying every card's would cost a round trip per card for
-        // files that mostly do not exist.
+        // A placed stage gets the same set, copied to the same place under the host's run root.
+        // Only the patches that exist are copied: whether one does is a local `stat`, and the
+        // copies are what cost a round trip, so a board of cards that never failed costs nothing.
         const preservedPatchPaths = placement
-            ? await this.mirrorOwnPatch(placement, cardId)
+            ? await this.mirrorPatches(placement, boardCards)
             : boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
 
         const scope = new ScopeGuard({
@@ -1009,23 +1033,38 @@ export class StageDispatcher {
         throw new HostLostError(placement.hostName, reason, { cause });
     }
 
-    /** Copy a file materialized here to the same card's folder under the host's run root. */
-    private async mirrorToHost(placement: RemotePlacement, cardId: string, localPath: string): Promise<string> {
+    /**
+     * Copy a file materialized here to the same card's folder under the host's run root.
+     *
+     * `rehome` rewrites this machine's run root to the host's wherever it appears in the text: a
+     * plan names preserved patches by path (its attempts section records each failed attempt's
+     * `patchPath`, and a split card's plan cites its parent's), and on the host those paths are the
+     * copies `mirrorPatches` makes, not the originals.
+     */
+    private async mirrorToHost(placement: RemotePlacement, cardId: string, localPath: string, rehome = false): Promise<string> {
         const dir = posix.join(placement.runRoot, 'cards', cardId);
         const remotePath = posix.join(dir, posix.basename(localPath));
+        const text = await readFile(localPath, 'utf8');
         await placement.host.mkdir(dir);
-        await placement.host.writeFile(remotePath, await readFile(localPath, 'utf8'));
+        await placement.host.writeFile(
+            remotePath,
+            rehome ? text.replaceAll(`${join(this.config.runRoot, 'cards')}/`, `${posix.join(placement.runRoot, 'cards')}/`) : text,
+        );
         return remotePath;
     }
 
-    /** This card's last preserved patch, copied to the host, as a one-entry list; empty when it has none. */
-    private async mirrorOwnPatch(placement: RemotePlacement, cardId: string): Promise<string[]> {
-        const local = this.worktrees.failedAttemptPatchPath(cardId);
-        const exists = await readFile(local, 'utf8').then(
-            () => true,
-            () => false,
-        );
-        return exists ? [await this.mirrorToHost(placement, cardId, local)] : [];
+    /** Every board card's preserved patch that exists here, copied to the host; the copies' paths. */
+    private async mirrorPatches(placement: RemotePlacement, boardCards: Card[]): Promise<string[]> {
+        const copied: string[] = [];
+        for (const board of boardCards) {
+            const local = this.worktrees.failedAttemptPatchPath(board.frontmatter.id);
+            const exists = await stat(local).then(
+                () => true,
+                () => false,
+            );
+            if (exists) copied.push(await this.mirrorToHost(placement, board.frontmatter.id, local));
+        }
+        return copied;
     }
 
     private async runAgent(input: {
