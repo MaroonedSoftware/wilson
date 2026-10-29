@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChatOperation, ChatPendingAction, ChatThread, ChatTurnResult } from '@wilson/sdk';
 import { API_BASE } from './sdk.js';
@@ -115,4 +115,45 @@ export function useChatStream(threadId: string | undefined): ChatTurnInProgress 
     }, [threadId, queryClient]);
 
     return { text, operations };
+}
+
+const ACTIVE_THREAD_KEY = 'wilson.chatThread';
+
+const readActiveThread = (): string | undefined => {
+    try {
+        return window.localStorage.getItem(ACTIVE_THREAD_KEY) ?? undefined;
+    } catch {
+        return undefined;
+    }
+};
+
+let activeThread = readActiveThread();
+const activeThreadListeners = new Set<() => void>();
+
+/**
+ * Open `threadId` wherever the chat is showing — the home page and the dock read the same one, as in
+ * ats's `active.thread.store.ts` — or none, for a new chat. Kept in `localStorage` (a per-browser
+ * convenience, so a reload reopens the conversation), and every reader is told at once.
+ */
+export function setActiveThread(threadId: string | undefined): void {
+    if (activeThread === threadId) return;
+    activeThread = threadId;
+    try {
+        if (threadId === undefined) window.localStorage.removeItem(ACTIVE_THREAD_KEY);
+        else window.localStorage.setItem(ACTIVE_THREAD_KEY, threadId);
+    } catch {
+        // Storage can be unavailable (a private window); the thread stays open for this page load.
+    }
+    for (const listener of activeThreadListeners) listener();
+}
+
+/** The thread the chat has open, if any. */
+export function useActiveThread(): string | undefined {
+    return useSyncExternalStore(
+        listener => {
+            activeThreadListeners.add(listener);
+            return () => activeThreadListeners.delete(listener);
+        },
+        () => activeThread,
+    );
 }

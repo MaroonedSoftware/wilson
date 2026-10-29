@@ -8,6 +8,7 @@ import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { ChatMessage, ChatPendingAction, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
+import { setActiveThread } from '#src/lib/chat.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
 /**
@@ -116,6 +117,8 @@ const detail = (messages: ChatMessage[], actions: ChatPendingAction[] = [], titl
 });
 
 beforeEach(() => {
+    // The open thread is shared app state (`setActiveThread`), so each test starts on a new chat.
+    setActiveThread(undefined);
     FakeEventSource.instances = [];
     vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue(baseHealth);
     vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
