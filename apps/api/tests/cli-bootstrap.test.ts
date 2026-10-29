@@ -1,4 +1,3 @@
-/* eslint-disable turbo/no-undeclared-env-vars -- these tests set made-up variables to see which layer wins; nothing here is a build input */
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
