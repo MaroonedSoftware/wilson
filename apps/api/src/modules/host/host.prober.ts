@@ -7,6 +7,7 @@ import type { ExecFailure, ExecutionHost } from './execution.host.js';
 import { HostConnector } from './host.connector.js';
 import { HostRepository, type HostProbeRow, type HostRow } from './host.repository.js';
 import { toHost } from './hosts.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 
 /** How long one probe command may take before the host is reported unreachable. */
 const PROBE_COMMAND_TIMEOUT_MS = 30_000;
@@ -38,9 +39,11 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  */
 @Injectable()
 export class HostProber {
+    // `workers` is optional so the tests that build a prober by hand for SSH hosts need not make one.
     constructor(
         private readonly hosts: HostRepository,
         private readonly connector: HostConnector,
+        private readonly workers?: WorkerConnections,
     ) {}
 
     async probe(name: string): Promise<Host> {
@@ -55,10 +58,15 @@ export class HostProber {
     /** Run every check against `row`'s host and say what was found. Writes nothing. */
     async inspect(row: HostRow): Promise<HostProbeRow> {
         const probedAt = DateTime.now();
-        // Nothing accepts a worker's connection yet, so there is no way to reach one to check it. A
-        // failed probe is also what keeps placement from choosing it.
+        // A connected worker answers, but nothing can run a stage's primitives over its connection
+        // yet, so even a live one fails the probe: that is what keeps placement from choosing it.
         if (row.kind === 'worker') {
-            return { probedAt, ok: false, detail: 'no worker is connected for this host' };
+            const connection = this.workers?.get(row.name);
+            if (!connection) return { probedAt, ok: false, detail: 'no worker is connected for this host' };
+            const pong = await connection.call({ op: 'ping' }, PROBE_COMMAND_TIMEOUT_MS).catch((err: Error) => err);
+            if (pong instanceof Error) return { probedAt, ok: false, detail: `the worker connection did not answer: ${pong.message}` };
+            const { workerVersion, platform } = connection.hello;
+            return { probedAt, ok: false, detail: `worker ${workerVersion} on ${platform} is connected, but stages cannot run on a worker yet` };
         }
         const host = this.connector.connect(row);
 

@@ -16,6 +16,7 @@ import { HostProber } from '#modules/host/host.prober.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
+import { eventually, FakeWorker, startWorkerServer } from '#tests/support/fake.worker.js';
 
 const exec = promisify(execFile);
 
@@ -139,6 +140,24 @@ describe('HostProber', () => {
         const host = await new HostProber(hosts, new HostConnector(forbidden)).probe(name);
 
         expect(host.probe).toMatchObject({ ok: false, detail: 'no worker is connected for this host' });
+    });
+
+    it('records a connected worker as answering, but not yet able to take stages', async () => {
+        const name = uniqueProject();
+        await service.create({ name, kind: 'worker' });
+        const server = await startWorkerServer({ token: (await hosts.find(name))! });
+        try {
+            await FakeWorker.connect(server.url, 'token', (message, worker) => {
+                if (message.type === 'call' && message.call.op === 'ping') worker.send({ type: 'result', id: message.id, ok: true, value: 'pong' });
+            });
+            await eventually(() => server.connections.get(name) !== undefined);
+
+            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH), server.connections).probe(name);
+
+            expect(host.probe).toMatchObject({ ok: false, detail: 'worker 0.0.1-test on linux is connected, but stages cannot run on a worker yet' });
+        } finally {
+            await server.close();
+        }
     });
 
     it('reports a variable the host says it supplies to commands but does not have', async () => {

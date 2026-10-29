@@ -30,7 +30,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
     test: {
-        projects: ['apps/api', 'apps/web', 'packages/cli'],
+        projects: ['apps/api', 'apps/web', 'packages/cli', 'packages/worker-protocol'],
         maxWorkers: '50%',
     },
 });

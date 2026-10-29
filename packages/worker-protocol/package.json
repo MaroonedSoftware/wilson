@@ -1,0 +1,19 @@
+{
+    "name": "@wilson/worker-protocol",
+    "version": "0.0.1",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "scripts": {
+        "build": "tsc --noEmit",
+        "lint": "eslint --fix",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "zod": "^4.4.3"
+    },
+    "devDependencies": {
+        "@repo/config-eslint": "workspace:*",
+        "@repo/config-typescript": "workspace:*"
+    }
+}
