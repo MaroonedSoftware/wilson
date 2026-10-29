@@ -1,6 +1,7 @@
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
 import { BoardModule } from './board/board.module.js';
+import { ChatModule } from './chat/chat.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
 import { DataModule } from './data/data.module.js';
@@ -43,7 +44,7 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  *
  * Mcp is listed after every module whose service a contract operation calls: its catalog handlers
  * resolve those services per call, not at registration, so this too is for a reader rather than
- * for the container.
+ * for the container. Chat follows it, since the chat reaches the board through that catalog.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
@@ -59,5 +60,6 @@ export const modules: ServerKitModule[] = [
     LearningsModule,
     SettingsModule,
     McpModule,
+    ChatModule,
     JobsModule,
 ];
