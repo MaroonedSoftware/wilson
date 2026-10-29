@@ -11,9 +11,8 @@ options {
 # far: `password` signs in, and `refresh_token` trades a refresh token for a fresh pair. The request
 # field names are OAuth's (`grant_type`, `refresh_token`); the response's are this API's own.
 #
-# `security: none` on `token` is permanent: signing in is how a caller gets a session. On `session`
-# and `logout` it is for now. They read the caller's bearer token themselves and answer 401 without
-# one, and rollout step 6 replaces that with the same gate every other route gets.
+# `security: none` on `token` and `logout`: signing in is how a caller gets a session, and signing
+# out must work with a dead one. `session` needs one (`wilson.view`).
 
 contract TokenRequest: {
     grant_type: enum(password, refresh_token)
@@ -72,6 +71,9 @@ operation /api/auth/session: {
         name: Get the current session
         sdk: getCurrentSession
         service: CurrentSessionService.get
+        security: {
+            policy: wilson.view
+        }
         response: {
             200: {
                 application/json: CurrentSession

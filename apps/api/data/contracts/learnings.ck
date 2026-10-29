@@ -2,7 +2,9 @@ options {
     services: {
         LearningsService: "#modules/learnings/learnings.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
 # A project's human-approved learnings document (card 0239) — the operator's surface, cloned from
@@ -12,8 +14,9 @@ options {
 # (PROJECT.md decision 6, decision 8's own reasoning — see `stages.ck`'s comment for the fuller
 # argument, which applies here unchanged).
 #
-# `security: none` for the same reason `stages.ck` is: the API binds to 127.0.0.1 with no auth
-# boundary yet (card 0019).
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
 #
 # Unlike stage config, a learnings document has no schema to validate — `markdown` is free text, so
 # there is no `400` here, and a project with no document yet is not a failure either: `GET
@@ -47,6 +50,9 @@ contract LearningsVersionsQuery: {
 
 operation /api/learnings: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get learnings
         service: LearningsService.get
         response: {
@@ -74,6 +80,9 @@ operation /api/learnings: {
 
 operation /api/learnings/versions: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List learnings versions
         service: LearningsService.versions
         query: LearningsVersionsQuery

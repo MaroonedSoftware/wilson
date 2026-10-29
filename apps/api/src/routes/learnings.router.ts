@@ -1,4 +1,4 @@
-import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
+import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { LearningsService } from '#modules/learnings/learnings.service.js';
 import { LearningsDocument, LearningsVersion, LearningsVersionsQuery, SetLearningsRequest } from '../generated/learnings.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
@@ -9,10 +9,9 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const LearningsRouter = ServerKitRouter();
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L49)
- * anonymous access, no security required
+ * from [learnings.ck](file://./../../data/contracts/learnings.ck#L52)
  */
-LearningsRouter.get('/api/learnings', async ctx => {
+LearningsRouter.get('/api/learnings', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(LearningsService);
     const result: LearningsDocument = await service.get();
 
@@ -25,10 +24,9 @@ LearningsRouter.get('/api/learnings', async ctx => {
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything. An empty `markdown` is a valid save.
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L61)
- * anonymous access, no security required
+ * from [learnings.ck](file://./../../data/contracts/learnings.ck#L67)
  */
-LearningsRouter.put('/api/learnings', bodyParserMiddleware(['json']), async ctx => {
+LearningsRouter.put('/api/learnings', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetLearningsRequest);
 
     const service = ctx.container.get(LearningsService);
@@ -40,10 +38,9 @@ LearningsRouter.put('/api/learnings', bodyParserMiddleware(['json']), async ctx 
 });
 
 /**
- * from [learnings.ck](file://./../../data/contracts/learnings.ck#L76)
- * anonymous access, no security required
+ * from [learnings.ck](file://./../../data/contracts/learnings.ck#L82)
  */
-LearningsRouter.get('/api/learnings/versions', async ctx => {
+LearningsRouter.get('/api/learnings/versions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const query = await parseAndValidate(ctx.query, LearningsVersionsQuery.strict());
 
     const service = ctx.container.get(LearningsService);

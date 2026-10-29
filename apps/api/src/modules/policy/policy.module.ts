@@ -4,6 +4,7 @@ import type { AppConfig } from '@maroonedsoftware/appconfig';
 import { PasswordAllowedPolicy, type ApiKeyAllowedPolicyContext, type PasswordAllowedPolicyContext } from '@maroonedsoftware/authentication';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AccountApiKeyAllowedPolicy } from '#modules/authentication/api.key.allowed.policy.js';
+import { MANAGE_POLICY, ManagePolicy, VIEW_POLICY, ViewPolicy, type RequirePolicyContext } from './access.policies.js';
 import { BasePolicyService, PolicyRegistryMap, PolicyService, type Policy, type PolicyEnvelope } from '@maroonedsoftware/policies';
 
 /**
@@ -18,11 +19,16 @@ export const POLICY_MAPPINGS = {
     'auth.factor.password.allowed': PasswordAllowedPolicy,
     // Asked by `ApiKeyService` when a key is created and whenever one is used.
     'auth.api.key.allowed': AccountApiKeyAllowedPolicy,
+    // The route gates every contract names (`access.policies.ts`).
+    [VIEW_POLICY]: ViewPolicy,
+    [MANAGE_POLICY]: ManagePolicy,
 } as const;
 
 export interface WilsonPolicyContexts {
     'auth.factor.password.allowed': PasswordAllowedPolicyContext;
     'auth.api.key.allowed': ApiKeyAllowedPolicyContext;
+    'wilson.view': RequirePolicyContext;
+    'wilson.manage': RequirePolicyContext;
 }
 
 /**

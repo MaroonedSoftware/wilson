@@ -8,6 +8,7 @@ import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { DB } from '#modules/data/db.js';
+import { authorize } from '#tests/support/test.authorized.js';
 
 let db: Kysely<DB>;
 beforeAll(() => {
@@ -95,7 +96,7 @@ const dispatch = async (
         respond: true,
         res,
     };
-    await router.routes()(ctx as never, async () => {});
+    await router.routes()(authorize(ctx) as never, async () => {});
     return { frames, ended };
 };
 

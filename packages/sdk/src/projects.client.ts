@@ -56,9 +56,9 @@ export class ProjectsClient {
     /**
      * @name List directories
      * @description Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
-     * it (after resolving symlinks) is refused rather than listed. This is a new disclosure on an
-     * unauthenticated surface, weighed the way `CreateProjectRequest`'s comment weighs accepting paths:
-     * the API binds to 127.0.0.1, and anything that can reach it can already read the disk as this user.
+     * it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
+     * `CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,
+     * and the operator can already read the disk as this user.
      * The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
      * Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
      */

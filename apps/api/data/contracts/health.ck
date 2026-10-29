@@ -5,6 +5,11 @@ options {
     security: none
 }
 
+# Ungated (PROJECT.md decision 10), so a monitor, and `wilson doctor` on a machine not yet signed in,
+# can ask whether the daemon is up and current. It does say where the code and worktrees live on this
+# machine (`codeRoot`, `worktreeRoot`); that is the price of an unauthenticated liveness check, and
+# nothing here can be changed through it.
+
 # What the server says about itself. `head` is the commit captured at boot, not the repo's current
 # HEAD: this project lost three runs to a daemon quietly serving code from before a fix, and a field
 # read per request would report the new commit and make exactly that daemon look current.

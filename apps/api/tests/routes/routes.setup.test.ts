@@ -19,6 +19,7 @@ import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository, type ProjectRow } from '#modules/board/project.repository.js';
 import { ProjectsService } from '#modules/board/projects.service.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
+import { authorize } from '#tests/support/test.authorized.js';
 import { uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -344,7 +345,7 @@ describe('ProjectsRouter', () => {
                 },
             },
         };
-        return ProjectsRouter.routes()(ctx as never, async () => {}).then(() => ctx);
+        return ProjectsRouter.routes()(authorize(ctx) as never, async () => {}).then(() => ctx);
     };
 
     it('answers 200 with the JSON array ProjectsService.list() resolves, verbatim', async () => {
@@ -518,6 +519,7 @@ describe('GET /api/projects end to end through ProjectContextRouter', () => {
         };
         const contextRouter = routers()[0]!;
 
+        authorize(ctx);
         await contextRouter.routes()(ctx as never, () => ProjectsRouter.routes()(ctx as never, async () => {}));
 
         expect(find).not.toHaveBeenCalled();
@@ -777,7 +779,7 @@ describe('FeedRouter project scoping', () => {
             res,
         };
 
-        await router.routes()(ctx as never, async () => {});
+        await router.routes()(authorize(ctx) as never, async () => {});
 
         expect(cardIdsOf(frames())).toEqual(['mine']);
     });

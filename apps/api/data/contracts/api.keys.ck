@@ -2,16 +2,19 @@ options {
     services: {
         ApiKeysService: "#modules/authentication/api.keys.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
 # The operator's API keys (PROJECT.md, Authentication): what the CLI and scripts send as
 # `Authorization: Bearer wl_...`. The token is shown once, when a key is created or rotated, and only
 # its hash is kept.
 #
-# `security: none` until rollout step 6, like `auth.ck`'s session routes: each operation reads the
-# caller's session itself and answers 401 without one. A key can list keys and revoke one, but only
-# a signed-in session can create or rotate one (403 otherwise).
+# The floor is `wilson.manage`. Listing and revoking lower it to `wilson.view`, so any key can see
+# the keys and revoke one, its own included, since revoking only ever takes authority away. Creating
+# and rotating keep `manage`, and the service further refuses an API key there (403): only a
+# signed-in session can mint one.
 
 # What a key may do. `manage` includes `view`.
 contract ApiKeyScope: enum(view, manage)
@@ -45,6 +48,9 @@ operation /api/auth/keys: {
     get: {
         name: List API keys
         sdk: listApiKeys
+        security: {
+            policy: wilson.view
+        }
         service: ApiKeysService.list
         response: {
             200: {
@@ -98,6 +104,9 @@ operation /api/auth/keys/{id}: {
     delete: {
         name: Revoke an API key
         sdk: revokeApiKey
+        security: {
+            policy: wilson.view
+        }
         service: ApiKeysService.revoke
         response: {
             200: {

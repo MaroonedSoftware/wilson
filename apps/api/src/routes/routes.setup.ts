@@ -1,6 +1,6 @@
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
-import { firstQueryValue, openSseStream, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
+import { firstQueryValue, openSseStream, requirePolicy, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -9,6 +9,7 @@ import { cardFeed } from '#modules/feed/card.feed.js';
 import { toGeneratedTurn } from '#modules/plan/plan.service.js';
 import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
+import { VIEW_POLICY } from '#modules/policy/access.policies.js';
 import { ApiKeysRouter } from './api.keys.router.js';
 import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
@@ -120,13 +121,13 @@ const ProjectContextRouter = () => {
  * Builds the live card feed router: current stage and latest event per card, over SSE at
  * `/api/feed`.
  *
- * Not `@maroonedsoftware/koa/serverfeed`'s `serverFeedRouter`: it guards its route with
- * `requirePolicy`, defaulting to an MFA gate, and even `{ policy: false }` still requires a valid
- * session per its own doc comment. This server has no authentication and no sessions at all (card
- * 0019), so no policy option that factory offers is satisfiable here. `openSseStream` (the same
- * primitive `modules/feed/card.feed.route.ts`'s `openCardFeedStream` is built on) takes the response
- * over directly instead, the same way `serverfeed`'s lower-level `handleServerFeed` does, and
- * imposes no policy.
+ * Not `@maroonedsoftware/koa/serverfeed`'s `serverFeedRouter`: `openSseStream` (the same primitive
+ * `modules/feed/card.feed.route.ts`'s `openCardFeedStream` is built on) takes the response over
+ * directly instead, the same way `serverfeed`'s lower-level `handleServerFeed` does.
+ *
+ * Gated with `wilson.view` by hand, since no contract generates this route (PROJECT.md decision
+ * 10). The web app's `EventSource` cannot send a bearer header, so it authenticates with the stream
+ * cookie, which `streamCookieMiddleware` turns into one for this path and the plan stream's only.
  *
  * A factory rather than a module-level constant, unlike the other routers here: it needs the
  * server's lifecycle signal (`ServerKitServerBuilder.lifecycleSignal`) so shutdown drains an open
@@ -153,7 +154,7 @@ const ProjectContextRouter = () => {
  */
 export const FeedRouter = (signal?: AbortSignal) => {
     const router = ServerKitRouter();
-    router.get('/api/feed', async ctx => {
+    router.get('/api/feed', requirePolicy({ policy: VIEW_POLICY }), async ctx => {
         const project = ctx.container.get(BoardConfig).project;
         const filter = { source: project };
         const stream = openSseStream(ctx as unknown as SseContext, { signal });
@@ -190,7 +191,8 @@ export const FeedRouter = (signal?: AbortSignal) => {
  * one itself from the same two dependencies, both of which the container already has.
  *
  * Takes the server's lifecycle signal, same as `FeedRouter`, so shutdown drains an open plan stream
- * instead of holding its socket to the force-close grace period.
+ * instead of holding its socket to the force-close grace period. Gated with `wilson.view` by hand,
+ * as `FeedRouter` is.
  *
  * Card 0150: `board` below is read once the request's `runAsProject` scope is already open (see
  * `ProjectContextRouter`'s mount-order doc comment), so `board.project` is the project this stream
@@ -205,7 +207,7 @@ export const FeedRouter = (signal?: AbortSignal) => {
  */
 export const PlanStreamRouter = (signal?: AbortSignal) => {
     const router = ServerKitRouter();
-    router.get('/api/cards/:id/plan/stream', async ctx => {
+    router.get('/api/cards/:id/plan/stream', requirePolicy({ policy: VIEW_POLICY }), async ctx => {
         const id = String(ctx.params.id);
         const headerId = ctx.headers['last-event-id'];
         const lastEventId = resolveLastEventId(typeof headerId === 'string' ? headerId : '', ctx.query.lastEventId);

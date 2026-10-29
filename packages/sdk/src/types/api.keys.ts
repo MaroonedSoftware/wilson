@@ -1,12 +1,12 @@
 /**
  * What a key may do. `manage` includes `view`.
- * generated from [ApiKeyScope](file://./../../../../apps/api/data/contracts/api.keys.ck#L17)
+ * generated from [ApiKeyScope](file://./../../../../apps/api/data/contracts/api.keys.ck#L20)
  */
 export type ApiKeyScope = 'view' | 'manage';
 
 /**
  * A key as the list shows it. `hint` is the last few characters of the token, to tell keys apart.
- * generated from [ApiKeySummary](file://./../../../../apps/api/data/contracts/api.keys.ck#L20)
+ * generated from [ApiKeySummary](file://./../../../../apps/api/data/contracts/api.keys.ck#L23)
  */
 export interface ApiKeySummary {
     id: string;
@@ -20,7 +20,7 @@ export interface ApiKeySummary {
 }
 
 /**
- * generated from [CreateApiKeyRequest](file://./../../../../apps/api/data/contracts/api.keys.ck#L31)
+ * generated from [CreateApiKeyRequest](file://./../../../../apps/api/data/contracts/api.keys.ck#L34)
  */
 export interface CreateApiKeyRequest {
     name: string;
@@ -31,7 +31,7 @@ export interface CreateApiKeyRequest {
 
 /**
  * A newly created or rotated key and its token. The only time the token is ever returned.
- * generated from [IssuedApiKey](file://./../../../../apps/api/data/contracts/api.keys.ck#L39)
+ * generated from [IssuedApiKey](file://./../../../../apps/api/data/contracts/api.keys.ck#L42)
  */
 export interface IssuedApiKey {
     key: ApiKeySummary;

@@ -7,7 +7,9 @@ options {
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
 # Operational settings live in the database now (card 0106) — the poller's on/off switch was the
@@ -19,15 +21,13 @@ options {
 # `BoundedCardStageJobRunner`'s doc (jobs.module.ts) for why that one restarts the (idle) worker
 # instead of pretending pg-boss can reconfigure a running one in place.
 #
-# `security: none` for the same reason board.ck and health.ck are: the API binds to 127.0.0.1
-# (BoardConfig/server startup) and has no auth boundary yet (card 0019). Anything that can reach
-# this port could already flip the poller on directly if it were a plain code change, so exposing
-# it here is the same accepted risk restated as an HTTP call: worst case the runner works the
-# board unattended, which costs money but reaches nothing outward. `NOTIFY_WEBHOOK_URL` used to stay
-# out of this table for exactly the opposite reason: unlike the poller switch, it reaches outward,
-# so exposing it the same way turns this unauthenticated surface into a general-purpose request
-# primitive — anything that can reach this port could make the daemon POST JSON of its choosing at
-# an address of its choosing.
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
+#
+# `NOTIFY_WEBHOOK_URL` used to stay out of this table because, unlike the poller switch, it reaches
+# outward: whoever can set it can make the daemon POST JSON of its choosing at an address of its
+# choosing. Writing it needs `wilson.manage` now, so that is the operator.
 #
 # Card 0107 adds it anyway, below, but not the same way: `NotifyWebhookSettingService` runs
 # `checkWebhookDestination` (apps/api/src/modules/notify/webhook.destination.ts) against the write,
@@ -35,9 +35,8 @@ options {
 # cloud metadata address `169.254.169.254`), private, or unspecified address — and again on every
 # use, since a name that resolves safely at write can resolve unsafely later. Read that file's own
 # doc for exactly what this does and does not stop: in short, it narrows *where* this daemon can be
-# pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
-# Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
-# absence, not a substitute for it.
+# pointed. The check stays as defence in depth behind authentication: a leaked `manage` key should
+# still not be able to aim the daemon at the cloud metadata address.
 contract PollerSetting: {
     enabled: boolean
 }
@@ -68,6 +67,9 @@ contract SetCardStageConcurrencyRequest: {
 
 operation /api/settings/poller-enabled: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get poller setting
         service: PollerSettingService.get
         response: {
@@ -88,6 +90,9 @@ operation /api/settings/poller-enabled: {
 
 operation /api/settings/poller-interval-ms: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get poller interval
         service: PollerIntervalSettingService.get
         response: {
@@ -111,6 +116,9 @@ operation /api/settings/poller-interval-ms: {
 
 operation /api/settings/card-stage-concurrency: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get card stage concurrency
         service: CardStageConcurrencySettingService.get
         response: {
@@ -148,6 +156,9 @@ contract SetNotifyWebhookSettingRequest: {
 
 operation /api/settings/notify-webhook: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get notify webhook setting
         service: NotifyWebhookSettingService.get
         response: {
@@ -191,6 +202,9 @@ contract SetClaudeConfigDirSettingRequest: {
 
 operation /api/settings/claude-config-dir: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get claude config dir setting
         service: ClaudeConfigDirSettingService.get
         response: {
@@ -227,6 +241,9 @@ contract SetDryRunSettingRequest: {
 
 operation /api/settings/dry-run: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get dry run setting
         service: DryRunSettingService.get
         response: {

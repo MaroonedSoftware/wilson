@@ -1,5 +1,5 @@
 /**
- * generated from [TokenRequest](file://./../../../../apps/api/data/contracts/auth.ck#L18)
+ * generated from [TokenRequest](file://./../../../../apps/api/data/contracts/auth.ck#L17)
  */
 export interface TokenRequest {
     grant_type: 'password' | 'refresh_token';
@@ -17,7 +17,7 @@ export interface TokenRequest {
  *
  * A caller that sends `x-wilson-cookies: 1` (the web app) gets no `refreshToken` here: it arrives as
  * an httpOnly cookie instead, and a `refresh_token` grant with none in the body redeems that cookie.
- * generated from [TokenResponse](file://./../../../../apps/api/data/contracts/auth.ck#L33)
+ * generated from [TokenResponse](file://./../../../../apps/api/data/contracts/auth.ck#L32)
  */
 export interface TokenResponse {
     accessToken: string;
@@ -28,7 +28,7 @@ export interface TokenResponse {
 
 /**
  * The session the caller's bearer token names.
- * generated from [CurrentSession](file://./../../../../apps/api/data/contracts/auth.ck#L41)
+ * generated from [CurrentSession](file://./../../../../apps/api/data/contracts/auth.ck#L40)
  */
 export interface CurrentSession {
     accountId: string;

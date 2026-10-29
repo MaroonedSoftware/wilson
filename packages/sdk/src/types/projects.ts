@@ -2,10 +2,9 @@
  * One registered project's identity, as far as an HTTP caller needs to know it. `ProjectRow`
  * (project.repository.ts) also carries `codeRoot`, `worktreeRoot` and `runRoot` —
  * filesystem layout of the machine the daemon runs on — which are withheld here: a switcher needs
- * names, and an unauthenticated surface (see `security: none` above) is a reason to return the
- * minimum that serves the consumer, not a licence to expose everything `ProjectRepository.list()`
- * already reads.
- * generated from [Project](file://./../../../../apps/api/data/contracts/projects.ck#L30)
+ * names, and returning the minimum that serves the consumer is the habit worth keeping even behind
+ * authentication, not a licence to expose everything `ProjectRepository.list()` already reads.
+ * generated from [Project](file://./../../../../apps/api/data/contracts/projects.ck#L31)
  */
 export interface Project {
     name: string;
@@ -21,19 +20,16 @@ export interface Project {
  * Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
  * `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
  * "a request that could name an arbitrary filesystem path would be a remote write primitive, which
- * this is not". That reasoning was weighed and not followed here. The grounds: `security: none`
- * above is justified, on every contract that carries it, by the API binding to 127.0.0.1 with no
- * auth boundary yet (card 0019) — and anything that can already reach this port can already `INSERT`
- * a row into `runner.projects` directly, so accepting paths here grants nothing that is not already
- * granted. No confinement root is added either: that would be new configuration, considered and
- * rejected rather than overlooked. Authenticating the API (card 0019) is what actually settles the
- * question `init` answered one way and this answers the other.
+ * this is not". That reasoning was weighed and not followed here. The grounds: this operation
+ * needs `wilson.manage`, so only the operator, signed in or through a `manage` key, can name a path,
+ * and the operator can already write `runner.projects` directly. No confinement root is added
+ * either: that would be new configuration, considered and rejected rather than overlooked.
  *
  * Only `isAbsolute` is checked — not existence, writability, or that a board lives there — the same
  * restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
  * is discovered by use, not by a check guessing at what "working" means. `ProjectsService.create`
  * normalises with `resolve()`, as `BoardModule` already does for the seeded row.
- * generated from [CreateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L55)
+ * generated from [CreateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L53)
  */
 export interface CreateProjectRequest {
     name: string;
@@ -50,7 +46,7 @@ export interface CreateProjectRequest {
  * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
  * orphan every card, event, version and setting rather than failing. The name lives in the path
  * (`/api/projects/{name}`) and nowhere in any request body on this contract.
- * generated from [UpdateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L69)
+ * generated from [UpdateProjectRequest](file://./../../../../apps/api/data/contracts/projects.ck#L67)
  */
 export interface UpdateProjectRequest {
     codeRoot?: string;
@@ -62,7 +58,7 @@ export interface UpdateProjectRequest {
  * The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
  * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
  * folder, which is also the furthest up the listing will go.
- * generated from [DirectoryQuery](file://./../../../../apps/api/data/contracts/projects.ck#L78)
+ * generated from [DirectoryQuery](file://./../../../../apps/api/data/contracts/projects.ck#L76)
  */
 export interface DirectoryQuery {
     path?: string;
@@ -76,7 +72,7 @@ export interface DirectoryQuery {
  *
  * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
  * folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
- * generated from [DirectoryListing](file://./../../../../apps/api/data/contracts/projects.ck#L89)
+ * generated from [DirectoryListing](file://./../../../../apps/api/data/contracts/projects.ck#L87)
  */
 export interface DirectoryListing {
     path: string;

@@ -7,7 +7,7 @@ const _ZodDatetime = z.preprocess(
 );
 
 /**
- * generated from [TokenRequest](file://./../../data/contracts/auth.ck#L18)
+ * generated from [TokenRequest](file://./../../data/contracts/auth.ck#L17)
  */
 export const TokenRequest = z.strictObject({
     grant_type: z.enum(['password', 'refresh_token']),
@@ -24,7 +24,7 @@ export type TokenRequest = z.infer<typeof TokenRequest>;
  *
  * A caller that sends `x-wilson-cookies: 1` (the web app) gets no `refreshToken` here: it arrives as
  * an httpOnly cookie instead, and a `refresh_token` grant with none in the body redeems that cookie.
- * generated from [TokenResponse](file://./../../data/contracts/auth.ck#L33)
+ * generated from [TokenResponse](file://./../../data/contracts/auth.ck#L32)
  */
 export const TokenResponse = z.strictObject({
     accessToken: z.string(),
@@ -36,7 +36,7 @@ export type TokenResponse = z.infer<typeof TokenResponse>;
 
 /**
  * The session the caller's bearer token names.
- * generated from [CurrentSession](file://./../../data/contracts/auth.ck#L41)
+ * generated from [CurrentSession](file://./../../data/contracts/auth.ck#L40)
  */
 export const CurrentSession = z.strictObject({
     accountId: z.string(),

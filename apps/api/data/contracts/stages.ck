@@ -2,7 +2,9 @@ options {
     services: {
         StageConfigService: "#modules/stages/stage.config.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
 # The stage config document itself — the operator's surface, beside `board.ck`'s `GET /api/stages`,
@@ -11,15 +13,14 @@ options {
 # `runner.stage_configs` row now (`StageConfigStore`, apps/api/src/modules/stages), so this is how it
 # is read and written: `wilson stages show|edit|set|versions` all call here.
 #
-# `security: none` for the reason board.ck, settings.ck and projects.ck already state: the API binds
-# to 127.0.0.1 with no auth boundary yet (card 0019). Worth saying plainly for this file in
-# particular, though — the stage config is exactly the thing PROJECT.md decision 8 keeps
-# human-write-only, because an agent that can rewrite its own exit condition passes every time.
-# What enforces that is not this endpoint's absence of auth; it is that no agent runs with the API
-# reachable as a tool: the write tool denies `**/stages.yaml` by name still, the bash tool runs only
-# an allowlisted argv prefix (no `curl`), and the board is unreachable from a worktree by
-# construction (decision 6). Authenticating the API is card 0019's job, and the day this listens on
-# anything but localhost this operation is the first that needs it.
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
+#
+# Worth saying plainly for this file in particular: the stage config is exactly the thing PROJECT.md
+# decision 8 keeps human-write-only, because an agent that can rewrite its own exit condition passes
+# every time. Before decision 10 nothing stopped project code a stage ran from calling this endpoint;
+# now it needs a credential no stage is given.
 
 # One stored document. `yaml` is the text verbatim, comments included — the document is the config,
 # not a rendering of columns. `message` is what the commit message on `stages.yaml` used to be.
@@ -53,6 +54,9 @@ contract StageConfigVersionsQuery: {
 
 operation /api/stages/config: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get stage config
         service: StageConfigService.get
         response: {
@@ -87,6 +91,9 @@ operation /api/stages/config: {
 
 operation /api/stages/config/versions: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List stage config versions
         service: StageConfigService.versions
         query: StageConfigVersionsQuery

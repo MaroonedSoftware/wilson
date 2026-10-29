@@ -2,13 +2,14 @@ options {
     services: {
         ContextService: "#modules/context/context.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
-# `security: none` for the reason board.ck, settings.ck, projects.ck and stages.ck all state: the
-# API binds to 127.0.0.1 with no auth boundary yet (card 0019). There is one caller for this surface
-# today — a human pasting a URL — and nothing here is reachable from anywhere that isn't already
-# trusted to run `wilson` on this machine directly.
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
 
 # Third of six in the context-provider slice (PROJECT.md, "Context providers"). `runner.card_context`
 # (card 0185) is where a snapshot lives; `ContextProvider`/`ContextProviderRegistry`/
@@ -58,6 +59,9 @@ operation /api/cards/{id}/context: {
         }
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List card context
         service: ContextService.list
         response: {

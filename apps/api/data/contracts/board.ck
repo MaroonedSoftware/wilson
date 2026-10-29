@@ -7,15 +7,14 @@ options {
         PlanService: "#modules/plan/plan.service.js"
         PlanLintService: "#modules/board/plan.lint.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
-# `security: none` is deliberate here too, not an oversight carried over from the read surface: the
-# API binds to 127.0.0.1 (BoardConfig/server startup), so anything that can reach these operations
-# can already run `wilson card ...` on this machine directly. There is no auth boundary to enforce
-# yet. The day this listens on anything but localhost, every operation below — read and write alike
-# — needs a real answer to "who is allowed to do this", and this comment is the marker to come back
-# and add it.
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
 
 # The board's columns. They come from the project's stage config (a `runner.stage_configs` row,
 # `StageConfigStore`), which a browser has no business reading whole — and a board that hard-codes
@@ -399,6 +398,9 @@ contract RecordFindingsRequest: {
 
 operation /api/cards: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List cards
         service: BoardService.list
         response: {
@@ -426,6 +428,9 @@ operation /api/cards/{id}: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get card
         service: BoardService.getById
         response: {
@@ -684,6 +689,9 @@ operation /api/cards/{id}/division: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get card division
         service: BoardWriteService.division
         response: {
@@ -737,6 +745,9 @@ operation /api/cards/{id}/lint: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Lint a card plan
         service: PlanLintService.lint
         response: {
@@ -780,6 +791,9 @@ operation /api/cards/{id}/plan/draft: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get a plan draft
         service: PlanService.draft
         response: {
@@ -881,6 +895,9 @@ operation /api/cards/{id}/plan/comments: {
         }
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List plan comments
         service: PlanService.comments
         response: {
@@ -917,6 +934,9 @@ operation /api/cards/{id}/events: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List card events
         service: BoardService.events
         query: ListQuery
@@ -938,6 +958,9 @@ operation /api/cards/{id}/usage: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get card usage
         service: BoardService.usage
         response: {
@@ -960,6 +983,9 @@ operation /api/cards/{id}/diff: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: Get card diff
         service: BoardService.diff
         response: {
@@ -1011,6 +1037,9 @@ operation /api/cards/{id}/versions: {
         id: string
     }
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List card versions
         service: BoardService.versions
         query: ListQuery
@@ -1024,6 +1053,9 @@ operation /api/cards/{id}/versions: {
 
 operation /api/stages: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List board columns
         service: StagesService.columns
         response: {

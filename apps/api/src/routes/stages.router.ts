@@ -1,4 +1,4 @@
-import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
+import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { StageConfigService } from '#modules/stages/stage.config.service.js';
 import { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from '../generated/stages.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
@@ -9,10 +9,9 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const StagesRouter = ServerKitRouter();
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L55)
- * anonymous access, no security required
+ * from [stages.ck](file://./../../data/contracts/stages.ck#L56)
  */
-StagesRouter.get('/api/stages/config', async ctx => {
+StagesRouter.get('/api/stages/config', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(StageConfigService);
     const result: StageConfigDocument = await service.get();
 
@@ -25,10 +24,9 @@ StagesRouter.get('/api/stages/config', async ctx => {
  * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
  * document is still there in the history, so a bad edit is undone by saving the earlier text
  * again, never by deleting anything.
- * from [stages.ck](file://./../../data/contracts/stages.ck#L70)
- * anonymous access, no security required
+ * from [stages.ck](file://./../../data/contracts/stages.ck#L74)
  */
-StagesRouter.put('/api/stages/config', bodyParserMiddleware(['json']), async ctx => {
+StagesRouter.put('/api/stages/config', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetStageConfigRequest);
 
     const service = ctx.container.get(StageConfigService);
@@ -40,10 +38,9 @@ StagesRouter.put('/api/stages/config', bodyParserMiddleware(['json']), async ctx
 });
 
 /**
- * from [stages.ck](file://./../../data/contracts/stages.ck#L89)
- * anonymous access, no security required
+ * from [stages.ck](file://./../../data/contracts/stages.ck#L93)
  */
-StagesRouter.get('/api/stages/config/versions', async ctx => {
+StagesRouter.get('/api/stages/config/versions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const query = await parseAndValidate(ctx.query, StageConfigVersionsQuery.strict());
 
     const service = ctx.container.get(StageConfigService);

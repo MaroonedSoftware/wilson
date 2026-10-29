@@ -1,4 +1,4 @@
-import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
+import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { CurrentSessionService } from '#modules/authentication/current.session.service.js';
 import { TokenService } from '#modules/authentication/token.service.js';
 import { CurrentSession, TokenRequest, TokenResponse } from '../generated/auth.js';
@@ -10,7 +10,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const AuthRouter = ServerKitRouter();
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L49)
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L48)
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => {
@@ -25,10 +25,9 @@ AuthRouter.post('/api/auth/token', bodyParserMiddleware(['json']), async ctx => 
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L71)
- * anonymous access, no security required
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L70)
  */
-AuthRouter.get('/api/auth/session', async ctx => {
+AuthRouter.get('/api/auth/session', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(CurrentSessionService);
     const result: CurrentSession = await service.get();
 
@@ -38,7 +37,7 @@ AuthRouter.get('/api/auth/session', async ctx => {
 });
 
 /**
- * from [auth.ck](file://./../../data/contracts/auth.ck#L86)
+ * from [auth.ck](file://./../../data/contracts/auth.ck#L88)
  * anonymous access, no security required
  */
 AuthRouter.post('/api/auth/logout', async ctx => {

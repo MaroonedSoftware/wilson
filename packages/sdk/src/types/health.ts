@@ -11,7 +11,7 @@
  * `codeRoot` and `worktreeRoot` are deployment topology (card 0106) — read-only
  * wherever they are shown, since changing them out from under a running daemon is not a setting,
  * it is a redeploy. They live here rather than in `settings.ck` for exactly that reason.
- * generated from [Health](file://./../../../../apps/api/data/contracts/health.ck#L20)
+ * generated from [Health](file://./../../../../apps/api/data/contracts/health.ck#L25)
  */
 export interface Health {
     ok: boolean;

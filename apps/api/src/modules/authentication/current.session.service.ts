@@ -23,7 +23,7 @@ export class CurrentSessionService {
     ) {}
 
     async get(): Promise<CurrentSession> {
-        // Rollout step 6 moves this refusal into `requirePolicy`.
+        // `requirePolicy` has already refused a request with no session; this only narrows the type.
         const session = requireSession(this.context);
         const account = await this.accounts.get(session.subject);
         if (!account) throw unauthorizedError('Bearer error="invalid_token"');

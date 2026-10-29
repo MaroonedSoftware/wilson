@@ -3,7 +3,9 @@ options {
         ProjectsService: "#modules/board/projects.service.js"
         ProjectDirectoriesService: "#modules/board/project.directories.service.js"
     }
-    security: none
+    security: {
+        policy: wilson.manage
+    }
 }
 
 # Card 0162. The deployment's project registry (card 0148's `runner.projects`), not any one
@@ -13,9 +15,9 @@ options {
 # `contractkit.config.json` discovers contracts by glob (`apps/api/data/contracts/**/*.ck`), so
 # adding this file needed no configuration change.
 #
-# `security: none`, for the reason board.ck, health.ck and settings.ck already state: the API binds
-# to 127.0.0.1 (BoardConfig/server startup) and has no auth boundary yet (card 0019) — anything that
-# can reach this port could already read `runner.projects` directly.
+# Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, which a signed-in session
+# or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
+# or key does. Anything without a credential gets 401 before a handler runs.
 #
 # Card 0154 hit this directly: it needed a project switcher, and had no endpoint to ask what
 # projects exist. Its own Files in scope (`apps/web/src/**`) put this endpoint out of reach, so it
@@ -24,9 +26,8 @@ options {
 # One registered project's identity, as far as an HTTP caller needs to know it. `ProjectRow`
 # (project.repository.ts) also carries `codeRoot`, `worktreeRoot` and `runRoot` —
 # filesystem layout of the machine the daemon runs on — which are withheld here: a switcher needs
-# names, and an unauthenticated surface (see `security: none` above) is a reason to return the
-# minimum that serves the consumer, not a licence to expose everything `ProjectRepository.list()`
-# already reads.
+# names, and returning the minimum that serves the consumer is the habit worth keeping even behind
+# authentication, not a licence to expose everything `ProjectRepository.list()` already reads.
 contract Project: {
     name: string
 }
@@ -40,13 +41,10 @@ contract Project: {
 # Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
 # `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because
 # "a request that could name an arbitrary filesystem path would be a remote write primitive, which
-# this is not". That reasoning was weighed and not followed here. The grounds: `security: none`
-# above is justified, on every contract that carries it, by the API binding to 127.0.0.1 with no
-# auth boundary yet (card 0019) — and anything that can already reach this port can already `INSERT`
-# a row into `runner.projects` directly, so accepting paths here grants nothing that is not already
-# granted. No confinement root is added either: that would be new configuration, considered and
-# rejected rather than overlooked. Authenticating the API (card 0019) is what actually settles the
-# question `init` answered one way and this answers the other.
+# this is not". That reasoning was weighed and not followed here. The grounds: this operation
+# needs `wilson.manage`, so only the operator, signed in or through a `manage` key, can name a path,
+# and the operator can already write `runner.projects` directly. No confinement root is added
+# either: that would be new configuration, considered and rejected rather than overlooked.
 #
 # Only `isAbsolute` is checked — not existence, writability, or that a board lives there — the same
 # restraint `ClaudeConfigDirSettingService.set`'s contract comment gives: a wrong-but-absolute value
@@ -99,6 +97,9 @@ contract DirectoryListing: {
 # exemption was added for it.
 operation /api/projects: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List projects
         service: ProjectsService.list
         response: {
@@ -161,13 +162,16 @@ operation /api/projects/{name}: {
 }
 
 # Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
-# it (after resolving symlinks) is refused rather than listed. This is a new disclosure on an
-# unauthenticated surface, weighed the way `CreateProjectRequest`'s comment weighs accepting paths:
-# the API binds to 127.0.0.1, and anything that can reach it can already read the disk as this user.
+# it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
+# `CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,
+# and the operator can already read the disk as this user.
 # The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
 # Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
 operation /api/projects/directories: {
     get: {
+        security: {
+            policy: wilson.view
+        }
         name: List directories
         service: ProjectDirectoriesService.list
         query: DirectoryQuery

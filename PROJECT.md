@@ -735,6 +735,13 @@ Steps 2 to 5 add capability without changing who can call what. Step 6 is the on
 changes behaviour, so the rollout can stop before it. Changing the database password is its own
 card.
 
+**Upgrading a running deployment past step 6.** Every caller needs a credential from then on, so,
+in order: run `pnpm migrate:up` (the accounts, keys and cache-set tables); restart the API; open the
+web app, which shows onboarding the first time, and create the account; then run `wilson auth login`
+on each machine that uses the CLI. Until the last step, CLI commands answer "not signed in" rather
+than reaching the board. `GET /api/health` stays open, so `wilson doctor`'s liveness check works
+throughout.
+
 ## Notification
 
 ServerKit `comms` with a `ChannelRouter`; the Slack and Discord packages each ship a

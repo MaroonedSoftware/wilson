@@ -161,9 +161,9 @@ describe('the current session and sign-out', () => {
     });
 });
 
-/** Rollout step 3 enforces nothing: every other route answers a caller with no token, or a bad one. */
-describe('nothing is enforced yet', () => {
-    it('serves an ungated route with no token, and with a bad one', async () => {
+/** A public route answers with no token, and with a bad one: a dead token is not an error. */
+describe('public routes', () => {
+    it('serve a caller with no token, and with a bad one', async () => {
         expect((await call('GET', '/api/health')).status).toBe(200);
         expect((await call('GET', '/api/health', { token: 'garbage' })).status).toBe(200);
     });

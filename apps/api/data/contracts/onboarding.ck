@@ -7,8 +7,8 @@ options {
 
 # First-run onboarding (PROJECT.md, Authentication): creating the one operator account.
 #
-# `security: none` here is permanent, unlike the other contracts' (which rollout step 6 replaces):
-# onboarding runs before any account exists, so there is nobody to authenticate. What refuses a
+# `security: none`, one of the few routes without a gate (PROJECT.md decision 10): onboarding runs
+# before any account exists, so there is nobody to authenticate. What refuses a
 # second account is the database, not a policy; see `OnboardingService`.
 
 # Whether onboarding has happened. The web app asks this to choose between the onboarding page and

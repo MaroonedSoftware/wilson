@@ -1,4 +1,4 @@
-import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
+import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
@@ -27,10 +27,9 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
 export const SettingsRouter = ServerKitRouter();
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L70)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L69)
  */
-SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
+SettingsRouter.get('/api/settings/poller-enabled', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(PollerSettingService);
     const result: PollerSetting = await service.get();
 
@@ -40,10 +39,9 @@ SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L77)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L79)
  */
-SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/poller-enabled', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetPollerSettingRequest);
 
     const service = ctx.container.get(PollerSettingService);
@@ -55,10 +53,9 @@ SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L90)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L92)
  */
-SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
+SettingsRouter.get('/api/settings/poller-interval-ms', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(PollerIntervalSettingService);
     const result: PollerInterval = await service.get();
 
@@ -68,10 +65,9 @@ SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L97)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L102)
  */
-SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/poller-interval-ms', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetPollerIntervalRequest);
 
     const service = ctx.container.get(PollerIntervalSettingService);
@@ -83,10 +79,9 @@ SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['js
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L113)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L118)
  */
-SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
+SettingsRouter.get('/api/settings/card-stage-concurrency', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(CardStageConcurrencySettingService);
     const result: CardStageConcurrency = await service.get();
 
@@ -96,10 +91,9 @@ SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L120)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L128)
  */
-SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/card-stage-concurrency', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetCardStageConcurrencyRequest);
 
     const service = ctx.container.get(CardStageConcurrencySettingService);
@@ -111,10 +105,9 @@ SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L150)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L158)
  */
-SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
+SettingsRouter.get('/api/settings/notify-webhook', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(NotifyWebhookSettingService);
     const result: NotifyWebhookSetting = await service.get();
 
@@ -124,10 +117,9 @@ SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L157)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L168)
  */
-SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/notify-webhook', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetNotifyWebhookSettingRequest);
 
     const service = ctx.container.get(NotifyWebhookSettingService);
@@ -139,10 +131,9 @@ SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L193)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L204)
  */
-SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
+SettingsRouter.get('/api/settings/claude-config-dir', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(ClaudeConfigDirSettingService);
     const result: ClaudeConfigDirSetting = await service.get();
 
@@ -152,10 +143,9 @@ SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L200)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L214)
  */
-SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/claude-config-dir', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetClaudeConfigDirSettingRequest);
 
     const service = ctx.container.get(ClaudeConfigDirSettingService);
@@ -167,10 +157,9 @@ SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['jso
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L229)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L243)
  */
-SettingsRouter.get('/api/settings/dry-run', async ctx => {
+SettingsRouter.get('/api/settings/dry-run', requirePolicy({ policy: 'wilson.view' }), async ctx => {
     const service = ctx.container.get(DryRunSettingService);
     const result: DryRunSetting = await service.get();
 
@@ -180,10 +169,9 @@ SettingsRouter.get('/api/settings/dry-run', async ctx => {
 });
 
 /**
- * from [settings.ck](file://./../../data/contracts/settings.ck#L236)
- * anonymous access, no security required
+ * from [settings.ck](file://./../../data/contracts/settings.ck#L253)
  */
-SettingsRouter.put('/api/settings/dry-run', bodyParserMiddleware(['json']), async ctx => {
+SettingsRouter.put('/api/settings/dry-run', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, SetDryRunSettingRequest);
 
     const service = ctx.container.get(DryRunSettingService);
