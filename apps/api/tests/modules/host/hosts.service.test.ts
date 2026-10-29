@@ -67,6 +67,14 @@ describe('HostsService', () => {
         await expect(service.update(uniqueProject(), { slots: 1 })).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('records a lifetime, clears it with 0, and refuses a negative one', async () => {
+        const name = uniqueProject();
+
+        expect(await service.create({ name, lifetimeMinutes: 720 })).toMatchObject({ lifetimeMinutes: 720 });
+        expect(await service.update(name, { lifetimeMinutes: 0 })).not.toHaveProperty('lifetimeMinutes');
+        await expect(service.update(name, { lifetimeMinutes: -5 })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('sets a project’s paths on a host, replaces them on a second put, and removes them', async () => {
         const name = uniqueProject();
         const project = await registerProject();

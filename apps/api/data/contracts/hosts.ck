@@ -1,6 +1,7 @@
 options {
     services: {
         HostsService: "#modules/host/hosts.service.js"
+        HostProber: "#modules/host/host.prober.js"
     }
     security: none
 }
@@ -44,6 +45,9 @@ contract Host: {
     slots: int
     enabled: boolean
     draining: boolean
+    # Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe
+    # adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.
+    lifetimeMinutes?: int
     projects: array(HostProject)
     probe?: HostProbe
 }
@@ -54,6 +58,7 @@ contract CreateHostRequest: {
     name: string
     sshTarget?: string
     slots?: int
+    lifetimeMinutes?: int
 }
 
 # A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
@@ -63,6 +68,8 @@ contract UpdateHostRequest: {
     slots?: int
     enabled?: boolean
     draining?: boolean
+    # 0 clears it: the host has no known end.
+    lifetimeMinutes?: int
 }
 
 # The three paths for one project on one host. All three are absolute paths on the host.
@@ -135,6 +142,27 @@ operation /api/hosts/{name}: {
         response: {
             204:
             404:
+        }
+    }
+}
+
+# Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+# project's clone is a git repository and its roots can be written, and, given a lifetime, when it
+# will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
+operation /api/hosts/{name}/probe: {
+    params: {
+        name: string
+    }
+    post: {
+        name: Probe host
+        service: HostProber.probe
+        response: {
+            200: {
+                application/json: Host
+            }
+            404:
+            # The host is disabled, and a disabled host is not probed.
+            409:
         }
     }
 }

@@ -46,6 +46,17 @@ export class HostsClient {
     }
 
     /**
+     * @name Probe host
+     * @description Connect to the host and record what is there: that SSH reaches it, which `claude` it has, that each
+     * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
+     * will stop. A failed check is a recorded result (`probe.ok: false`), not an error response.
+     */
+    async probeHost(name: string): Promise<Host> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/probe`, { method: 'POST' });
+        return await parseJson<Host>(result);
+    }
+
+    /**
      * @name Set host project
      * @description `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
      * cut worktrees from a clone that is not there.

@@ -37,12 +37,13 @@ export class HostsService {
         const name = requireNonEmpty('name', request.name);
         const sshTarget = request.sshTarget === undefined ? name : requireNonEmpty('sshTarget', request.sshTarget);
         const slots = request.slots === undefined ? MIN_SLOTS : requireSlots(request.slots);
+        const lifetimeMinutes = request.lifetimeMinutes === undefined ? undefined : requireLifetime(request.lifetimeMinutes);
 
         if (await this.hosts.find(name)) {
             throw httpError(409).withDetails({ reason: `host "${name}" is already registered` });
         }
 
-        await this.hosts.create({ name, sshTarget, slots });
+        await this.hosts.create({ name, sshTarget, slots, ...(lifetimeMinutes && { lifetimeMinutes }) });
         return this.get(name);
     }
 
@@ -53,6 +54,9 @@ export class HostsService {
         if (request.slots !== undefined) patch.slots = requireSlots(request.slots);
         if (request.enabled !== undefined) patch.enabled = request.enabled;
         if (request.draining !== undefined) patch.draining = request.draining;
+        // 0 clears it: the contract's way of saying "no known end" without a null on the wire.
+        if (request.lifetimeMinutes !== undefined)
+            patch.lifetimeMinutes = request.lifetimeMinutes === 0 ? null : requireLifetime(request.lifetimeMinutes);
 
         if (!(await this.hosts.update(name, patch))) {
             throw notFound(name);
@@ -107,6 +111,7 @@ export const toHost = (row: HostRow): Host => ({
     slots: row.slots,
     enabled: row.enabled,
     draining: row.draining,
+    ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
     projects: row.projects,
     ...(row.probe && { probe: row.probe }),
 });
@@ -124,6 +129,13 @@ const requireNonEmpty = (field: string, value: string): string => {
 const requireSlots = (value: number): number => {
     if (!Number.isInteger(value) || value < MIN_SLOTS || value > MAX_SLOTS) {
         throw httpError(400).withDetails({ reason: `slots must be a whole number from ${MIN_SLOTS} to ${MAX_SLOTS}, got ${value}` });
+    }
+    return value;
+};
+
+const requireLifetime = (value: number): number => {
+    if (!Number.isInteger(value) || value < 1) {
+        throw httpError(400).withDetails({ reason: `lifetimeMinutes must be a whole number of minutes above 0, got ${value}` });
     }
     return value;
 };

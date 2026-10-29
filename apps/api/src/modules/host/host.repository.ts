@@ -29,13 +29,18 @@ export interface HostRow {
     slots: number;
     enabled: boolean;
     draining: boolean;
+    /** Minutes it runs after boot before it stops by itself; absent when it has no known end. */
+    lifetimeMinutes?: number;
     projects: HostProjectRow[];
     /** Absent until the host has been probed once. */
     probe?: HostProbeRow;
 }
 
-/** The columns `update` may set; the probe's own columns are written only by `recordProbe`. */
-export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining'>>;
+/**
+ * The columns `update` may set; the probe's own columns are written only by `recordProbe`.
+ * `lifetimeMinutes: null` clears it, the one place "explicitly emptied" differs from "left alone".
+ */
+export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining'>> & { lifetimeMinutes?: number | null };
 
 /**
  * `runner.hosts` and `runner.host_projects`, in Postgres: the machines a stage can run on besides
@@ -79,7 +84,7 @@ export class HostRepository {
     }
 
     /** Register a host. Fails if the name is already taken. */
-    async create(row: { name: string; sshTarget: string; slots: number }): Promise<void> {
+    async create(row: { name: string; sshTarget: string; slots: number; lifetimeMinutes?: number }): Promise<void> {
         await this.db.insertInto('runner.hosts').values(row).execute();
     }
 
@@ -150,6 +155,7 @@ type HostSelection = {
     probeDetail?: string | null;
     engineVersion?: string | null;
     expiresAt?: DateTime | null;
+    lifetimeMinutes?: number | null;
 };
 
 const toRow = (host: HostSelection, projects: HostProjectRow[]): HostRow => ({
@@ -158,6 +164,7 @@ const toRow = (host: HostSelection, projects: HostProjectRow[]): HostRow => ({
     slots: host.slots,
     enabled: host.enabled,
     draining: host.draining,
+    ...(host.lifetimeMinutes && { lifetimeMinutes: host.lifetimeMinutes }),
     projects: projects.map(({ project, codeRoot, worktreeRoot, runRoot }) => ({ project, codeRoot, worktreeRoot, runRoot })),
     ...(host.probedAt && typeof host.probeOk === 'boolean'
         ? {

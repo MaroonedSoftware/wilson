@@ -7,7 +7,8 @@ import type { Host } from '@wilson/sdk';
 export const describeHost = (host: Host): string[] => {
     const state = !host.enabled ? 'disabled' : host.draining ? 'draining' : 'enabled';
     const target = host.sshTarget === host.name ? '' : ` (ssh ${host.sshTarget})`;
-    const lines = [`${host.name}${target}  ${state}  ${host.slots} slot${host.slots === 1 ? '' : 's'}  ${describeProbe(host)}`];
+    const lifetime = host.lifetimeMinutes ? `  lives ${host.lifetimeMinutes}m after boot` : '';
+    const lines = [`${host.name}${target}  ${state}  ${host.slots} slot${host.slots === 1 ? '' : 's'}${lifetime}  ${describeProbe(host)}`];
     for (const project of host.projects) {
         lines.push(`  ${project.project}  ${project.codeRoot}  worktrees ${project.worktreeRoot}  run ${project.runRoot}`);
     }

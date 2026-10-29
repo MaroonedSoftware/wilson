@@ -33,6 +33,7 @@ import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
 import hostAddCommand from './commands/host/add.command.js';
 import hostListCommand from './commands/host/list.command.js';
+import hostProbeCommand from './commands/host/probe.command.js';
 import hostRemoveCommand from './commands/host/remove.command.js';
 import hostServeCommand from './commands/host/serve.command.js';
 import hostSetCommand from './commands/host/set.command.js';
@@ -96,6 +97,7 @@ const app = await createCliApp({
         reg(['host', 'remove'], hostRemoveCommand),
         reg(['host', 'serve'], hostServeCommand),
         reg(['host', 'unserve'], hostUnserveCommand),
+        reg(['host', 'probe'], hostProbeCommand),
         reg(['stages', 'show'], stagesShowCommand),
         reg(['stages', 'edit'], stagesEditCommand),
         reg(['stages', 'set'], stagesSetCommand),

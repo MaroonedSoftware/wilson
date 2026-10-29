@@ -163,6 +163,7 @@ export interface Hosts {
     probeDetail: string | null;
     engineVersion: string | null;
     expiresAt: ColumnType<DateTime | null, DateTime | string | null | undefined, DateTime | string | null>;
+    lifetimeMinutes: number | null;
     createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
 }
 

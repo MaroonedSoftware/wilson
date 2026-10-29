@@ -6,6 +6,7 @@ import { describeHost } from '../../host-view.js';
 interface SetOpts {
     sshTarget?: string;
     slots?: number;
+    lifetimeMinutes?: number;
     enable?: boolean;
     disable?: boolean;
     drain?: boolean;
@@ -24,6 +25,7 @@ const command: CommandModule<SetOpts> = {
     options: [
         { flags: '--ssh-target <target>', description: 'What `ssh` connects to', type: 'string' },
         { flags: '--slots <n>', description: 'Stages that may run on it at once, 1 to 8', type: 'number' },
+        { flags: '--lifetime-minutes <n>', description: 'Minutes it runs after boot before it stops by itself; 0 clears it', type: 'number' },
         { flags: '--enable', description: 'Let it take work again', type: 'boolean' },
         { flags: '--disable', description: 'Stop it taking work and stop probing it', type: 'boolean' },
         { flags: '--drain', description: 'Take no new stage, but let running ones finish', type: 'boolean' },
@@ -43,6 +45,7 @@ const command: CommandModule<SetOpts> = {
         const patch: UpdateHostRequest = {
             ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
             ...(opts.slots !== undefined && { slots: opts.slots }),
+            ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
             ...((opts.enable || opts.disable) && { enabled: !!opts.enable }),
             ...((opts.drain || opts.undrain) && { draining: !!opts.drain }),
         };

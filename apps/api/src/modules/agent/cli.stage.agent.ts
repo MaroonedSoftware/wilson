@@ -1,8 +1,18 @@
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { createSdkMcpServer, query, tool, type CanUseTool, type HookCallback, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import {
+    createSdkMcpServer,
+    query,
+    tool,
+    type CanUseTool,
+    type HookCallback,
+    type PermissionResult,
+    type SpawnedProcess,
+    type SpawnOptions,
+} from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
@@ -56,6 +66,17 @@ export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
     }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
     return env;
+};
+
+/**
+ * The `query()` options that start the engine on `host` rather than here: the binary named plainly so
+ * the SDK passes its flags straight through (it treats anything not ending in `.js` as a native
+ * binary), and the host's own spawn. Nothing for a host without `spawnClaude`.
+ */
+const remoteEngine = (host: ExecutionHost): { pathToClaudeCodeExecutable?: string; spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess } => {
+    const spawnClaude = host.spawnClaude?.bind(host);
+    if (!spawnClaude) return {};
+    return { pathToClaudeCodeExecutable: 'claude', spawnClaudeCodeProcess: options => spawnClaude(options) as SpawnedProcess };
 };
 
 /**
@@ -486,6 +507,11 @@ export class CliStageAgent extends StageAgent {
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
                 env: subscriptionEnv(configDir),
+                // A worktree on another machine needs the engine there too: its built-in tools read
+                // and write the tree directly. The host starts `claude` from its own PATH, and the
+                // SDK's callbacks above still run here, over the same stdio. A host with no
+                // `spawnClaude` is this machine, where the SDK's own spawn is already right.
+                ...remoteEngine(toolHost(context)),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
                 stderr: (data: string) => {

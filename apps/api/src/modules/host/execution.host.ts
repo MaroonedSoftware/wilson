@@ -1,3 +1,5 @@
+import type { ChildProcess } from 'node:child_process';
+
 /**
  * Where a stage's file and command work actually happens.
  *
@@ -49,6 +51,20 @@ export interface ExecutionHost {
      * zero; otherwise rejects with an `ExecFailure`.
      */
     exec(file: string, args: readonly string[], options: ExecOptions): Promise<ExecResult>;
+
+    /**
+     * Start the `claude` engine on this host, for the Agent SDK's `spawnClaudeCodeProcess`. Absent on
+     * a host where the SDK's own local spawn already does the right thing, which is this machine.
+     */
+    spawnClaude?(options: ClaudeSpawnOptions): ChildProcess;
+}
+
+/** The part of the Agent SDK's `SpawnOptions` a host needs to start the engine. */
+export interface ClaudeSpawnOptions {
+    command: string;
+    args: string[];
+    cwd?: string;
+    env: { [key: string]: string | undefined };
 }
 
 export interface HostStat {

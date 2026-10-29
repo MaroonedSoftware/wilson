@@ -1,0 +1,116 @@
+import { Injectable } from 'injectkit';
+import { httpError } from '@maroonedsoftware/errors';
+import { DateTime } from 'luxon';
+import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
+import type { Host } from '../../generated/hosts.js';
+import type { ExecFailure, ExecutionHost } from './execution.host.js';
+import { HostConnector } from './host.connector.js';
+import { HostRepository, type HostProbeRow, type HostRow } from './host.repository.js';
+import { toHost } from './hosts.service.js';
+
+/** How long one probe command may take before the host is reported unreachable. */
+const PROBE_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * The host's boot time in seconds since the epoch: Linux's `/proc/stat`, else BSD's
+ * `kern.boottime`, so a macOS host answers too. That one prints `{ sec = N, usec = M } ...`, so the
+ * pattern is anchored at the start: unanchored, `.*sec` matches `usec` instead.
+ */
+const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || sysctl -n kern.boottime | sed -E 's/^\\{ sec = ([0-9]+).*/\\1/'`;
+
+/**
+ * Connects to a host and records what is there (`POST /api/hosts/{name}/probe`).
+ *
+ * Every check runs even after one fails, so one probe reports everything wrong with a host rather
+ * than the first thing. A failed check is a result, recorded with `ok: false`, never an error
+ * response: the caller asked what state the host is in, and "unreachable" is an answer.
+ *
+ * What it checks, and why each matters to a stage placed there:
+ * - SSH reaches it, without a prompt.
+ * - `claude` is on its `PATH`, since the engine runs there. A version other than the one this
+ *   machine's probes last passed against is reported, not refused: the host's engine has not been
+ *   through `cli.engine.contract.probe.ts`, which is worth knowing before trusting it.
+ * - Each project's `codeRoot` is a git repository, since worktrees are cut from it, and its worktree
+ *   and run roots can be created.
+ * - Given a lifetime, when it will stop: boot time plus the lifetime.
+ */
+@Injectable()
+export class HostProber {
+    constructor(
+        private readonly hosts: HostRepository,
+        private readonly connector: HostConnector,
+    ) {}
+
+    async probe(name: string): Promise<Host> {
+        const row = await this.hosts.find(name);
+        if (!row) throw httpError(404).withDetails({ reason: `host "${name}" is not registered` });
+        if (!row.enabled) throw httpError(409).withDetails({ reason: `host "${name}" is disabled; enable it before probing it` });
+
+        await this.hosts.recordProbe(name, await this.inspect(row));
+        return toHost((await this.hosts.find(name))!);
+    }
+
+    /** Run every check against `row`'s host and say what was found. Writes nothing. */
+    async inspect(row: HostRow): Promise<HostProbeRow> {
+        const host = this.connector.connect(row);
+        const probedAt = DateTime.now();
+
+        const reach = await run(host, 'true', []);
+        if (reach instanceof Error) {
+            return { probedAt, ok: false, detail: `cannot reach ${row.sshTarget}: ${reason(reach)}` };
+        }
+
+        const problems: string[] = [];
+        const notes: string[] = [];
+
+        let engineVersion: string | undefined;
+        const version = await run(host, 'claude', ['--version']);
+        if (version instanceof Error) {
+            problems.push(`claude is not runnable there: ${reason(version)}`);
+        } else {
+            engineVersion = version.split(/\s+/)[0];
+            if (engineVersion !== CLAUDE_BINARY_VERSION) {
+                notes.push(`claude ${engineVersion} has not been through the engine probes (this machine's last passed on ${CLAUDE_BINARY_VERSION})`);
+            }
+        }
+
+        for (const project of row.projects) {
+            const repo = await run(host, 'git', ['-C', project.codeRoot, 'rev-parse', '--git-dir']);
+            if (repo instanceof Error) problems.push(`${project.project}: ${project.codeRoot} is not a git repository: ${reason(repo)}`);
+            const roots = await run(host, 'mkdir', ['-p', '--', project.worktreeRoot, project.runRoot]);
+            if (roots instanceof Error) problems.push(`${project.project}: cannot create its worktree and run roots: ${reason(roots)}`);
+        }
+        if (row.projects.length === 0) notes.push('serves no project yet');
+
+        let expiresAt: DateTime | undefined;
+        if (row.lifetimeMinutes !== undefined) {
+            const boot = await run(host, 'sh', ['-c', BOOT_TIME_SCRIPT]);
+            const seconds = boot instanceof Error ? NaN : Number(boot.trim());
+            if (Number.isFinite(seconds) && seconds > 0) {
+                expiresAt = DateTime.fromSeconds(seconds).plus({ minutes: row.lifetimeMinutes });
+            } else {
+                problems.push(`could not read its boot time, so its expiry is unknown${boot instanceof Error ? `: ${reason(boot)}` : ''}`);
+            }
+        }
+
+        const ok = problems.length === 0;
+        const detail = [...problems, ...notes].join('; ');
+        return {
+            probedAt,
+            ok,
+            ...(detail && { detail }),
+            ...(engineVersion && { engineVersion }),
+            ...(expiresAt && { expiresAt }),
+        };
+    }
+}
+
+/** Run one check from `/`, with only the host's own `PATH` and `HOME`. Resolves to stdout or the failure. */
+const run = async (host: ExecutionHost, file: string, args: string[]): Promise<string | ExecFailure> =>
+    host
+        .exec(file, args, { cwd: '/', env: {}, timeoutMs: PROBE_COMMAND_TIMEOUT_MS })
+        .then(result => result.stdout)
+        .catch((err: ExecFailure) => err);
+
+/** The most useful line of a failure: its stderr when it wrote any, otherwise its message. */
+const reason = (failure: ExecFailure): string => (failure.stderr?.trim().split('\n').pop() || failure.message).slice(0, 300);
