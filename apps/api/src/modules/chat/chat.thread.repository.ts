@@ -28,7 +28,7 @@ const toThread = (row: Selectable<ChatThreads>): ChatThread => ({
 
 /**
  * `wilson.chat_threads`. Not project-scoped, unlike every repository that takes `BoardConfig`: a
- * thread can touch several projects (see the migration, `20261029120000_chat.sql`). A thread's
+ * thread can touch several projects (see the migration, `20261029000900_chat.sql`). A thread's
  * `engine` is fixed when it is created; nothing here changes it.
  */
 @Injectable()

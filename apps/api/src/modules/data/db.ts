@@ -148,7 +148,7 @@ export interface Projects {
 
 /**
  * An exclusive claim on a machine-global resource — see the migration
- * (`data/migrations/20260831120000_leases.sql`) for why `resourceKey` alone is the primary key
+ * (`data/migrations/20261029000500_board.sql`) for why `resourceKey` alone is the primary key
  * rather than `(project, resourceKey)`.
  */
 export interface Hosts {
@@ -350,7 +350,7 @@ export interface Learnings {
 }
 
 /**
- * A chat thread (`data/migrations/20261029120000_chat.sql`). Not project-scoped: one conversation
+ * A chat thread (`data/migrations/20261029000900_chat.sql`). Not project-scoped: one conversation
  * can touch several projects. `engine` is 'api' or 'cli', left as `string` like `PlanTurns.role`.
  */
 export interface ChatThreads {

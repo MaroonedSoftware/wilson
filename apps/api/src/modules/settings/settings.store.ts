@@ -31,7 +31,7 @@ export const DEPLOYMENT_SCOPE = '__deployment__';
  * behaves identically to one that predates it.
  *
  * One row per `(project, key)`, keyed the same way every other operational table in this schema is
- * (`wilson.card_jobs` among them) — see the migration (`data/migrations/20260826120000_settings.sql`)
+ * (`wilson.card_jobs` among them) — see the migration (`data/migrations/20261029000200_settings.sql`)
  * for the exact shape. Card 0152: `project` no longer always means "the current project's row".
  * `SettingDefinition.scope` says which a given key is; a `'project'` setting is still keyed by
  * `BoardConfig.project` exactly as every setting was before this, and a `'deployment'` setting is

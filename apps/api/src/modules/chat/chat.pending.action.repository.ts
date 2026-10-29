@@ -50,7 +50,7 @@ const toAction = (row: Selectable<ChatPendingActions>): PendingAction => ({
 
 /**
  * `wilson.chat_pending_actions`: the changes the chat's agent proposed, which only the person's
- * decision runs. See the migration (`20261029120000_chat.sql`) for the status flow.
+ * decision runs. See the migration (`20261029000900_chat.sql`) for the status flow.
  *
  * Every transition out of 'pending' is one conditional UPDATE that matches only a pending action
  * not yet expired, and answers undefined when nothing matched. That is what makes a decision

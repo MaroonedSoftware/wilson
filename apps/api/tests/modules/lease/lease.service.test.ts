@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { randomInt, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { Logger } from '@maroonedsoftware/logger';
 import { LeaseService } from '#modules/lease/lease.service.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
@@ -21,31 +20,14 @@ const silentLogger: Logger = {
 };
 
 /**
- * Card 0165. Exercises the real migration this card added
- * (apps/api/data/migrations/20260831120000_leases.sql) against the real test database: `pnpm
- * migrate:up` is not on this stage's allowlist, so this reads the migration's own `-- migrate:up`
- * SQL text off disk and applies it directly. `wilson.leases` may not exist here yet at all, so this
- * applies the up migration for real rather than inside a rolled-back transaction; every test below needs the table to still be there afterward, and needs it visible to
- * more than one pooled connection at once for the concurrent-acquisition case. Idempotent against an
- * environment where `dbmate` already created the table for real: Postgres's "already exists" error
- * (42P07) is swallowed, anything else is not.
+ * Card 0165. Exercises `wilson.leases` against the real test database, which the suite's
+ * `globalSetup` (test.db.migrate.ts) has already migrated.
  */
-const migrationSql = readFileSync(new URL('../../../data/migrations/20260831120000_leases.sql', import.meta.url), 'utf8');
-const [, afterUp] = migrationSql.split('-- migrate:up');
-if (afterUp === undefined) throw new Error('migration file has no -- migrate:up marker');
-const [upSql] = afterUp.split('-- migrate:down');
-if (upSql === undefined) throw new Error('migration file has no -- migrate:down marker');
-
 let db: Kysely<DB>;
 let leases: LeaseService;
 
 beforeAll(async () => {
     db = testDb();
-    try {
-        await sql.raw(upSql).execute(db);
-    } catch (err) {
-        if ((err as { code?: string }).code !== '42P07') throw err;
-    }
     const boardRepo = new PostgresBoardRepository(
         new StaticBoardConfig('lease-service-test', '/tmp/code', '/tmp/wt', '/tmp/run'),
         db,

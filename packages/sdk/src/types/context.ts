@@ -15,7 +15,7 @@ const __dt = (v: unknown, path: string): DateTime => {
  * document to a card, over HTTP.
  *
  * `fetchedAt` and `createdAt` are both `datetime` and are not redundant — see the migration's own
- * header comment (`data/migrations/20260902120000_card_context.sql`): `fetchedAt` is when the source
+ * header comment (`data/migrations/20261029000500_board.sql`): `fetchedAt` is when the source
  * said the content was current, `createdAt` is when this row was written.
  * generated from [ContextSnapshot](../../../../apps/api/data/contracts/context.ck)
  */

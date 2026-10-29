@@ -27,7 +27,7 @@ export interface CardContext {
  *
  * `ContextService` (card 0187) is the one caller: it resolves a URL through
  * `ContextProviderRegistry`, calls the `ContextProvider` that handles it, and writes what came back
- * through `attach` below. See the migration (`data/migrations/20260902120000_card_context.sql`) for
+ * through `attach` below. See the migration (`data/migrations/20261029000500_board.sql`) for
  * what a row holds and why.
  */
 export class CardContextRepository {

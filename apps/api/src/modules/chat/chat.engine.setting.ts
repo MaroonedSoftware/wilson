@@ -22,7 +22,7 @@ export const DEFAULT_CHAT_ENGINE: ChatEngineChoice = { engine: 'cli', provider: 
  * 'cli' by default, the Claude Agent SDK on the operator's subscription, the same path planning runs
  * on. It needs no API key; 'api' needs one for `provider` in `apps/api/.env`, and bills per token.
  * Changing it applies to threads started afterwards: a thread stays on the engine it started on,
- * since the two keep history differently (see `20261029120000_chat.sql`). The model applies to every
+ * since the two keep history differently (see `20261029000900_chat.sql`). The model applies to every
  * thread's next turn.
  *
  * `CHAT_ENGINE` in the environment names the engine alone ('api' or 'cli'), with the default model.

@@ -18,7 +18,7 @@ import { CliChatEngine } from './cli.chat.engine.js';
  * The chat a person drives Wilson from, modelled on ats's web chat: an agent that reads through the
  * operation catalog (`McpModule`, reached through `ChatCatalog`) and proposes changes for the person
  * to confirm. Its conversations are kept in threads, messages and pending actions
- * (`data/migrations/20261029120000_chat.sql`).
+ * (`data/migrations/20261029000900_chat.sql`).
  */
 export const ChatModule: ServerKitModule = {
     name: 'Chat',
