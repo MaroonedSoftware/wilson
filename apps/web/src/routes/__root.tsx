@@ -1,11 +1,13 @@
 import { Link, Outlet, createRootRoute, useLocation, useParams } from '@tanstack/react-router';
-import { ActionIcon, AppShell, Badge, Box, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { ActionIcon, AppShell, Badge, Box, Drawer, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import { IconLayoutKanban, IconMoon, IconRefresh, IconSettings, IconSun } from '@tabler/icons-react';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
-import { ChatPanel } from '#src/components/ChatPanel.js';
+import { ChatDock, ChatDockToggle } from '#src/components/ChatDock.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
+import { setChatDockOpen, toggleChatDock, useChatDock } from '#src/lib/chat.dock.js';
 import { CardActivityContext, useCardFeed } from '#src/lib/feed.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
@@ -65,23 +67,35 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * page's live tool list (`LiveActivity.tsx`) both read this instead of either opening its own
  * `EventSource`.
  *
- * `ChatPanel` sits in the header for the same reason `ProjectSwitcher` does: the chat is reachable
- * from every screen, and follows the person between them. It is handed the matched route's
- * `project`, so a message sent from a project's page is about that project unless it says otherwise.
- *
  * `/` is the chat itself, the whole page (`routes/index.tsx`), as ats's home page is: it gets the
- * full height under the header and no padding, and the header offers no second way into the chat
- * there. The projects list that used to be `/` is a click away under Projects.
+ * full height under the header and no padding. The projects list that used to be `/` is a click away
+ * under Projects. On every other page the chat docks beside it (`ChatDock`, as ats's `AppLayout`
+ * does): on the right as `AppShell.Aside` or at the bottom as `AppShell.Footer`, sized from the dock's
+ * own store, or in a full-screen drawer on a phone; the header's `ChatDockToggle` or Ctrl/⌘+J opens
+ * and closes it. It is handed the matched route's `project`, so a message sent from a project's page
+ * is about that project unless it says otherwise. The dock and the home page show the same thread.
  */
 function Root() {
     const { project } = useParams({ strict: false });
     const home = useLocation({ select: location => location.pathname === '/' });
     const feed = useCardFeed(project);
+    const dock = useChatDock();
+    const phone = useMediaQuery('(max-width: 48em)') ?? false;
+    useHotkeys(home ? [] : [['mod+J', toggleChatDock]]);
+
+    const docked = dock.open && !home;
+    const right = docked && !phone && dock.position === 'right';
+    const bottom = docked && !phone && dock.position === 'bottom';
 
     return (
         <WilsonSdkProvider client={wilson}>
             <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
-                <AppShell header={{ height: 48 }} padding={home ? 0 : 'md'}>
+                <AppShell
+                    header={{ height: 48 }}
+                    aside={{ width: dock.width, breakpoint: 'sm', collapsed: { desktop: !right, mobile: true } }}
+                    footer={{ height: dock.height, collapsed: !bottom }}
+                    padding={home ? 0 : 'md'}
+                >
                     <Notifications />
                     <AppShell.Header>
                         <Group h="100%" px="md" justify="space-between">
@@ -109,7 +123,7 @@ function Root() {
                                         <IconLayoutKanban size={18} />
                                     </ActionIcon>
                                 </Tooltip>
-                                {!home && <ChatPanel project={project} />}
+                                {!home && <ChatDockToggle />}
                                 <ColorSchemeToggle />
                                 <Tooltip label="Settings">
                                     <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
@@ -128,6 +142,20 @@ function Root() {
                             <Outlet />
                         )}
                     </AppShell.Main>
+                    <AppShell.Aside>{right && <ChatDock position="right" project={project} />}</AppShell.Aside>
+                    <AppShell.Footer>{bottom && <ChatDock position="bottom" project={project} />}</AppShell.Footer>
+                    <Drawer
+                        opened={docked && phone}
+                        onClose={() => setChatDockOpen(false)}
+                        position="bottom"
+                        size="100%"
+                        withCloseButton={false}
+                        padding={0}
+                    >
+                        <Box h="100dvh">
+                            <ChatDock project={project} />
+                        </Box>
+                    </Drawer>
                 </AppShell>
             </CardActivityContext.Provider>
         </WilsonSdkProvider>

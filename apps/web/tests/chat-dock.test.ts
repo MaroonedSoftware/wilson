@@ -9,13 +9,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { ChatMessage, ChatPendingAction, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
 import { setActiveThread } from '#src/lib/chat.js';
+import { setChatDockOpen, setChatDockPosition } from '#src/lib/chat.dock.js';
 import { routeTree } from '#src/routeTree.gen.js';
 
 /**
- * The chat panel (`ChatPanel.tsx`), driven through the real app: the header's Chat button on the
- * dashboard (`/projects`; the home page is the chat itself), the generated chat client stubbed on its
+ * The chat dock (`ChatDock.tsx`), driven through the real app: the header's toggle on the dashboard
+ * (`/projects`; the home page is the chat itself), the generated chat client stubbed on its
  * prototype, and the stream through a fake `EventSource`. What these pin is what the person sees: a
- * change only ever runs from a Confirm they clicked, and an answer shows as it streams in.
+ * change only ever runs from a Confirm they clicked, an answer shows as it streams in, and the dock
+ * keeps the conversation the home page has open.
  */
 
 const at = (iso: string) => DateTime.fromISO(iso);
@@ -101,7 +103,7 @@ function renderApp(path = '/projects') {
 }
 
 const openChat = async () => {
-    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Show the chat' }));
     return screen.findByRole('textbox', { name: 'Message' });
 };
 
@@ -117,8 +119,11 @@ const detail = (messages: ChatMessage[], actions: ChatPendingAction[] = [], titl
 });
 
 beforeEach(() => {
-    // The open thread is shared app state (`setActiveThread`), so each test starts on a new chat.
+    // The open thread and the dock are shared app state, so each test starts on a new chat with the
+    // dock closed on the right.
     setActiveThread(undefined);
+    setChatDockOpen(false);
+    setChatDockPosition('right');
     FakeEventSource.instances = [];
     vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue(baseHealth);
     vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
@@ -154,10 +159,10 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('the chat panel', () => {
+describe('the chat dock', () => {
     it('reads nothing and opens no stream until it is opened', async () => {
         renderApp();
-        await screen.findByRole('button', { name: 'Chat' });
+        await screen.findByRole('button', { name: 'Show the chat' });
 
         expect(ChatClient.prototype.listChatThreads).not.toHaveBeenCalled();
         expect(chatStreams()).toEqual([]);
@@ -303,5 +308,73 @@ describe('the chat panel', () => {
 
         expect(await screen.findByText('the chat could not answer: ANTHROPIC_API_KEY is not set')).toBeTruthy();
         expect((box as HTMLTextAreaElement).value).toBe('hello?');
+    });
+});
+
+describe('the dock itself', () => {
+    it('opens beside the page, and closes from its own control or the header toggle', async () => {
+        renderApp();
+        await openChat();
+
+        expect(screen.getByRole('region', { name: 'Chat' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Hide the chat' }).getAttribute('aria-pressed')).toBe('true');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close the chat' }));
+        await waitFor(() => expect(screen.queryByRole('region', { name: 'Chat' })).toBeNull());
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show the chat' }));
+        expect(await screen.findByRole('region', { name: 'Chat' })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide the chat' }));
+        await waitFor(() => expect(screen.queryByRole('region', { name: 'Chat' })).toBeNull());
+    });
+
+    it('toggles with Ctrl+J', async () => {
+        renderApp();
+        await screen.findByRole('button', { name: 'Show the chat' });
+
+        fireEvent.keyDown(document.documentElement, { key: 'j', code: 'KeyJ', ctrlKey: true });
+
+        expect(await screen.findByRole('region', { name: 'Chat' })).toBeTruthy();
+    });
+
+    it('moves between the right and the bottom', async () => {
+        renderApp();
+        await openChat();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Dock at the bottom' }));
+        expect(await screen.findByRole('button', { name: 'Dock on the right' })).toBeTruthy();
+        expect(screen.getByRole('separator', { name: 'Resize the chat' }).getAttribute('aria-orientation')).toBe('horizontal');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Dock on the right' }));
+        expect(await screen.findByRole('button', { name: 'Dock at the bottom' })).toBeTruthy();
+    });
+
+    it('resizes from the keyboard, within its limits', async () => {
+        renderApp();
+        await openChat();
+        const handle = screen.getByRole('separator', { name: 'Resize the chat' });
+        const width = Number(handle.getAttribute('aria-valuenow'));
+
+        fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+        await waitFor(() => expect(Number(handle.getAttribute('aria-valuenow'))).toBe(width + 24));
+
+        for (let i = 0; i < 40; i++) fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+        await waitFor(() => expect(handle.getAttribute('aria-valuenow')).toBe(handle.getAttribute('aria-valuemax')));
+    });
+
+    it('opens as the home page, which keeps the same conversation', async () => {
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
+        setActiveThread('7');
+        renderApp();
+        await openChat();
+        expect(await screen.findByText('Move 0007')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Open as the home page' }));
+
+        expect(await screen.findByText('Move it')).toBeTruthy();
+        expect(screen.getByText('Move 0007')).toBeTruthy();
+        expect(screen.queryByText('What should we do?')).toBeNull();
+        expect(screen.queryByRole('region', { name: 'Chat' })).toBeNull();
     });
 });
