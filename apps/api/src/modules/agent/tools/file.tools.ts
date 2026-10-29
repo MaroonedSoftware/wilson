@@ -1,8 +1,7 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
-import type { ToolContext } from './tool.context.js';
+import { toolHost, type ToolContext } from './tool.context.js';
 
 // A read that returns half a megabyte is a read whose content will be resent on every later step.
 const MAX_READ_BYTES = 64 * 1024;
@@ -30,7 +29,9 @@ export const fileTools = (ctx: ToolContext) => ({
 
             // A readable extra (the plan) comes back absolute; everything else is worktree-relative.
             const absolute = isAbsolute(decision.path) ? decision.path : join(ctx.worktreeRoot, decision.path);
-            const raw = await readFile(absolute, 'utf8').catch((err: Error) => err);
+            const raw = await toolHost(ctx)
+                .readFile(absolute)
+                .catch((err: Error) => err);
             if (raw instanceof Error) return `error: could not read ${decision.path}: ${raw.message}`;
             if (raw.length > MAX_READ_BYTES && !offset && !limit) {
                 return `error: ${decision.path} is ${raw.length} bytes; re-read it with offset and limit.`;
@@ -66,8 +67,8 @@ export const fileTools = (ctx: ToolContext) => ({
             }
 
             const absolute = join(ctx.worktreeRoot, decision.path);
-            await mkdir(dirname(absolute), { recursive: true });
-            await writeFile(absolute, content, 'utf8');
+            await toolHost(ctx).mkdir(dirname(absolute));
+            await toolHost(ctx).writeFile(absolute, content);
             await ctx.events.append({
                 project: ctx.project,
                 cardId: ctx.cardId,
@@ -101,7 +102,9 @@ export const fileTools = (ctx: ToolContext) => ({
             }
 
             const absolute = join(ctx.worktreeRoot, decision.path);
-            const current = await readFile(absolute, 'utf8').catch((err: Error) => err);
+            const current = await toolHost(ctx)
+                .readFile(absolute)
+                .catch((err: Error) => err);
             if (current instanceof Error) return `error: could not read ${decision.path}: ${current.message}`;
 
             const occurrences = current.split(old_string).length - 1;
@@ -113,7 +116,7 @@ export const fileTools = (ctx: ToolContext) => ({
             }
 
             const updated = replace_all ? current.split(old_string).join(new_string) : current.replace(old_string, new_string);
-            await writeFile(absolute, updated, 'utf8');
+            await toolHost(ctx).writeFile(absolute, updated);
             await ctx.events.append({
                 project: ctx.project,
                 cardId: ctx.cardId,

@@ -1,4 +1,3 @@
-import { readFile, rm, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -12,7 +11,7 @@ import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { deleteFile } from './tools/delete.tool.js';
 import { requestScope } from './tools/scope.tool.js';
-import type { ToolContext } from './tools/index.js';
+import { toolHost, type ToolContext } from './tools/index.js';
 
 /**
  * The environment the engine runs with, minus any provider API key.
@@ -229,7 +228,7 @@ export class CliStageAgent extends StageAgent {
 
                         let text: string;
                         try {
-                            text = await readFile(join(context.worktreeRoot, decision.path), 'utf8');
+                            text = await toolHost(context).readFile(join(context.worktreeRoot, decision.path));
                         } catch (err) {
                             const message = `error: could not read ${decision.path}: ${(err as Error).message}`;
                             this.logger.warn(`report_result: ${message}`);
@@ -836,8 +835,12 @@ export class CliStageAgent extends StageAgent {
             // treatment, recursively — it may hold anything the stage wrote for its own inspection,
             // and letting any of it survive would turn SCRATCH_PREFIX into a second, uncontrolled
             // `alwaysAllowed` entry instead of the throwaway path it is meant to be.
-            await unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
-            await rm(join(context.worktreeRoot, SCRATCH_PREFIX), { recursive: true, force: true }).catch(() => {});
+            await toolHost(context)
+                .unlink(join(context.worktreeRoot, REPORT_RESULT_PATH))
+                .catch(() => {});
+            await toolHost(context)
+                .removeTree(join(context.worktreeRoot, SCRATCH_PREFIX))
+                .catch(() => {});
         }
 
         // A stage that never called the report tool did not say it had finished, and the dispatcher

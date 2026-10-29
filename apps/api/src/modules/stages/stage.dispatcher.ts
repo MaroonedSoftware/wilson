@@ -15,6 +15,7 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { localHost } from '#modules/host/local.execution.host.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
@@ -927,6 +928,8 @@ export class StageDispatcher {
             // exactly as it did before this field existed (`stage.config.ts`).
             scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
             port,
+            // This machine, until a stage can be placed on another one.
+            host: localHost,
             events: this.events,
             logger: this.logger,
         };
