@@ -230,6 +230,24 @@ describe('the chat panel', () => {
         await waitFor(() => expect(decide).toHaveBeenCalledWith('31', { decision: 'confirm' }));
     });
 
+    it('shows the follow-up to a confirmed change as it streams in', async () => {
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail([message(1, 'user', 'Move 0007, then release it')], [action()], 'Move it'),
+        );
+        vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
+        renderApp();
+        await openChat();
+        fireEvent.click(await screen.findByRole('combobox', { name: 'Thread' }));
+        fireEvent.click(await screen.findByRole('option', { name: 'Move it', hidden: true }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+
+        await waitFor(() => expect(chatStreams().length).toBeGreaterThan(0));
+        act(() => chatStreams().at(-1)!.emit('delta', 'Moved. Next, the release.'));
+
+        expect(await screen.findByText('Moved. Next, the release.')).toBeTruthy();
+    });
+
     it('declines a proposed change', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], 'Move it'));

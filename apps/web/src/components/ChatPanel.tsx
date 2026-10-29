@@ -252,6 +252,13 @@ export function ChatPanel({ project }: { project?: string }) {
                                     </Bubble>
                                 </>
                             )}
+                            {/* A turn the person did not send: the follow-up to a change they confirmed. */}
+                            {!send.isPending && (live.text || live.operations.length > 0) && (
+                                <Bubble role="assistant">
+                                    {live.text ? <Markdown body={live.text} /> : <Loader size="xs" />}
+                                    <Operations operations={live.operations} />
+                                </Bubble>
+                            )}
                             <div ref={targetRef} />
                         </Stack>
                     </ScrollArea>

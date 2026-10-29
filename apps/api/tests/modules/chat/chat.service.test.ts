@@ -7,7 +7,7 @@ import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatPendingActionRepository } from '#modules/chat/chat.pending.action.repository.js';
-import { ChatService, NEW_THREAD_TITLE, titleFrom } from '#modules/chat/chat.service.js';
+import { ChatService, NEW_THREAD_TITLE, NOTHING_MORE, titleFrom } from '#modules/chat/chat.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { testDb } from '#tests/support/test.db.js';
@@ -152,7 +152,7 @@ describe('ChatService', () => {
     });
 
     it('proposes a change without making it, then makes it once when the person confirms', async () => {
-        const { service, operationCalls } = setup([proposeMove, says('I proposed moving 0007; confirm it to go ahead.')]);
+        const { service, operationCalls } = setup([proposeMove, says('I proposed moving 0007; confirm it to go ahead.'), says(NOTHING_MORE)]);
         const thread = await service.startThread();
 
         const turn = await service.sendMessage(thread.id, { text: 'Move 0007 to implementing', project: 'wilson' });
@@ -171,6 +171,94 @@ describe('ChatService', () => {
         expect(statusOf(again)).toBe(409);
         expect(reasonOf(again)).toContain('already decided');
         expect(operationCalls).toHaveLength(1);
+        await service.whenIdle();
+    });
+
+    describe('after a confirmed change', () => {
+        it('carries on with the next change the person asked for, told how the first one went', async () => {
+            const { service, model } = setup([
+                proposeMove,
+                says('First, the move.'),
+                calls('propose_change', { name: 'release_card', project: 'wilson', arguments: { id: '0007' }, summary: 'Release 0007.' }),
+                says('Moved. Next, the release.'),
+            ]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007 to implementing, then release it' });
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            const note = JSON.stringify(model.prompts[2]);
+            expect(note).toContain('not from the person');
+            expect(note).toContain('It was made');
+            const detail = await service.getThread(thread.id);
+            expect(detail.messages.map(message => [message.role, message.content])).toEqual([
+                ['user', 'Move 0007 to implementing, then release it'],
+                ['assistant', 'First, the move.'],
+                ['assistant', 'Moved. Next, the release.'],
+            ]);
+            expect(detail.actions.map(action => [action.operation, action.status])).toEqual([
+                ['move_card', 'done'],
+                ['release_card', 'pending'],
+            ]);
+        });
+
+        it(`stores nothing when there is nothing more to say (${NOTHING_MORE})`, async () => {
+            const { service } = setup([proposeMove, says('Proposed.'), says(NOTHING_MORE)]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+            const heard: ChatStreamEvent[] = [];
+            const stop = onChatEvent(thread.id, event => heard.push(event));
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+            stop();
+
+            expect((await service.getThread(thread.id)).messages).toHaveLength(2);
+            expect(heard.at(-1)).toEqual({ event: 'done', data: { seq: 2 } });
+        });
+
+        it('tells the chat when the change failed, so it can say why', async () => {
+            const { service, model } = setup([
+                calls('propose_change', { name: 'release_card', project: 'wilson', arguments: { id: '0007' }, summary: 'Release 0007.' }),
+                says('Proposed.'),
+                says('The release failed: 0007 holds no lease, so there was nothing to release.'),
+            ]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Release 0007' });
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            expect(JSON.stringify(model.prompts[2])).toContain('It failed: card 0007 holds no lease');
+            expect((await service.getThread(thread.id)).messages.at(-1)?.content).toContain('holds no lease');
+        });
+
+        it('runs no follow-up for a declined change', async () => {
+            const { service, model } = setup([proposeMove, says('Proposed.')]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+
+            await service.decide(proposed[0]!.id, { decision: 'decline' });
+            await service.whenIdle();
+
+            expect(model.prompts).toHaveLength(2);
+        });
+
+        it("replays the follow-up's note ahead of its answer, so the next turn reads in order", async () => {
+            const { service, model } = setup([proposeMove, says('Proposed.'), says('Moved; anything else?'), says('Done for now.')]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            await service.sendMessage(thread.id, { text: 'No, thanks' });
+
+            const replayed = JSON.stringify(model.prompts[3]);
+            expect(replayed.indexOf('not from the person')).toBeGreaterThan(-1);
+            expect(replayed.indexOf('not from the person')).toBeLessThan(replayed.indexOf('Moved; anything else?'));
+            expect(replayed.indexOf('Moved; anything else?')).toBeLessThan(replayed.indexOf('No, thanks'));
+        });
     });
 
     it('runs nothing for a declined proposal, and refuses to confirm it afterwards', async () => {
@@ -187,11 +275,13 @@ describe('ChatService', () => {
         const { service } = setup([
             calls('propose_change', { name: 'release_card', project: 'wilson', arguments: { id: '0007' }, summary: 'Release 0007.' }),
             says('Proposed.'),
+            says(NOTHING_MORE),
         ]);
         const thread = await service.startThread();
         const { proposed } = await service.sendMessage(thread.id, { text: 'Release 0007' });
 
         expect(await service.decide(proposed[0]!.id, { decision: 'confirm' })).toMatchObject({ status: 'failed', error: 'card 0007 holds no lease' });
+        await service.whenIdle();
     });
 
     it("shows a thread's messages and its actions together", async () => {

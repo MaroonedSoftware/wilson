@@ -34,6 +34,23 @@ export const titleFrom = (text: string): string => {
     return line.length <= TITLE_LENGTH ? line : `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
 
+/** What a follow-up answers when the change it was told about leaves nothing to say or do. */
+export const NOTHING_MORE = 'NOTHING_MORE';
+
+/**
+ * The note a follow-up turn is given in place of a message from the person: how the change they
+ * confirmed went, and what to do about it. Never stored as theirs (`ChatService.followUp`).
+ */
+export const followUpNote = (action: PendingAction): string =>
+    [
+        `(A note from Wilson, not from the person.) They confirmed the change you proposed, "${action.summary}" (${action.operation}).`,
+        action.status === 'done'
+            ? `It was made. The operation answered: ${JSON.stringify(action.result ?? null).slice(0, 2000)}`
+            : `It failed: ${action.error ?? 'no reason given'}`,
+        'If they asked for more than this one change, propose the next one now. If the outcome needs saying (a failure, or a result that is not what they would expect), say it in a sentence or two.',
+        `Otherwise answer exactly ${NOTHING_MORE} and nothing else.`,
+    ].join('\n');
+
 /**
  * One lock per thread, so a second message sent while the first is still being answered waits for
  * it rather than racing it: each turn reads the thread's history, and two at once would each answer
@@ -55,6 +72,8 @@ const threadLock = (threadId: string): Mutex => {
  * each operation in a fresh scope of it, as each HTTP request gets one (`ChatCatalog.run`).
  */
 export class ChatService {
+    private readonly followUps = new Set<Promise<void>>();
+
     constructor(
         private readonly container: Container,
         private readonly logger: Logger,
@@ -111,7 +130,7 @@ export class ChatService {
                 const message = await this.messages.append(id, { role: 'user', content: said });
 
                 const { reply, proposed } = await this.answer(thread, history, said, project);
-                return { message: toWireMessage(message), reply: toWireMessage(reply), proposed: proposed.map(toWireAction) };
+                return { message: toWireMessage(message), reply: toWireMessage(reply!), proposed: proposed.map(toWireAction) };
             },
         );
     }
@@ -137,7 +156,39 @@ export class ChatService {
         } catch (err) {
             finished = await this.actions.finish(id, { error: explainError(err) });
         }
+        if (finished) this.followUp(finished);
         return toWireAction(finished ?? decided);
+    }
+
+    /** Resolves once every follow-up this service started has finished: for tests, and an orderly shutdown. */
+    async whenIdle(): Promise<void> {
+        while (this.followUps.size > 0) await Promise.all(this.followUps);
+    }
+
+    /**
+     * After a confirmed change, give the chat a turn of its own to carry on: told how the change went
+     * ({@link followUpNote}), it proposes the next change the person asked for, says what needs
+     * saying, or answers {@link NOTHING_MORE}, in which case nothing is stored. Not awaited by
+     * {@link decide}, which answers as soon as the change is made: the follow-up streams to the thread
+     * like any turn, and takes the thread's lock, so a message the person sends meanwhile waits for it
+     * rather than racing it. A follow-up that fails is logged and published as `failed`, never thrown
+     * to anyone.
+     */
+    private followUp(action: PendingAction): void {
+        const run = threadLock(action.threadId)
+            .run(
+                `follow-up to chat action ${action.id}`,
+                message => this.logger.info(message),
+                async () => {
+                    const thread = await this.threads.get(action.threadId);
+                    if (!thread) return;
+                    const history = await this.messages.since(thread.id);
+                    await this.answer(thread, history, followUpNote(action), action.project, { followUp: true });
+                },
+            )
+            .catch(err => this.logger.warn(`chat action ${action.id}: the follow-up failed: ${explainError(err)}`))
+            .finally(() => this.followUps.delete(run));
+        this.followUps.add(run);
     }
 
     /**
@@ -149,7 +200,8 @@ export class ChatService {
         history: ChatMessage[],
         text: string,
         project?: string,
-    ): Promise<{ reply: ChatMessage; proposed: PendingAction[] }> {
+        { followUp = false }: { followUp?: boolean } = {},
+    ): Promise<{ reply?: ChatMessage; proposed: PendingAction[] }> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
             throw httpError(502).withDetails({ reason });
@@ -187,11 +239,21 @@ export class ChatService {
         }
 
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);
+        if (followUp && output.text.trim() === NOTHING_MORE && context.proposed.length === 0) {
+            publishChat(thread.id, { event: 'done', data: { seq: history.at(-1)?.seq ?? 0 } });
+            return { proposed: [] };
+        }
         const reply = await this.messages.append(thread.id, {
             role: 'assistant',
-            content: output.text.trim() || '(no answer)',
+            content: output.text.trim().replace(NOTHING_MORE, '').trim() || '(no answer)',
             operations: context.operations,
-            engineMessages: output.engineMessages,
+            // A follow-up's note is not stored as a message, so the 'api' engine keeps it at the head
+            // of the answer's own record: replayed next turn, the answer still follows what prompted it
+            // rather than a second answer in a row.
+            engineMessages:
+                followUp && Array.isArray(output.engineMessages)
+                    ? [{ role: 'user', content: text }, ...output.engineMessages]
+                    : output.engineMessages,
         });
         publishChat(thread.id, { event: 'done', data: { seq: reply.seq } });
         return { reply, proposed: context.proposed };
