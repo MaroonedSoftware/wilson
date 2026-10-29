@@ -268,9 +268,15 @@ importers:
 
   apps/worker:
     dependencies:
+      '@swc-node/register':
+        specifier: ^1.12.1
+        version: 1.12.1(@swc/core@1.16.1)(@swc/types@0.1.28)(typescript@6.0.3)
       '@wilson/worker-protocol':
         specifier: workspace:*
         version: link:../../packages/worker-protocol
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
     devDependencies:
       '@repo/config-eslint':
         specifier: workspace:*
@@ -278,6 +284,9 @@ importers:
       '@repo/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
 
   packages/cli:
     dependencies:

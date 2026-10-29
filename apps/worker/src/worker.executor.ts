@@ -25,11 +25,18 @@ export interface WorkerExecutorOptions {
     /** The engine binary. A test substitutes a stand-in. */
     claudeCommand?: string;
     /**
-     * Refuses a path before anything touches it, with the reason; undefined lets it through. The worker
-     * program passes one that keeps every path inside its host's project roots.
+     * Refuses a file path before anything touches it, with the reason; undefined lets it through. The
+     * worker program passes one that keeps every path inside its host's project roots.
      */
     checkPath?: (path: string) => string | undefined;
+    /** The same for a command's or the engine's working folder. Defaults to `checkPath`. */
+    checkCwd?: (cwd: string) => string | undefined;
 }
+
+/** Throw the `EACCES` a refused path gets, when there is a refusal. */
+const refuseWith = (refusal: string | undefined, path: string): void => {
+    if (refusal) throw Object.assign(new Error(`EACCES: ${refusal}, '${path}'`), { code: 'EACCES' });
+};
 
 /**
  * Carries out what Wilson sends over a worker connection on this machine, and reports back through
@@ -94,10 +101,11 @@ export class WorkerExecutor {
     }
 
     private guard(...paths: string[]): void {
-        for (const path of paths) {
-            const refusal = this.options.checkPath?.(path);
-            if (refusal) throw Object.assign(new Error(`EACCES: ${refusal}, '${path}'`), { code: 'EACCES' });
-        }
+        for (const path of paths) refuseWith(this.options.checkPath?.(path), path);
+    }
+
+    private guardCwd(cwd: string): void {
+        refuseWith((this.options.checkCwd ?? this.options.checkPath)?.(cwd), cwd);
     }
 
     private async call(call: CallOp): Promise<unknown> {
@@ -138,7 +146,7 @@ export class WorkerExecutor {
                 this.guard(call.path);
                 return writeFile(call.path, Buffer.from(call.data, 'base64'));
             case 'exec': {
-                this.guard(call.options.cwd);
+                this.guardCwd(call.options.cwd);
                 const { options } = call;
                 // Only the options Wilson set, for the reason `LocalHost.exec` gives: an explicit
                 // `maxBuffer: undefined` would replace execFile's 1 MiB cap with none.
@@ -168,7 +176,7 @@ export class WorkerExecutor {
             this.send({ type: 'exit', id: message.id, code, signal, ...(error && { error }) });
         };
         try {
-            if (message.cwd) this.guard(message.cwd);
+            if (message.cwd) this.guardCwd(message.cwd);
         } catch (err) {
             exit(null, null, toWorkerError(err));
             return;

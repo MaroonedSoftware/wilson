@@ -154,7 +154,7 @@ describe('HostProber', () => {
         });
         const server = await startWorkerServer({ token: (await hosts.find(name))! });
         try {
-            await connectLoopbackWorker(server.url, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
+            await connectLoopbackWorker(server.apiUrl, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
             await eventually(() => server.connections.get(name) !== undefined);
 
             const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections)).probe(name);

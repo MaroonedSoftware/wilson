@@ -27,8 +27,8 @@ beforeAll(async () => {
     );
     await chmod(fakeClaude, 0o755);
 
-    server = await startWorkerServer({ token: workerRow('unraid-vm') });
-    await connectLoopbackWorker(server.url, 'token', {
+    server = await startWorkerServer({ token: workerRow('unraid-vm', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]) });
+    await connectLoopbackWorker(server.apiUrl, 'token', {
         env: { PATH: process.env.PATH, HOME: '/home/worker', CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' },
         claudeCommand: fakeClaude,
     });
@@ -111,15 +111,17 @@ describe('WorkerExecutionHost', () => {
 
 describe('WorkerExecutionHost when the worker goes away', () => {
     it('ends a running engine and fails calls as a lost connection, which a stage retries', async () => {
-        const lostServer = await startWorkerServer({ token: workerRow('flaky') });
+        const lostServer = await startWorkerServer({
+            token: workerRow('flaky', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]),
+        });
         try {
-            const flaky = await connectLoopbackWorker(lostServer.url, 'token', { claudeCommand: fakeClaude });
+            const flaky = await connectLoopbackWorker(lostServer.apiUrl, 'token', { claudeCommand: fakeClaude });
             await eventually(() => lostServer.connections.get('flaky') !== undefined);
             const flakyHost = new WorkerExecutionHost(lostServer.connections.get('flaky')!);
             const engine = flakyHost.spawnClaude({ command: 'claude', args: [], cwd: root, env: {} });
             const exited = new Promise<number | null>(resolve => engine.on('exit', code => resolve(code)));
 
-            flaky.socket.terminate();
+            flaky.stop();
 
             expect(await exited).toBeNull();
             await expect(flakyHost.readFile(join(root, 'target.txt'))).rejects.toBeInstanceOf(WorkerConnectionLostError);

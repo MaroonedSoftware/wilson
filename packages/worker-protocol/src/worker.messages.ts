@@ -100,7 +100,9 @@ export type WorkerProject = z.infer<typeof WorkerProject>;
 export const ToWorker = z.discriminatedUnion('type', [
     /**
      * The answer to `hello`: which host this connection is, and the projects it serves. A worker
-     * refuses any path outside those projects' roots, as a check of its own on top of Wilson's.
+     * refuses any file path outside those projects' roots, as a check of its own on top of Wilson's.
+     * Sent again whenever Wilson connects to the host for a probe or a stage, so a project served
+     * since the worker connected is known to it before any work for it arrives.
      */
     z.object({ type: z.literal('welcome'), host: z.string(), projects: z.array(WorkerProject) }),
     z.object({ type: z.literal('call'), id: z.string(), call: CallOp }),

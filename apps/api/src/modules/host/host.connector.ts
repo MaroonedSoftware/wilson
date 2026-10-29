@@ -30,9 +30,16 @@ export class HostConnector {
     /**
      * The host's commands and files: over SSH, or over its worker's connection. Throws
      * {@link WorkerNotConnectedError} for a worker host whose worker is not connected.
+     *
+     * Given the host's `projects`, a worker is told them again first, so the project roots it confines
+     * file work to are the ones registered now rather than the ones it was welcomed with.
      */
-    connect(host: Pick<HostRow, 'name' | 'kind' | 'sshTarget' | 'commandEnv'>): ExecutionHost {
-        if (host.kind === 'worker') return new WorkerExecutionHost(this.workerConnection(host.name), host.commandEnv);
+    connect(host: Pick<HostRow, 'name' | 'kind' | 'sshTarget' | 'commandEnv'> & Partial<Pick<HostRow, 'projects'>>): ExecutionHost {
+        if (host.kind === 'worker') {
+            const connection = this.workerConnection(host.name);
+            if (host.projects) connection.send({ type: 'welcome', host: host.name, projects: host.projects });
+            return new WorkerExecutionHost(connection, host.commandEnv);
+        }
         return new SshHost(sshTargetOf(host), this.sshCommand, host.commandEnv, this.engineToken);
     }
 

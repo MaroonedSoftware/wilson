@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
-import { WorkerExecutor, type WorkerExecutorOptions } from '@wilson/worker';
+import { WorkerClient, type WorkerClientOptions } from '@wilson/worker';
 import { FromWorker, ToWorker, WORKER_CONNECT_PATH, WORKER_PROTOCOL_VERSION, parseFrame } from '@wilson/worker-protocol';
 import type { HostRow } from '#modules/host/host.repository.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
@@ -26,7 +26,7 @@ export const workerRow = (name: string, projects: HostRow['projects'] = []): Hos
 export const startWorkerServer = async (
     tokens: Record<string, HostRow>,
     options: { helloTimeoutMs?: number; signal?: AbortSignal } = {},
-): Promise<{ server: Server; url: string; connections: WorkerConnections; close: () => Promise<void> }> => {
+): Promise<{ server: Server; url: string; apiUrl: string; connections: WorkerConnections; close: () => Promise<void> }> => {
     const server = createServer((_req, res) => res.writeHead(404).end());
     const connections = new WorkerConnections();
     attachWorkerEndpoint(server, {
@@ -40,6 +40,7 @@ export const startWorkerServer = async (
     return {
         server,
         url: `ws://127.0.0.1:${port}${WORKER_CONNECT_PATH}`,
+        apiUrl: `http://127.0.0.1:${port}`,
         connections,
         close: async () => {
             connections.closeAll('test over');
@@ -105,15 +106,13 @@ export const eventually = async (check: () => boolean, timeoutMs = 2_000): Promi
 };
 
 /**
- * A worker that really works: the worker program's own `WorkerExecutor` behind a real connection, so
- * `WorkerExecutionHost` is tested against what a worker actually does, on this machine.
+ * The worker program itself, connected to `apiUrl` as the host `token` names: its own `WorkerClient`,
+ * executor and project-roots check, so what Wilson is tested against is what a worker really does.
+ * Resolves once Wilson has welcomed it; `stop()` disconnects it.
  */
-export const connectLoopbackWorker = async (url: string, token: string, options: WorkerExecutorOptions = {}): Promise<FakeWorker> => {
-    let executor: WorkerExecutor | undefined;
-    const worker = await FakeWorker.connect(url, token, (message, w) => {
-        executor ??= new WorkerExecutor(reply => w.send(reply), options);
-        executor.handle(message);
-    });
-    worker.socket.on('close', () => executor?.killAll());
-    return worker;
+export const connectLoopbackWorker = async (apiUrl: string, token: string, executor: WorkerClientOptions['executor'] = {}): Promise<WorkerClient> => {
+    const client = new WorkerClient({ url: apiUrl, token, version: '0.0.1-test', executor, minReconnectMs: 20, maxReconnectMs: 100 });
+    void client.run().catch(() => undefined);
+    await client.welcomed();
+    return client;
 };

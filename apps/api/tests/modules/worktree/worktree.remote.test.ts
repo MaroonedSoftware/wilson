@@ -33,7 +33,8 @@ const git = async (cwd: string, ...args: string[]) => (await exec('git', args, {
 /** How each way of reaching a host is set up for these tests, and torn down after. */
 interface Reach {
     name: string;
-    open: () => Promise<{ host: ExecutionHost; git: GitTransport; close: () => Promise<void> }>;
+    /** `hostRoot` holds everything on the host: its clone, worktrees and run folder. */
+    open: (hostRoot: string) => Promise<{ host: ExecutionHost; git: GitTransport; close: () => Promise<void> }>;
 }
 
 const reaches: Reach[] = [
@@ -47,9 +48,10 @@ const reaches: Reach[] = [
     },
     {
         name: 'on a worker',
-        open: async () => {
-            const server = await startWorkerServer({ token: workerRow('agent-t') });
-            await connectLoopbackWorker(server.url, 'token');
+        open: async hostRoot => {
+            const project = { project: 'p', codeRoot: hostRoot, worktreeRoot: hostRoot, runRoot: hostRoot };
+            const server = await startWorkerServer({ token: workerRow('agent-t', [project]) });
+            await connectLoopbackWorker(server.apiUrl, 'token');
             await eventually(() => server.connections.get('agent-t') !== undefined);
             const connection = server.connections.get('agent-t')!;
             return { host: new WorkerExecutionHost(connection), git: new WorkerGitTransport(connection), close: server.close };
@@ -80,7 +82,7 @@ describe.each(reaches)('WorktreeManager on a host $name', reach => {
         await git(codeRoot, 'add', '-A');
         await git(codeRoot, 'commit', '-q', '-m', 'first');
 
-        const opened = await reach.open();
+        const opened = await reach.open(join(base, 'host'));
         close = opened.close;
         placement = {
             hostName: 'agent-t',
