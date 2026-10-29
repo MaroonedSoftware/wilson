@@ -78,7 +78,18 @@ function saveButtonFor(input: HTMLElement): HTMLElement {
     return within(container).getByRole('button', { name: 'Save' });
 }
 
+/** The chat engine control's `SegmentedControl` measures itself with `ResizeObserver`, which jsdom does not implement. */
+class FakeResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
 beforeEach(() => {
+    // Stubbed so the Chat section renders the same way whether or not an API happens to be running on
+    // the default port; `chat-engine-setting.test.ts` covers the control itself.
+    vi.spyOn(wilson.settings, 'getChatEngineSetting').mockResolvedValue({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' });
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue(emptyColumns);
     vi.spyOn(wilson.board, 'listCards').mockResolvedValue(emptyCards);
     vi.spyOn(wilson.health, 'getHealth').mockResolvedValue(baseHealth);
