@@ -73,6 +73,14 @@ These are settled. Challenge them only if you find a concrete blocker.
    config, worktree root, port range, git credentials. A project is a row, not a
    directory — which is what makes twenty projects twenty rows rather than twenty git
    clones the daemon must hold open and keep current.
+10. **Every API request is authenticated; reaching the port is not authority.** One operator
+    account plus scoped API keys, with no localhost bypass. Decisions 5 and 8 assumed the only
+    thing that could call the API was the operator. That was never enforced: a command a stage
+    is allowed to run executes project code, project code can open a socket, and the API used
+    to trust whatever reached `localhost:13100`. A test file on a card's branch could transition
+    its own card. Single operator still holds (see Non-goals). What changes is that the operator
+    is a principal the API checks, not an assumption about who is on the network. See
+    Authentication.
 
 A retired decision, recorded because its absence is load-bearing: _"state is per-card
 and append-only; no shared index file that every agent touches, so parallel commits
@@ -623,6 +631,86 @@ reconciler gave state-field edits, now explicit rather than inferred from a file
 Frontmatter is deliberately not editable through `card edit`: stage, branch and retries are
 runner state (decision 5), and `card move` is the recorded way to override one.
 
+## Authentication
+
+Decision 10 in practice. The design follows deadair's, which runs on the same Koa ServerKit
+stack, using `@maroonedsoftware/authentication`, `policies` and the `authenticationMiddleware` /
+`requirePolicy` pair `@maroonedsoftware/koa` already ships. ats was the other reference. Its
+SSO, SCIM, org row-level security, ReBAC tenancy and OAuth authorization server solve a
+multi-tenant problem wilson does not have, and are deliberately left out.
+
+**Principals.** There are two:
+
+- **The operator account.** Exactly one human account, created through first-run onboarding:
+  `GET/POST /onboarding` is unauthenticated, takes a transaction-scoped advisory lock, re-checks
+  that no account exists, and refuses with 409 once one does. There is no sign-up and no
+  invitation flow.
+- **API keys.** `wl_`-prefixed and stored only as a SHA-256 hash with a short display hint, with an
+  optional expiry and a `revoked_at`. Scope is `view` or `manage` (manage implies view), and a key
+  can never exceed its owner's authority. The CLI uses one, and so does any script.
+
+**Sessions.** Every login method goes through `POST /auth/token` with a `grant_type`. The access
+token is an RS256 JWT that names a server-side session, so revoking the session invalidates every
+token derived from it. Sessions live in the Postgres-backed cache wilson already runs
+(`cache_entries`), so authentication adds no Redis. Refresh tokens are single-use and rotate
+within a family; replaying a spent one revokes the family. The signing key comes from config, as
+a PEM or base64, and the API refuses to boot without it.
+
+**Factors.** A password (Argon2id, rate-limited per account and per caller) is the first factor.
+TOTP and passkeys are the second. Step-up, meaning a strong factor proven within the last five
+minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
+because those are the two actions that hand out or rewrite authority. An API-key session never
+satisfies step-up.
+
+**Transport.** The web app holds the access token in memory and sends it as a bearer header. The
+refresh token travels in an httpOnly, SameSite=Lax cookie that only `/auth/token` and
+`/auth/logout` read, which is why there is no CSRF token: no other route accepts cookie
+authentication. The board feed moves from `EventSource`, which cannot set a header, to the
+SDK's fetch-based SSE so it carries the same bearer. The CLI keeps its key in the OS keyring
+(`@maroonedsoftware/johnny5/keyring`), and `wilson auth login` / `logout` / `token` manage it.
+CORS narrows to exact origins.
+
+**Enforcement.** Every `.ck` operation is gated by default. An operation with no `security`
+block requires an authenticated session. Public routes, which are health, onboarding and the
+auth endpoints, say `security: none` explicitly. A coverage test fails the suite when a route
+is neither gated nor explicitly public. Each request also confirms the session's account still
+exists, so a database restored out of step with the session store cannot serve a deleted
+principal.
+
+**What this does not cover.** Authentication guards the HTTP API. Two other paths reach board
+state without it:
+
+- **CLI commands that bootstrap the database directly** (`card start`, `card plan` and some
+  doctor checks, through `cli-bootstrap`). For these the database credential is the boundary.
+- **The database itself.** The `cli` engine strips `DATABASE_*` from a stage's environment, but
+  the compose credentials are the image defaults and project code can hard-code them.
+
+The stage environment scrub (card 0045) extends to wilson's own credentials: no API key, keyring
+access or session token is ever inherited by a stage. A `wilson doctor` check verifies it.
+
+**Rollout.** One commit per step, each leaving the tree working:
+
+1. Record decision 10 and this section (documentation only).
+2. Wire the authentication module: dependencies, signing-key config and the cache-backed
+   session store. Nothing is enforced.
+3. Add the account and factor tables, onboarding, the password and refresh grants,
+   `/auth/session` and `/auth/logout`. Nothing is enforced.
+4. Add API keys, with routes to create, rotate and revoke them, and `wilson auth`. The CLI
+   sends a bearer when it has one. Nothing is enforced.
+5. Add the web onboarding and login pages, the root-route gate, the refresh cookie, a single
+   retry on 401, and the fetch-based feed. Nothing is enforced.
+6. Turn on enforcement: the middleware, default policies on every contract, `security: none`
+   on the public routes, the coverage test, and exact-origin CORS. After this commit an
+   unauthenticated request gets a 401.
+7. Add TOTP and passkeys, and step-up for key minting and stage config edits.
+8. Settle the CLI's direct-database commands: move them onto the API, or keep them and leave
+   the database credential as their boundary.
+9. Extend the stage environment scrub to wilson credentials, and add the doctor check.
+
+Steps 2 to 5 add capability without changing who can call what. Step 6 is the one commit that
+changes behaviour, so the rollout can stop before it. Changing the database password is its own
+card.
+
 ## Notification
 
 ServerKit `comms` with a `ChannelRouter`; the Slack and Discord packages each ship a
@@ -1012,7 +1100,9 @@ Sequenced by human toil removed per unit of work:
 
 ## Non-goals
 
-- Multi-user. Single operator. No per-user permissions on the API.
+- Multi-user. Single operator: one human account, no invitations, no roles between people.
+  The API does authenticate that operator and the API keys they mint (decision 10). What stays
+  out of scope is distinguishing one person from another.
 - Real-time agent-to-agent communication. If two cards need to talk mid-flight,
   they should have been one card.
 - Replacing the plan conversation. Planning stays interactive.
@@ -1055,6 +1145,8 @@ Sequenced by human toil removed per unit of work:
   See Architecture.
 - **Externally closed tickets:** drop if idle, finish the running stage then
   `needs-human`, never auto-merge. See Plugins.
+- **API authentication:** one operator account plus scoped API keys, no localhost bypass,
+  deadair's design minus multi-tenancy. See decision 10 and Authentication.
 - **Context retention:** stored against the card, trimmed, with an `ephemeral` TTL escape
   for projects that cannot retain third-party text. See Plugins.
 
