@@ -14,7 +14,9 @@
         "test": "vitest run"
     },
     "dependencies": {
+        "@clack/prompts": "^1.7.0",
         "@maroonedsoftware/johnny5": "^8.1.9",
+        "@napi-rs/keyring": "^1.3.0",
         "@swc-node/register": "^1.12.1",
         "@wilson/sdk": "workspace:*",
         "injectkit": "^1.7.1",

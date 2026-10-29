@@ -12,6 +12,10 @@ import { dockerServicesUp } from '@maroonedsoftware/johnny5/docker';
 // johnny5's own bare default — a resolver with no source, so it returns nothing for every key
 // regardless of `apps/api/.env`. Settings come from `ctx.env` instead (see `settings.ts`), which
 // `buildContext`'s default `envFiles` (already including `apps/api/.env`) does populate.
+import authLoginCommand from './commands/auth/login.command.js';
+import authLogoutCommand from './commands/auth/logout.command.js';
+import authStatusCommand from './commands/auth/status.command.js';
+import authTokenCommand from './commands/auth/token.command.js';
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
@@ -64,6 +68,10 @@ const app = await createCliApp({
     description: 'wilson runner — doctor, board and card commands',
     version: '0.0.1',
     commands: [
+        reg(['auth', 'login'], authLoginCommand),
+        reg(['auth', 'logout'], authLogoutCommand),
+        reg(['auth', 'status'], authStatusCommand),
+        reg(['auth', 'token'], authTokenCommand),
         reg(['board', 'init'], boardInitCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),

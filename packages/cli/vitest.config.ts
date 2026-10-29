@@ -5,6 +5,7 @@ export default defineProject({
     test: {
         include: ['./tests/**/*.test.ts'],
         environment: 'node',
+        setupFiles: ['./tests/support/no.keyring.setup.ts'],
         alias: {
             '#src': new URL('./src/', import.meta.url).pathname,
         },

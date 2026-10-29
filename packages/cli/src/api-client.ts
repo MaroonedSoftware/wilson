@@ -1,5 +1,6 @@
 import type { CliContext } from '@maroonedsoftware/johnny5';
 import { SdkError, WilsonSdk } from '@wilson/sdk';
+import { keyStoreFor, resolveToken, type KeyStore } from './credentials.js';
 import { apiSettings } from './settings.js';
 
 /**
@@ -19,10 +20,28 @@ export const resolveApiBase = (ctx: CliContext): string => apiSettings(ctx).base
  */
 export const resolveProject = (ctx: CliContext): string | undefined => apiSettings(ctx).project;
 
-/** One SDK instance per invocation, pointed at wherever config says the API lives. */
-export const apiClient = (ctx: CliContext): WilsonSdk => {
+/**
+ * One SDK instance per invocation, pointed at wherever config says the API lives, and signed with
+ * this machine's API key when there is one (`WILSON_API_KEY`, else the keyring; see
+ * `credentials.ts`). The key is read once, on the first request, not when the client is built: a
+ * command that never calls the API never touches the keyring. With no key the request goes
+ * unsigned, and an API that requires one answers 401, which `describeApiError` turns into
+ * "run `wilson auth login`".
+ */
+export const apiClient = (ctx: CliContext, store: KeyStore = keyStoreFor(ctx, apiSettings(ctx).baseUrl)): WilsonSdk => {
     const { baseUrl, project } = apiSettings(ctx);
-    return new WilsonSdk({ baseUrl, headers: project ? { 'X-Wilson-Project': project } : undefined });
+    let token: Promise<string | undefined> | undefined;
+    return new WilsonSdk({
+        baseUrl,
+        headers: async () => {
+            token ??= resolveToken(ctx, store);
+            const bearer = await token;
+            return {
+                ...(project ? { 'X-Wilson-Project': project } : {}),
+                ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+            };
+        },
+    });
 };
 
 /** True for a `fetch` failure that never reached a server — a refused or absent connection. */
@@ -45,6 +64,9 @@ const isConnectionFailure = (err: unknown): boolean => {
  * flagged for a human" prints as that sentence, not "Request failed with status 400".
  */
 export const describeApiError = (err: unknown, ctx: CliContext): string => {
+    if (err instanceof SdkError && err.status === 401) {
+        return `not signed in to the API at ${resolveApiBase(ctx)}: run \`wilson auth login\`, or set WILSON_API_KEY`;
+    }
     if (err instanceof SdkError) {
         const body = err.body as { details?: { reason?: string }; message?: string } | undefined;
         return body?.details?.reason ?? body?.message ?? err.message;
