@@ -3,6 +3,7 @@ export * from './board.client.js';
 export * from './context.client.js';
 export * from './health.client.js';
 export * from './learnings.client.js';
+export * from './onboarding.client.js';
 export * from './projects.client.js';
 export * from './sdk-options.js';
 export * from './settings.client.js';

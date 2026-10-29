@@ -234,6 +234,28 @@ export interface CacheSetMembers {
 }
 
 /**
+ * The operator account (PROJECT.md decision 10). At most one row, by a unique index on a constant;
+ * see the migration.
+ */
+export interface Accounts {
+    id: Generated<string>;
+    username: string;
+    active: ColumnType<boolean, boolean | undefined, boolean>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+}
+
+/** The operator account's password, one row per account, as `PasswordFactorRepository` expects. */
+export interface AccountPasswords {
+    accountId: string;
+    hash: string;
+    salt: string;
+    active: ColumnType<boolean, boolean | undefined, boolean>;
+    needsReset: ColumnType<boolean, boolean | undefined, boolean>;
+    createdAt: ColumnType<DateTime, DateTime | string | undefined, never>;
+    updatedAt: ColumnType<DateTime, DateTime | string | undefined, DateTime | string>;
+}
+
+/**
  * A project's human-approved learnings document (card 0239). Append-only, the same shape as
  * {@link StageConfigs}: the newest row per project is the current document and the rest are its
  * history. Agents read it and never write it; an empty `markdown` means "no learnings".
@@ -264,5 +286,7 @@ export interface DB {
     'runner.sourceCursors': SourceCursors;
     'runner.cacheEntries': CacheEntries;
     'runner.cacheSetMembers': CacheSetMembers;
+    'runner.accounts': Accounts;
+    'runner.accountPasswords': AccountPasswords;
     'runner.learnings': Learnings;
 }

@@ -3,6 +3,7 @@ export * from './board.js';
 export * from './context.js';
 export * from './health.js';
 export * from './learnings.js';
+export * from './onboarding.js';
 export * from './projects.js';
 export * from './settings.js';
 export * from './stages.js';

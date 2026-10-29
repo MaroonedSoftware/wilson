@@ -1,0 +1,58 @@
+import { Injectable } from 'injectkit';
+import { Kysely } from 'kysely';
+import { httpError } from '@maroonedsoftware/errors';
+import type { DB } from '#modules/data/db.js';
+import type { CreateAccountRequest, OnboardingStatus } from '../../generated/onboarding.js';
+import { AccountRepository } from './account.repository.js';
+import { PasswordFactors } from './password.factors.js';
+
+/** Postgres's `unique_violation`. */
+const UNIQUE_VIOLATION = '23505';
+
+const isUniqueViolation = (err: unknown): boolean => (err as { code?: string } | undefined)?.code === UNIQUE_VIOLATION;
+
+const alreadyOnboarded = () => httpError(409).withDetails({ reason: 'an account already exists; sign in instead' });
+
+/**
+ * First-run onboarding: creating the operator account (PROJECT.md, Authentication). Unauthenticated
+ * by necessity, since there is nobody to authenticate yet, so "no account exists" is the only thing
+ * standing between a caller and the account. The database holds that line: `accounts_one_row`
+ * admits one row, so of two racing requests one inserts and the other gets a unique violation,
+ * which is answered 409 here. The check before the transaction is only there to refuse the common
+ * case without hashing a password first.
+ */
+@Injectable()
+export class OnboardingService {
+    constructor(
+        private readonly db: Kysely<DB>,
+        private readonly accounts: AccountRepository,
+        private readonly passwords: PasswordFactors,
+    ) {}
+
+    async status(): Promise<OnboardingStatus> {
+        return { accountExists: await this.accounts.exists() };
+    }
+
+    /**
+     * Creates the account and its password in one transaction, so a password the policy refuses
+     * (400, too weak) leaves no account behind it and onboarding can be tried again.
+     */
+    async createAccount(request: CreateAccountRequest): Promise<OnboardingStatus> {
+        const username = request.username.trim();
+        if (username.length === 0) {
+            throw httpError(400).withDetails({ reason: 'username must not be blank' });
+        }
+        if (await this.accounts.exists()) throw alreadyOnboarded();
+
+        try {
+            await this.db.transaction().execute(async trx => {
+                const account = await new AccountRepository(trx).create(username);
+                await this.passwords.over(trx).createPasswordFactor(account.id, request.password);
+            });
+        } catch (err) {
+            if (isUniqueViolation(err)) throw alreadyOnboarded();
+            throw err;
+        }
+        return this.status();
+    }
+}

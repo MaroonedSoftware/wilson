@@ -8,6 +8,7 @@ import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
+import { PolicyModule } from './policy/policy.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SourcesModule } from './sources/sources.module.js';
@@ -41,14 +42,16 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  * `Kysely<DB>`, the same two dependencies `PostgresStageConfigStore` does, both already registered
  * by the time either module's turn comes (Board and Data are earlier in this list).
  *
- * Authentication is listed right after Sources: `AuthenticationSessionService` stores sessions
- * through the `CacheProvider` that Sources registers.
+ * Policy and then Authentication are listed right after Sources: `AuthenticationSessionService`
+ * stores sessions through the `CacheProvider` that Sources registers, and `PasswordFactorService`
+ * asks `PolicyService` whether a password may be stored.
  */
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
     BoardModule,
     SourcesModule,
+    PolicyModule,
     AuthenticationModule,
     ContextModule,
     HealthModule,

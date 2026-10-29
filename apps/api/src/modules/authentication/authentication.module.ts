@@ -1,10 +1,25 @@
 import { Registry } from 'injectkit';
+import { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
-import { AuthenticationSessionService, AuthenticationSessionServiceOptions, JwtProvider } from '@maroonedsoftware/authentication';
+import {
+    Argon2idPasswordHashProvider,
+    AuthenticationSessionService,
+    AuthenticationSessionServiceOptions,
+    JwtProvider,
+    PasswordFactorRepository,
+    PasswordFactorService,
+    PasswordHashProvider,
+    PasswordStrengthProvider,
+} from '@maroonedsoftware/authentication';
 import { CacheProvider } from '@maroonedsoftware/cache';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
+import type { DB } from '#modules/data/db.js';
+import { AccountRepository } from './account.repository.js';
+import { OnboardingService } from './onboarding.service.js';
+import { PasswordFactors, PasswordRateLimiter } from './password.factors.js';
+import { AccountPasswordRepository } from './password.factor.repository.js';
 import { resolveSessionKey } from './session.key.js';
 
 /** The `iss` and `aud` of every session token, so a token minted by another ServerKit app (deadair,
@@ -16,17 +31,17 @@ export const SESSION_ISSUER = 'wilson';
 export const SESSION_LIFETIME = Duration.fromObject({ days: 30 });
 
 /**
- * PROJECT.md, Authentication, rollout step 2: the session machinery, with nothing yet calling it.
- * No route mints a session and no middleware reads one; that is steps 3 and 6.
+ * PROJECT.md, Authentication. Sessions, the operator account and its password. Nothing here is
+ * enforced: rollout step 6 is what makes a route require a session.
  *
  * Sessions are stored through `CacheProvider`, which `SourcesModule` binds to `PostgresCacheProvider`,
  * so a session is a `runner.cache_entries` row and the per-subject session index is
  * `runner.cache_set_members` rows. Listed after Sources in `modules.ts` for that reason, though, as
  * every ordering note there says, `setup` only registers tokens.
  *
- * Factories rather than `useClass` throughout. `AuthenticationSessionService` takes an optional
- * trailing `AuditRecorder` that this step does not bind, and a factory says which arguments it gets
- * instead of leaving injectkit to resolve one nobody registered.
+ * `AuthenticationSessionService` and `PasswordFactorService` are factories, not `useClass`: each
+ * takes an optional trailing `AuditRecorder` that wilson does not bind yet, and a factory says which
+ * arguments it gets instead of leaving injectkit to resolve one nobody registered.
  */
 export const AuthenticationModule: ServerKitModule = {
     name: 'Authentication',
@@ -52,6 +67,21 @@ export const AuthenticationModule: ServerKitModule = {
                         container.get(JwtProvider),
                     ),
             )
+            .asTransient();
+
+        registry.register(AccountRepository).useClass(AccountRepository).asTransient();
+        registry.register(OnboardingService).useClass(OnboardingService).asTransient();
+
+        // Singletons: the strength checker loads zxcvbn's dictionaries once, and the limiter's
+        // count has to survive from one request to the next.
+        registry.register(PasswordStrengthProvider).useClass(PasswordStrengthProvider).asSingleton();
+        registry.register(PasswordHashProvider).useClass(Argon2idPasswordHashProvider).asSingleton();
+        registry.register(PasswordRateLimiter).useClass(PasswordRateLimiter).asSingleton();
+        registry.register(PasswordFactorRepository).useClass(AccountPasswordRepository).asTransient();
+        registry.register(PasswordFactors).useClass(PasswordFactors).asTransient();
+        registry
+            .register(PasswordFactorService)
+            .useFactory(container => container.get(PasswordFactors).over(container.get(Kysely<DB>)))
             .asTransient();
     },
 };

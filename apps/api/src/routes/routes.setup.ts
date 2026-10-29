@@ -13,6 +13,7 @@ import { BoardRouter } from './board.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { LearningsRouter } from './learnings.router.js';
+import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { SettingsRouter } from './settings.router.js';
 import { StagesRouter } from './stages.router.js';
@@ -257,6 +258,7 @@ export const routers = (signal?: AbortSignal) => [
     ProjectsRouter,
     StagesRouter,
     LearningsRouter,
+    OnboardingRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
 ];
