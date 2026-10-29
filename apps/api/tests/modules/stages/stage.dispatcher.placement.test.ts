@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -124,7 +124,7 @@ const build = async (
         undefined,
         placer as unknown as HostPlacer,
     );
-    return { dispatcher, worktrees, events, contexts, portAllocator, placer, board };
+    return { dispatcher, worktrees, events, contexts, portAllocator, placer, board, base };
 };
 
 const placementOn = (host: MemoryHost): RemotePlacement => ({
@@ -239,6 +239,34 @@ describe('StageDispatcher placement', () => {
 
         expect(error).toBeInstanceOf(HostLostError);
         expect(error.cause).toBe(original);
+    });
+
+    it('copies every preserved patch that exists to the host, and points the plan’s patch paths at the copies', async () => {
+        const host = new MemoryHost();
+        const placement = placementOn(host);
+        const { dispatcher, board, base, contexts } = await build(async () => placement);
+        const localPatch = join(base, 'run', 'cards', '0002', 'last-failed-attempt.patch');
+        await board.create(
+            { ...makeCard('0002'), frontmatter: { ...makeCard('0002').frontmatter, stage: 'implementing' } },
+            'a card that failed once',
+        );
+        await mkdir(join(base, 'run', 'cards', '0002'), { recursive: true });
+        await writeFile(localPatch, '+half done\n', 'utf8');
+        await board.write('0001', 'cite 0002', current => ({
+            ...current,
+            body: `${current.body}\nStart from ${localPatch}.\n`,
+        }));
+
+        await dispatcher.run('0001', 'implementing');
+
+        const remotePatch = '/opt/agent/run/cards/0002/last-failed-attempt.patch';
+        expect(host.files.get(remotePatch)).toBe('+half done\n');
+        // 0001 never failed, so nothing was copied for it.
+        expect(host.files.has('/opt/agent/run/cards/0001/last-failed-attempt.patch')).toBe(false);
+        const plan = host.files.get('/opt/agent/run/cards/0001/plan.md')!;
+        expect(plan).toContain(`Start from ${remotePatch}.`);
+        expect(plan).not.toContain(localPatch);
+        expect(contexts).toHaveLength(1);
     });
 
     it('holds one of this machine’s slots for a stage it runs here, and gives it back when the stage ends', async () => {
