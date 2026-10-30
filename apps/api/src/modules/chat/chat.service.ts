@@ -1,4 +1,5 @@
 import type { Container } from 'injectkit';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -70,7 +71,9 @@ const threadLock = (threadId: string): Mutex => {
  * proposed runs only through {@link decide}, as the person's own act.
  *
  * Takes the container itself, registered through a factory (`ChatModule`), because the catalog runs
- * each operation in a fresh scope of it, as each HTTP request gets one (`ChatCatalog.run`).
+ * each operation in a fresh scope of it, as each HTTP request gets one (`ChatCatalog.run`). `session`
+ * answers with the session of the request in progress, which every operation runs as: read once per
+ * message or decision, and carried from there, since a follow-up outlives its request.
  */
 export class ChatService {
     private readonly followUps = new Set<Promise<void>>();
@@ -85,6 +88,7 @@ export class ChatService {
         private readonly projects: ProjectRepository,
         private readonly engines: Record<ChatEngineName, ChatEngine | undefined>,
         private readonly choose: () => Promise<ChatEngineChoice>,
+        private readonly session: () => AuthenticationSession,
     ) {}
 
     async listThreads(): Promise<WireChatThread[]> {
@@ -120,6 +124,7 @@ export class ChatService {
         const said = text.trim();
         if (!said) throw httpError(400).withDetails({ reason: 'a message needs some text' });
         await this.threadOrThrow(id);
+        const session = this.session();
 
         return threadLock(id).run(
             `message to chat thread ${id}`,
@@ -130,7 +135,7 @@ export class ChatService {
                 if (history.length === 0 && thread.title === NEW_THREAD_TITLE) await this.threads.rename(id, titleFrom(said));
                 const message = await this.messages.append(id, { role: 'user', content: said });
 
-                const { reply, proposed } = await this.answer(thread, history, said, project);
+                const { reply, proposed } = await this.answer(thread, history, said, session, project);
                 return { message: toWireMessage(message), reply: toWireMessage(reply!), proposed: proposed.map(toWireAction) };
             },
         );
@@ -144,11 +149,13 @@ export class ChatService {
         if (!decided) throw httpError(409).withDetails({ reason: this.whyUndecidable(action) });
         if (decision === 'decline') return toWireAction(decided);
 
+        const session = this.session();
         let finished: PendingAction | undefined;
         try {
             const result = await this.catalog.run(
                 this.container,
                 this.logger,
+                session,
                 action.operation,
                 action.arguments as Record<string, unknown>,
                 action.project,
@@ -157,7 +164,7 @@ export class ChatService {
         } catch (err) {
             finished = await this.actions.finish(id, { error: explainError(err) });
         }
-        if (finished) this.followUp(finished);
+        if (finished) this.followUp(finished, session);
         return toWireAction(finished ?? decided);
     }
 
@@ -175,7 +182,7 @@ export class ChatService {
      * rather than racing it. A follow-up that fails is logged and published as `failed`, never thrown
      * to anyone.
      */
-    private followUp(action: PendingAction): void {
+    private followUp(action: PendingAction, session: AuthenticationSession): void {
         const run = threadLock(action.threadId)
             .run(
                 `follow-up to chat action ${action.id}`,
@@ -184,7 +191,7 @@ export class ChatService {
                     const thread = await this.threads.get(action.threadId);
                     if (!thread) return;
                     const history = await this.messages.since(thread.id);
-                    await this.answer(thread, history, followUpNote(action), action.project, { followUp: true });
+                    await this.answer(thread, history, followUpNote(action), session, action.project, { followUp: true });
                 },
             )
             .catch(err => this.logger.warn(`chat action ${action.id}: the follow-up failed: ${explainError(err)}`))
@@ -200,6 +207,7 @@ export class ChatService {
         thread: ChatThread,
         history: ChatMessage[],
         text: string,
+        session: AuthenticationSession,
         project?: string,
         { followUp = false }: { followUp?: boolean } = {},
     ): Promise<{ reply?: ChatMessage; proposed: PendingAction[] }> {
@@ -217,6 +225,7 @@ export class ChatService {
             threadId: thread.id,
             container: this.container,
             logger: this.logger,
+            session,
             operations: [],
             proposed: [],
             emit: event => publishChat(thread.id, toStreamEvent(event)),

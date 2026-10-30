@@ -672,19 +672,23 @@ function DeploymentFacts() {
  * controls, card 0116's webhook/base-URL fields, and card 0141's claude config directory field.
  *
  * Card 0155: `/settings` stays a top-level route (this card's Constraints), so "back to the board"
- * has no route param to read the way a `/projects/$project/*` screen's own back-link does. Reads
- * `health.data.project` instead — the same query `DeploymentFacts` below already makes (shared
- * cache, same `['health']` key), so this costs no extra request once that panel has loaded.
+ * has no route param to read the way a `/projects/$project/*` screen's own back-link does. The header
+ * link names the project it was clicked from in `?project=` instead, so the link returns to that
+ * board rather than the deployment's default project. Arriving from anywhere else there is no board
+ * to return to, so it goes to the projects list.
  */
 function SettingsRoute() {
-    const wilson = useWilsonSdk();
-    const health = useQuery({ queryKey: ['health'], queryFn: () => wilson.health.getHealth() });
+    const { project } = Route.useSearch();
 
     return (
         <Stack gap="lg">
-            {health.data && (
-                <AnchorLink to="/projects/$project" params={{ project: health.data.project }} size="sm">
+            {project ? (
+                <AnchorLink to="/projects/$project" params={{ project }} size="sm">
                     ← Back to the board
+                </AnchorLink>
+            ) : (
+                <AnchorLink to="/projects" size="sm">
+                    ← Back to projects
                 </AnchorLink>
             )}
             <Title order={2}>Settings</Title>
@@ -750,4 +754,7 @@ function SettingsRoute() {
     );
 }
 
-export const Route = createFileRoute('/settings')({ component: SettingsRoute });
+export const Route = createFileRoute('/settings')({
+    validateSearch: (search: Record<string, unknown>): { project?: string } => (typeof search.project === 'string' ? { project: search.project } : {}),
+    component: SettingsRoute,
+});

@@ -1,10 +1,9 @@
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ActionIcon, Menu, Tooltip } from '@mantine/core';
 import { IconCheck, IconFolders } from '@tabler/icons-react';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 import { listRegisteredProjects } from '#src/lib/projects.js';
-import { AnchorLink } from '#src/lib/router-link.js';
 
 /**
  * Lets a person move between registered projects (card 0154).
@@ -22,17 +21,12 @@ import { AnchorLink } from '#src/lib/router-link.js';
  * leave the address bar naming one project while the screen shows another.
  *
  * Renders nothing while the registered projects are still loading. Card 0173: a single-project
- * deployment used to get nothing at all here, ever — with only one project there is nothing to
+ * deployment used to get nothing at all here, ever. With only one project there is nothing to
  * *switch* between, but there is still somewhere to go, so exactly one project renders a direct link
- * to that project's own board instead of the ≥2 menu below. `AnchorLink` (`lib/router-link.js`), not
- * `ActionIcon component={Link}`: the target is `/projects/$project`, a parameterised route, which is
- * exactly where that pattern erases TanStack's typed `params` (`router-link.tsx`'s own doc comment).
- * No `Tooltip` around it, unlike the ≥2-project trigger below: `AnchorLink` isn't itself
- * ref-forwarding the way a bare `ActionIcon` is, and the icon inside carries its own `aria-label`.
- * Card 0179 dropped this link's `c="inherit"` — a workaround for `--mantine-color-anchor` being
- * unreadable in the dark scheme, now that `theme.ts`'s `cssVariablesResolver` fixes the token itself.
- * The icon's own colour was never affected by it either way: `ActionIcon` derives `--ai-color` from
- * its own `variant`/`color`, not from the wrapping `Anchor`'s `c`.
+ * to the projects dashboard (`/projects`, `projects.index.tsx`) instead of the ≥2 menu below. The
+ * dashboard rather than that project's own board: this is the header's way out to every project, and
+ * a board link would be a dead end on the board itself. `ActionIcon component={Link}`, as the header's
+ * other parameterless links do (`__root.tsx`), since `/projects` takes no `params` to erase.
  */
 export function ProjectSwitcher() {
     const wilson = useWilsonSdk();
@@ -46,14 +40,12 @@ export function ProjectSwitcher() {
     if (!projects.data || projects.data.length === 0) return null;
 
     if (projects.data.length === 1) {
-        const project = projects.data[0];
-        if (!project) return null;
         return (
-            <AnchorLink to="/projects/$project" params={{ project: project.name }} aria-label="Go to the board" underline="never">
-                <ActionIcon component="span" variant="subtle">
+            <Tooltip label="All projects">
+                <ActionIcon component={Link} to="/projects" variant="subtle" aria-label="All projects">
                     <IconFolders size={18} />
                 </ActionIcon>
-            </AnchorLink>
+            </Tooltip>
         );
     }
 

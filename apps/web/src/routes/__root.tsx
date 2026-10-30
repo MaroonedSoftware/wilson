@@ -147,9 +147,11 @@ function Shell() {
                                     </ActionIcon>
                                 </Tooltip>
                                 <Tooltip label="Settings">
-                                    <ActionIcon component={Link} to="/settings" variant="subtle" aria-label="Settings">
-                                        <IconSettings size={18} />
-                                    </ActionIcon>
+                                    <Link to="/settings" search={{ project }} aria-label="Settings">
+                                        <ActionIcon component="span" variant="subtle">
+                                            <IconSettings size={18} />
+                                        </ActionIcon>
+                                    </Link>
                                 </Tooltip>
                                 <Tooltip label="Sign out">
                                     <ActionIcon onClick={() => void signOut()} variant="subtle" aria-label="Sign out">

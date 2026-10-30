@@ -45,9 +45,7 @@ export const theme = createTheme({
  * only on hover/active) isn't a persistent affordance either. So `theme`'s `components.Anchor` above
  * sets `underline: 'always'` as a theme-wide default: every text `Anchor`/`AnchorLink` in the app is
  * now underlined at rest, and that underline — not colour, not Mantine's own hover-only default — is
- * what marks it as a link. `ProjectSwitcher`'s single-project link opts back out with its own
- * `underline="never"`, deliberately: it wraps an icon, not text, so there is no prose to be confused
- * with, and the icon's `aria-label` is the affordance there instead.
+ * what marks it as a link.
  *
  * Light is untouched: the default resolves to `var(--mantine-color-dark-6)` there (Mantine's own
  * `primaryShade.light` of 6, applied to `primaryColor: 'dark'`) and already measures 13.58:1.

@@ -251,6 +251,20 @@ describe('a project-scoped route, reading through a client built for its own pro
         await waitFor(() => expect(router.state.location.pathname).toBe('/projects/demo'));
     });
 
+    it('sends Settings back to the project it was opened from, and to the projects list otherwise', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
+
+        const { router } = renderApp('/projects/demo');
+
+        fireEvent.click(await screen.findByLabelText('Settings'));
+        await waitFor(() => expect(router.state.location.pathname).toBe('/settings'));
+        expect((await screen.findByText('← Back to the board')).getAttribute('href')).toBe('/projects/demo');
+
+        await router.navigate({ to: '/settings' });
+        expect((await screen.findByText('← Back to projects')).getAttribute('href')).toBe('/projects');
+    });
+
     it('renders a card\'s own page at /projects/$project/cards/$cardId, reached through the project-scoped client', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(cardDetail('0007', 'review'));

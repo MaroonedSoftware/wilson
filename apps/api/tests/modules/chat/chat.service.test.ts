@@ -11,7 +11,7 @@ import { ChatService, NEW_THREAD_TITLE, NOTHING_MORE, titleFrom } from '#modules
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { testDb } from '#tests/support/test.db.js';
-import { fakeCatalog, fakeContainer, fakeHandler, refusal, type FakeCall } from './chat.fakes.js';
+import { fakeCatalog, fakeContainer, fakeHandler, fakeSession, refusal, type FakeCall } from './chat.fakes.js';
 import { calls, says, scriptedModel } from './chat.model.fake.js';
 
 let db: Kysely<DB>;
@@ -52,6 +52,7 @@ describe('ChatService', () => {
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
             async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
+            () => fakeSession,
         );
         return { service, model, operationCalls };
     };

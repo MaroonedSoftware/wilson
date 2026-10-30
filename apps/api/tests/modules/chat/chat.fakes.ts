@@ -1,6 +1,7 @@
 import { InjectKitRegistry, type Container } from 'injectkit';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
-import type { McpToolHandler } from '@maroonedsoftware/mcp';
+import { requireMcpAuthenticationSession, type McpToolHandler } from '@maroonedsoftware/mcp';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { DateTime } from 'luxon';
 import { BoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { currentProject } from '#modules/board/project.context.js';
@@ -17,9 +18,21 @@ export interface FakeCall {
     project: string | undefined;
 }
 
+/** The signed-in person the chat's fakes run as. */
+export const fakeSession: AuthenticationSession = {
+    subject: 'account-1',
+    sessionToken: 'session-1',
+    issuedAt: DateTime.now(),
+    lastAccessedAt: DateTime.now(),
+    expiresAt: DateTime.now().plus({ hours: 1 }),
+    factors: [],
+    claims: {},
+};
+
 /**
  * A catalog handler that answers `result` (or throws `fails`), recording each call with the project
- * `runAsProject` had open — the one thing a real handler's service reads from `BoardConfig`.
+ * `runAsProject` had open — the one thing a real handler's service reads from `BoardConfig`. Refuses
+ * a call with no session, as `requireMcpPolicy` does at the top of every generated handler.
  */
 export const fakeHandler = (
     name: string,
@@ -33,7 +46,8 @@ export const fakeHandler = (
         inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
         annotations: { readOnlyHint: readOnly },
     },
-    handle: async args => {
+    handle: async (args, context) => {
+        requireMcpAuthenticationSession(context);
         calls.push({ name, args, project: currentProject() });
         if (behaviour.fails) throw behaviour.fails;
         return {
@@ -94,6 +108,7 @@ export const turnContext = (container: Container, threadId = '1'): ChatTurnConte
     threadId,
     container,
     logger: new ConsoleLogger(),
+    session: fakeSession,
     operations: [],
     proposed: [],
 });

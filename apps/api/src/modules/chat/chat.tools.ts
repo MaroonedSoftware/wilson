@@ -1,4 +1,5 @@
 import type { Container } from 'injectkit';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Logger } from '@maroonedsoftware/logger';
 import { Duration } from 'luxon';
 import { z } from 'zod';
@@ -30,6 +31,8 @@ export interface ChatTurnContext {
     threadId: string;
     container: Container;
     logger: Logger;
+    /** Who the turn is for: the session its reads run as. */
+    session: AuthenticationSession;
     operations: ChatOperation[];
     proposed: PendingAction[];
     emit?: (event: ChatToolEvent) => void;
@@ -105,7 +108,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                 if (!entry.readOnly)
                     return `"${name}" changes something, so it is not run directly. Propose it instead, and the person will confirm or decline it.`;
                 try {
-                    const result = await catalog.run(context.container, context.logger, name, args, project);
+                    const result = await catalog.run(context.container, context.logger, context.session, name, args, project);
                     record({ name, arguments: args, project, ok: true });
                     return capped(result);
                 } catch (err) {
