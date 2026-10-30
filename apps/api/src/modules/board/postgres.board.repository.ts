@@ -71,7 +71,7 @@ export class PostgresBoardRepository extends BoardRepository {
         if (!row) {
             throw new CardNotFoundError(`card ${id} has no version ${version}`);
         }
-        const frontmatter = row.frontmatter as CardFrontmatter;
+        const frontmatter = row.frontmatter as unknown as CardFrontmatter;
         return { frontmatter, sections: sectionsOf(row.body), body: row.body };
     }
 

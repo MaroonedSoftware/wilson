@@ -39,7 +39,7 @@ const toMessage = (row: Selectable<WilsonChatMessages>): ChatMessage => ({
     seq: row.seq,
     role: row.role as ChatRole,
     content: row.content,
-    operations: row.operations as ChatOperation[],
+    operations: row.operations as unknown as ChatOperation[],
     engineMessages: row.engineMessages ?? undefined,
     createdAt: row.createdAt,
 });

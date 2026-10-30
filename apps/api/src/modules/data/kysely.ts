@@ -12,6 +12,18 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
 
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
 export interface WilsonAccountAuthenticators {
   accountId: string;
   active: Generated<boolean>;
@@ -61,7 +73,7 @@ export interface WilsonApiKeys {
   hint: string;
   id: Generated<string>;
   lastUsedAt: Timestamptz | null;
-  metadata: Generated<unknown>;
+  metadata: Generated<Json>;
   name: string;
   revokedAt: Timestamptz | null;
   scopes: string[];
@@ -104,7 +116,7 @@ export interface WilsonCardEvents {
   cardId: string;
   createdAt: Generated<Timestamptz>;
   id: Generated<Int8>;
-  payload: Generated<unknown>;
+  payload: Generated<Json>;
   project: string;
   stage: string | null;
   type: string;
@@ -121,14 +133,14 @@ export interface WilsonCards {
   body: string;
   branch: string | null;
   createdAt: Generated<Timestamptz>;
-  external: unknown | null;
+  external: Json | null;
   id: string;
   needsHuman: Generated<boolean>;
   needsHumanReason: string | null;
   pinnedVersionId: Int8 | null;
   position: number | null;
   project: string;
-  retries: Generated<unknown>;
+  retries: Generated<Json>;
   sourceClosed: boolean | null;
   stage: string;
   title: string;
@@ -139,7 +151,7 @@ export interface WilsonCardVersions {
   body: string;
   cardId: string;
   createdAt: Generated<Timestamptz>;
-  frontmatter: unknown;
+  frontmatter: Json;
   id: Generated<Int8>;
   message: string;
   project: string;
@@ -148,15 +160,15 @@ export interface WilsonCardVersions {
 export interface WilsonChatMessages {
   content: string;
   createdAt: Generated<Timestamptz>;
-  engineMessages: unknown | null;
-  operations: Generated<unknown>;
+  engineMessages: Json | null;
+  operations: Generated<Json>;
   role: "user" | "assistant";
   seq: number;
   threadId: Int8;
 }
 
 export interface WilsonChatPendingActions {
-  arguments: unknown;
+  arguments: Json;
   createdAt: Generated<Timestamptz>;
   decidedAt: Timestamptz | null;
   error: string | null;
@@ -164,7 +176,7 @@ export interface WilsonChatPendingActions {
   id: Generated<Int8>;
   operation: string;
   project: string | null;
-  result: unknown | null;
+  result: Json | null;
   status: Generated<"pending" | "running" | "done" | "failed" | "declined">;
   summary: string;
   threadId: Int8;
@@ -257,7 +269,7 @@ export interface WilsonSettings {
   key: string;
   project: string;
   updatedAt: Generated<Timestamptz>;
-  value: unknown;
+  value: Json;
 }
 
 export interface WilsonSourceCursors {
