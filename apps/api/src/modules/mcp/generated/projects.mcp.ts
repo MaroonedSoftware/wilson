@@ -7,8 +7,16 @@ import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type Mcp
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { ProjectDirectoriesService } from '#modules/board/project.directories.service.js';
+import { ProjectRepositoriesService } from '#modules/board/project.repositories.service.js';
 import { ProjectsService } from '#modules/board/projects.service.js';
-import { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, UpdateProjectRequest } from '../../../generated/projects.js';
+import {
+    CreateProjectRequest,
+    DirectoryListing,
+    DirectoryQuery,
+    Project,
+    RepositoryListing,
+    UpdateProjectRequest,
+} from '../../../generated/projects.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -22,6 +30,7 @@ const ListProjectsArgs = z.object({});
 const RegisterProjectArgs = z.object({ body: CreateProjectRequest });
 const UpdateProjectPathsArgs = z.object({ name: z.string(), body: UpdateProjectRequest });
 const ListDirectoriesArgs = z.object({ query: DirectoryQuery.optional() });
+const ListRepositoriesArgs = z.object({});
 
 /**
  * from [projects.ck](../../../../data/contracts/projects.ck) `GET /api/projects`
@@ -119,12 +128,36 @@ export class ListDirectoriesMcpTool implements McpToolHandler {
     }
 }
 
+/**
+ * from [projects.ck](../../../../data/contracts/projects.ck) `GET /api/projects/repositories`
+ */
+@Injectable()
+export class ListRepositoriesMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_repositories',
+        description:
+            'The repositories a project can be registered from, by `owner/name`.\nPath segment, not a project, as for `/api/projects/directories`.',
+        inputSchema: z.toJSONSchema(ListRepositoriesArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(RepositoryListing, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(ProjectRepositoriesService).list();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerProjectsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('list_projects', container.get(ListProjectsMcpTool));
     map.set('register_project', container.get(RegisterProjectMcpTool));
     map.set('update_project_paths', container.get(UpdateProjectPathsMcpTool));
     map.set('list_directories', container.get(ListDirectoriesMcpTool));
+    map.set('list_repositories', container.get(ListRepositoriesMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
@@ -133,4 +166,5 @@ export function registerProjectsMcpToolClasses(registry: Registry): void {
     registry.register(RegisterProjectMcpTool).useClass(RegisterProjectMcpTool).asSingleton();
     registry.register(UpdateProjectPathsMcpTool).useClass(UpdateProjectPathsMcpTool).asSingleton();
     registry.register(ListDirectoriesMcpTool).useClass(ListDirectoriesMcpTool).asSingleton();
+    registry.register(ListRepositoriesMcpTool).useClass(ListRepositoriesMcpTool).asSingleton();
 }

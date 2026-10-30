@@ -88,3 +88,23 @@ export interface DirectoryListing {
     parent?: string;
     directories: string[];
 }
+
+/**
+ * One repository the GitHub App can read, across every org that installed it.
+ * generated from [GitHubRepository](../../../../apps/api/data/contracts/projects.ck)
+ */
+export interface GitHubRepository {
+    fullName: string;
+    private: boolean;
+    defaultBranch: string;
+}
+
+/**
+ * `configured` is false on a deployment with no GitHub App, which is a fine way to run and not a
+ * failure, so a caller can tell "none set up" from "none installed" without parsing a refusal.
+ * generated from [RepositoryListing](../../../../apps/api/data/contracts/projects.ck)
+ */
+export interface RepositoryListing {
+    configured: boolean;
+    repositories: GitHubRepository[];
+}

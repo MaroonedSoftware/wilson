@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { ProjectDirectoriesService } from '#modules/board/project.directories.service.js';
+import { ProjectRepositoriesService } from '#modules/board/project.repositories.service.js';
 import { ProjectsService } from '#modules/board/projects.service.js';
-import { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, UpdateProjectRequest } from '../generated/projects.js';
+import { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, RepositoryListing, UpdateProjectRequest } from '../generated/projects.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -84,6 +85,20 @@ ProjectsRouter.get('/api/projects/directories', requirePolicy({ policy: 'wilson.
 
     const service = ctx.container.get(ProjectDirectoriesService);
     const result: DirectoryListing = await service.list(query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * The repositories a project can be registered from, by `owner/name`.
+ * Path segment, not a project, as for `/api/projects/directories`.
+ * from [projects.ck](../../data/contracts/projects.ck) `GET /api/projects/repositories`
+ */
+ProjectsRouter.get('/api/projects/repositories', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(ProjectRepositoriesService);
+    const result: RepositoryListing = await service.list();
 
     ctx.status = 200;
     ctx.type = 'application/json';

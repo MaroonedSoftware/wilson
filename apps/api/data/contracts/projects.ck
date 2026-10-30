@@ -2,6 +2,7 @@ options {
     services: {
         ProjectsService: "#modules/board/projects.service.js"
         ProjectDirectoriesService: "#modules/board/project.directories.service.js"
+        ProjectRepositoriesService: "#modules/board/project.repositories.service.js"
     }
     security: {
         policy: wilson.manage
@@ -95,6 +96,20 @@ contract DirectoryListing: {
     path: string
     parent?: string
     directories: array(string)
+}
+
+# One repository the GitHub App can read, across every org that installed it.
+contract GitHubRepository: {
+    fullName: string
+    private: boolean
+    defaultBranch: string
+}
+
+# `configured` is false on a deployment with no GitHub App, which is a fine way to run and not a
+# failure, so a caller can tell "none set up" from "none installed" without parsing a refusal.
+contract RepositoryListing: {
+    configured: boolean
+    repositories: array(GitHubRepository)
 }
 
 # No project header or `?project=` is required, and none is refused: `ProjectContextRouter`
@@ -195,6 +210,25 @@ operation /api/projects/directories: {
             403:
             # Nothing exists at `path`.
             404:
+        }
+    }
+}
+
+# The repositories a project can be registered from, by `owner/name`.
+# Path segment, not a project, as for `/api/projects/directories`.
+operation /api/projects/repositories: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List repositories
+        service: ProjectRepositoriesService.list
+        response: {
+            200: {
+                application/json: RepositoryListing
+            }
+            # GitHub could not be reached or refused the app.
+            502:
         }
     }
 }

@@ -19,6 +19,7 @@ import { PlanService } from '#modules/plan/plan.service.js';
 import { PlanLintService } from './plan.lint.service.js';
 import { ProjectsService } from './projects.service.js';
 import { ProjectDirectoriesService } from './project.directories.service.js';
+import { ProjectRepositoriesService } from './project.repositories.service.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 
 /**
@@ -122,6 +123,7 @@ export const BoardModule: ServerKitModule = {
         // service in this module — `ProjectRepository` above is already a registered token by the
         // time anything resolves this, since `setup` only registers, it never resolves.
         registry.register(ProjectsService).useClass(ProjectsService).asTransient();
+        registry.register(ProjectRepositoriesService).useClass(ProjectRepositoriesService).asTransient();
         // `GET /api/projects/directories`'s service, confined to `PROJECT_BROWSE_ROOT`, or the daemon
         // user's home folder without one (see `projects.ck`). A container's home is not where its
         // repos are mounted. A factory because the root is a plain string, not a token.

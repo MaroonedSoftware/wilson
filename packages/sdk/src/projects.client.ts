@@ -1,4 +1,4 @@
-import type { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, UpdateProjectRequest } from './types/projects.js';
+import type { CreateProjectRequest, DirectoryListing, DirectoryQuery, Project, RepositoryListing, UpdateProjectRequest } from './types/projects.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
@@ -68,5 +68,15 @@ export class ProjectsClient {
             method: 'GET',
         });
         return await parseJson<DirectoryListing>(result);
+    }
+
+    /**
+     * @name List repositories
+     * @description The repositories a project can be registered from, by `owner/name`.
+     * Path segment, not a project, as for `/api/projects/directories`.
+     */
+    async listRepositories(): Promise<RepositoryListing> {
+        const result = await this.fetch(`/api/projects/repositories`, { method: 'GET' });
+        return await parseJson<RepositoryListing>(result);
     }
 }

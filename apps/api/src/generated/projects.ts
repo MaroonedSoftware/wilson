@@ -94,3 +94,25 @@ export const DirectoryListing = z.strictObject({
     directories: z.array(z.string()),
 });
 export type DirectoryListing = z.infer<typeof DirectoryListing>;
+
+/**
+ * One repository the GitHub App can read, across every org that installed it.
+ * generated from [GitHubRepository](../../data/contracts/projects.ck)
+ */
+export const GitHubRepository = z.strictObject({
+    fullName: z.string(),
+    private: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    defaultBranch: z.string(),
+});
+export type GitHubRepository = z.infer<typeof GitHubRepository>;
+
+/**
+ * `configured` is false on a deployment with no GitHub App, which is a fine way to run and not a
+ * failure, so a caller can tell "none set up" from "none installed" without parsing a refusal.
+ * generated from [RepositoryListing](../../data/contracts/projects.ck)
+ */
+export const RepositoryListing = z.strictObject({
+    configured: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    repositories: z.array(GitHubRepository),
+});
+export type RepositoryListing = z.infer<typeof RepositoryListing>;
