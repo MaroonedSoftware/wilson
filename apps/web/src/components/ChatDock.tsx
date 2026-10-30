@@ -75,25 +75,25 @@ function DockControls({ position }: { position?: ChatDockPosition }) {
             {position === 'right' && (
                 <Tooltip label="Dock at the bottom">
                     <ActionIcon variant="subtle" aria-label="Dock at the bottom" onClick={() => setChatDockPosition('bottom')}>
-                        <IconLayoutBottombar size={16} />
+                        <IconLayoutBottombar size={18} />
                     </ActionIcon>
                 </Tooltip>
             )}
             {position === 'bottom' && (
                 <Tooltip label="Dock on the right">
                     <ActionIcon variant="subtle" aria-label="Dock on the right" onClick={() => setChatDockPosition('right')}>
-                        <IconLayoutSidebarRight size={16} />
+                        <IconLayoutSidebarRight size={18} />
                     </ActionIcon>
                 </Tooltip>
             )}
             <Tooltip label="Open as the home page">
                 <ActionIcon variant="subtle" aria-label="Open as the home page" onClick={() => void navigate({ to: '/' })}>
-                    <IconMaximize size={16} />
+                    <IconMaximize size={18} />
                 </ActionIcon>
             </Tooltip>
             <Tooltip label="Close the chat">
                 <ActionIcon variant="subtle" aria-label="Close the chat" onClick={() => setChatDockOpen(false)}>
-                    <IconX size={16} />
+                    <IconX size={18} />
                 </ActionIcon>
             </Tooltip>
         </Group>

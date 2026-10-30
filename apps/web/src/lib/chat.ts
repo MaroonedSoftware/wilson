@@ -74,6 +74,16 @@ export function useArchiveChatThread() {
     });
 }
 
+export function useRenameChatThread() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ threadId, title }: { threadId: string; title: string }): Promise<ChatThread> =>
+            wilson.chat.renameAChatThread(threadId, { title }),
+        onSuccess: () => void queryClient.invalidateQueries({ queryKey: CHAT_THREADS_KEY }),
+    });
+}
+
 /** What a turn still being answered has sent so far: its text, and the reads it has run. */
 export interface ChatTurnInProgress {
     text: string;

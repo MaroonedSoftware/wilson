@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { DateTime } from 'luxon';
 import { createElement } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -107,6 +107,11 @@ const openChat = async () => {
     return screen.findByRole('textbox', { name: 'Message' });
 };
 
+const openThread = async (title: string) => {
+    fireEvent.click(await screen.findByRole('button', { name: /^Chats: / }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: title, hidden: true }));
+};
+
 const send = (box: HTMLElement, text: string) => {
     fireEvent.change(box, { target: { value: text } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -193,7 +198,7 @@ describe('the chat dock', () => {
         send(await openChat(), 'What is in review?');
 
         expect(await screen.findByText('0007')).toBeTruthy();
-        expect(screen.getByText('list_cards · demo')).toBeTruthy();
+        expect(screen.getByText('list cards in demo')).toBeTruthy();
         expect(start).toHaveBeenCalledTimes(1);
         expect(sendMessage).toHaveBeenCalledWith('7', { text: 'What is in review?' });
     });
@@ -214,8 +219,32 @@ describe('the chat dock', () => {
         });
 
         expect(await screen.findByText('Looking at the board')).toBeTruthy();
-        expect(screen.getByText('list_cards · demo')).toBeTruthy();
+        expect(screen.getByText('list cards in demo')).toBeTruthy();
         act(() => finish({ message: message(1, 'user', 'What is in review?'), reply: message(2, 'assistant', 'done'), proposed: [] }));
+    });
+
+    it('clears the box as soon as a message goes', async () => {
+        vi.spyOn(ChatClient.prototype, 'startAChatThread').mockResolvedValue(thread);
+        vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([]));
+        renderApp();
+
+        send(await openChat(), 'What is in review?');
+
+        await waitFor(() => expect((screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement).value).toBe(''));
+        expect(await screen.findByText('Working on it…')).toBeTruthy();
+    });
+
+    it('fills the box with the first suggestion on Tab, only while it is empty', async () => {
+        renderApp();
+        const box = (await openChat()) as HTMLTextAreaElement;
+
+        fireEvent.keyDown(box, { key: 'Tab' });
+        expect(box.value).toBe('What is waiting on me?');
+
+        fireEvent.change(box, { target: { value: 'my own words' } });
+        fireEvent.keyDown(box, { key: 'Tab' });
+        expect(box.value).toBe('my own words');
     });
 
     it('runs a proposed change only when the person confirms it', async () => {
@@ -227,10 +256,11 @@ describe('the chat dock', () => {
         renderApp();
         await openChat();
 
-        fireEvent.click(await screen.findByRole('combobox', { name: 'Thread' }));
-        fireEvent.click(await screen.findByRole('option', { name: 'Move it', hidden: true }));
+        await openThread('Move it');
 
         expect(await screen.findByText('Move 0007 to implementing.')).toBeTruthy();
+        expect(screen.getByText('move_card')).toBeTruthy();
+        expect(screen.getByText(/"stage":"implementing"/)).toBeTruthy();
         expect(decide).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -246,8 +276,7 @@ describe('the chat dock', () => {
         vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
         renderApp();
         await openChat();
-        fireEvent.click(await screen.findByRole('combobox', { name: 'Thread' }));
-        fireEvent.click(await screen.findByRole('option', { name: 'Move it', hidden: true }));
+        await openThread('Move it');
         fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
 
         await waitFor(() => expect(chatStreams().length).toBeGreaterThan(0));
@@ -256,14 +285,28 @@ describe('the chat dock', () => {
         expect(await screen.findByText('Moved. Next, the release.')).toBeTruthy();
     });
 
+    it('archives the open chat from the thread menu, and goes back to a new chat', async () => {
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
+        const archive = vi.spyOn(ChatClient.prototype, 'archiveAChatThread').mockResolvedValue(thread);
+        setActiveThread('7');
+        renderApp();
+        await openChat();
+
+        await screen.findByRole('button', { name: 'Chats: Move it' });
+        await openThread('Archive this chat');
+
+        await waitFor(() => expect(archive).toHaveBeenCalledWith('7'));
+        expect(await screen.findByText('What should we do?')).toBeTruthy();
+    });
+
     it('declines a proposed change', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], 'Move it'));
         const decide = vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'declined' }));
         renderApp();
         await openChat();
-        fireEvent.click(await screen.findByRole('combobox', { name: 'Thread' }));
-        fireEvent.click(await screen.findByRole('option', { name: 'Move it', hidden: true }));
+        await openThread('Move it');
 
         fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
 
@@ -284,8 +327,7 @@ describe('the chat dock', () => {
         );
         renderApp();
         await openChat();
-        fireEvent.click(await screen.findByRole('combobox', { name: 'Thread' }));
-        fireEvent.click(await screen.findByRole('option', { name: 'Old', hidden: true }));
+        await openThread('Old');
 
         expect(await screen.findByText('expired')).toBeTruthy();
         expect(screen.getByText('card 0008 holds no lease')).toBeTruthy();
@@ -307,7 +349,7 @@ describe('the chat dock', () => {
         send(box, 'hello?');
 
         expect(await screen.findByText('the chat could not answer: ANTHROPIC_API_KEY is not set')).toBeTruthy();
-        expect((box as HTMLTextAreaElement).value).toBe('hello?');
+        await waitFor(() => expect((screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement).value).toBe('hello?'));
     });
 });
 
@@ -372,7 +414,7 @@ describe('the dock itself', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Open as the home page' }));
 
-        expect(await screen.findByText('Move it')).toBeTruthy();
+        expect(within(await screen.findByRole('navigation', { name: 'Chats' })).getByText('Move it')).toBeTruthy();
         expect(screen.getByText('Move 0007')).toBeTruthy();
         expect(screen.queryByText('What should we do?')).toBeNull();
         expect(screen.queryByRole('region', { name: 'Chat' })).toBeNull();

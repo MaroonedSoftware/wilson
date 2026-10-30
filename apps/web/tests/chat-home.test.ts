@@ -126,6 +126,19 @@ describe('the chat home page', () => {
         expect(ChatClient.prototype.getAChatThread).toHaveBeenCalledWith('8');
     });
 
+    it('renames a thread from its menu', async () => {
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([thread('7', 'Board triage')]);
+        const rename = vi.spyOn(ChatClient.prototype, 'renameAChatThread').mockResolvedValue(thread('7', 'Triage'));
+        renderHome();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Options for Board triage', hidden: true }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename', hidden: true }));
+        fireEvent.change(await screen.findByRole('textbox', { name: 'Name', hidden: true }), { target: { value: 'Triage' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save', hidden: true }));
+
+        await waitFor(() => expect(rename).toHaveBeenCalledWith('7', { title: 'Triage' }));
+    });
+
     it('reopens the thread that was open last, wherever it was opened', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([thread('7', 'Board triage')]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail(thread('7', 'Board triage'), 'what is stuck?'));
