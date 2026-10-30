@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<Container version="2">
+    <Name>wilson</Name>
+    <Repository>ghcr.io/maroonedsoftware/wilson:full</Repository>
+    <Registry>https://github.com/MaroonedSoftware/wilson/pkgs/container/wilson</Registry>
+    <Network>bridge</Network>
+    <Privileged>false</Privileged>
+    <Shell>bash</Shell>
+    <Support>https://github.com/MaroonedSoftware/wilson/issues</Support>
+    <Project>https://github.com/MaroonedSoftware/wilson</Project>
+    <TemplateURL>https://raw.githubusercontent.com/MaroonedSoftware/wilson/main/unraid/wilson.xml</TemplateURL>
+    <Overview>
+        A kanban board that runs its own cards: each card moves through stages of AI agents that plan,
+        build and test it, and merges when it passes.
+
+        Everything is in this one container: the board, the daemon behind it and the API, on one port.
+        Pick the tag that matches what your server already runs:
+
+        ghcr.io/maroonedsoftware/wilson:full brings PostgreSQL and a nightly backup. Nothing else needed.
+        ghcr.io/maroonedsoftware/wilson:slim is Wilson alone. Point it at your own PostgreSQL 17.
+
+        Everything it keeps lives under Data, except the clones of your projects, under Projects.
+
+        First run: open the WebUI and create your account. The database schema is applied automatically.
+        Then sign the engine in, with the Engine token field below, or from this container's console with
+        claude and then /login.
+
+        Model-written code runs inside this container until you place worktree stages on a worker. Do that
+        before running real cards: see PROJECT.md, Workers.
+    </Overview>
+    <Category>Productivity: Tools:Utilities</Category>
+    <Requires>
+        An x86-64 server, and a git clone of each project Wilson manages (or a Project repository below). On the
+        slim tag, a PostgreSQL 17 database that already exists.
+    </Requires>
+    <DefaultTagDescription>Brings its own database and backup. Nothing else needed.</DefaultTagDescription>
+    <Branch>
+        <Tag>slim</Tag>
+        <TagDescription>No database. Fill in the database fields with your own PostgreSQL 17.</TagDescription>
+    </Branch>
+    <WebUI>http://[IP]:[PORT:80]/</WebUI>
+    <Icon>https://raw.githubusercontent.com/MaroonedSoftware/wilson/main/unraid/icon.png</Icon>
+    <ExtraParams>--restart=unless-stopped</ExtraParams>
+    <PostArgs></PostArgs>
+    <DonateText></DonateText>
+    <DonateLink></DonateLink>
+
+    <Config Name="WebUI" Target="80" Default="13101" Mode="tcp"
+        Description="The board and the API, on this one port. Workers connect here too."
+        Type="Port" Display="always" Required="true" Mask="false">13101</Config>
+
+    <Config Name="Data" Target="/data" Default="/mnt/cache/appdata/wilson" Mode="rw"
+        Description="Everything Wilson keeps: on the full tag its database and nightly backups, plus the session and encryption keys, worktrees and the Claude login. Back this up. Use the cache pool rather than /mnt/user, whose share layer is slow for PostgreSQL and for git's many small files."
+        Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/wilson</Config>
+
+    <Config Name="Projects" Target="/projects" Default="/mnt/cache/projects" Mode="rw"
+        Description="The folder holding the clones of every project Wilson manages, each in a folder named after it. Wilson merges into these, so they must be writable by the user below."
+        Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/projects</Config>
+
+    <Config Name="Public address" Target="WEB_ORIGINS" Default="" Mode=""
+        Description="The address you type into a browser to reach the board, all of it: scheme, host and port, with nothing after the port, such as http://192.168.1.10:13101. Passkeys are held to it, and they work only on https://. Sign-in with a password works without it."
+        Type="Variable" Display="always" Required="true" Mask="false"></Config>
+
+    <Config Name="Project name" Target="PROJECT_NAME" Default="wilson" Mode=""
+        Description="The first project, and the name of its folder under Projects."
+        Type="Variable" Display="always" Required="true" Mask="false">wilson</Config>
+
+    <Config Name="Project repository" Target="PROJECT_GIT_URL" Default="" Mode=""
+        Description="Optional. Where to clone the first project from on first boot, when its folder under Projects does not exist. Leave empty if you put a clone there yourself. Wilson never pushes, so a read-only credential in the URL is enough for a private repository."
+        Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+    <Config Name="Engine token" Target="CLAUDE_CODE_OAUTH_TOKEN" Default="" Mode=""
+        Description="What planning sessions, and any stage placed local, sign in with. Make one with claude setup-token. Leave empty to sign in from this container's console instead: run claude, then /login."
+        Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+    <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode=""
+        Description="An IANA zone name such as America/New_York. The nightly backup runs at 03:00 in this zone."
+        Type="Variable" Display="always" Required="false" Mask="false">Etc/UTC</Config>
+
+    <Config Name="Database host" Target="DATABASE_HOST" Default="" Mode=""
+        Description="Slim tag only: your PostgreSQL 17 server. Leave every database field empty on the full tag, which runs its own."
+        Type="Variable" Display="always" Required="false" Mask="false"></Config>
+
+    <Config Name="Database port" Target="DATABASE_PORT" Default="5432" Mode=""
+        Description="" Type="Variable" Display="always" Required="false" Mask="false">5432</Config>
+
+    <Config Name="Database name" Target="DATABASE_NAME" Default="wilson" Mode=""
+        Description="Must already exist. Wilson creates its own schema inside it, not the database itself."
+        Type="Variable" Display="always" Required="false" Mask="false">wilson</Config>
+
+    <Config Name="Database user" Target="DATABASE_USER" Default="" Mode=""
+        Description="Owns the schema: Wilson applies its migrations as this user at every start. Avoid naming it wilson: a role named after the schema can break the first migration."
+        Type="Variable" Display="always" Required="false" Mask="false"></Config>
+
+    <Config Name="Database password" Target="DATABASE_PASSWORD" Default="" Mode=""
+        Description="" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+    <Config Name="User ID" Target="PUID" Default="99" Mode=""
+        Description="Who Wilson runs as. Unraid's nobody by default."
+        Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+
+    <Config Name="Group ID" Target="PGID" Default="100" Mode=""
+        Description="Unraid's users by default."
+        Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+
+    <Config Name="Worker engine token" Target="REMOTE_CLAUDE_CODE_OAUTH_TOKEN" Default="" Mode=""
+        Description="What an engine on an SSH host signs in with. Workers bring their own, so this is unused unless you register SSH hosts, which this image cannot reach yet: it has no ssh client."
+        Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+
+    <Config Name="Notification webhook" Target="NOTIFY_WEBHOOK_URL" Default="" Mode=""
+        Description="Optional. Where to post when the machine stops and needs a person."
+        Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+
+    <Config Name="Notification links" Target="NOTIFY_BASE_URL" Default="" Mode=""
+        Description="The public address above, so a notification can link to its card."
+        Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
+    <Config Name="Start work automatically" Target="POLLER_ENABLED" Default="false" Mode=""
+        Description="Let the daemon pick up cards itself rather than waiting for them to be started."
+        Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+
+    <Config Name="GitHub token" Target="GITHUB_TOKEN" Default="" Mode=""
+        Description="Optional. Read access to the repository below, to import its issues as cards."
+        Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+
+    <Config Name="GitHub repository" Target="GITHUB_REPO" Default="" Mode=""
+        Description="Optional. The repository to import issues from, as owner/name."
+        Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+</Container>

@@ -1037,7 +1037,8 @@ compose project `wilson`, separate from the development stack's `kanban`. The on
 
 ### The single image
 
-The same pieces also come as one container, which is what the Unraid template installs. Two variants,
+The same pieces also come as one container, which is what the Unraid template
+(`unraid/wilson.xml`) installs. Two variants,
 both from `Dockerfile`: `full` carries PostgreSQL 17 and the nightly backup, for a server with
 nothing else on it, and `slim` is the same without them, for a database you already run and back up.
 Wilson has no Redis, so there is nothing else to leave out.
