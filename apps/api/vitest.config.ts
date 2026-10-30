@@ -8,6 +8,9 @@ export default defineProject({
         include: ['./tests/**/*.test.ts'],
         environment: 'node',
         testTimeout: 30000,
+        // A file that writes accounts queues in `beforeAll` for `holdAccounts`' lock, behind every
+        // other such file, and vitest counts that wait against this.
+        hookTimeout: 120000,
         pool: 'forks',
         globalSetup: ['./tests/support/test.db.migrate.ts'],
         // The CLI command tests under tests/cli import packages/cli's source; see that file.
