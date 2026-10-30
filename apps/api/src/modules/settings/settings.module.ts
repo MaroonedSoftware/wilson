@@ -13,6 +13,7 @@ import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js
 import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
 import { EngineTokenSettingService } from './engine.token.setting.service.js';
 import { DryRunSettingService } from './dry.run.setting.service.js';
+import { GitHubAppSettingService } from './github.app.setting.service.js';
 
 /**
  * Operational settings backed by `wilson.settings` — the poller's on/off switch, its interval,
@@ -52,6 +53,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
         registry.register(EngineTokenSettingService).useClass(EngineTokenSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
+        registry.register(GitHubAppSettingService).useClass(GitHubAppSettingService).asTransient();
     },
     // A `wilson.settings` row already present before this boot must take effect immediately, the
     // same as `BoundedCardStageJobRunner.start()` applying `POLLER_ENABLED` at startup

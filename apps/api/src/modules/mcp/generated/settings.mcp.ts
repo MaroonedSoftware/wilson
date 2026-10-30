@@ -10,6 +10,7 @@ import { CardStageConcurrencySettingService } from '#modules/settings/card.stage
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
+import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
@@ -19,6 +20,7 @@ import {
     ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
+    GitHubAppSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
@@ -26,6 +28,7 @@ import {
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
+    SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
@@ -56,6 +59,8 @@ const GetChatEngineSettingArgs = z.object({});
 const SetChatEngineSettingArgs = z.object({ body: ChatEngineSetting });
 const GetLocalStageSlotsArgs = z.object({});
 const SetLocalStageSlotsArgs = z.object({ body: SetLocalStageSlotsRequest });
+const GetGithubAppSettingArgs = z.object({});
+const SetGithubAppSettingArgs = z.object({ body: SetGitHubAppSettingRequest });
 
 /**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/poller-enabled`
@@ -403,6 +408,49 @@ export class SetLocalStageSlotsMcpTool implements McpToolHandler {
     }
 }
 
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/github-app`
+ */
+@Injectable()
+export class GetGithubAppSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_github_app_setting',
+        inputSchema: z.toJSONSchema(GetGithubAppSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(GitHubAppSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(GitHubAppSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `PUT /api/settings/github-app`
+ */
+@Injectable()
+export class SetGithubAppSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'set_github_app_setting',
+        inputSchema: z.toJSONSchema(SetGithubAppSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(GitHubAppSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { body } = await parseAndValidate(args, SetGithubAppSettingArgs);
+        const result = await container.get(GitHubAppSettingService).set(body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('get_poller_setting', container.get(GetPollerSettingMcpTool));
@@ -421,6 +469,8 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_chat_engine_setting', container.get(SetChatEngineSettingMcpTool));
     map.set('get_local_stage_slots', container.get(GetLocalStageSlotsMcpTool));
     map.set('set_local_stage_slots', container.get(SetLocalStageSlotsMcpTool));
+    map.set('get_github_app_setting', container.get(GetGithubAppSettingMcpTool));
+    map.set('set_github_app_setting', container.get(SetGithubAppSettingMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
@@ -441,4 +491,6 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetChatEngineSettingMcpTool).useClass(SetChatEngineSettingMcpTool).asSingleton();
     registry.register(GetLocalStageSlotsMcpTool).useClass(GetLocalStageSlotsMcpTool).asSingleton();
     registry.register(SetLocalStageSlotsMcpTool).useClass(SetLocalStageSlotsMcpTool).asSingleton();
+    registry.register(GetGithubAppSettingMcpTool).useClass(GetGithubAppSettingMcpTool).asSingleton();
+    registry.register(SetGithubAppSettingMcpTool).useClass(SetGithubAppSettingMcpTool).asSingleton();
 }

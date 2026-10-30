@@ -13,10 +13,13 @@ const JWT_BACKDATE = Duration.fromObject({ seconds: 60 });
 /** An installation token is replaced this long before it expires, so a clone never starts on a dying one. */
 const TOKEN_MARGIN = Duration.fromObject({ minutes: 5 });
 
-/** The app's identity, from `GITHUB_APP_ID` and the key in `GITHUB_APP_PRIVATE_KEY_FILE`. */
-export interface GitHubAppCredentials {
-    appId: string;
-    privateKey: string;
+/**
+ * Where the app's identity comes from: the `github-app-id` setting and the key in
+ * `GITHUB_APP_PRIVATE_KEY_FILE`. Asked on every use, so either can be set up without a restart.
+ */
+export interface GitHubAppIdentity {
+    appId(): Promise<string | undefined>;
+    privateKey(): Promise<string | undefined>;
 }
 
 /** One repository an installation of the app can read. */
@@ -37,24 +40,29 @@ const base64url = (value: string | Buffer): string => Buffer.from(value).toStrin
  * endpoints is all this needs. `fetchImpl` is a constructor parameter for the reason
  * `GitHubIssuesSource` gives: it is the only way this is testable without a real GitHub.
  *
- * Built without credentials on a deployment that has none, where {@link configured} is false and
- * everything else refuses with a sentence an operator can act on.
+ * On a deployment with no identity yet, {@link isConfigured} is false and everything else refuses
+ * with a sentence an operator can act on.
  */
 export class GitHubApp {
     private readonly tokens = new Map<number, { token: string; expiresAt: DateTime }>();
 
     constructor(
-        private readonly credentials: GitHubAppCredentials | undefined,
+        private readonly identity: GitHubAppIdentity,
         private readonly fetchImpl: typeof fetch = fetch,
     ) {}
 
-    get configured(): boolean {
-        return this.credentials !== undefined;
+    async isConfigured(): Promise<boolean> {
+        const [appId, privateKey] = await Promise.all([this.identity.appId(), this.identity.privateKey()]);
+        return appId !== undefined && privateKey !== undefined;
+    }
+
+    async hasPrivateKey(): Promise<boolean> {
+        return (await this.identity.privateKey()) !== undefined;
     }
 
     /** An installation token that can read `repository`. Refuses with 400 if the app cannot see it. */
     async tokenFor(repository: string): Promise<string> {
-        const response = await this.request(`/repos/${repository}/installation`, this.jwt());
+        const response = await this.request(`/repos/${repository}/installation`, await this.jwt());
         if (response.status === 404) {
             throw httpError(400).withDetails({ reason: `the GitHub App is not installed on ${repository}` });
         }
@@ -65,7 +73,7 @@ export class GitHubApp {
 
     /** Every repository any installation of the app can read, by full name. */
     async repositories(): Promise<GitHubAppRepository[]> {
-        const jwt = this.jwt();
+        const jwt = await this.jwt();
         const installations = await this.paged<{ id: number }>('/app/installations', jwt, body => body as { id: number }[]);
         const repositories = await Promise.all(
             installations.map(async ({ id }) => {
@@ -87,7 +95,7 @@ export class GitHubApp {
         const held = this.tokens.get(id);
         if (held && held.expiresAt.minus(TOKEN_MARGIN) > DateTime.now()) return held.token;
 
-        const response = await this.request(`/app/installations/${id}/access_tokens`, this.jwt(), 'POST');
+        const response = await this.request(`/app/installations/${id}/access_tokens`, await this.jwt(), 'POST');
         await this.ensureOk(response, 'asking for an installation token');
         const { token, expires_at } = (await response.json()) as { token: string; expires_at: string };
         this.tokens.set(id, { token, expiresAt: DateTime.fromISO(expires_at) });
@@ -95,9 +103,10 @@ export class GitHubApp {
     }
 
     /** The app's own proof of identity: a short-lived RS256 JWT over its id. */
-    private jwt(): string {
-        if (!this.credentials) {
-            throw httpError(400).withDetails({ reason: 'no GitHub App is configured: set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE' });
+    private async jwt(): Promise<string> {
+        const [appId, privateKey] = await Promise.all([this.identity.appId(), this.identity.privateKey()]);
+        if (appId === undefined || privateKey === undefined) {
+            throw httpError(400).withDetails({ reason: 'no GitHub App is set up: it needs an app id in Settings and a private key in place' });
         }
         const now = DateTime.now();
         const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
@@ -105,10 +114,10 @@ export class GitHubApp {
             JSON.stringify({
                 iat: Math.floor(now.minus(JWT_BACKDATE).toSeconds()),
                 exp: Math.floor(now.plus(JWT_LIFETIME).toSeconds()),
-                iss: this.credentials.appId,
+                iss: appId,
             }),
         );
-        const signature = createSign('RSA-SHA256').update(`${header}.${payload}`).sign(this.credentials.privateKey);
+        const signature = createSign('RSA-SHA256').update(`${header}.${payload}`).sign(privateKey);
         return `${header}.${payload}.${base64url(signature)}`;
     }
 

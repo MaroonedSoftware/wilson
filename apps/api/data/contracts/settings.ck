@@ -8,6 +8,7 @@ options {
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
         EngineTokenSettingService: "#modules/settings/engine.token.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
+        GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
     }
     security: {
@@ -370,6 +371,42 @@ operation /api/settings/local-stage-slots: {
         response: {
             200: { application/json: LocalStageSlots }
             # Outside [LOCAL_STAGE_SLOTS_MIN, LOCAL_STAGE_SLOTS_MAX] (job.runner.config.ts).
+            400:
+        }
+    }
+}
+
+# The GitHub App this deployment acts as (`GitHubApp`). `keyInstalled` is read-only: the private key
+# goes in `GITHUB_APP_PRIVATE_KEY_FILE` on the daemon's machine and never passes through this API.
+contract GitHubAppSetting: {
+    appId: string | null
+    keyInstalled: boolean
+}
+
+contract SetGitHubAppSettingRequest: {
+    appId: string | null
+}
+
+operation /api/settings/github-app: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get github app setting
+        service: GitHubAppSettingService.get
+        response: {
+            200: { application/json: GitHubAppSetting }
+        }
+    }
+    put: {
+        name: Set github app setting
+        service: GitHubAppSettingService.set
+        request: {
+            application/json: SetGitHubAppSettingRequest
+        }
+        response: {
+            200: { application/json: GitHubAppSetting }
+            # `appId` is not a number.
             400:
         }
     }

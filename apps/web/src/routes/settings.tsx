@@ -15,6 +15,7 @@ const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
+const GITHUB_APP_QUERY_KEY = ['settings', 'github-app'];
 const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 
@@ -467,6 +468,69 @@ function ClaudeConfigDirControl() {
     );
 }
 
+/**
+ * The GitHub App's id, and whether its private key is in place. The key is never entered here: it
+ * goes in a file on the daemon's machine, so this only reports it. A refusal keeps the draft, the
+ * same choice `ClaudeConfigDirControl` makes.
+ */
+function GitHubAppControl() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: GITHUB_APP_QUERY_KEY, queryFn: () => wilson.settings.getGithubAppSetting() });
+    const [draft, setDraft] = useState('');
+
+    useEffect(() => {
+        if (setting.data) setDraft(setting.data.appId ?? '');
+    }, [setting.data]);
+
+    const mutation = useMutation({
+        mutationFn: (appId: string | null) => wilson.settings.setGithubAppSetting({ appId }),
+        onSuccess: result => {
+            queryClient.setQueryData(GITHUB_APP_QUERY_KEY, result);
+            setDraft(result.appId ?? '');
+        },
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load GitHub App">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    const dirty = draft !== (setting.data.appId ?? '');
+
+    return (
+        <Stack gap="xs">
+            <TextInput
+                label="GitHub App ID"
+                description="Lets Wilson clone repositories when adding a project. Shown on the app's settings page on GitHub. Takes effect without a restart."
+                placeholder="123456"
+                value={draft}
+                onChange={event => setDraft(event.currentTarget.value)}
+                disabled={mutation.isPending}
+            />
+            <Text size="sm" c={setting.data.keyInstalled ? 'dimmed' : 'orange'}>
+                {setting.data.keyInstalled
+                    ? 'Private key found.'
+                    : 'Private key not found. Put it at secrets/github-app.pem in the data folder on the machine Wilson runs on.'}
+            </Text>
+            <Group gap="xs">
+                <Button size="xs" disabled={!dirty || mutation.isPending} onClick={() => dirty && mutation.mutate(draft.trim() === '' ? null : draft.trim())}>
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
 const ENGINE_TOKEN_SOURCES: Record<EngineTokenSetting['source'], string> = {
     database: 'Engines on this machine sign in with the token saved here.',
     environment: 'Engines on this machine sign in with CLAUDE_CODE_OAUTH_TOKEN from the environment. A token saved here replaces it.',
@@ -727,6 +791,13 @@ function SettingsRoute() {
                     <Title order={4}>Engine credentials</Title>
                     <ClaudeConfigDirControl />
                     <EngineTokenControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>GitHub</Title>
+                    <GitHubAppControl />
                 </Stack>
             </Paper>
 

@@ -8,7 +8,7 @@ export class ProjectRepositoriesService {
     constructor(private readonly app: GitHubApp) {}
 
     async list(): Promise<RepositoryListing> {
-        if (!this.app.configured) return { configured: false, repositories: [] };
+        if (!(await this.app.isConfigured())) return { configured: false, repositories: [] };
         return { configured: true, repositories: await this.app.repositories() };
     }
 }

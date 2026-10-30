@@ -195,3 +195,22 @@ export const ChatEngineSetting = z.strictObject({
     model: z.string(),
 });
 export type ChatEngineSetting = z.infer<typeof ChatEngineSetting>;
+
+/**
+ * The GitHub App this deployment acts as (`GitHubApp`). `keyInstalled` is read-only: the private key
+ * goes in `GITHUB_APP_PRIVATE_KEY_FILE` on the daemon's machine and never passes through this API.
+ * generated from [GitHubAppSetting](../../data/contracts/settings.ck)
+ */
+export const GitHubAppSetting = z.strictObject({
+    appId: z.string().nullable(),
+    keyInstalled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type GitHubAppSetting = z.infer<typeof GitHubAppSetting>;
+
+/**
+ * generated from [SetGitHubAppSettingRequest](../../data/contracts/settings.ck)
+ */
+export const SetGitHubAppSettingRequest = z.strictObject({
+    appId: z.string().nullable(),
+});
+export type SetGitHubAppSettingRequest = z.infer<typeof SetGitHubAppSettingRequest>;

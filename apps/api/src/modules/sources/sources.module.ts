@@ -75,13 +75,15 @@ export const SourcesModule: ServerKitModule = {
         // decision to register at all come from here.
         const githubToken = optionalConfigString(config, 'GITHUB_TOKEN');
         const githubRepo = optionalConfigString(config, 'GITHUB_REPO');
+        // A key file named is enough to register: whether the app is set up yet is only known per
+        // call, and an import that cannot run says why on each tick rather than staying silent.
+        const githubAppKey = optionalConfigString(config, 'GITHUB_APP_PRIVATE_KEY_FILE');
         registry
             .register(CardSourceRegistry)
             .useFactory(container => {
                 const sources: CardSource[] = [];
-                const app = container.get(GitHubApp);
                 // A token set by hand keeps working: the app need not be installed on that repo.
-                const token = githubToken ?? (app.configured ? (repo: string) => app.tokenFor(repo) : undefined);
+                const token = githubToken ?? (githubAppKey ? (repo: string) => container.get(GitHubApp).tokenFor(repo) : undefined);
                 if (token && githubRepo) {
                     sources.push(new GitHubIssuesSource(container.get(SettingsStore), token));
                 }

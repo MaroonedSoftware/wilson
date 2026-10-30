@@ -681,3 +681,36 @@ describe('deployment facts', () => {
         expect(within(deploymentSection).queryAllByRole('textbox')).toHaveLength(0);
     });
 });
+
+describe('the GitHub App control', () => {
+    const load = (appId: string | null, keyInstalled: boolean) => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+        vi.spyOn(wilson.settings, 'getGithubAppSetting').mockResolvedValue({ appId, keyInstalled });
+    };
+
+    it('says where the key goes while it is missing', async () => {
+        load(null, false);
+
+        renderApp('/settings');
+
+        expect(await screen.findByText(/Private key not found/)).toBeTruthy();
+    });
+
+    it('saves a typed id and shows what the server stored', async () => {
+        load(null, true);
+        const set = vi.spyOn(wilson.settings, 'setGithubAppSetting').mockResolvedValue({ appId: '123456', keyInstalled: true });
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('GitHub App ID')) as HTMLInputElement;
+        fireEvent.change(input, { target: { value: ' 123456 ' } });
+        const save = input.closest('.mantine-Stack-root')!.querySelector('button') as HTMLButtonElement;
+        fireEvent.click(save);
+
+        await waitFor(() => expect(set).toHaveBeenCalledWith({ appId: '123456' }));
+        await waitFor(() => expect(input.value).toBe('123456'));
+    });
+});

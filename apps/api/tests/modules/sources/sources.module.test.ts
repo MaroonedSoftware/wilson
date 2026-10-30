@@ -12,7 +12,6 @@ import { PostgresCacheProvider } from '#modules/sources/postgres.cache.provider.
 import { SourceCursorRepository } from '#modules/sources/source.cursor.repository.js';
 import { SourcePoller } from '#modules/sources/source.poller.js';
 import { StatusMirrorPoller } from '#modules/sources/status.mirror.poller.js';
-import { GitHubApp } from '#modules/github/github.app.js';
 import { SourcesModule } from '#modules/sources/sources.module.js';
 import { modules } from '#modules/modules.js';
 import type { DB } from '#modules/data/db.js';
@@ -76,20 +75,19 @@ const recordingRegistry = (): { registry: Registry; registrations: Map<unknown, 
 };
 
 describe('SourcesModule.setup', () => {
-    // `GITHUB_TOKEN`/`GITHUB_REPO` default to unset here — every test below except card 0199's own
+    // The `GITHUB_*` keys default to unset here — every test below except card 0199's own
     // gating tests wants the pre-0199 registry-construction behaviour, not a `GitHubIssuesSource`
     // sneaking in because a generic "any key returns something" stub happened to satisfy both.
     const fakeConfig = (env: Record<string, string> = {}): AppConfig =>
-        ({ get: (key: string) => env[key] ?? (key === 'GITHUB_TOKEN' || key === 'GITHUB_REPO' ? '' : 'unused') }) as unknown as AppConfig;
-    const fakeContainerWithSettings = (app: Partial<GitHubApp> = { configured: false }): Container =>
-        ({ get: (id: unknown) => (id === SettingsStore ? ({} as SettingsStore) : id === GitHubApp ? app : undefined) }) as unknown as Container;
+        ({ get: (key: string) => env[key] ?? (key.startsWith('GITHUB_') ? '' : 'unused') }) as unknown as AppConfig;
+    const fakeContainerWithSettings = (): Container => ({ get: (id: unknown) => (id === SettingsStore ? ({} as SettingsStore) : undefined) }) as unknown as Container;
 
-    it('imports through the GitHub App when no token is set', async () => {
+    it('imports through the GitHub App when no token is set but a key file is named', async () => {
         const { registry, registrations } = recordingRegistry();
 
-        await SourcesModule.setup!(registry, fakeConfig({ GITHUB_REPO: 'acme/app' }));
+        await SourcesModule.setup!(registry, fakeConfig({ GITHUB_REPO: 'acme/app', GITHUB_APP_PRIVATE_KEY_FILE: '/data/secrets/github-app.pem' }));
 
-        const built = (registrations.get(CardSourceRegistry)?.impl as (container: Container) => CardSourceRegistry)(fakeContainerWithSettings({ configured: true }));
+        const built = (registrations.get(CardSourceRegistry)?.impl as (container: Container) => CardSourceRegistry)(fakeContainerWithSettings());
         expect(built.list().map(source => source.name)).toEqual(['github']);
     });
 

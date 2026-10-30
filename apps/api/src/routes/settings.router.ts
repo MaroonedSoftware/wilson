@@ -4,6 +4,7 @@ import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.serv
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
@@ -14,6 +15,7 @@ import {
     ClaudeConfigDirSetting,
     DryRunSetting,
     EngineTokenSetting,
+    GitHubAppSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
@@ -22,6 +24,7 @@ import {
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
     SetEngineTokenSettingRequest,
+    SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
@@ -264,6 +267,32 @@ SettingsRouter.put('/api/settings/local-stage-slots', requirePolicy({ policy: 'w
 
     const service = ctx.container.get(LocalStageSlotsSettingService);
     const result: LocalStageSlots = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/github-app`
+ */
+SettingsRouter.get('/api/settings/github-app', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(GitHubAppSettingService);
+    const result: GitHubAppSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/github-app`
+ */
+SettingsRouter.put('/api/settings/github-app', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetGitHubAppSettingRequest);
+
+    const service = ctx.container.get(GitHubAppSettingService);
+    const result: GitHubAppSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

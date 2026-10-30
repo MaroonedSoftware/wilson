@@ -176,3 +176,20 @@ export interface ChatEngineSetting {
     provider: 'anthropic' | 'openai' | 'xai';
     model: string;
 }
+
+/**
+ * The GitHub App this deployment acts as (`GitHubApp`). `keyInstalled` is read-only: the private key
+ * goes in `GITHUB_APP_PRIVATE_KEY_FILE` on the daemon's machine and never passes through this API.
+ * generated from [GitHubAppSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface GitHubAppSetting {
+    appId: string | null;
+    keyInstalled: boolean;
+}
+
+/**
+ * generated from [SetGitHubAppSettingRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetGitHubAppSettingRequest {
+    appId: string | null;
+}

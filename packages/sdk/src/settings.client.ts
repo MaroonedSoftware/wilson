@@ -4,6 +4,7 @@ import type {
     ClaudeConfigDirSetting,
     DryRunSetting,
     EngineTokenSetting,
+    GitHubAppSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
@@ -12,6 +13,7 @@ import type {
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
     SetEngineTokenSettingRequest,
+    SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
@@ -174,5 +176,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<LocalStageSlots>(result);
+    }
+
+    /** @name Get github app setting */
+    async getGithubAppSetting(): Promise<GitHubAppSetting> {
+        const result = await this.fetch(`/api/settings/github-app`, { method: 'GET' });
+        return await parseJson<GitHubAppSetting>(result);
+    }
+
+    /** @name Set github app setting */
+    async setGithubAppSetting(body: SetGitHubAppSettingRequest): Promise<GitHubAppSetting> {
+        const result = await this.fetch(`/api/settings/github-app`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<GitHubAppSetting>(result);
     }
 }
