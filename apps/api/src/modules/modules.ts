@@ -9,6 +9,7 @@ import { HostModule } from './host/host.module.js';
 import { WorkerModule } from './worker/worker.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
+import { GitHubModule } from './github/github.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { PolicyModule } from './policy/policy.module.js';
@@ -57,6 +58,7 @@ import { WorktreeModule } from './worktree/worktree.module.js';
 export const modules: ServerKitModule[] = [
     DataModule,
     EventsModule,
+    GitHubModule,
     BoardModule,
     SourcesModule,
     PolicyModule,
