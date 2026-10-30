@@ -1,7 +1,9 @@
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
+import { GitHubCloner } from '#modules/github/github.cloner.js';
 import { REPO_PATTERN } from '#modules/github/github.repo.js';
+import { ProjectDirectoriesService } from './project.directories.service.js';
 import { ProjectRepository, type ProjectRow } from './project.repository.js';
 import type { CreateProjectRequest, Project, UpdateProjectRequest } from '../../generated/projects.js';
 
@@ -23,27 +25,40 @@ import type { CreateProjectRequest, Project, UpdateProjectRequest } from '../../
  */
 @Injectable()
 export class ProjectsService {
-    constructor(private readonly projects: ProjectRepository) {}
+    constructor(
+        private readonly projects: ProjectRepository,
+        private readonly directories: ProjectDirectoriesService,
+        private readonly cloner: GitHubCloner,
+    ) {}
 
     async list(): Promise<Project[]> {
         const rows = await this.projects.list();
         return rows.map(row => ({ name: row.name }));
     }
 
-    /** Register a project. Refuses a taken name with 409, and any non-absolute path with 400. */
+    /**
+     * Register a project. Refuses a taken name with 409, and any non-absolute path with 400.
+     *
+     * Given a `repository`, any path left out follows from it (`defaultPaths`) and the code is
+     * cloned before the row exists, so a failed clone leaves nothing registered. Without one, every
+     * path is required. The name check comes first, so a taken name never starts a clone.
+     */
     async create(request: CreateProjectRequest): Promise<Project> {
         const { name } = request;
+        const repository = request.repository === undefined ? undefined : requireRepository(request.repository);
+        const defaults = repository ? defaultPaths(this.directories.root, repository) : undefined;
         const paths: Omit<ProjectRow, 'name'> = {
-            codeRoot: requireAbsolutePath('codeRoot', request.codeRoot),
-            worktreeRoot: requireAbsolutePath('worktreeRoot', request.worktreeRoot),
-            runRoot: requireAbsolutePath('runRoot', request.runRoot),
-            ...(request.repository !== undefined && { repository: requireRepository(request.repository) }),
+            codeRoot: requireAbsolutePath('codeRoot', request.codeRoot ?? defaults?.codeRoot),
+            worktreeRoot: requireAbsolutePath('worktreeRoot', request.worktreeRoot ?? defaults?.worktreeRoot),
+            runRoot: requireAbsolutePath('runRoot', request.runRoot ?? defaults?.runRoot),
+            ...(repository !== undefined && { repository }),
         };
 
         if (await this.projects.find(name)) {
             throw httpError(409).withDetails({ reason: `project "${name}" is already registered` });
         }
 
+        if (repository) await this.cloner.clone(repository, paths.codeRoot);
         await this.projects.create({ name, ...paths });
         return { name };
     }
@@ -70,6 +85,18 @@ export class ProjectsService {
     }
 }
 
+/**
+ * Where a project from `repository` goes: `<root>/<repo>`, with its worktrees and run state where
+ * the web form proposes them (`defaultProjectPaths`). Named after the repository rather than the
+ * project, whose name is free text and has no business in a path.
+ */
+const defaultPaths = (root: string, repository: string): Omit<ProjectRow, 'name' | 'repository'> => {
+    const folder = repository.slice(repository.indexOf('/') + 1);
+    const codeRoot = join(root, folder);
+    const parent = dirname(codeRoot);
+    return { codeRoot, worktreeRoot: join(parent, '.worktrees', folder), runRoot: join(parent, '.run', folder) };
+};
+
 /** Validate that `value` is a bare `owner/name`, the only form a repository is kept in. */
 const requireRepository = (value: string): string => {
     if (!REPO_PATTERN.test(value)) {
@@ -84,9 +111,9 @@ const requireRepository = (value: string): string => {
  * exists, is writable, or holds what the runner needs is discovered by use, not by a check guessing
  * at what "working" means (`ClaudeConfigDirSettingService.set` follows the same restraint).
  */
-const requireAbsolutePath = (field: string, value: string): string => {
-    if (!isAbsolute(value)) {
-        throw httpError(400).withDetails({ reason: `${field} must be an absolute path, got "${value}"` });
+const requireAbsolutePath = (field: string, value: string | undefined): string => {
+    if (value === undefined || !isAbsolute(value)) {
+        throw httpError(400).withDetails({ reason: `${field} must be an absolute path, got "${value ?? ''}"` });
     }
     return resolve(value);
 };

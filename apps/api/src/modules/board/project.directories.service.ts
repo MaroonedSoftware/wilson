@@ -15,7 +15,7 @@ import type { DirectoryListing, DirectoryQuery } from '../../generated/projects.
  * what the picker then fills in.
  */
 export class ProjectDirectoriesService {
-    constructor(private readonly root: string) {}
+    constructor(readonly root: string) {}
 
     async list(query: DirectoryQuery): Promise<DirectoryListing> {
         const root = await realpath(this.root);

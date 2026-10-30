@@ -33,10 +33,15 @@ export interface Project {
  */
 export interface CreateProjectRequest {
     name: string;
-    codeRoot: string;
-    worktreeRoot: string;
-    runRoot: string;
-    /** The GitHub repository the code comes from, as `owner/name`. */
+    /** Required without a `repository`, which they otherwise default from. */
+    codeRoot?: string;
+    worktreeRoot?: string;
+    runRoot?: string;
+    /**
+     * The GitHub repository the code comes from, as `owner/name`, cloned to `codeRoot` through the
+     * GitHub App unless a clone of it is already there. Without `codeRoot` that is `<repo>` under
+     * the browse root.
+     */
     repository?: string;
 }
 

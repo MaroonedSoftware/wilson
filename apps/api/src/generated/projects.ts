@@ -36,10 +36,15 @@ export type Project = z.infer<typeof Project>;
  */
 export const CreateProjectRequest = z.strictObject({
     name: z.string(),
-    codeRoot: z.string(),
-    worktreeRoot: z.string(),
-    runRoot: z.string(),
-    repository: z.string().optional().describe('The GitHub repository the code comes from, as `owner/name`.'),
+    codeRoot: z.string().optional().describe('Required without a `repository`, which they otherwise default from.'),
+    worktreeRoot: z.string().optional(),
+    runRoot: z.string().optional(),
+    repository: z
+        .string()
+        .optional()
+        .describe(
+            'The GitHub repository the code comes from, as `owner/name`, cloned to `codeRoot` through the\nGitHub App unless a clone of it is already there. Without `codeRoot` that is `<repo>` under\nthe browse root.',
+        ),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 

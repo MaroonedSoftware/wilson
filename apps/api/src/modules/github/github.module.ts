@@ -4,6 +4,7 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { optionalConfigString } from '#shared/require.config.js';
 import { GitHubApp, type GitHubAppCredentials } from './github.app.js';
+import { GitHubCloner } from './github.cloner.js';
 
 /**
  * The credentials, if this deployment has both halves. A key file that is not there yet counts as
@@ -21,7 +22,7 @@ const readCredentials = async (config: AppConfig): Promise<GitHubAppCredentials 
     return privateKey ? { appId, privateKey } : undefined;
 };
 
-/** The deployment's GitHub App (`GitHubApp`), one for the process so its tokens are shared. */
+/** The deployment's GitHub App (`GitHubApp`), one for the process so its tokens are shared, and what clones through it. */
 export const GitHubModule: ServerKitModule = {
     name: 'GitHub',
     setup: async (registry: Registry, config: AppConfig) => {
@@ -29,6 +30,10 @@ export const GitHubModule: ServerKitModule = {
         registry
             .register(GitHubApp)
             .useFactory(() => new GitHubApp(credentials))
+            .asSingleton();
+        registry
+            .register(GitHubCloner)
+            .useFactory(container => new GitHubCloner(container.get(GitHubApp)))
             .asSingleton();
     },
 };

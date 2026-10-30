@@ -52,10 +52,13 @@ contract Project: {
 # normalises with `resolve()`, as `BoardModule` already does for the seeded row.
 contract CreateProjectRequest: {
     name: string
-    codeRoot: string
-    worktreeRoot: string
-    runRoot: string
-    # The GitHub repository the code comes from, as `owner/name`.
+    # Required without a `repository`, which they otherwise default from.
+    codeRoot?: string
+    worktreeRoot?: string
+    runRoot?: string
+    # The GitHub repository the code comes from, as `owner/name`, cloned to `codeRoot` through the
+    # GitHub App unless a clone of it is already there. Without `codeRoot` that is `<repo>` under
+    # the browse root.
     repository?: string
 }
 
@@ -130,9 +133,12 @@ operation /api/projects: {
             # A path missing, empty, or not absolute. `init`'s precedent for a malformed request,
             # carried via `details` as every other refusal on this surface is.
             400:
-            # The name is already registered. `init`'s own precedent for "this already exists",
-            # not a primary-key error reaching the client.
+            # The name is already registered, or `codeRoot` holds something other than `repository`.
+            # `init`'s own precedent for "this already exists", not a primary-key error reaching
+            # the client.
             409:
+            # GitHub or git failed while cloning `repository`.
+            502:
         }
     }
 }

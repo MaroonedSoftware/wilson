@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectsService } from '#modules/board/projects.service.js';
+import type { ProjectDirectoriesService } from '#modules/board/project.directories.service.js';
 import type { ProjectRepository, ProjectRow } from '#modules/board/project.repository.js';
+import type { GitHubCloner } from '#modules/github/github.cloner.js';
 
 /**
  * Card 0162. `ProjectsService` is the service `GET /api/projects` (projects.ck) binds to — a thin
@@ -239,7 +241,10 @@ describe('ProjectsService', () => {
                 create: async (row: ProjectRow) => void created.push(row),
                 update: async (_: string, patch: unknown) => (patches.push(patch), true),
             } as unknown as ProjectRepository;
-            return { service: new ProjectsService(repository), created, patches };
+            const cloned: [string, string][] = [];
+            const cloner = { clone: async (repo: string, target: string) => void cloned.push([repo, target]) } as unknown as GitHubCloner;
+            const directories = { root: '/projects' } as ProjectDirectoriesService;
+            return { service: new ProjectsService(repository, directories, cloner), created, patches, cloned };
         };
         const paths = { codeRoot: '/code/a', worktreeRoot: '/wt/a', runRoot: '/run/a' };
 
@@ -251,12 +256,54 @@ describe('ProjectsService', () => {
             expect(created[0]?.repository).toBe('acme/app');
         });
 
-        it('sets a repository on a registered project', async () => {
-            const { service, patches } = fake();
+        it('clones to the path it was given', async () => {
+            const { service, cloned } = fake();
+
+            await service.create({ name: 'a', ...paths, repository: 'acme/app' });
+
+            expect(cloned).toEqual([['acme/app', '/code/a']]);
+        });
+
+        it('derives every path it is not given from the repository, not the free-text name', async () => {
+            const { service, created, cloned } = fake();
+
+            await service.create({ name: 'Toku ATS', repository: 'acme/toku-ats' });
+
+            expect(created[0]).toEqual({
+                name: 'Toku ATS',
+                codeRoot: '/projects/toku-ats',
+                worktreeRoot: '/projects/.worktrees/toku-ats',
+                runRoot: '/projects/.run/toku-ats',
+                repository: 'acme/toku-ats',
+            });
+            expect(cloned).toEqual([['acme/toku-ats', '/projects/toku-ats']]);
+        });
+
+        it('registers nothing when the clone fails', async () => {
+            const created: ProjectRow[] = [];
+            const failing = new ProjectsService(
+                { find: async () => undefined, create: async (row: ProjectRow) => void created.push(row) } as unknown as ProjectRepository,
+                { root: '/projects' } as ProjectDirectoriesService,
+                { clone: async () => Promise.reject(new Error('no')) } as unknown as GitHubCloner,
+            );
+
+            await expect(failing.create({ name: 'a', repository: 'acme/app' })).rejects.toThrow('no');
+            expect(created).toEqual([]);
+        });
+
+        it('still requires every path without a repository', async () => {
+            const { service } = fake();
+
+            await expect(service.create({ name: 'a' })).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('sets a repository on a registered project, cloning nothing', async () => {
+            const { service, patches, cloned } = fake();
 
             await service.update('a', { repository: 'acme/app' });
 
             expect(patches).toEqual([{ repository: 'acme/app' }]);
+            expect(cloned).toEqual([]);
         });
 
         it.each(['app', 'acme/app/extra', 'https://github.com/acme/app', '../app'])('refuses "%s", which is not owner/name', async value => {
