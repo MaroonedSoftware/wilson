@@ -31,6 +31,24 @@ services:
             start_period: 10s
             retries: 5
 
+    # Runs once, as root, before the API. Docker creates a missing bind-mount folder owned by root,
+    # which the API's user could not write to, and it must write its keys there on first boot. Not
+    # recursive: only the folders themselves are this step's, so it stays quick however much is in them.
+    init:
+        image: postgres:17
+        container_name: wilson-unraid-init
+        restart: 'no'
+        volumes:
+            - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}:/appdata
+        entrypoint: ['/bin/sh', '-c']
+        command:
+            - |
+                set -eu
+                cd /appdata
+                mkdir -p worktrees run secrets claude home
+                chown '${PUID:-99}:${PGID:-100}' worktrees run secrets claude home
+                chmod 700 secrets
+
     # The same nightly `pg_dump -Fc` as docker-compose.yml's `backup`, at 03:00 in TZ.
     backup:
         image: postgres:17
@@ -76,6 +94,8 @@ services:
         depends_on:
             db:
                 condition: service_healthy
+            init:
+                condition: service_completed_successfully
         # Unraid's nobody:users by default, so files in the shares stay readable and writable from them.
         user: '${PUID:-99}:${PGID:-100}'
         env_file:

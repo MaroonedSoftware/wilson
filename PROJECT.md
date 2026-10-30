@@ -1017,7 +1017,8 @@ compose project `wilson`, separate from the development stack's `kanban`. The on
   worktree and run roots, the generated session and encryption keys, the Claude login and a home
   folder. On Unraid that means the cache pool, not `/mnt/user`, whose user-share layer is slow for
   Postgres and for git's many small files. The containers run as `nobody:users` (99:100) so the
-  shares stay usable from outside them.
+  shares stay usable from outside them, and a one-shot `init` service creates the API's folders
+  and hands them to that user before it starts.
 - **Code repos are mounted volumes.** The clones the daemon merges into live under
   `WILSON_PROJECTS`, one folder per project. Their owner is not the container's user, so the stack
   sets `safe.directory` for git rather than have it refuse them.
