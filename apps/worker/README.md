@@ -39,7 +39,7 @@ guardrail, not a boundary: a command run inside a project folder can still reach
    worker from a checkout of this repository:
 
     ```bash
-    WILSON_URL=http://tower:13100 WILSON_WORKER_TOKEN=wilson_worker_... CLAUDE_CODE_OAUTH_TOKEN=... pnpm --filter @wilson/worker start
+    WILSON_URL=http://tower:13101 WILSON_WORKER_TOKEN=wilson_worker_... CLAUDE_CODE_OAUTH_TOKEN=... pnpm --filter @wilson/worker start
     ```
 
 4. Back on Wilson, `wilson host probe unraid-vm` should pass. Stages placed `remote` or `any` can now
@@ -49,7 +49,7 @@ guardrail, not a boundary: a command run inside a project folder can still reach
 
 | Variable                  | Required | What it is                                                            |
 | ------------------------- | -------- | --------------------------------------------------------------------- |
-| `WILSON_URL`              | yes      | Wilson's API, e.g. `http://tower:13100`                               |
+| `WILSON_URL`              | yes      | Wilson's address, e.g. `http://tower:13101`                           |
 | `WILSON_WORKER_TOKEN`     | yes      | This host's token, from `wilson host token <name>`                    |
 | `CLAUDE_CODE_OAUTH_TOKEN` | no       | What the engine signs in with. Unset, `claude`'s own sign-in is used. |
 | `WILSON_CLAUDE`           | no       | The `claude` binary, when it is not the one on `PATH`                 |
@@ -67,7 +67,7 @@ Unraid's User Scripts) should restart it on other exits but not that one. With s
 
 ```ini
 [Service]
-Environment=WILSON_URL=http://tower:13100
+Environment=WILSON_URL=http://tower:13101
 EnvironmentFile=/etc/wilson-worker.env
 WorkingDirectory=/opt/wilson
 ExecStart=/usr/bin/pnpm --filter @wilson/worker start

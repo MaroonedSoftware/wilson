@@ -6,8 +6,8 @@
 #                                 verification and merges. Stages placed `remote` run on workers
 #                                 (apps/worker); what still runs here is planning and any stage left
 #                                 `local`.
-#   docker build --target web --build-arg VITE_API_URL=http://tower:13100 .
-#                                 The web app, built for the API at that URL and served by nginx.
+#   docker build --target web .   The web app, served by nginx, which proxies /api to the API, so the
+#                                 browser sees one origin.
 #
 # docker-compose.unraid.yml builds and runs both. Nothing here mounts or talks to the Docker socket,
 # and nothing should: a stage's commands would then hold root on the host.
@@ -43,13 +43,14 @@ FROM deps AS source
 COPY . .
 
 FROM source AS web-build
-# Read by Vite at build time: the web app calls the API at exactly this URL.
-ARG VITE_API_URL
-RUN test -n "$VITE_API_URL" || { echo 'build the web target with --build-arg VITE_API_URL=<the API as the browser reaches it>' >&2; exit 1; }
+# Read by Vite at build time. `/` is same-origin: the page calls whichever address it was loaded from.
+ARG VITE_API_URL=/
 RUN pnpm --filter @wilson/web exec vite build
 
 FROM nginx:1.27-alpine AS web
-COPY deploy/web.nginx.conf /etc/nginx/conf.d/default.conf
+# The image's entrypoint fills in ${API_UPSTREAM} from the environment, and nothing else in the file.
+ENV API_UPSTREAM=api:13100
+COPY deploy/web.nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=web-build /opt/wilson/apps/web/dist /usr/share/nginx/html
 
 FROM source AS api

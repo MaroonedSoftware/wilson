@@ -131,18 +131,15 @@ services:
             - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/claude:/data/claude
             - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/home:/data/home
             - ${WILSON_APPDATA:-/mnt/cache/appdata/wilson}/backups:/backups:ro
-        ports:
-            - '${WILSON_API_PORT:-13100}:13100'
 
     web:
         build:
             context: .
             target: web
-            args:
-                # Where the browser reaches the API, baked into the build. Change it, rebuild.
-                VITE_API_URL: ${WILSON_API_URL:?set WILSON_API_URL in the env file, e.g. http://tower:13100}
         image: wilson-web:local
         restart: unless-stopped
         container_name: wilson-unraid-web
+        depends_on:
+            - api
         ports:
             - '${WILSON_WEB_PORT:-13101}:80'

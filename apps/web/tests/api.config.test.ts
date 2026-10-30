@@ -14,4 +14,8 @@ describe('resolveApiBase', () => {
     it('drops a trailing slash, which would double up on every path', () => {
         expect(resolveApiBase('https://wilson.internal/')).toBe('https://wilson.internal');
     });
+
+    it('treats / as same-origin, so every path stays relative to the page', () => {
+        expect(resolveApiBase('/')).toBe('');
+    });
 });

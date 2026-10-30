@@ -1005,8 +1005,8 @@ that touch a worktree run on workers.
 
 `Dockerfile` builds two images from one tree. `api` is the API and daemon: it migrates the database
 on every start, then boots, and carries the pinned `claude` that planning sessions and any `local`
-stage start. `web` is the web app built for the API's URL (`VITE_API_URL`, a build argument) and
-served by nginx. `docker-compose.unraid.yml` runs both with Postgres and the nightly backup, as
+stage start. `web` is the web app, served by nginx, which proxies `/api` to the API so the browser sees
+one origin on one port. `docker-compose.unraid.yml` runs both with Postgres and the nightly backup, as
 compose project `wilson`, separate from the development stack's `kanban`. The one file to fill in is
 `deploy/unraid.env.example`, copied into the appdata folder.
 
@@ -1030,8 +1030,8 @@ compose project `wilson`, separate from the development stack's `kanban`. The on
   runner yet. Revisit with a rootless Docker-in-Docker sidecar, or on a worker whose machine has
   Docker of its own, if that becomes binding. Mounting the host's socket would hand model-authored
   code root on the server and defeat every other boundary here.
-- **The board is reached over the LAN, signed in.** The API needs `WEB_ORIGINS` set to the web
-  app's exact origin. Over plain HTTP, sessions work but passkeys do not: browsers allow WebAuthn
+- **The board is reached over the LAN, signed in,** and workers connect to the same port.
+  `WEB_ORIGINS` is set to the board's exact address, which passkeys are held to. Over plain HTTP, sessions work but passkeys do not: browsers allow WebAuthn
   only on HTTPS or localhost. Put a TLS proxy in front, or reach it over Tailscale's HTTPS, to use
   them.
 

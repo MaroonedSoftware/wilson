@@ -9,9 +9,9 @@
 export const DEFAULT_API_BASE = 'http://localhost:13100';
 
 /**
- * There is no same-origin proxy: the browser talks to the API directly, which admits this app's
- * origin (`WEB_ORIGINS` in apps/api) with credentials, so its session cookies travel cross-port.
- * `VITE_API_URL` overrides for a non-local deployment.
+ * In development there is no same-origin proxy: the browser talks to the API directly, which admits
+ * this app's origin (`WEB_ORIGINS` in apps/api) with credentials, so its session cookies travel
+ * cross-port. `VITE_API_URL` overrides that; the images build with `/`, same-origin behind nginx.
  */
 export const resolveApiBase = (configured: string | undefined): string => {
     const trimmed = configured?.trim();
