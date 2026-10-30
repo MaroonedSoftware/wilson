@@ -22,6 +22,8 @@ export interface ChatMessage {
     role: ChatRole;
     content: string;
     operations: ChatOperation[];
+    /** What the answer offered to ask next; empty on a person's message. */
+    suggestions: string[];
     /** The 'api' engine's own record of the turn, opaque here; undefined for a person's message and for 'cli'. */
     engineMessages?: unknown;
     createdAt: DateTime;
@@ -31,6 +33,7 @@ export interface NewChatMessage {
     role: ChatRole;
     content: string;
     operations?: ChatOperation[];
+    suggestions?: string[];
     engineMessages?: unknown;
 }
 
@@ -40,6 +43,7 @@ const toMessage = (row: Selectable<WilsonChatMessages>): ChatMessage => ({
     role: row.role as ChatRole,
     content: row.content,
     operations: row.operations as unknown as ChatOperation[],
+    suggestions: row.suggestions as unknown as string[],
     engineMessages: row.engineMessages ?? undefined,
     createdAt: row.createdAt,
 });
@@ -80,6 +84,7 @@ export class ChatMessageRepository {
                     role: message.role,
                     content: message.content,
                     operations: JSON.stringify(message.operations ?? []),
+                    suggestions: JSON.stringify(message.suggestions ?? []),
                     engineMessages: message.engineMessages === undefined ? null : JSON.stringify(message.engineMessages),
                 })
                 .returningAll()

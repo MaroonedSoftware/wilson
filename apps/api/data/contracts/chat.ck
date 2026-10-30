@@ -50,6 +50,8 @@ contract ChatMessage: {
     content: string
     operations: array(ChatOperation)
     createdAt: datetime
+    # What the answer offers to ask next, left out when it offers nothing.
+    suggestions?: array(string)
 }
 
 # A change the agent proposed. `pending` until the person decides it; `running` while its operation

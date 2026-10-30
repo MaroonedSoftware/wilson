@@ -19,6 +19,10 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('looking at the "ats" project');
     });
 
+    it('asks for follow-ups to end the answer with', () => {
+        expect(chatSystemPrompt({ projects: [] })).toContain('<suggestions>');
+    });
+
     it('asks which project is meant when the person is on no project page', () => {
         expect(chatSystemPrompt({ projects: [] })).toContain('ask which they mean');
     });

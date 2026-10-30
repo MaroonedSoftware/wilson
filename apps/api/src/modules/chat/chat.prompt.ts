@@ -1,3 +1,5 @@
+import { SUGGESTIONS_INSTRUCTION } from './chat.suggestions.js';
+
 export interface ChatPromptContext {
     /** Every registered project, by name. */
     projects: string[];
@@ -24,6 +26,7 @@ export const chatSystemPrompt = ({ projects, currentProject }: ChatPromptContext
         '- Name the project on every operation that is about one.',
         '- If an operation fails, say why in its own words, and do not retry the same call unchanged.',
         '- Answer briefly, in Markdown. Refer to cards by id, e.g. 0007.',
+        `- ${SUGGESTIONS_INSTRUCTION}`,
         '',
         `Registered projects: ${projects.length > 0 ? projects.join(', ') : 'none yet'}.`,
         currentProject

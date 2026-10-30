@@ -46,10 +46,16 @@ describe('ChatMessageRepository', () => {
         ];
         const engineMessages = [{ role: 'assistant', content: [{ type: 'tool-call', toolName: 'dispatch_readonly' }] }];
 
-        await messages().append(thread, { role: 'assistant', content: 'one card, and 0099 does not exist', operations, engineMessages });
+        await messages().append(thread, {
+            role: 'assistant',
+            content: 'one card, and 0099 does not exist',
+            operations,
+            suggestions: ['Why is 0099 missing?'],
+            engineMessages,
+        });
 
         const [stored] = await messages().since(thread);
-        expect(stored).toMatchObject({ role: 'assistant', operations, engineMessages });
+        expect(stored).toMatchObject({ role: 'assistant', operations, suggestions: ['Why is 0099 missing?'], engineMessages });
     });
 
     it("stores a person's message with no operations and no engine record", async () => {
@@ -58,6 +64,7 @@ describe('ChatMessageRepository', () => {
         const message = await messages().append(thread, { role: 'user', content: 'hello' });
 
         expect(message.operations).toEqual([]);
+        expect(message.suggestions).toEqual([]);
         expect(message.engineMessages).toBeUndefined();
     });
 

@@ -111,6 +111,8 @@ export interface ChatMessage {
     content: string;
     operations: ChatOperation[];
     createdAt: DateTime;
+    /** What the answer offers to ask next, left out when it offers nothing. */
+    suggestions?: string[];
 }
 
 /** Rehydrates every wire-encoded scalar in a ChatMessage into its runtime type. Mutates and returns `raw`. */

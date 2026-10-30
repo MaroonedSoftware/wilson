@@ -91,6 +91,7 @@ export const ChatMessage = z.strictObject({
     content: z.string().describe('Markdown, for an answer.'),
     operations: z.array(ChatOperation),
     createdAt: _ZodDatetime,
+    suggestions: z.array(z.string()).optional().describe('What the answer offers to ask next, left out when it offers nothing.'),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 

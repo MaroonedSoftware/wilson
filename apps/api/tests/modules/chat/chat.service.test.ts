@@ -94,6 +94,28 @@ describe('ChatService', () => {
         expect(turn.proposed).toEqual([]);
     });
 
+    it('takes the follow-ups off the stored answer, and offers them with it', async () => {
+        const { service } = setup([says('One card: 0007.\n\n<suggestions>\n- Why is 0007 stuck?\n</suggestions>')]);
+        const thread = await service.startThread();
+
+        const turn = await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+        expect(turn.reply).toMatchObject({ content: 'One card: 0007.', suggestions: ['Why is 0007 stuck?'] });
+    });
+
+    it('offers no follow-ups while a change waits on the person', async () => {
+        const { service } = setup([
+            calls('propose_change', { name: 'move_card', project: 'wilson', arguments: { id: '0007' }, summary: 'Move 0007.' }),
+            says('Proposed.\n<suggestions>\n- Then what?\n</suggestions>'),
+        ]);
+        const thread = await service.startThread();
+
+        const turn = await service.sendMessage(thread.id, { text: 'Move 0007' });
+
+        expect(turn.reply).toMatchObject({ content: 'Proposed.' });
+        expect(turn.reply.suggestions).toBeUndefined();
+    });
+
     it('streams a turn to anyone watching its thread: text, each read, each proposal, then done', async () => {
         const { service } = setup([
             calls('dispatch_readonly', { name: 'list_cards', project: 'wilson' }, 'Looking. '),

@@ -14,6 +14,7 @@ import type {
 } from '#src/generated/chat.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 import { publishChat, toStreamEvent } from './chat.feed.js';
+import { splitSuggestions } from './chat.suggestions.js';
 import type { ChatEngine } from './chat.engine.js';
 import type { ChatEngineChoice } from './chat.engine.setting.js';
 import { ChatMessageRepository, type ChatMessage } from './chat.message.repository.js';
@@ -239,14 +240,17 @@ export class ChatService {
         }
 
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);
-        if (followUp && output.text.trim() === NOTHING_MORE && context.proposed.length === 0) {
+        const { text: written, suggestions } = splitSuggestions(output.text.trim());
+        if (followUp && written === NOTHING_MORE && context.proposed.length === 0) {
             publishChat(thread.id, { event: 'done', data: { seq: history.at(-1)?.seq ?? 0 } });
             return { proposed: [] };
         }
         const reply = await this.messages.append(thread.id, {
             role: 'assistant',
-            content: output.text.trim().replace(NOTHING_MORE, '').trim() || '(no answer)',
+            content: written.replace(NOTHING_MORE, '').trim() || '(no answer)',
             operations: context.operations,
+            // What to ask next follows once the person has decided, not while a change waits on them.
+            suggestions: context.proposed.length === 0 ? suggestions : [],
             // A follow-up's note is not stored as a message, so the 'api' engine keeps it at the head
             // of the answer's own record: replayed next turn, the answer still follows what prompted it
             // rather than a second answer in a row.

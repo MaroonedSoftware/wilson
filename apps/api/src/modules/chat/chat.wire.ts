@@ -22,6 +22,7 @@ export const toWireMessage = (message: ChatMessage): WireChatMessage => ({
         arguments: operation.arguments as WireChatMessage['operations'][number]['arguments'],
     })),
     createdAt: message.createdAt,
+    ...(message.suggestions.length > 0 ? { suggestions: message.suggestions } : {}),
 });
 
 export const toWireAction = (action: PendingAction): WirePendingAction => ({

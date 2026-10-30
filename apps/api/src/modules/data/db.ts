@@ -162,6 +162,7 @@ export interface WilsonChatMessages {
   operations: Generated<Json>;
   role: "user" | "assistant";
   seq: number;
+  suggestions: Generated<Json>;
   threadId: bigint;
 }
 
