@@ -26,6 +26,9 @@ logs/
 .worktrees/
 .run/
 
+# Terraform's local working folder
+.terraform/
+
 # Editor / OS
 .DS_Store
 .idea/

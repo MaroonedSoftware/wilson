@@ -32,7 +32,7 @@ gcloud auth application-default login
 infra/vm-image/build.sh
 ```
 
-The build uses TGA's `infra/agents` network and account, so it needs the same access as an agent user
+The build uses the agents network and account already in `toku-agents`, so it needs the same access as an agent user
 plus rights to create instances and images in `toku-agents`. It counts as one more VM against that
 project's quotas while it runs. It takes no token, since it clones nothing private.
 
@@ -66,4 +66,4 @@ again yet, and starting one is an operator's job until Wilson can do that itself
 
 ## Not yet
 
-Nothing boots this image yet. The instance template lives in TGA's `infra/agents`.
+Nothing boots this image until `infra/vms` is applied.
