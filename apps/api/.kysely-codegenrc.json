@@ -5,7 +5,7 @@
     },
     "dialect": "postgres",
     "includePattern": "wilson.*",
-    "outFile": "./src/modules/data/kysely.ts",
+    "outFile": "./src/modules/data/db.ts",
     "overrides": {
         "columns": {
             "wilson.account_authenticators.type": "'totp' | 'hotp'",
