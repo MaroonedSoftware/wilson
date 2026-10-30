@@ -8,6 +8,7 @@ import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
 import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
 import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
 import {
+    draftWithoutSuggestions,
     setActiveThread,
     useActiveThread,
     useChatStream,
@@ -66,10 +67,14 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
     const { scrollIntoView, targetRef, scrollableRef } = useScrollIntoView<HTMLDivElement, HTMLDivElement>({ duration: 0 });
 
     const entries = thread.data ? timeline(thread.data.messages, thread.data.actions) : [];
+    const draft = draftWithoutSuggestions(live.text);
     const awaiting = thread.data?.actions.some(isAwaiting) ?? false;
     const busy = start.isPending || send.isPending;
+    // What to ask next follows from the latest answer, until the chat is working again or a change waits on the person.
+    const last = thread.data?.messages.at(-1);
     const answering = busy || live.text !== '' || live.operations.length > 0;
-    useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, live.text, send.isPending]);
+    const followUps = last?.role === 'assistant' && !answering && !awaiting ? (last.suggestions ?? []) : [];
+    useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, draft, send.isPending, followUps.length]);
 
     // A thread that no longer exists (archived elsewhere, or a stale id from another database) is let
     // go of, so the view opens on a new chat rather than an error.
@@ -153,7 +158,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                     )}
                     {send.isPending && <UserMessage text={send.variables.text} />}
                     {/* The answer in progress: to a message just sent, or the follow-up to a confirmed change. */}
-                    {answering && <AnswerInProgress text={live.text} operations={live.operations} />}
+                    {answering && <AnswerInProgress text={draft} operations={live.operations} />}
                     <div ref={targetRef} />
                 </Stack>
             </ScrollArea>
@@ -163,6 +168,22 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                         {reasonFor(failure)}
                     </Alert>
                 )}
+                {followUps.length > 0 && (
+                    <Group gap="xs" role="group" aria-label="Suggested follow-ups">
+                        {followUps.map(suggestion => (
+                            <Chip
+                                key={suggestion}
+                                checked={false}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void sendText(suggestion)}
+                                disabled={busy}
+                            >
+                                {suggestion}
+                            </Chip>
+                        ))}
+                    </Group>
+                )}
                 <ChatComposer
                     value={typed}
                     onChange={setTyped}
@@ -170,6 +191,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                     disabled={busy}
                     autoFocus={variant === 'page'}
                     {...(awaiting ? { placeholder: 'Confirm or decline above, or ask for something else…' } : {})}
+                    {...(followUps[0] ? { suggestion: followUps[0] } : {})}
                 />
             </Stack>
         </Stack>

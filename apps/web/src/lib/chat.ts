@@ -128,6 +128,21 @@ export function useChatStream(threadId: string | undefined): ChatTurnInProgress 
     return { text, operations };
 }
 
+const SUGGESTIONS_OPEN = '<suggestions>';
+
+/**
+ * An answer as it streams, without the follow-ups block the agent ends it on (the API takes it off
+ * the stored answer and offers its lines as taps). A trailing piece that may be the block starting
+ * is held back until it is clearly not.
+ */
+export const draftWithoutSuggestions = (draft: string): string => {
+    const start = draft.toLowerCase().indexOf(SUGGESTIONS_OPEN);
+    if (start !== -1) return draft.slice(0, start).trimEnd();
+    const lt = draft.lastIndexOf('<');
+    if (lt !== -1 && SUGGESTIONS_OPEN.startsWith(draft.slice(lt).toLowerCase())) return draft.slice(0, lt).trimEnd();
+    return draft;
+};
+
 const ACTIVE_THREAD_KEY = 'wilson.chatThread';
 
 const readActiveThread = (): string | undefined => {

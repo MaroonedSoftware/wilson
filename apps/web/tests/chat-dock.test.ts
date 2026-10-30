@@ -247,6 +247,56 @@ describe('the chat dock', () => {
         expect(box.value).toBe('my own words');
     });
 
+    it('offers the follow-ups of the latest answer, sends one on click, and fills the box on Tab', async () => {
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail([
+                message(1, 'user', 'What is in review?'),
+                message(2, 'assistant', 'One card.', { suggestions: ['Why is 0007 stuck?', 'Move 0007 back'] }),
+            ]),
+        );
+        const sendMessage = vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
+        setActiveThread('7');
+        renderApp();
+        const box = (await openChat()) as HTMLTextAreaElement;
+
+        const chip = await screen.findByText('Move 0007 back');
+        fireEvent.keyDown(box, { key: 'Tab' });
+        expect(box.value).toBe('Why is 0007 stuck?');
+        fireEvent.change(box, { target: { value: '' } });
+
+        fireEvent.click(chip);
+
+        await waitFor(() => expect(sendMessage).toHaveBeenCalledWith('7', { text: 'Move 0007 back' }));
+    });
+
+    it('offers no follow-ups while a change waits on the person', async () => {
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.', { suggestions: ['Then what?'] })], [action()]),
+        );
+        setActiveThread('7');
+        renderApp();
+        await openChat();
+
+        expect(await screen.findByText('Move 0007 to implementing.')).toBeTruthy();
+        expect(screen.queryByText('Then what?')).toBeNull();
+    });
+
+    it('keeps the follow-ups block out of an answer as it streams', async () => {
+        vi.spyOn(ChatClient.prototype, 'startAChatThread').mockResolvedValue(thread);
+        vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([]));
+        renderApp();
+
+        send(await openChat(), 'What is in review?');
+        await waitFor(() => expect(chatStreams()).toHaveLength(1));
+        act(() => chatStreams()[0]!.emit('delta', 'One card.\n\n<sugg'));
+        expect(await screen.findByText('One card.')).toBeTruthy();
+
+        act(() => chatStreams()[0]!.emit('delta', 'estions>\n- Why?'));
+        expect(screen.getByText('One card.')).toBeTruthy();
+        expect(screen.queryByText(/Why\?/)).toBeNull();
+    });
+
     it('runs a proposed change only when the person confirms it', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
