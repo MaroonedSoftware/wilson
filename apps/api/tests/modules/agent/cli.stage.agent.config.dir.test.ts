@@ -95,6 +95,16 @@ describe('CliStageAgent resolves the claude-config-dir setting into the engine e
         expect(envFromCall().CLAUDE_CONFIG_DIR).toBe('/home/operator/.claude-wilson');
     });
 
+    it('sets CLAUDE_CODE_OAUTH_TOKEN in the engine env when a token is saved', async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const engineTokens = { resolve: vi.fn(async () => 'saved-token') };
+        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, engineTokens as never);
+
+        await agent.run(runInput(makeStage()) as never);
+
+        expect(envFromCall().CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+    });
+
     it('carries no CLAUDE_CONFIG_DIR key at all when the setting resolves to undefined (unset)', async () => {
         queryMock.mockReturnValue(emptyStream());
         const settings = fakeSettingsStore(undefined);

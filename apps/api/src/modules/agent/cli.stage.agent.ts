@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
@@ -208,9 +209,11 @@ export class CliStageAgent extends StageAgent {
     // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
     // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
     // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
+    // `engineTokens` is optional for the same reason: none means no saved token.
     constructor(
         private readonly logger: Logger,
         private readonly settings?: SettingsStore,
+        private readonly engineTokens?: EngineTokenSettingService,
     ) {
         super();
     }
@@ -221,6 +224,7 @@ export class CliStageAgent extends StageAgent {
         // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
         // happen out here rather than inline where it is used.
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
+        const engineToken = await this.engineTokens?.resolve();
 
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
@@ -546,7 +550,7 @@ export class CliStageAgent extends StageAgent {
                 // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
-                env: subscriptionEnv(configDir),
+                env: subscriptionEnv(configDir, engineToken),
                 // A worktree on another machine needs the engine there too: its built-in tools read
                 // and write the tree directly. The host starts `claude` from its own PATH, and the
                 // SDK's callbacks above still run here, over the same stdio. A host with no

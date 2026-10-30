@@ -14,6 +14,7 @@ import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
@@ -82,6 +83,9 @@ export class PlanService {
     // resolves the first turn's learnings preamble to empty, the same "no learnings" outcome an
     // empty document reaches — so a test that supplies none behaves exactly as it did before this
     // card.
+    //
+    // `engineTokens` is the same again: left undefined, the engine signs in as it would with no
+    // token saved.
     constructor(
         private readonly boardRepository: BoardRepository,
         private readonly boardConfig: BoardConfig,
@@ -90,6 +94,7 @@ export class PlanService {
         private readonly stageConfigs: StageConfigStore,
         private readonly settings?: SettingsStore,
         private readonly learnings?: LearningsStore,
+        private readonly engineTokens?: EngineTokenSettingService,
     ) {
         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
         this.planComments = new PlanCommentRepository(this.boardConfig, this.db);
@@ -269,12 +274,13 @@ export class PlanService {
         // brand-new conversation, or a rehydration after a restart); an already-live session ignores
         // it, the same way it ignores `model` on every call after the first.
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
+        const engineToken = await this.engineTokens?.resolve();
 
         // `planSessions.session` resolves `resume` itself, from `wilson.plan_turns`'s last
         // `engine_session_id`, on a miss — never passed here, so a process restart rehydrates the
         // engine's own conversation regardless of what `isFirstTurn` says about this card's stored
         // transcript.
-        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model, configDir }, this.planTurns);
+        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model, configDir, engineToken }, this.planTurns);
 
         let assistantText = '';
         for await (const chunk of agent.turn(prompt)) {

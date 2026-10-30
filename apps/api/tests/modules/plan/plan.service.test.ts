@@ -24,6 +24,7 @@ import { planSessions } from '#modules/plan/plan.session.registry.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import type { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} } as unknown as Logger;
@@ -39,7 +40,7 @@ const fakeEvents = { append: vi.fn(async () => {}) } as unknown as EventLog;
  * direct, checkable record of exactly what `PlanService` sent it.
  */
 const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.hoisted(() => {
-    const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string; configDir?: string }> = [];
+    const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string; configDir?: string; engineToken?: string }> = [];
     // Every mock instance ever constructed, in construction order — the counter behind `sessionId`
     // is shared across every test in this file (it lives in this one hoisted closure), so a test
     // must read the id an instance was actually given back off this array rather than assume which
@@ -854,6 +855,22 @@ describe('PlanService', () => {
                 expect(settings.get).toHaveBeenCalledWith(CLAUDE_CONFIG_DIR);
                 expect(sessionAgentCalls).toHaveLength(1);
                 expect(sessionAgentCalls[0]!.configDir).toBe('/home/operator/.claude-wilson');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('passes a saved engine token to the new PlanSessionAgent', async () => {
+            const { board, config, worktrees } = await freshEnv();
+            const engineTokens = { resolve: vi.fn(async () => 'saved-token') } as unknown as EngineTokenSettingService;
+            const service = new PlanService(board, config, worktrees, db, stageConfigs, undefined, undefined, engineTokens);
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await service.turn(id, { text: 'hi' });
+
+                expect(sessionAgentCalls[0]!.engineToken).toBe('saved-token');
             } finally {
                 planSessions.dispose(id);
             }

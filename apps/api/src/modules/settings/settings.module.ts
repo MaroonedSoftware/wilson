@@ -11,6 +11,7 @@ import { CardStageConcurrencySettingService } from './card.stage.concurrency.set
 import { LocalStageSlotsSettingService } from './local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js';
 import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
+import { EngineTokenSettingService } from './engine.token.setting.service.js';
 import { DryRunSettingService } from './dry.run.setting.service.js';
 
 /**
@@ -49,6 +50,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(LocalStageSlotsSettingService).useClass(LocalStageSlotsSettingService).asTransient();
         registry.register(NotifyWebhookSettingService).useClass(NotifyWebhookSettingService).asTransient();
         registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
+        registry.register(EngineTokenSettingService).useClass(EngineTokenSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
     },
     // A `wilson.settings` row already present before this boot must take effect immediately, the

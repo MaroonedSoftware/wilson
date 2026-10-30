@@ -24,7 +24,9 @@ export const DEPLOYMENT_SCOPE = '__deployment__';
  * "Operational" is deliberate and narrow: policy an operator changes while the system runs, like
  * whether the poller is enqueueing. Secrets and deployment topology — `DATABASE_URL`, provider
  * keys, `PROJECT_*` roots — stay in the environment, where they are already managed and where
- * nothing here reaches; this table exists to grow with more of the former, never the latter.
+ * nothing here reaches. The one exception is the engine token, which an operator has to be able to
+ * replace without recreating a container: it is stored encrypted, and only
+ * `EngineTokenSettingService` reads or writes it.
  *
  * A fresh database has no rows, so `get` falls through to the environment variable exactly as it
  * always has, and from there to the coded default — a deploy that never touches `wilson.settings`
@@ -48,18 +50,18 @@ export class SettingsStore {
 
     /** Resolve one setting: a database row, else its environment variable, else its coded default. */
     async get<T>(definition: SettingDefinition<T>): Promise<T> {
-        const row = await this.db
-            .selectFrom('wilson.settings')
-            .select('value')
-            .where('project', '=', this.scopeKey(definition))
-            .where('key', '=', definition.key)
-            .executeTakeFirst();
+        const row = await this.row(definition);
         if (row) return row.value as T;
 
         const raw = optionalConfigString(this.appConfig, definition.envVar);
         if (raw !== undefined) return definition.parseEnv(raw);
 
         return definition.defaultValue;
+    }
+
+    /** The database row's value alone, for a setting whose environment variable means something else. */
+    async stored<T>(definition: SettingDefinition<T>): Promise<T | undefined> {
+        return (await this.row(definition))?.value as T | undefined;
     }
 
     /** Persist a value, overriding the environment variable and the default from now on. */
@@ -70,6 +72,20 @@ export class SettingsStore {
             .values({ project: this.scopeKey(definition), key: definition.key, value: serialized })
             .onConflict(oc => oc.columns(['project', 'key']).doUpdateSet({ value: serialized }))
             .execute();
+    }
+
+    /** Delete the row, so the environment variable and the default apply again. */
+    async clear<T>(definition: SettingDefinition<T>): Promise<void> {
+        await this.db.deleteFrom('wilson.settings').where('project', '=', this.scopeKey(definition)).where('key', '=', definition.key).execute();
+    }
+
+    private row<T>(definition: SettingDefinition<T>) {
+        return this.db
+            .selectFrom('wilson.settings')
+            .select('value')
+            .where('project', '=', this.scopeKey(definition))
+            .where('key', '=', definition.key)
+            .executeTakeFirst();
     }
 
     /**

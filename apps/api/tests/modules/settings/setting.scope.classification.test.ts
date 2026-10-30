@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CARD_STAGE_CONCURRENCY } from '#modules/settings/card.stage.concurrency.setting.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
+import { ENGINE_TOKEN } from '#modules/settings/engine.token.setting.js';
 import { NOTIFY_BASE_URL } from '#modules/settings/notify.base.url.setting.js';
 import { NOTIFY_WEBHOOK_URL } from '#modules/settings/notify.webhook.url.setting.js';
 import { POLLER_ENABLED } from '#modules/settings/poller.enabled.setting.js';
@@ -19,6 +20,10 @@ import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js
 describe('SettingDefinition.scope classification', () => {
     it('claude-config-dir is deployment-scoped — one machine, one set of credentials', () => {
         expect(CLAUDE_CONFIG_DIR.scope).toBe('deployment');
+    });
+
+    it('engine-oauth-token is deployment-scoped — one machine, one set of credentials', () => {
+        expect(ENGINE_TOKEN.scope).toBe('deployment');
     });
 
     it('card-stage-concurrency is deployment-scoped — one card.stage worker for the whole process', () => {

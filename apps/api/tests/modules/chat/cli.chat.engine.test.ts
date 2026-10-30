@@ -5,6 +5,7 @@ import type { ChatMessage } from '#modules/chat/chat.message.repository.js';
 import type { ChatThread } from '#modules/chat/chat.thread.repository.js';
 import type { ChatTool } from '#modules/chat/chat.tools.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import type { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 
 /**
  * `query` is mocked, as in `plan.session.agent.test.ts`: what is under test is the call this engine
@@ -136,6 +137,23 @@ describe('CliChatEngine', () => {
         expect(promptOf()).toContain('Person: what is in review?');
         expect(promptOf()).toContain('You: One card.');
         expect(promptOf()).toContain('Person: which one?');
+    });
+
+    it('signs the engine in with a saved token', async () => {
+        engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
+        const engineTokens = { resolve: async () => 'saved-token' } as unknown as EngineTokenSettingService;
+
+        await new CliChatEngine(settings, engineTokens).turn({
+            thread: thread(),
+            history: [],
+            text: 'what is in review?',
+            system: 'the system prompt',
+            tools: [listCards],
+            provider: 'anthropic',
+            model: 'claude-sonnet-5-5',
+        });
+
+        expect((optionsOf().env as NodeJS.ProcessEnv).CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
     });
 
     it('fails a turn the engine stops short of finishing, with its reason', async () => {
