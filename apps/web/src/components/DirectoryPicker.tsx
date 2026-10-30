@@ -9,7 +9,7 @@ import { wilson } from '#src/lib/sdk.js';
 interface DirectoryPickerProps {
     /** Names the field this picks for, in the button's label and the dialog's title. */
     label: string;
-    /** The field's current value. Browsing starts here when it is absolute, else at the home folder. */
+    /** The field's current value. Browsing starts here when it is absolute, else at the top folder. */
     value: string;
     onSelect: (path: string) => void;
     disabled?: boolean;
@@ -21,11 +21,11 @@ interface DirectoryPickerProps {
  *
  * The browser's own pickers cannot do this: neither `showDirectoryPicker()` nor `webkitdirectory`
  * ever reveals an absolute path, and the path needed is the daemon's anyway. Browsing is confined to
- * the daemon user's home folder by the API, so "Up" disappears there.
+ * one top folder by the API, so "Up" disappears there.
  *
  * Starts at the field's current value when that is an absolute path. A proposed worktree or run
  * root usually does not exist yet, so a missing folder opens its nearest existing parent instead
- * (`listNearestExisting`). Any other refusal, such as a path outside the home folder, offers the home
+ * (`listNearestExisting`). Any other refusal, such as a path outside the top folder, offers the top
  * folder rather than leaving the dialog stuck on an error.
  */
 export function DirectoryPicker({ label, value, onSelect, disabled }: DirectoryPickerProps) {
@@ -83,7 +83,7 @@ export function DirectoryPicker({ label, value, onSelect, disabled }: DirectoryP
                                 <Text size="sm">{reasonFor(listing.error)}</Text>
                                 {path !== undefined && (
                                     <Button size="xs" variant="default" onClick={() => setPath(undefined)}>
-                                        Go to the home folder
+                                        Go to the top folder
                                     </Button>
                                 )}
                             </Stack>
@@ -131,7 +131,7 @@ export function DirectoryPicker({ label, value, onSelect, disabled }: DirectoryP
 
 /**
  * Lists `path`, or the closest folder above it that exists when the API answers 404, stopping at
- * `/`. No `path` lists the home folder.
+ * `/`. No `path` lists the top folder.
  */
 async function listNearestExisting(path: string | undefined): Promise<DirectoryListing> {
     let candidate = path;

@@ -43,7 +43,7 @@ export interface CreateProjectRequest {
  * below), so a field present is set and a field absent is left as it is — the same partial-update
  * meaning `board.ck`'s `PATCH /api/cards/{id}` comment gives `EditCardRequest`. There is deliberately
  * no `name` here — `wilson.projects.name` is the same value the `project` column carries in every
- * other `wilson` table, nothing in the schema has a foreign key to it, and a rename would silently
+ * other `runner` table, nothing in the schema has a foreign key to it, and a rename would silently
  * orphan every card, event, version and setting rather than failing. The name lives in the path
  * (`/api/projects/{name}`) and nowhere in any request body on this contract.
  * generated from [UpdateProjectRequest](../../../../apps/api/data/contracts/projects.ck)
@@ -56,8 +56,9 @@ export interface UpdateProjectRequest {
 
 /**
  * The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
- * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
- * folder, which is also the furthest up the listing will go.
+ * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the browse root
+ * (`PROJECT_BROWSE_ROOT`, or the daemon user's home folder), which is also the furthest up the
+ * listing will go.
  * generated from [DirectoryQuery](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface DirectoryQuery {
@@ -70,8 +71,8 @@ export interface DirectoryQuery {
  * and the paths `CreateProjectRequest` takes are the daemon's, not the browser's, so the daemon is
  * the only thing that can answer "what is in this folder".
  *
- * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
- * folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
+ * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the browse
+ * root, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
  * generated from [DirectoryListing](../../../../apps/api/data/contracts/projects.ck)
  */
 export interface DirectoryListing {

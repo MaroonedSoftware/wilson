@@ -71,8 +71,9 @@ contract UpdateProjectRequest: {
 }
 
 # The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
-# the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
-# folder, which is also the furthest up the listing will go.
+# the generator honours `?` (see `ListQuery` in board.ck). No `path` means the browse root
+# (`PROJECT_BROWSE_ROOT`, or the daemon user's home folder), which is also the furthest up the
+# listing will go.
 contract DirectoryQuery: {
     path?: string
 }
@@ -82,8 +83,8 @@ contract DirectoryQuery: {
 # and the paths `CreateProjectRequest` takes are the daemon's, not the browser's, so the daemon is
 # the only thing that can answer "what is in this folder".
 #
-# Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
-# folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
+# Names only, and folders only: no files, sizes or permissions. `parent` is absent at the browse
+# root, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
 contract DirectoryListing: {
     path: string
     parent?: string
@@ -161,11 +162,11 @@ operation /api/projects/{name}: {
     }
 }
 
-# Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
-# it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
+# Lists folders on the daemon's machine, confined to `PROJECT_BROWSE_ROOT`, or the daemon user's
+# home folder without one: a path outside it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
 # `CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,
 # and the operator can already read the disk as this user.
-# The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
+# That confinement is what keeps the listing to the part of the disk a project lives in.
 # Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
 operation /api/projects/directories: {
     get: {
@@ -181,7 +182,7 @@ operation /api/projects/directories: {
             }
             # `path` is not absolute, or names something that is not a folder.
             400:
-            # `path` is outside the home folder, or the daemon cannot read it.
+            # `path` is outside the browse root, or the daemon cannot read it.
             403:
             # Nothing exists at `path`.
             404:

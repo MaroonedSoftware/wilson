@@ -61,8 +61,9 @@ export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
 
 /**
  * The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so
- * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the daemon user's home
- * folder, which is also the furthest up the listing will go.
+ * the generator honours `?` (see `ListQuery` in board.ck). No `path` means the browse root
+ * (`PROJECT_BROWSE_ROOT`, or the daemon user's home folder), which is also the furthest up the
+ * listing will go.
  * generated from [DirectoryQuery](../../data/contracts/projects.ck)
  */
 export const DirectoryQuery = z.strictObject({
@@ -76,8 +77,8 @@ export type DirectoryQuery = z.infer<typeof DirectoryQuery>;
  * and the paths `CreateProjectRequest` takes are the daemon's, not the browser's, so the daemon is
  * the only thing that can answer "what is in this folder".
  *
- * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the home
- * folder, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
+ * Names only, and folders only: no files, sizes or permissions. `parent` is absent at the browse
+ * root, where browsing stops. Hidden folders are included; hiding them is the picker's choice.
  * generated from [DirectoryListing](../../data/contracts/projects.ck)
  */
 export const DirectoryListing = z.strictObject({

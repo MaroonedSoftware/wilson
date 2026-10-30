@@ -113,6 +113,7 @@ services:
             PROJECT_CODE_ROOT: /srv/projects/${PROJECT_NAME:-wilson}
             PROJECT_WORKTREE_ROOT: /srv/worktrees
             PROJECT_RUN_ROOT: /srv/run
+            PROJECT_BROWSE_ROOT: /srv/projects
             AUTH_SESSION_KEY_FILE: /data/secrets/session.pem
             AUTH_ENCRYPTION_KEY_FILE: /data/secrets/encryption.key
             CLAUDE_CONFIG_DIR: /data/claude

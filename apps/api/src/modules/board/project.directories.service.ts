@@ -8,8 +8,8 @@ import type { DirectoryListing, DirectoryQuery } from '../../generated/projects.
  * the web app's folder picker when registering a project. See `projects.ck` for why this exists and
  * why it is confined to one root.
  *
- * `root` is the daemon user's home folder in production (`BoardModule` registers this with
- * `homedir()`); tests pass a temporary folder. Both `root` and every requested path are resolved
+ * `root` is `PROJECT_BROWSE_ROOT` in production, or the daemon user's home folder without one
+ * (`BoardModule`); tests pass a temporary folder. Both `root` and every requested path are resolved
  * with `realpath` before the containment check, so neither `..` segments nor a symlink pointing out
  * of the root can list anything outside it. The listing reports the resolved path, which is also
  * what the picker then fills in.

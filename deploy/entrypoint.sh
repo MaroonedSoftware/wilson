@@ -24,7 +24,7 @@ done
 export PUID="${PUID:-99}" PGID="${PGID:-100}"
 export PROJECT_NAME="${PROJECT_NAME:-wilson}"
 export PROJECT_CODE_ROOT="${PROJECT_CODE_ROOT:-/projects/$PROJECT_NAME}"
-export PROJECT_WORKTREE_ROOT="$DATA/worktrees" PROJECT_RUN_ROOT="$DATA/run"
+export PROJECT_WORKTREE_ROOT="$DATA/worktrees" PROJECT_RUN_ROOT="$DATA/run" PROJECT_BROWSE_ROOT=/projects
 export AUTH_SESSION_KEY_FILE="$DATA/secrets/session.pem" AUTH_ENCRYPTION_KEY_FILE="$DATA/secrets/encryption.key"
 export CLAUDE_CONFIG_DIR="$DATA/claude" HOME="$DATA/home" WILSON_BACKUP_DIR="$DATA/backups"
 export PORT=13100

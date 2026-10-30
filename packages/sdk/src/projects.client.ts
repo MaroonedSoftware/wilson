@@ -55,11 +55,11 @@ export class ProjectsClient {
 
     /**
      * @name List directories
-     * @description Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside
-     * it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
+     * @description Lists folders on the daemon's machine, confined to `PROJECT_BROWSE_ROOT`, or the daemon user's
+     * home folder without one: a path outside it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way
      * `CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,
      * and the operator can already read the disk as this user.
-     * The home-folder confinement is what keeps the listing to the part of the disk a project lives in.
+     * That confinement is what keeps the listing to the part of the disk a project lives in.
      * Path segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.
      */
     async listDirectories(query?: DirectoryQuery): Promise<DirectoryListing> {

@@ -103,7 +103,7 @@ export class ListDirectoriesMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'list_directories',
         description:
-            "Lists folders on the daemon's machine, confined to the daemon user's home folder: a path outside\nit (after resolving symlinks) is refused rather than listed. A disclosure weighed the way\n`CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,\nand the operator can already read the disk as this user.\nThe home-folder confinement is what keeps the listing to the part of the disk a project lives in.\nPath segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.",
+            "Lists folders on the daemon's machine, confined to `PROJECT_BROWSE_ROOT`, or the daemon user's\nhome folder without one: a path outside it (after resolving symlinks) is refused rather than listed. A disclosure weighed the way\n`CreateProjectRequest`'s comment weighs accepting paths: only an authenticated caller reaches it,\nand the operator can already read the disk as this user.\nThat confinement is what keeps the listing to the part of the disk a project lives in.\nPath segment, not a project: `/api/projects/{name}` has no `get`, so there is no clash.",
         inputSchema: z.toJSONSchema(ListDirectoriesArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(DirectoryListing, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
