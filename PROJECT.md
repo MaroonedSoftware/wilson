@@ -1086,7 +1086,14 @@ only when retrying cannot help.
   `pg_restore -d wilson <file>`.
 - **Back up the secrets with the database.** The session signing key and the encryption key under
   `secrets` are generated on first boot. Losing the encryption key makes every enrolled
-  authenticator unreadable.
+  authenticator unreadable, and the engine token saved on the Settings page: a dump holds only its
+  ciphertext. Save the token again to recover it.
+- **The engine token.** The Settings page saves it in `wilson.settings`, encrypted under the same
+  key, and it needs no restart to change. Resolved in order: that row, `CLAUDE_CODE_OAUTH_TOKEN` from
+  the environment, then the login under the Claude config directory. It signs in engines on this
+  machine only: workers and SSH hosts keep their own. A new token reaches stages and planning sessions
+  started afterwards. A local stage can still read it from its environment, so this protects it at
+  rest and nothing more.
 
 ### Moving the board to the server
 

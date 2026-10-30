@@ -22,8 +22,8 @@
         Everything it keeps lives under Data, except the clones of your projects, under Projects.
 
         First run: open the WebUI and create your account. The database schema is applied automatically.
-        Then sign the engine in, with the Engine token field below, or from this container's console with
-        claude and then /login.
+        Then sign the engine in: save a token on the board's Settings page, or use the Engine token field
+        below, or sign in from this container's console with claude and then /login.
 
         Model-written code runs inside this container until you place worktree stages on a worker. Do that
         before running real cards: see PROJECT.md, Workers.
@@ -70,7 +70,7 @@
         Type="Variable" Display="always" Required="false" Mask="true"></Config>
 
     <Config Name="Engine token" Target="CLAUDE_CODE_OAUTH_TOKEN" Default="" Mode=""
-        Description="What planning sessions, and any stage placed local, sign in with. Make one with claude setup-token. Leave empty to sign in from this container's console instead: run claude, then /login."
+        Description="What planning sessions, and any stage placed local, sign in with. Make one with claude setup-token. A token saved on the board's Settings page replaces this one, and changing it there needs no restart. Leave empty to use that, or to sign in from this container's console instead: run claude, then /login."
         Type="Variable" Display="always" Required="false" Mask="true"></Config>
 
     <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode=""
