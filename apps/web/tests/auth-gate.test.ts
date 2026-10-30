@@ -235,6 +235,18 @@ describe('sessionFetch', () => {
 
     afterEach(() => setStepUpHandler(undefined));
 
+    it('sends a v4 request id over plain HTTP, where the browser has no crypto.randomUUID', async () => {
+        vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+        route({ '/api/health': [json(200, {})] });
+
+        await sdkFetch()('/api/health', { method: 'GET' });
+
+        const [, init] = callsTo('/api/health')[0]!;
+        expect((init.headers as Record<string, string>)['X-Request-ID']).toMatch(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+    });
+
     it('on a step-up refusal, asks the step-up handler and replays the request once it succeeds', async () => {
         setAccessToken('old-session');
         route({ '/api/auth/factors/authenticator': [json(403, { details: { kind: 'step_up_required' } }), json(200, { registrationId: 'r' })] });

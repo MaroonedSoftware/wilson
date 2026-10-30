@@ -52,6 +52,19 @@ const COOKIE_OPT_IN = { 'x-wilson-cookies': '1' };
 
 const TOKEN_PATH = '/api/auth/token';
 
+/**
+ * A v4 UUID. Not `crypto.randomUUID`, which browsers offer only in a secure context, so calling it
+ * fails every request on a board reached over plain HTTP (PROJECT.md, Deployment). The SDK has its
+ * own copy, in generated code this cannot import.
+ */
+const requestId = (): string => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 let refreshing: Promise<boolean> | undefined;
 
 /**
@@ -104,7 +117,7 @@ export const sessionFetch = (options: { baseUrl: string; headers?: Record<string
                 ...options.headers,
                 ...COOKIE_OPT_IN,
                 ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                'X-Request-ID': crypto.randomUUID(),
+                'X-Request-ID': requestId(),
                 ...(init.headers as Record<string, string> | undefined),
             },
         });
