@@ -1,9 +1,21 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { copyFile, mkdir, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, mkdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 import { commandEnvironment, engineEnvironment, type CallOp, type FromWorker, type ToWorker, type WorkerError } from '@wilson/worker-protocol';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Answers git's request for credentials from the environment. The token lives in this one process
+ * tree: not in argv, where `ps` would show it, and not in the remote URL, which `clone` would keep in
+ * `.git/config` for every later stage to read. The same helper as `GitHubCloner`'s, in apps/api.
+ */
+const CREDENTIAL_HELPER = '!f() { test "$1" = get && printf "username=x-access-token\\npassword=%s\\n" "$WILSON_GIT_TOKEN"; }; f';
+
+/** How long one clone may take. A large repository's first clone is the slowest thing a worker does. */
+const CLONE_TIMEOUT_MS = 30 * 60_000;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -158,6 +170,38 @@ export class WorkerExecutor {
                 });
                 return { stdout, stderr };
             }
+            case 'clone':
+                this.guard(call.path);
+                return this.clone(call.url, call.path, call.token);
+        }
+    }
+
+    /**
+     * Clone beside `path` and rename into place, so a failure leaves nothing a later attempt would
+     * mistake for a finished clone. Two stages can land here at once; the one that loses the rename
+     * finds the other's clone there, which is what it wanted.
+     */
+    private async clone(url: string, path: string, token: string): Promise<void> {
+        const partial = `${path}.${randomUUID()}.cloning`;
+        await mkdir(dirname(path), { recursive: true });
+        try {
+            await execFileAsync(
+                'git',
+                ['-c', 'credential.helper=', '-c', `credential.helper=${CREDENTIAL_HELPER}`, 'clone', '--quiet', url, partial],
+                {
+                    timeout: CLONE_TIMEOUT_MS,
+                    env: { ...this.env, WILSON_GIT_TOKEN: token, GIT_TERMINAL_PROMPT: '0' },
+                },
+            );
+            await rename(partial, path);
+        } catch (err) {
+            const cloned = await execFileAsync('git', ['-C', path, 'rev-parse', '--git-dir']).then(
+                () => true,
+                () => false,
+            );
+            if (!cloned) throw err;
+        } finally {
+            await rm(partial, { recursive: true, force: true });
         }
     }
 

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
@@ -13,6 +13,7 @@ import { PostgresBoardRepository } from '#modules/board/postgres.board.repositor
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { HostConnector } from '#modules/host/host.connector.js';
+import { ProjectClones } from '#modules/host/project.clones.js';
 import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
@@ -198,6 +199,21 @@ describe('HostPlacer', () => {
         const host = await service.get(name);
         expect(host.probe).toMatchObject({ ok: false, detail: 'lost during a stage: 0001 implementing: engine exited' });
         expect(((await placer().place(project, '0002', stage('remote'))) as NoHostAvailable).message).toContain('failed its last probe');
+    });
+
+    it('clones the project before keeping the slot, and gives the slot back when it cannot', async () => {
+        const { project, name } = await setUp();
+        const clones = { ensure: vi.fn().mockRejectedValueOnce(new Error('no repository')).mockResolvedValue(undefined) };
+        const cloning = new HostPlacer(hosts, new HostConnector(FAKE_SSH), leases, silentLogger, undefined, clones as unknown as ProjectClones);
+
+        const refused = await cloning.place(project, '0001', stage('remote'));
+
+        expect((refused as NoHostAvailable).message).toContain(`${name} could not clone it: no repository`);
+        expect((await leases.list()).some(lease => lease.resourceKey.startsWith(`host:${name}:`))).toBe(false);
+
+        const placed = (await cloning.place(project, '0001', stage('remote'))) as RemotePlacement;
+
+        expect(clones.ensure).toHaveBeenLastCalledWith(placed.host, project, '/opt/agent/TGA');
     });
 
     it('gives the slot back when the host does not answer', async () => {

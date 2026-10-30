@@ -6,6 +6,7 @@ import { HostConnector } from './host.connector.js';
 import { HostPlacer } from './host.placer.js';
 import { HostProber } from './host.prober.js';
 import { HostRepository } from './host.repository.js';
+import { ProjectClones } from './project.clones.js';
 import { HostsService } from './hosts.service.js';
 import { WorkerTokensService } from './worker.tokens.service.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
@@ -29,6 +30,7 @@ export const HostModule: ServerKitModule = {
             .register(HostConnector)
             .useFactory(c => new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections)))
             .asSingleton();
+        registry.register(ProjectClones).useClass(ProjectClones).asTransient();
         registry.register(HostProber).useClass(HostProber).asTransient();
         registry.register(HostPlacer).useClass(HostPlacer).asTransient();
         registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();

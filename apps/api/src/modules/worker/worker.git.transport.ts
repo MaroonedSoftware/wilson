@@ -13,6 +13,13 @@ const GIT_TIMEOUT_MS = 10 * 60_000;
 /** Most bytes of git's output to buffer: `for-each-ref` over a repository with many tags prints a lot. */
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
+/**
+ * How many recent ref tips each side offers when working out what the other already has. Each one
+ * costs a round trip to the worker, and a repository can have thousands; a few dozen always reach
+ * back to a commit both sides hold.
+ */
+const SHARED_TIP_CANDIDATES = 64;
+
 /** Where a ref is moved to on the receiving side, and from where. Only forced refspecs (`+src:dst`) are used. */
 interface Refspec {
     src: string;
@@ -71,14 +78,15 @@ const remote = (connection: WorkerConnection): Side => {
     };
 };
 
-/** Every ref tip in `repo`, as commit ids. */
-const tips = async (side: Side, repo: string): Promise<Set<string>> =>
-    new Set(
-        (await side.git(repo, ['for-each-ref', '--format=%(objectname)']))
+/** The most recent ref tips in `repo`, as object ids. */
+const recentTips = async (side: Side, repo: string): Promise<string[]> => [
+    ...new Set(
+        (await side.git(repo, ['for-each-ref', '--sort=-committerdate', `--count=${SHARED_TIP_CANDIDATES}`, '--format=%(objectname)']))
             .split('\n')
             .map(line => line.trim())
             .filter(Boolean),
-    );
+    ),
+];
 
 /** Whether `repo` has commit `sha`. */
 const hasCommit = async (side: Side, repo: string, sha: string): Promise<boolean> =>
@@ -88,10 +96,24 @@ const hasCommit = async (side: Side, repo: string, sha: string): Promise<boolean
     );
 
 /**
+ * The commits a bundle from `from` to `to` can leave out: recent tips on either side that the other
+ * side also has. Asked both ways because the two clones rarely match tip for tip. A worker's clone
+ * comes from the forge, so it is usually ahead of this machine on some branches and behind on the
+ * ones Wilson has merged but not pushed; tips only one side has would otherwise make the bundle the
+ * project's whole history.
+ */
+const sharedCommits = async (from: Side, fromRepo: string, to: Side, toRepo: string): Promise<string[]> => {
+    const shared = new Set<string>();
+    for (const tip of await recentTips(from, fromRepo)) if (await hasCommit(to, toRepo, tip)) shared.add(tip);
+    for (const tip of await recentTips(to, toRepo)) if (!shared.has(tip) && (await hasCommit(from, fromRepo, tip))) shared.add(tip);
+    return [...shared];
+};
+
+/**
  * Move each `+src:dst` from `from`'s repository to `to`'s: resolve `src` there, send the commits `to`
  * lacks as a git bundle, unbundle them, and point `dst` at the commit.
  *
- * A bundle holds only what the receiving side cannot already have: every ref tip both sides share is
+ * A bundle holds only what the receiving side cannot already have: every commit `sharedCommits` finds is
  * excluded, so a card's push carries its new commits rather than the project's whole history. A commit
  * the receiver already has needs no bundle at all, only the ref.
  */
@@ -104,8 +126,7 @@ const transfer = async (from: Side, fromRepo: string, to: Side, toRepo: string, 
 };
 
 const sendBundle = async (from: Side, fromRepo: string, to: Side, toRepo: string, sha: string): Promise<void> => {
-    const [fromTips, toTips] = await Promise.all([tips(from, fromRepo), tips(to, toRepo)]);
-    const shared = [...fromTips].filter(tip => toTips.has(tip));
+    const shared = await sharedCommits(from, fromRepo, to, toRepo);
 
     // A bundle names refs, not bare commits, so the commit gets a ref of its own for as long as it takes.
     const transferRef = `refs/wilson-transfer/${randomUUID()}`;

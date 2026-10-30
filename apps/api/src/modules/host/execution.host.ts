@@ -66,6 +66,12 @@ export interface ExecutionHost {
 
     /** Run `claude` with `args` the way `spawnClaude` starts it, and wait. Present wherever that is. */
     runClaude?(args: string[], timeoutMs: number): Promise<ExecResult>;
+
+    /**
+     * Clone `url` to `path` on this host, reading it with `token`, which is not kept there. Present on
+     * a host that can make its own clones; elsewhere a clone is the operator's to put in place.
+     */
+    cloneRepository?(url: string, path: string, token: string): Promise<void>;
 }
 
 /** The part of the Agent SDK's `SpawnOptions` a host needs to start the engine. */

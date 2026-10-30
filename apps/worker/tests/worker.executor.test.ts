@@ -1,5 +1,6 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- these tests hand the executor this machine's PATH to find sh and sleep with; nothing here is a build input */
-import { chmod, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -87,6 +88,61 @@ describe('WorkerExecutor', () => {
         });
 
         expect(result).toMatchObject({ ok: true, value: { stdout: `${root}|/home/worker|testing|gh|\n` } });
+    });
+
+    describe('clone', () => {
+        const source = async (): Promise<string> => {
+            const repo = await mkdtemp(join(root, 'source-'));
+            const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+            git('init', '-q', '-b', 'main');
+            await writeFile(join(repo, 'a.txt'), 'hello\n', 'utf8');
+            git('add', '-A');
+            git('-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
+            return repo;
+        };
+
+        it('clones into place, keeping neither the token nor anything half-made', async () => {
+            const { call } = harness();
+            const parent = await mkdtemp(join(root, 'clones-'));
+            const path = join(parent, 'project', 'code');
+
+            expect(await call({ op: 'clone', url: await source(), path, token: 'secret-token' })).toMatchObject({ ok: true });
+
+            expect(await readFile(join(path, 'a.txt'), 'utf8')).toBe('hello\n');
+            expect(await readFile(join(path, '.git', 'config'), 'utf8')).not.toContain('secret-token');
+            expect(await readdir(join(parent, 'project'))).toEqual(['code']);
+        });
+
+        it('leaves nothing behind when the clone fails', async () => {
+            const { call } = harness();
+            const parent = await mkdtemp(join(root, 'clones-'));
+
+            const result = await call({ op: 'clone', url: join(parent, 'no-such-repo'), path: join(parent, 'code'), token: 't' });
+
+            expect(result).toMatchObject({ ok: false });
+            expect(await readdir(parent)).toEqual([]);
+        });
+
+        it('takes a clone that landed first as its own, and refuses to replace anything else', async () => {
+            const { call } = harness();
+            const parent = await mkdtemp(join(root, 'clones-'));
+            const url = await source();
+            const path = join(parent, 'code');
+            expect(await call({ op: 'clone', url, path, token: 't' })).toMatchObject({ ok: true });
+            expect(await call({ op: 'clone', url, path, token: 't' })).toMatchObject({ ok: true });
+
+            const occupied = join(await mkdtemp(join(root, 'clones-')), 'code');
+            await mkdir(occupied);
+            await writeFile(join(occupied, 'keep.txt'), 'mine\n', 'utf8');
+            expect(await call({ op: 'clone', url, path: occupied, token: 't' })).toMatchObject({ ok: false });
+            expect(await readFile(join(occupied, 'keep.txt'), 'utf8')).toBe('mine\n');
+        });
+
+        it('refuses a path outside its project roots before running git', async () => {
+            const { call } = harness({ checkPath: () => 'outside this host’s project roots' });
+
+            expect(await call({ op: 'clone', url: 'unused', path: '/etc/code', token: 't' })).toMatchObject({ ok: false, error: { code: 'EACCES' } });
+        });
     });
 
     it('reports a failed command as execFile would: code, killed and both streams', async () => {

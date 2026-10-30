@@ -14,6 +14,9 @@ const FILE_OP_TIMEOUT_MS = 60_000;
  */
 const EXEC_ANSWER_GRACE_MS = 30_000;
 
+/** A little over the worker's own limit on a clone, so its answer arrives before this gives up. */
+const CLONE_ANSWER_TIMEOUT_MS = 31 * 60_000;
+
 /** An env as it travels: strings only, since `undefined` means unset and JSON would drop it anyway. */
 const definedEnv = (env: NodeJS.ProcessEnv): Record<string, string> => {
     const defined: Record<string, string> = {};
@@ -119,6 +122,10 @@ export class WorkerExecutionHost implements ExecutionHost {
 
     async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
         return this.connection.runClaude(args, timeoutMs);
+    }
+
+    async cloneRepository(url: string, path: string, token: string): Promise<void> {
+        await this.connection.call({ op: 'clone', url, path, token }, CLONE_ANSWER_TIMEOUT_MS);
     }
 }
 

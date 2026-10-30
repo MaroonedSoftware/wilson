@@ -12,7 +12,7 @@ import { z } from 'zod';
  * Bump {@link WORKER_PROTOCOL_VERSION} for any change a worker built against the old one would
  * misread. Wilson refuses a worker whose `hello` names another version, rather than guessing.
  */
-export const WORKER_PROTOCOL_VERSION = 1;
+export const WORKER_PROTOCOL_VERSION = 2;
 
 /** The path the worker connects to, on the API's own origin. */
 export const WORKER_CONNECT_PATH = '/api/workers/connect';
@@ -68,6 +68,11 @@ export const CallOp = z.discriminatedUnion('op', [
     z.object({ op: z.literal('readBytes'), path: z.string() }),
     /** Write `data` (base64) to `path`: how a git bundle carrying a card's base reaches the worker. */
     z.object({ op: z.literal('writeBytes'), path: z.string(), data: z.string() }),
+    /**
+     * Clone `url` to `path`, a project's code root, reading it with `token`: a short-lived token for
+     * that one repository, kept out of the clone's config and out of `ps`.
+     */
+    z.object({ op: z.literal('clone'), url: z.string(), path: z.string(), token: z.string() }),
 ]);
 export type CallOp = z.infer<typeof CallOp>;
 
@@ -85,6 +90,7 @@ export interface CallResults {
     exec: { stdout: string; stderr: string };
     readBytes: string;
     writeBytes: undefined;
+    clone: undefined;
 }
 
 /** Where a project lives on the worker's machine, as its host's `wilson.host_projects` row says. */

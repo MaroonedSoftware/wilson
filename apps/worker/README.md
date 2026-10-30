@@ -16,7 +16,8 @@ guardrail, not a boundary: a command run inside a project folder can still reach
 - `claude` (Claude Code) on `PATH`, at the version Wilson's engine probes pass on. `wilson host probe`
   reports a different one.
 - A clone of each project it will serve, plus whatever toolchain those projects' setup and test
-  commands use.
+  commands use. A project with a GitHub repository needs no clone in place: the first stage placed
+  here clones it through Wilson's GitHub App, with a short-lived token that is not kept.
 
 ## Setting one up
 

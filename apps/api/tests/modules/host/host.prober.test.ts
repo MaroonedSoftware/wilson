@@ -106,6 +106,26 @@ describe('HostProber', () => {
         expect(host.probe?.detail).toContain('claude is not signed in for an engine started there');
     });
 
+    it('counts a missing clone as a note where the host can clone and the project says what from', async () => {
+        const name = await registerHost({ codeRoot: join(base, 'not-cloned') });
+        const [{ project }] = (await hosts.find(name))!.projects as [{ project: string }];
+        await db.updateTable('wilson.projects').set({ repository: 'acme/widgets' }).where('name', '=', project).execute();
+        const row = (await hosts.find(name))!;
+        const server = await startWorkerServer({ token: { ...row, kind: 'worker' } });
+        try {
+            await connectLoopbackWorker(server.apiUrl, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
+            await eventually(() => server.connections.get(name) !== undefined);
+            const connector = new HostConnector(FAKE_SSH, undefined, server.connections);
+
+            const found = await new HostProber(hosts, connector, new ProjectRepository(db)).inspect({ ...row, kind: 'worker' });
+
+            expect(found.ok).toBe(true);
+            expect(found.detail).toContain('not cloned yet');
+        } finally {
+            await server.close();
+        }
+    });
+
     it('reports a clone that is not a git repository, and still runs every other check', async () => {
         const name = await registerHost({ codeRoot: join(base, 'not-a-repo') });
 

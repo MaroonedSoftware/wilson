@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import type { Host } from '../../generated/hosts.js';
 import type { ExecFailure, ExecutionHost } from './execution.host.js';
+import { ProjectRepository } from '#modules/board/project.repository.js';
 import { HostConnector, WorkerNotConnectedError } from './host.connector.js';
 import { HostRepository, type HostProbeRow, type HostRow } from './host.repository.js';
 import { toHost } from './hosts.service.js';
@@ -32,7 +33,8 @@ const BOOT_TIME_SCRIPT = `awk '/^btime/ { print $2 }' /proc/stat 2>/dev/null || 
  *   machine's probes last passed against is reported, not refused: the host's engine has not been
  *   through `cli.engine.contract.probe.ts`, which is worth knowing before trusting it.
  * - Each project's `codeRoot` is a git repository, since worktrees are cut from it, and its worktree
- *   and run roots can be created.
+ *   and run roots can be created. A missing clone is only a note where the first stage placed there
+ *   will make it (`ProjectClones`): the host can clone, and the project says what from.
  * - Each variable it says it supplies to configured commands (`commandEnv`) is set there.
  * - Given a lifetime, when it will stop: boot time plus the lifetime.
  */
@@ -41,6 +43,8 @@ export class HostProber {
     constructor(
         private readonly hosts: HostRepository,
         private readonly connector: HostConnector,
+        // Optional so a test can build a prober without one; unset, every clone must already be there.
+        private readonly projects?: ProjectRepository,
     ) {}
 
     async probe(name: string): Promise<Host> {
@@ -105,7 +109,13 @@ export class HostProber {
 
         for (const project of row.projects) {
             const repo = await run(host, 'git', ['-C', project.codeRoot, 'rev-parse', '--git-dir']);
-            if (repo instanceof Error) problems.push(`${project.project}: ${project.codeRoot} is not a git repository: ${reason(repo)}`);
+            if (repo instanceof Error) {
+                if (host.cloneRepository && (await this.projects?.find(project.project))?.repository) {
+                    notes.push(`${project.project}: not cloned yet; the first stage placed here will clone it`);
+                } else {
+                    problems.push(`${project.project}: ${project.codeRoot} is not a git repository: ${reason(repo)}`);
+                }
+            }
             const roots = await run(host, 'mkdir', ['-p', '--', project.worktreeRoot, project.runRoot]);
             if (roots instanceof Error) problems.push(`${project.project}: cannot create its worktree and run roots: ${reason(roots)}`);
         }

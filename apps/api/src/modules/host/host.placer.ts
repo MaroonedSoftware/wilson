@@ -5,6 +5,7 @@ import { LeaseService } from '#modules/lease/lease.service.js';
 import { LOCAL_STAGE_SLOTS } from '#modules/settings/local.stage.slots.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { ProjectClones } from './project.clones.js';
 import { HostConnector } from './host.connector.js';
 import { HostRepository, type HostRow } from './host.repository.js';
 import { hostSlotKey, localSlotKey, type RemotePlacement } from './placement.js';
@@ -46,6 +47,8 @@ export class HostPlacer {
         private readonly logger: Logger,
         // Optional so a test can build a placer without one; unset reads as the setting's default.
         private readonly settings?: SettingsStore,
+        // Optional for the same reason; unset, a host's clones must already be there.
+        private readonly clones?: ProjectClones,
     ) {}
 
     /**
@@ -107,6 +110,18 @@ export class HostPlacer {
                 },
             );
             if (!reached) {
+                await this.leases.release(slotKey, project, cardId);
+                continue;
+            }
+
+            const cloned = await this.clones?.ensure(host, project, serves.codeRoot).then(
+                () => true,
+                (err: Error) => {
+                    reasons.push(`${row.name} could not clone it: ${err.message}`);
+                    return false;
+                },
+            );
+            if (cloned === false) {
                 await this.leases.release(slotKey, project, cardId);
                 continue;
             }
