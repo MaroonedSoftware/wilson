@@ -22,6 +22,8 @@ export interface WorkerEndpointOptions {
     authenticate: (token: string) => Promise<HostRow | undefined>;
     connections: WorkerConnections;
     logger: Pick<Logger, 'info' | 'warn'>;
+    /** Told each host whose worker has just connected, once its connection is registered. */
+    onConnect?: (hostName: string) => void;
     /** Aborted when the server shuts down, closing every worker connection. */
     signal?: AbortSignal;
     helloTimeoutMs?: number;
@@ -88,6 +90,7 @@ export const attachWorkerEndpoint = (server: Server, options: WorkerEndpointOpti
             options.connections.register(connection);
             options.logger.info(`worker for host ${host.name} connected (worker ${hello.workerVersion} on ${hello.platform})`);
             connection.onClose(reason => options.logger.info(`worker for host ${host.name} disconnected: ${reason}`));
+            options.onConnect?.(host.name);
         });
     };
 

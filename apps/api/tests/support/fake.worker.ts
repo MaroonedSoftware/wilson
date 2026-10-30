@@ -25,7 +25,7 @@ export const workerRow = (name: string, projects: HostRow['projects'] = []): Hos
  */
 export const startWorkerServer = async (
     tokens: Record<string, HostRow>,
-    options: { helloTimeoutMs?: number; signal?: AbortSignal } = {},
+    options: { helloTimeoutMs?: number; signal?: AbortSignal; onConnect?: (hostName: string) => void } = {},
 ): Promise<{ server: Server; url: string; apiUrl: string; connections: WorkerConnections; close: () => Promise<void> }> => {
     const server = createServer((_req, res) => res.writeHead(404).end());
     const connections = new WorkerConnections();

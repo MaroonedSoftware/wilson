@@ -4,6 +4,7 @@ import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftw
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
 import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
+import { HostProber } from '#modules/host/host.prober.js';
 import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { attachWorkerEndpoint } from '#modules/worker/worker.endpoint.js';
@@ -46,6 +47,14 @@ export const setupServer = async (): Promise<Server> => {
         authenticate: token => container.get(WorkerTokensService).authenticate(token),
         connections: container.get(WorkerConnections),
         logger,
+        // Placement trusts the last probe, so a VM that has just restarted would otherwise wait for
+        // someone to probe it by hand. A worker connecting is the moment that probe can be fresh.
+        onConnect: hostName => {
+            container
+                .get(HostProber)
+                .probe(hostName)
+                .catch((err: Error) => logger.warn(`could not probe ${hostName} after its worker connected: ${err.message}`));
+        },
         signal: serverBuilder.lifecycleSignal,
     });
     return server;

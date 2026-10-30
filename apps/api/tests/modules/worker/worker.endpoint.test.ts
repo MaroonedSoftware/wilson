@@ -40,6 +40,18 @@ describe('the worker endpoint', () => {
         expect(connections.get('mac')).toBeUndefined();
     });
 
+    it('says which host connected once its connection can be used, and not for a refused one', async () => {
+        const connected: Array<{ host: string; open: boolean }> = [];
+        const server = await start({ onConnect: host => connected.push({ host, open: server.connections.get(host) !== undefined }) });
+
+        await FakeWorker.connect(server.url, 'token-a');
+        await eventually(() => connected.length === 1);
+        expect(connected).toEqual([{ host: 'unraid-vm', open: true }]);
+
+        await expect(FakeWorker.connect(server.url, 'nope')).rejects.toThrow();
+        expect(connected).toHaveLength(1);
+    });
+
     it('closes a connection whose hello names another protocol version, or that sends something else first', async () => {
         const { url, connections } = await start();
 
