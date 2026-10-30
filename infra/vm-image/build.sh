@@ -21,5 +21,11 @@ if [[ -z "$PKR_VAR_claude_code_version" ]]; then
 fi
 export PKR_VAR_claude_code_version
 
+# The worker comes from the commit checked out here, so uncommitted changes are not in the image.
+PKR_VAR_worker_source="$(mktemp -t wilson-source)"
+export PKR_VAR_worker_source
+trap 'rm -f "$PKR_VAR_worker_source"' EXIT
+git -C ../.. archive --format=tar -o "$PKR_VAR_worker_source" HEAD
+
 packer init .
 packer build "$@" .

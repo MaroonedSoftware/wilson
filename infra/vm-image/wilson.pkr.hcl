@@ -43,6 +43,11 @@ variable "claude_code_version" {
   description = "npm version of @anthropic-ai/claude-code. build.sh passes CLAUDE_BINARY_VERSION, the version Wilson's engine probes last passed on."
 }
 
+variable "worker_source" {
+  type        = string
+  description = "Tar of this repository at the commit to build the worker from. build.sh makes it with git archive."
+}
+
 locals {
   built_at = formatdate("YYYYMMDD-hhmmss", timestamp())
 }
@@ -65,7 +70,7 @@ source "googlecompute" "wilson" {
   # belongs to the shared agent pool, and a build here must not change what those VMs boot.
   image_name              = "wilson-${local.built_at}"
   image_family            = "wilson"
-  image_description       = "Wilson VM: Docker, Node 22, mise, and Claude Code ${var.claude_code_version}. Holds no project."
+  image_description       = "Wilson VM: the worker, Docker, Node 22, mise, and Claude Code ${var.claude_code_version}. Holds no project."
   image_storage_locations = ["us-central1"]
 
   # Creating the image can take longer than Packer's default 5 minutes; when it does, Packer gives up
@@ -95,6 +100,17 @@ build {
     script           = "${path.root}/provision.sh"
     execute_command  = "chmod +x {{ .Path }}; {{ .Vars }} sudo -E HOME=/root bash '{{ .Path }}'"
     environment_vars = ["CLAUDE_CODE_VERSION=${var.claude_code_version}"]
+  }
+
+  provisioner "file" {
+    source      = var.worker_source
+    destination = "/tmp/wilson-source.tar"
+  }
+
+  provisioner "shell" {
+    script           = "${path.root}/worker.sh"
+    execute_command  = "chmod +x {{ .Path }}; {{ .Vars }} sudo -E HOME=/root bash '{{ .Path }}'"
+    environment_vars = ["WORKER_SOURCE=/tmp/wilson-source.tar"]
   }
 
   # The builder signs in as their own OS Login user, so the image would otherwise carry their home
