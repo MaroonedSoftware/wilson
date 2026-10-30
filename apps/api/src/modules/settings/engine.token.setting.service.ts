@@ -1,11 +1,9 @@
 import { Injectable } from 'injectkit';
 import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import { httpError } from '@maroonedsoftware/errors';
+import type { EngineTokenSetting, SetEngineTokenSettingRequest } from '#src/generated/settings.js';
 import { SettingsStore } from './settings.store.js';
 import { ENGINE_TOKEN } from './engine.token.setting.js';
-
-/** Where the engine's token comes from. `'none'` leaves it to the login under `CLAUDE_CONFIG_DIR`. */
-export type EngineTokenSource = 'database' | 'environment' | 'none';
 
 /**
  * The engine token saved in `wilson.settings`, encrypted under the same root key as the TOTP seeds.
@@ -53,8 +51,20 @@ export class EngineTokenSettingService {
     }
 
     /** Which sign-in an engine started now would use, without touching the token itself. */
-    async source(): Promise<EngineTokenSource> {
+    async source(): Promise<EngineTokenSetting['source']> {
         if ((await this.settings.stored(ENGINE_TOKEN)) !== undefined) return 'database';
         return process.env[ENGINE_TOKEN.envVar] === undefined ? 'none' : 'environment';
+    }
+
+    /** The contract-facing read: where the sign-in comes from, never the token. */
+    async get(): Promise<EngineTokenSetting> {
+        return { source: await this.source() };
+    }
+
+    /** The contract-facing write: save a token, or remove the saved one on `null`. */
+    async set(body: SetEngineTokenSettingRequest): Promise<EngineTokenSetting> {
+        if (body.token === null) await this.clear();
+        else await this.save(body.token);
+        return this.get();
     }
 }

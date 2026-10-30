@@ -144,6 +144,26 @@ export const SetClaudeConfigDirSettingRequest = z.strictObject({
 export type SetClaudeConfigDirSettingRequest = z.infer<typeof SetClaudeConfigDirSettingRequest>;
 
 /**
+ * The token engines on this machine sign in with, saved encrypted so that changing it needs no
+ * restart (`EngineTokenSettingService`). Write-only: nothing here ever returns it, only where the
+ * current sign-in comes from. `none` leaves the engine to the login under its config directory.
+ * generated from [EngineTokenSetting](../../data/contracts/settings.ck)
+ */
+export const EngineTokenSetting = z.strictObject({
+    source: z.enum(['database', 'environment', 'none']),
+});
+export type EngineTokenSetting = z.infer<typeof EngineTokenSetting>;
+
+/**
+ * `null` removes the saved token.
+ * generated from [SetEngineTokenSettingRequest](../../data/contracts/settings.ck)
+ */
+export const SetEngineTokenSettingRequest = z.strictObject({
+    token: z.string().nullable(),
+});
+export type SetEngineTokenSettingRequest = z.infer<typeof SetEngineTokenSettingRequest>;
+
+/**
  * Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
  * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
  * (a `wilson.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here

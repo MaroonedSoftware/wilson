@@ -3,6 +3,7 @@ import { CardStageConcurrencySettingService } from '#modules/settings/card.stage
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
+import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
@@ -12,6 +13,7 @@ import {
     ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
+    EngineTokenSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
@@ -19,6 +21,7 @@ import {
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
+    SetEngineTokenSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
@@ -155,6 +158,32 @@ SettingsRouter.put('/api/settings/claude-config-dir', requirePolicy({ policy: 'w
 
     const service = ctx.container.get(ClaudeConfigDirSettingService);
     const result: ClaudeConfigDirSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/engine-token`
+ */
+SettingsRouter.get('/api/settings/engine-token', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(EngineTokenSettingService);
+    const result: EngineTokenSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/engine-token`
+ */
+SettingsRouter.put('/api/settings/engine-token', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetEngineTokenSettingRequest);
+
+    const service = ctx.container.get(EngineTokenSettingService);
+    const result: EngineTokenSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

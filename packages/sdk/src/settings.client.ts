@@ -3,6 +3,7 @@ import type {
     ChatEngineSetting,
     ClaudeConfigDirSetting,
     DryRunSetting,
+    EngineTokenSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
     PollerInterval,
@@ -10,6 +11,7 @@ import type {
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
+    SetEngineTokenSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
@@ -102,6 +104,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<ClaudeConfigDirSetting>(result);
+    }
+
+    /** @name Get engine token setting */
+    async getEngineTokenSetting(): Promise<EngineTokenSetting> {
+        const result = await this.fetch(`/api/settings/engine-token`, { method: 'GET' });
+        return await parseJson<EngineTokenSetting>(result);
+    }
+
+    /** @name Set engine token setting */
+    async setEngineTokenSetting(body: SetEngineTokenSettingRequest): Promise<EngineTokenSetting> {
+        const result = await this.fetch(`/api/settings/engine-token`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<EngineTokenSetting>(result);
     }
 
     /** @name Get dry run setting */

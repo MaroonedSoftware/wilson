@@ -130,6 +130,24 @@ export interface SetClaudeConfigDirSettingRequest {
 }
 
 /**
+ * The token engines on this machine sign in with, saved encrypted so that changing it needs no
+ * restart (`EngineTokenSettingService`). Write-only: nothing here ever returns it, only where the
+ * current sign-in comes from. `none` leaves the engine to the login under its config directory.
+ * generated from [EngineTokenSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface EngineTokenSetting {
+    source: 'database' | 'environment' | 'none';
+}
+
+/**
+ * `null` removes the saved token.
+ * generated from [SetEngineTokenSettingRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetEngineTokenSettingRequest {
+    token: string | null;
+}
+
+/**
  * Card 0144. Whether `POST /api/cards/{id}/merge` rehearses onto the throwaway integration branch
  * instead of writing `main` — see `dry.run.setting.ts` for the default (on) and the precedence
  * (a `wilson.settings` row overrides `DRY_RUN_ENABLED` overrides the coded default). Nothing here

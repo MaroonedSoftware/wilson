@@ -6,6 +6,7 @@ options {
         LocalStageSlotsSettingService: "#modules/settings/local.stage.slots.setting.service.js"
         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
+        EngineTokenSettingService: "#modules/settings/engine.token.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
     }
@@ -234,6 +235,46 @@ operation /api/settings/claude-config-dir: {
             # configDir is not an absolute path (`ClaudeConfigDirSettingService.set`'s own reason
             # string) — carried via `details`, the same convention every other refusal on this
             # contract uses.
+            400:
+        }
+    }
+}
+
+# The token engines on this machine sign in with, saved encrypted so that changing it needs no
+# restart (`EngineTokenSettingService`). Write-only: nothing here ever returns it, only where the
+# current sign-in comes from. `none` leaves the engine to the login under its config directory.
+contract EngineTokenSetting: {
+    source: enum(database, environment, none)
+}
+
+# `null` removes the saved token.
+contract SetEngineTokenSettingRequest: {
+    token: string | null
+}
+
+operation /api/settings/engine-token: {
+    get: {
+        mcp: exclude # Credentials are never handed to an agent
+        security: {
+            policy: wilson.view
+        }
+        name: Get engine token setting
+        service: EngineTokenSettingService.get
+        response: {
+            200: { application/json: EngineTokenSetting }
+        }
+    }
+    put: {
+        mcp: exclude # Credentials are never handed to an agent
+        name: Set engine token setting
+        service: EngineTokenSettingService.set
+        request: {
+            application/json: SetEngineTokenSettingRequest
+        }
+        response: {
+            200: { application/json: EngineTokenSetting }
+            # token is empty or more than one word (`EngineTokenSettingService.save`'s own reason
+            # string), carried via `details`.
             400:
         }
     }
