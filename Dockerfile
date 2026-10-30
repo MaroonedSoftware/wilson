@@ -9,8 +9,15 @@
 #   docker build --target web .   The web app, served by nginx, which proxies /api to the API, so the
 #                                 browser sees one origin.
 #
-# docker-compose.unraid.yml builds and runs both. Nothing here mounts or talks to the Docker socket,
-# and nothing should: a stage's commands would then hold root on the host.
+# docker-compose.unraid.yml builds and runs both. The same pieces also come as one image, which is what
+# the Unraid template (unraid/wilson.xml) installs:
+#
+#   docker build --target slim .  The API, the daemon and the web app in one container. Bring a
+#                                 PostgreSQL 17 database.
+#   docker build --target full .  The same with PostgreSQL inside it and its nightly backup.
+#
+# Nothing here mounts or talks to the Docker socket, and nothing should: a stage's commands would then
+# hold root on the host.
 
 ARG NODE_VERSION=26
 
@@ -67,3 +74,31 @@ ENTRYPOINT ["tini", "--"]
 # Migrations first, every start: dbmate applies only what is new, and the API refuses to run against a
 # schema it does not match.
 CMD ["sh", "-c", "./node_modules/.bin/dbmate -d ./data/migrations --no-dump-schema --wait up && exec node --import @swc-node/register/esm-register ./src/index.ts"]
+
+# One container, one port, one /data. deploy/entrypoint.sh starts as root to set up /data, then drops
+# to PUID:PGID; a blank DATABASE_HOST on `full` runs the database inside it.
+FROM api AS slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nginx \
+    && rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled/default \
+    && ln -sf /dev/stdout /var/log/nginx/access.log \
+    && ln -sf /dev/stderr /var/log/nginx/error.log
+COPY deploy/web.nginx.conf /etc/nginx/conf.d/wilson.conf
+RUN sed -i 's/${API_UPSTREAM}/127.0.0.1:13100/' /etc/nginx/conf.d/wilson.conf
+COPY --from=web-build /opt/wilson/apps/web/dist /usr/share/nginx/html
+COPY deploy/entrypoint.sh /usr/local/bin/wilson-entrypoint
+EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s \
+    CMD ["node", "-e", "fetch('http://127.0.0.1/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+ENTRYPOINT ["tini", "--", "wilson-entrypoint"]
+CMD []
+
+FROM slim AS full
+# 17, to match the compose stack; bookworm's own is 15. From PGDG, by its own setup script, and with
+# no cluster made here: the entrypoint makes one under /data on first boot.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-common \
+    && sed -i 's/^#\?create_main_cluster.*/create_main_cluster = false/' /etc/postgresql-common/createcluster.conf \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-17 \
+    && rm -rf /var/lib/apt/lists/*

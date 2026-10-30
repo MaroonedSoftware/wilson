@@ -1035,6 +1035,22 @@ compose project `wilson`, separate from the development stack's `kanban`. The on
   only on HTTPS or localhost. Put a TLS proxy in front, or reach it over Tailscale's HTTPS, to use
   them.
 
+### The single image
+
+The same pieces also come as one container, which is what the Unraid template installs. Two variants,
+both from `Dockerfile`: `full` carries PostgreSQL 17 and the nightly backup, for a server with
+nothing else on it, and `slim` is the same without them, for a database you already run and back up.
+Wilson has no Redis, so there is nothing else to leave out.
+
+- **One port, one `/data`.** nginx serves the web app and proxies `/api`, as in the compose stack.
+  Everything kept is under `/data`; clones are under `/projects`.
+- **`deploy/entrypoint.sh` is the supervisor.** It starts as root to set up `/data`, then drops to
+  `PUID:PGID`. Nothing restarts a single service: if one stops, the container stops and its restart
+  policy brings all of it back, which is the recovery a daemon holding stages needs anyway.
+- **A blank `DATABASE_HOST` on `full` means the database inside.** Its password is generated into
+  `/data/secrets` on first boot and it listens on loopback only. `slim` refuses to start without one.
+- **`slim` has no backup.** Backing up a database you brought is yours to arrange.
+
 ### Workers
 
 A worker is `apps/worker` on a machine kept for it, set up as `apps/worker/README.md` describes:
