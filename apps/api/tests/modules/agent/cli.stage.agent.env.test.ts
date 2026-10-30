@@ -129,6 +129,21 @@ describe('subscriptionEnv', () => {
         expect('CLAUDE_CONFIG_DIR' in subscriptionEnv()).toBe(false);
     });
 
+    it('sets CLAUDE_CODE_OAUTH_TOKEN when a token is resolved, and leaves it absent when not', () => {
+        set('CLAUDE_CODE_OAUTH_TOKEN', 'placeholder');
+        delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+        expect(subscriptionEnv(undefined, 'saved-token').CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+        expect('CLAUDE_CODE_OAUTH_TOKEN' in subscriptionEnv()).toBe(false);
+    });
+
+    it('keeps the environment’s own token, and a resolved one wins over it', () => {
+        set('CLAUDE_CODE_OAUTH_TOKEN', 'environment-token');
+
+        expect(subscriptionEnv().CLAUDE_CODE_OAUTH_TOKEN).toBe('environment-token');
+        expect(subscriptionEnv(undefined, 'saved-token').CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+    });
+
     it('does not strip TEST_DATABASE_*, which points at the disposable test database', () => {
         set('TEST_DATABASE_HOST', 'localhost');
 

@@ -87,14 +87,19 @@ const ENGINE_PASSED_THROUGH_PREFIXES = ['LC_', 'CLAUDE_CODE_', 'TEST_DATABASE_']
  * "`subscriptionEnv()` stays synchronous and dependency-free") — both callers resolve it themselves
  * and pass the result in, the same way they already resolve everything else this function does not
  * know about on its own.
+ *
+ * `engineToken`, when given, is set as `CLAUDE_CODE_OAUTH_TOKEN`, over one this process already has,
+ * which the prefix above would otherwise pass through. The engine signs in with a token ahead of
+ * anything under `CLAUDE_CONFIG_DIR`. Left `undefined`, the environment's own token, if any, stands.
  */
-export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
+export const subscriptionEnv = (configDir?: string, engineToken?: string): NodeJS.ProcessEnv => {
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (value === undefined) continue;
         if (ENGINE_PASSED_THROUGH.includes(key) || ENGINE_PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
+    if (engineToken !== undefined) env.CLAUDE_CODE_OAUTH_TOKEN = engineToken;
     return env;
 };
 

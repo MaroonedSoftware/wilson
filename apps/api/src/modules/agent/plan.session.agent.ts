@@ -56,6 +56,9 @@ export interface PlanSessionOptions {
      * caller resolves it the same way it already resolves `model`, and hands it in alongside the
      * rest of this session's config. */
     configDir?: string;
+    /** The engine token saved in the settings, or `undefined` when there is none. Resolved by the
+     * caller for the same reason as {@link PlanSessionOptions.configDir}. */
+    engineToken?: string;
 }
 
 /**
@@ -98,7 +101,7 @@ export class PlanSessionAgent {
                 // `~/.claude` (settings, MCP servers) at the moment it runs.
                 settingSources: [],
                 strictMcpConfig: true,
-                env: subscriptionEnv(options.configDir),
+                env: subscriptionEnv(options.configDir, options.engineToken),
                 ...(options.resume ? { resume: options.resume } : {}),
             },
         });

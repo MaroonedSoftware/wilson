@@ -161,6 +161,15 @@ describe('PlanSessionAgent', () => {
         expect(options.env.CLAUDE_CONFIG_DIR).toBe('/home/operator/.claude-wilson');
     });
 
+    it('sets CLAUDE_CODE_OAUTH_TOKEN in the engine env when an engineToken option is given', async () => {
+        armQuery();
+
+        new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus', engineToken: 'saved-token' });
+
+        const options = (queryMock.mock.calls[0]?.[0] as { options: { env: NodeJS.ProcessEnv } }).options;
+        expect(options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+    });
+
     it('carries no CLAUDE_CONFIG_DIR key at all when no configDir option is given', async () => {
         armQuery();
 
