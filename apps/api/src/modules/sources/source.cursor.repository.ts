@@ -42,7 +42,7 @@ export class SourceCursorRepository {
         await this.db
             .insertInto('wilson.sourceCursors')
             .values({ project: this.config.project, source, cursor })
-            .onConflict(oc => oc.columns(['project', 'source']).doUpdateSet({ cursor, updatedAt: new Date().toISOString() }))
+            .onConflict(oc => oc.columns(['project', 'source']).doUpdateSet({ cursor }))
             .execute();
     }
 }

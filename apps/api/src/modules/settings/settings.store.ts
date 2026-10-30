@@ -68,7 +68,7 @@ export class SettingsStore {
         await this.db
             .insertInto('wilson.settings')
             .values({ project: this.scopeKey(definition), key: definition.key, value: serialized })
-            .onConflict(oc => oc.columns(['project', 'key']).doUpdateSet({ value: serialized, updatedAt: new Date().toISOString() }))
+            .onConflict(oc => oc.columns(['project', 'key']).doUpdateSet({ value: serialized }))
             .execute();
     }
 

@@ -227,7 +227,6 @@ export class PostgresBoardRepository extends BoardRepository {
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
                 pinnedVersionId: fm.planVersionId ?? null,
-                updatedAt: new Date().toISOString(),
             })
             .where('project', '=', this.config.project)
             .where('id', '=', id)

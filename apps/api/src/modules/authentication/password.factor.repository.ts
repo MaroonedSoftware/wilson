@@ -64,7 +64,7 @@ export class AccountPasswordRepository extends PasswordFactorRepository {
     async updateFactor(actorId: string, value: PasswordValue): Promise<PasswordFactor> {
         const row = await this.db
             .updateTable('wilson.accountPasswords')
-            .set({ hash: value.hash, salt: value.salt, needsReset: value.needsReset ?? false, updatedAt: new Date().toISOString() })
+            .set({ hash: value.hash, salt: value.salt, needsReset: value.needsReset ?? false })
             .where('accountId', '=', actorId)
             .returningAll()
             .executeTakeFirstOrThrow();
