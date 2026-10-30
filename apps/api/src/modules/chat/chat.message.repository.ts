@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { Kysely, sql, type Selectable } from 'kysely';
 import type { DateTime } from 'luxon';
-import type { ChatMessages, DB } from '#modules/data/db.js';
+import type { WilsonChatMessages, DB } from '#modules/data/db.js';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -34,7 +34,7 @@ export interface NewChatMessage {
     engineMessages?: unknown;
 }
 
-const toMessage = (row: Selectable<ChatMessages>): ChatMessage => ({
+const toMessage = (row: Selectable<WilsonChatMessages>): ChatMessage => ({
     threadId: String(row.threadId),
     seq: row.seq,
     role: row.role as ChatRole,

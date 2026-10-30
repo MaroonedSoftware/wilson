@@ -2,9 +2,9 @@ import { Injectable } from 'injectkit';
 import { Kysely, type Selectable } from 'kysely';
 import { FidoFactorRepository, type FidoFactor, type FidoFactorOptions } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
-import type { AccountPasskeys, DB } from '#modules/data/db.js';
+import type { WilsonAccountPasskeys, DB } from '#modules/data/db.js';
 
-const toFactor = (row: Selectable<AccountPasskeys>): FidoFactor => ({
+const toFactor = (row: Selectable<WilsonAccountPasskeys>): FidoFactor => ({
     id: row.id,
     actorId: row.accountId,
     active: row.active,

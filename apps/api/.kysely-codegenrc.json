@@ -1,6 +1,22 @@
 {
     "camelCase": true,
-    "outFile": "./src/modules/data/db.ts",
-    "schema": "wilson",
-    "excludePattern": "public.schema_migrations"
+    "customImports": {
+        "Timestamptz": "./column.types.js"
+    },
+    "defaultSchemas": ["public"],
+    "dialect": "postgres",
+    "includePattern": "wilson.*",
+    "outFile": "./src/modules/data/kysely.ts",
+    "overrides": {
+        "columns": {
+            "wilson.api_keys.metadata": "ColumnType<Record<string, unknown>, string | undefined, string>"
+        }
+    },
+    "typeMapping": {
+        "json": "unknown",
+        "jsonb": "unknown",
+        "timestamptz": "Timestamptz"
+    },
+    "typeOnlyImports": true,
+    "url": "env(DATABASE_URL)"
 }

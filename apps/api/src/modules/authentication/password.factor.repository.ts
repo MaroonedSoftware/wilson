@@ -1,9 +1,9 @@
 import { Injectable } from 'injectkit';
 import { Kysely, type Selectable } from 'kysely';
 import { PasswordFactorRepository, type PasswordFactor, type PasswordValue } from '@maroonedsoftware/authentication';
-import type { AccountPasswords, DB } from '#modules/data/db.js';
+import type { WilsonAccountPasswords, DB } from '#modules/data/db.js';
 
-const toFactor = (row: Selectable<AccountPasswords>): PasswordFactor => ({
+const toFactor = (row: Selectable<WilsonAccountPasswords>): PasswordFactor => ({
     id: row.accountId,
     actorId: row.accountId,
     hash: row.hash,

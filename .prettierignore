@@ -13,3 +13,6 @@ pnpm-lock.yaml
 apps/api/tests/README.md
 brand/README.md
 pnpm-workspace.yaml
+
+# kysely-codegen's output: `pnpm build:datatypes` overwrites it, so it stays as generated.
+apps/api/src/modules/data/kysely.ts

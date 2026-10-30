@@ -2,13 +2,13 @@ import { Injectable } from 'injectkit';
 import { Kysely, sql, type Selectable } from 'kysely';
 import type { DateTime } from 'luxon';
 import { ApiKeyRepository, type ApiKey, type ApiKeyListOptions, type ApiKeyUpdatePatch, type TargetActor } from '@maroonedsoftware/authentication';
-import type { ApiKeys, DB } from '#modules/data/db.js';
+import type { WilsonApiKeys, DB } from '#modules/data/db.js';
 
 /** The one kind of principal that owns a key: the operator account. */
 export const ACCOUNT_ACTOR = 'account';
 export type AccountActor = typeof ACCOUNT_ACTOR;
 
-const toKey = (row: Selectable<ApiKeys>): ApiKey<AccountActor> => ({
+const toKey = (row: Selectable<WilsonApiKeys>): ApiKey<AccountActor> => ({
     id: row.id,
     owner: { kind: ACCOUNT_ACTOR, actorId: row.accountId },
     name: row.name,

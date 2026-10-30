@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { Kysely, type Selectable } from 'kysely';
 import { DateTime, type Duration } from 'luxon';
-import type { ChatPendingActions, DB } from '#modules/data/db.js';
+import type { WilsonChatPendingActions, DB } from '#modules/data/db.js';
 
 export type PendingActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined';
 
@@ -33,7 +33,7 @@ export interface NewPendingAction {
     expiresIn: Duration;
 }
 
-const toAction = (row: Selectable<ChatPendingActions>): PendingAction => ({
+const toAction = (row: Selectable<WilsonChatPendingActions>): PendingAction => ({
     id: String(row.id),
     threadId: String(row.threadId),
     project: row.project ?? undefined,

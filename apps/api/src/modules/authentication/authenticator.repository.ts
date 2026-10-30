@@ -2,9 +2,9 @@ import { Injectable } from 'injectkit';
 import { Kysely, type Selectable } from 'kysely';
 import { AuthenticatorFactorRepository, type AuthenticatorFactor, type AuthenticatorFactorOptions } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
-import type { AccountAuthenticators, DB } from '#modules/data/db.js';
+import type { WilsonAccountAuthenticators, DB } from '#modules/data/db.js';
 
-const toFactor = (row: Selectable<AccountAuthenticators>): AuthenticatorFactor => ({
+const toFactor = (row: Selectable<WilsonAccountAuthenticators>): AuthenticatorFactor => ({
     id: row.id,
     actorId: row.accountId,
     active: row.active,

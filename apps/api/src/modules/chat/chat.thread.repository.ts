@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { Kysely, type Selectable } from 'kysely';
 import { DateTime } from 'luxon';
-import type { ChatThreads, DB } from '#modules/data/db.js';
+import type { WilsonChatThreads, DB } from '#modules/data/db.js';
 
 /** The engines a thread can run on, spelled as `StageConfig.adapter` spells them: 'api' is the AI SDK, 'cli' the Claude Agent SDK. */
 export type ChatEngineName = 'api' | 'cli';
@@ -16,7 +16,7 @@ export interface ChatThread {
     updatedAt: DateTime;
 }
 
-const toThread = (row: Selectable<ChatThreads>): ChatThread => ({
+const toThread = (row: Selectable<WilsonChatThreads>): ChatThread => ({
     id: String(row.id),
     title: row.title,
     engine: row.engine as ChatEngineName,
