@@ -22,6 +22,7 @@ import type {
     CardSummary,
     CardStageConcurrency,
     ClaudeConfigDirSetting,
+    EngineTokenSetting,
     Health,
     NotifyWebhookSetting,
     PollerInterval,
@@ -452,6 +453,63 @@ describe('the notification webhook control', () => {
         // value nothing here fetches — the plan's "do not imply the base URL is validated".
         expect(screen.getByText(/destination this daemon sends a request to, so the/)).toBeTruthy();
         expect(screen.getByText(/nothing here ever fetches it, so it is saved exactly as typed/)).toBeTruthy();
+    });
+});
+
+/** The engine token: write-only, so the field is empty on load and empty again after a save. */
+describe('the engine token control', () => {
+    const load = (source: EngineTokenSetting['source']) => {
+        vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
+        vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
+        vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
+        vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
+        vi.spyOn(wilson.settings, 'getEngineTokenSetting').mockResolvedValue({ source });
+    };
+
+    it.each([
+        ['database', 'the token saved here'],
+        ['environment', 'from the environment'],
+        ['none', 'No token is set'],
+    ] as const)('says where the sign-in comes from when the source is %s', async (source, wording) => {
+        load(source);
+
+        renderApp('/settings');
+
+        expect(await screen.findByText(new RegExp(wording))).toBeTruthy();
+        expect(((await screen.findByLabelText('Engine token')) as HTMLInputElement).value).toBe('');
+    });
+
+    it('sends what was typed, then empties the field', async () => {
+        load('none');
+        const setToken = vi.spyOn(wilson.settings, 'setEngineTokenSetting').mockResolvedValue({ source: 'database' });
+
+        renderApp('/settings');
+
+        const input = (await screen.findByLabelText('Engine token')) as HTMLInputElement;
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'sk-ant-oat-secret' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(setToken).toHaveBeenCalledWith({ token: 'sk-ant-oat-secret' });
+        await waitFor(() => expect(input.value).toBe(''));
+        expect(await screen.findByText(/the token saved here/)).toBeTruthy();
+    });
+
+    it('offers Remove only for a saved token, and sends null', async () => {
+        load('database');
+        const setToken = vi.spyOn(wilson.settings, 'setEngineTokenSetting').mockResolvedValue({ source: 'none' });
+
+        renderApp('/settings');
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+        });
+
+        expect(setToken).toHaveBeenCalledWith({ token: null });
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull());
     });
 });
 

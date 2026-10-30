@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Code, Group, Loader, NumberInput, Paper, SegmentedControl, Select, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
-import type { ChatEngineSetting, SetNotifyWebhookSettingRequest } from '@wilson/sdk';
+import { Alert, Button, Code, Group, Loader, NumberInput, Paper, PasswordInput, SegmentedControl, Select, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -15,6 +15,7 @@ const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
+const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
@@ -466,6 +467,71 @@ function ClaudeConfigDirControl() {
     );
 }
 
+const ENGINE_TOKEN_SOURCES: Record<EngineTokenSetting['source'], string> = {
+    database: 'Engines on this machine sign in with the token saved here.',
+    environment: 'Engines on this machine sign in with CLAUDE_CODE_OAUTH_TOKEN from the environment. A token saved here replaces it.',
+    none: 'No token is set, so engines on this machine use the login in their Claude config directory.',
+};
+
+/**
+ * The engine token (`EngineTokenSettingService`). Write-only: the API reports where the sign-in comes
+ * from and never the token, so the field starts empty, and is emptied again after a save.
+ *
+ * A refusal keeps the draft, the same choice `ClaudeConfigDirControl` makes.
+ */
+function EngineTokenControl() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: ENGINE_TOKEN_QUERY_KEY, queryFn: () => wilson.settings.getEngineTokenSetting() });
+    const [draft, setDraft] = useState('');
+
+    const mutation = useMutation({
+        mutationFn: (token: string | null) => wilson.settings.setEngineTokenSetting({ token }),
+        onSuccess: result => {
+            queryClient.setQueryData(ENGINE_TOKEN_QUERY_KEY, result);
+            setDraft('');
+        },
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load the engine token">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    return (
+        <Stack gap="xs">
+            <PasswordInput
+                label="Engine token"
+                description="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Workers and SSH hosts keep their own. A change applies to stages and planning sessions started afterwards, never one already running."
+                value={draft}
+                onChange={event => setDraft(event.currentTarget.value)}
+                disabled={mutation.isPending}
+                autoComplete="off"
+            />
+            <Text size="sm">{ENGINE_TOKEN_SOURCES[setting.data.source]}</Text>
+            <Group gap="xs">
+                <Button size="xs" disabled={draft.trim() === '' || mutation.isPending} onClick={() => mutation.mutate(draft)}>
+                    Save
+                </Button>
+                {setting.data.source === 'database' && (
+                    <Button size="xs" variant="default" disabled={mutation.isPending} onClick={() => mutation.mutate(null)}>
+                        Remove
+                    </Button>
+                )}
+            </Group>
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
 /**
  * Which engine the chat runs on (`chat.engine.setting.ts`): 'cli', the Claude Agent SDK on the
  * subscription the stages use, or 'api', the AI SDK against a provider's API key. The provider
@@ -656,6 +722,7 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Engine credentials</Title>
                     <ClaudeConfigDirControl />
+                    <EngineTokenControl />
                 </Stack>
             </Paper>
 
