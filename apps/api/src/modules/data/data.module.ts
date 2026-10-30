@@ -3,8 +3,9 @@ import { Kysely, PostgresDialect, type LogEvent } from 'kysely';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from './db.js';
+import { WilsonKyselyPlugins } from './kysely.plugins.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 
 /**
@@ -46,7 +47,7 @@ export const DataModule: ServerKitModule = {
                 const logger = container.get(Logger);
                 return new Kysely<DB>({
                     dialect: new PostgresDialect({ pool: container.get(KyselyPool) }),
-                    plugins: [...KyselyDefaultPlugins],
+                    plugins: WilsonKyselyPlugins,
                     log: (event: LogEvent) => {
                         if (event.level === 'error') {
                             logger.error(event.error);

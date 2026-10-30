@@ -229,22 +229,13 @@ export class EventLog {
      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's
      * own doc comment), so a caller after "today" in its own local zone, not UTC's, must pass local
      * midnight, not `since.toUTC()`'s midnight — `Poller`/`BoardWriteService.start` do exactly that.
-     *
-     * Compares through a raw predicate rather than `.where('createdAt', '>=', since)`: kysely
-     * resolves that operand's type to `createdAt`'s select type, `DateTime` (`db.ts`), and postgres's
-     * driver has no idea how to serialize a Luxon `DateTime` object — it lacks a `toPostgres` method,
-     * so `pg`'s `prepareValue` would fall through to `JSON.stringify` it, sending postgres a `{...}`
-     * literal where it wants a timestamp. Handing it a real `Date` (`since.toJSDate()`) inside the
-     * raw fragment sidesteps that entirely: `pg` special-cases `Date` instances and serializes one
-     * correctly. The column is named literally as `created_at` here because a raw `sql` fragment is
-     * never touched by `CamelCasePlugin` the way `.where('createdAt', ...)` above is.
      */
     async outputTokensSince(project: string, since: DateTime): Promise<number> {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('type', 'in', ['stage.passed', 'stage.failed'])
-            .where(sql<boolean>`"created_at" >= ${since.toJSDate()}`)
+            .where('createdAt', '>=', since)
             .select(sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('total'))
             .executeTakeFirstOrThrow();
 

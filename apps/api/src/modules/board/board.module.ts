@@ -5,8 +5,9 @@ import { Kysely, PostgresDialect } from 'kysely';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { ConsoleLogger, Logger } from '@maroonedsoftware/logger';
-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from '#modules/data/db.js';
+import { WilsonKyselyPlugins } from '#modules/data/kysely.plugins.js';
 import { BoardConfig, ProjectScopedBoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { PostgresBoardRepository } from './postgres.board.repository.js';
@@ -50,7 +51,7 @@ const resolveProjectRow = async (config: AppConfig, name: string, fromEnv: Omit<
     // before `serverBuilder.setup` has run.
     pool.on('error', err => new ConsoleLogger().error(err));
 
-    const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }), plugins: [...KyselyDefaultPlugins] });
+    const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }), plugins: WilsonKyselyPlugins });
     try {
         const repo = new ProjectRepository(db);
         const existing = await repo.find(name);

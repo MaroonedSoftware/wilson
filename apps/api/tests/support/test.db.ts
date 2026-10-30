@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
 import type { DB } from '#modules/data/db.js';
+import { WilsonKyselyPlugins } from '#modules/data/kysely.plugins.js';
 
 export interface TestDatabaseConnection {
     host: string;
@@ -41,7 +42,7 @@ export const testDb = (): Kysely<DB> =>
                 types: KyselyPgTypeOverrides,
             }),
         }),
-        plugins: [...KyselyDefaultPlugins],
+        plugins: WilsonKyselyPlugins,
     });
 
 /**
