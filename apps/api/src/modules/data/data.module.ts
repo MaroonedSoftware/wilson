@@ -23,6 +23,8 @@ export const DataModule: ServerKitModule = {
             user: requireConfigString(config, 'DATABASE_USER'),
             password: requireConfigString(config, 'DATABASE_PASSWORD'),
             database: requireConfigString(config, 'DATABASE_NAME'),
+            // Parses timestamptz into a Luxon DateTime, not a JS Date, which is why the generated types map
+            // it to DateTime. Declaring it as Date compiles and then fails at runtime on `.toISOString()`.
             types: KyselyPgTypeOverrides,
         };
 

@@ -23,8 +23,6 @@ const toKey = (row: Selectable<WilsonApiKeys>): ApiKey<AccountActor> => ({
     ...(row.revokedAt ? { revokedAt: row.revokedAt } : {}),
 });
 
-const iso = (at: DateTime): string => at.toUTC().toISO()!;
-
 /** `wilson.api_keys` behind the library's `ApiKeyRepository`. */
 @Injectable()
 export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
@@ -44,8 +42,8 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
                 secretHash: key.secretHash,
                 scopes: key.scopes,
                 metadata: JSON.stringify(key.metadata ?? {}),
-                createdAt: iso(key.createdAt),
-                expiresAt: key.expiresAt ? iso(key.expiresAt) : null,
+                createdAt: key.createdAt,
+                expiresAt: key.expiresAt ? key.expiresAt : null,
             })
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -79,7 +77,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
                 ...(patch.name === undefined ? {} : { name: patch.name }),
                 ...(patch.scopes === undefined ? {} : { scopes: patch.scopes }),
                 ...(patch.metadata === undefined ? {} : { metadata: JSON.stringify(patch.metadata) }),
-                ...(patch.expiresAt === undefined ? {} : { expiresAt: patch.expiresAt ? iso(patch.expiresAt) : null }),
+                ...(patch.expiresAt === undefined ? {} : { expiresAt: patch.expiresAt ? patch.expiresAt : null }),
                 ...(patch.secretHash === undefined ? {} : { secretHash: patch.secretHash }),
                 ...(patch.hint === undefined ? {} : { hint: patch.hint }),
             })
@@ -92,7 +90,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
     async revoke(id: string, at: DateTime): Promise<ApiKey<AccountActor>> {
         const row = await this.db
             .updateTable('wilson.apiKeys')
-            .set(eb => ({ revokedAt: eb.fn.coalesce('revokedAt', eb.val(iso(at))) }))
+            .set(eb => ({ revokedAt: eb.fn.coalesce('revokedAt', eb.val(at)) }))
             .where('id', '=', id)
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -102,7 +100,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
     async revokeAllForOwner(owner: TargetActor<AccountActor>, at: DateTime): Promise<number> {
         const result = await this.db
             .updateTable('wilson.apiKeys')
-            .set({ revokedAt: iso(at) })
+            .set({ revokedAt: at })
             .where('accountId', '=', owner.actorId)
             .where('revokedAt', 'is', null)
             .executeTakeFirst();
@@ -110,11 +108,7 @@ export class AccountApiKeyRepository extends ApiKeyRepository<AccountActor> {
     }
 
     async touchLastUsed(id: string, at: DateTime): Promise<void> {
-        await this.db
-            .updateTable('wilson.apiKeys')
-            .set({ lastUsedAt: iso(at) })
-            .where('id', '=', id)
-            .execute();
+        await this.db.updateTable('wilson.apiKeys').set({ lastUsedAt: at }).where('id', '=', id).execute();
     }
 
     async delete(id: string): Promise<void> {

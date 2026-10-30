@@ -1,7 +1,7 @@
 {
     "camelCase": true,
     "customImports": {
-        "Timestamptz": "./column.types.js"
+        "DateTime": "luxon"
     },
     "dialect": "postgres",
     "includePattern": "wilson.*",
@@ -18,7 +18,7 @@
         }
     },
     "typeMapping": {
-        "timestamptz": "Timestamptz"
+        "timestamptz": "DateTime"
     },
     "typeOnlyImports": true,
     "url": "env(DATABASE_URL)"

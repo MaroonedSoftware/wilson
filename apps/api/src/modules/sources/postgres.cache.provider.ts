@@ -4,8 +4,8 @@ import { CacheProvider } from '@maroonedsoftware/cache';
 import type { DB } from '#modules/data/db.js';
 
 /**
- * Postgres's own clock, typed as `DateTime` (what `expiresAt` reads back as, per `db.ts`'s own note
- * on `KyselyPgTypeOverrides`) so it satisfies whichever `WhereInterface` — a plain `where` or an
+ * Postgres's own clock, typed as `DateTime` (what `expiresAt` reads back as, per
+ * `KyselyPgTypeOverrides`) so it satisfies whichever `WhereInterface` — a plain `where` or an
  * `onConflict` update's — asks for it. Every comparison this class makes (`get`'s freshness check,
  * `update`'s, and `add`'s atomic claim below) resolves against this, never this process's own clock,
  * which is what keeps them consistent across however many instances of this class are running.
@@ -18,12 +18,12 @@ const now = () => sql<DateTime>`now()`;
  * accepts a fraction, so no rounding or clamping is needed the way `IoRedisCacheProvider`'s `EX`
  * (integer-only) requires.
  */
-const expiresAtFor = (ttl: Duration) => sql<string>`now() + make_interval(secs => ${ttl.as('seconds')})`;
+const expiresAtFor = (ttl: Duration) => sql<DateTime>`now() + make_interval(secs => ${ttl.as('seconds')})`;
 
 /** Postgres's own "never" for a `timestamptz` column — used for a write with no `ttl` at all, so
  * `wilson.cache_entries.expires_at` (`NOT NULL`, card 0197's own migration) never needs a nullable
  * column just to say "does not expire". Compares correctly against `now()` in every direction. */
-const NEVER = sql<string>`'infinity'`;
+const NEVER = sql<DateTime>`'infinity'`;
 
 /**
  * `CacheProvider` (`@maroonedsoftware/cache`) against `wilson.cache_entries` — this deployment's

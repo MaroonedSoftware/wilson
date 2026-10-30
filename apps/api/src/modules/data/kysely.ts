@@ -3,8 +3,8 @@
  * Please do not edit it manually.
  */
 
-import type { Timestamptz } from "./column.types.js";
 import type { ColumnType } from "kysely";
+import type { DateTime } from "luxon";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
@@ -29,7 +29,7 @@ export interface WilsonAccountAuthenticators {
   active: Generated<boolean>;
   algorithm: "sha1" | "sha256" | "sha512";
   counter: Generated<number>;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<string>;
   label: string | null;
   periodSeconds: number;
@@ -42,7 +42,7 @@ export interface WilsonAccountPasskeys {
   accountId: string;
   active: Generated<boolean>;
   counter: Generated<Int8>;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<string>;
   label: string | null;
   publicKey: string;
@@ -52,43 +52,43 @@ export interface WilsonAccountPasskeys {
 export interface WilsonAccountPasswords {
   accountId: string;
   active: Generated<boolean>;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   hash: string;
   needsReset: Generated<boolean>;
   salt: string;
-  updatedAt: Generated<Timestamptz>;
+  updatedAt: Generated<DateTime>;
 }
 
 export interface WilsonAccounts {
   active: Generated<boolean>;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   email: string;
   id: Generated<string>;
 }
 
 export interface WilsonApiKeys {
   accountId: string;
-  createdAt: Generated<Timestamptz>;
-  expiresAt: Timestamptz | null;
+  createdAt: Generated<DateTime>;
+  expiresAt: DateTime | null;
   hint: string;
   id: Generated<string>;
-  lastUsedAt: Timestamptz | null;
+  lastUsedAt: DateTime | null;
   metadata: Generated<Json>;
   name: string;
-  revokedAt: Timestamptz | null;
+  revokedAt: DateTime | null;
   scopes: string[];
   secretHash: string;
   type: string | null;
 }
 
 export interface WilsonCacheEntries {
-  expiresAt: Timestamptz;
+  expiresAt: DateTime;
   key: string;
   value: string;
 }
 
 export interface WilsonCacheSetMembers {
-  expiresAt: Timestamptz;
+  expiresAt: DateTime;
   key: string;
   member: string;
 }
@@ -97,8 +97,8 @@ export interface WilsonCardContext {
   cardId: string;
   content: string;
   contentHash: string;
-  createdAt: Generated<Timestamptz>;
-  fetchedAt: Timestamptz;
+  createdAt: Generated<DateTime>;
+  fetchedAt: DateTime;
   fetchedBy: string;
   id: Generated<Int8>;
   project: string;
@@ -114,7 +114,7 @@ export interface WilsonCardDeps {
 
 export interface WilsonCardEvents {
   cardId: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<Int8>;
   payload: Generated<Json>;
   project: string;
@@ -124,7 +124,7 @@ export interface WilsonCardEvents {
 
 export interface WilsonCardJobs {
   cardId: string;
-  enqueuedAt: Generated<Timestamptz>;
+  enqueuedAt: Generated<DateTime>;
   jobId: string;
   project: string;
 }
@@ -132,7 +132,7 @@ export interface WilsonCardJobs {
 export interface WilsonCards {
   body: string;
   branch: string | null;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   external: Json | null;
   id: string;
   needsHuman: Generated<boolean>;
@@ -144,13 +144,13 @@ export interface WilsonCards {
   sourceClosed: boolean | null;
   stage: string;
   title: string;
-  updatedAt: Generated<Timestamptz>;
+  updatedAt: Generated<DateTime>;
 }
 
 export interface WilsonCardVersions {
   body: string;
   cardId: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   frontmatter: Json;
   id: Generated<Int8>;
   message: string;
@@ -159,7 +159,7 @@ export interface WilsonCardVersions {
 
 export interface WilsonChatMessages {
   content: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   engineMessages: Json | null;
   operations: Generated<Json>;
   role: "user" | "assistant";
@@ -169,10 +169,10 @@ export interface WilsonChatMessages {
 
 export interface WilsonChatPendingActions {
   arguments: Json;
-  createdAt: Generated<Timestamptz>;
-  decidedAt: Timestamptz | null;
+  createdAt: Generated<DateTime>;
+  decidedAt: DateTime | null;
   error: string | null;
-  expiresAt: Timestamptz;
+  expiresAt: DateTime;
   id: Generated<Int8>;
   operation: string;
   project: string | null;
@@ -183,13 +183,13 @@ export interface WilsonChatPendingActions {
 }
 
 export interface WilsonChatThreads {
-  archivedAt: Timestamptz | null;
-  createdAt: Generated<Timestamptz>;
+  archivedAt: DateTime | null;
+  createdAt: Generated<DateTime>;
   engine: "api" | "cli";
   engineSessionId: string | null;
   id: Generated<Int8>;
   title: string;
-  updatedAt: Generated<Timestamptz>;
+  updatedAt: Generated<DateTime>;
 }
 
 export interface WilsonHostProjects {
@@ -202,26 +202,26 @@ export interface WilsonHostProjects {
 
 export interface WilsonHosts {
   commandEnv: Generated<string[]>;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   draining: Generated<boolean>;
   enabled: Generated<boolean>;
   engineVersion: string | null;
-  expiresAt: Timestamptz | null;
+  expiresAt: DateTime | null;
   kind: Generated<"ssh" | "worker">;
   lifetimeMinutes: number | null;
   name: string;
-  probedAt: Timestamptz | null;
+  probedAt: DateTime | null;
   probeDetail: string | null;
   probeOk: boolean | null;
   slots: Generated<number>;
   sshTarget: string | null;
   workerTokenHash: string | null;
   workerTokenHint: string | null;
-  workerTokenIssuedAt: Timestamptz | null;
+  workerTokenIssuedAt: DateTime | null;
 }
 
 export interface WilsonLearnings {
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<Int8>;
   markdown: string;
   message: string;
@@ -229,7 +229,7 @@ export interface WilsonLearnings {
 }
 
 export interface WilsonLeases {
-  acquiredAt: Generated<Timestamptz>;
+  acquiredAt: Generated<DateTime>;
   cardId: string;
   project: string;
   resourceKey: string;
@@ -237,7 +237,7 @@ export interface WilsonLeases {
 
 export interface WilsonPlanComments {
   cardId: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<Int8>;
   prefix: string;
   project: string;
@@ -250,7 +250,7 @@ export interface WilsonPlanComments {
 export interface WilsonPlanTurns {
   cardId: string;
   content: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   engineSessionId: string | null;
   project: string;
   role: "user" | "assistant";
@@ -259,7 +259,7 @@ export interface WilsonPlanTurns {
 
 export interface WilsonProjects {
   codeRoot: string;
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   name: string;
   runRoot: string;
   worktreeRoot: string;
@@ -268,7 +268,7 @@ export interface WilsonProjects {
 export interface WilsonSettings {
   key: string;
   project: string;
-  updatedAt: Generated<Timestamptz>;
+  updatedAt: Generated<DateTime>;
   value: Json;
 }
 
@@ -276,11 +276,11 @@ export interface WilsonSourceCursors {
   cursor: string;
   project: string;
   source: string;
-  updatedAt: Generated<Timestamptz>;
+  updatedAt: Generated<DateTime>;
 }
 
 export interface WilsonStageConfigs {
-  createdAt: Generated<Timestamptz>;
+  createdAt: Generated<DateTime>;
   id: Generated<Int8>;
   message: string;
   project: string;
