@@ -41,7 +41,7 @@ export class ChatThreadRepository {
     }
 
     async get(id: string): Promise<ChatThread | undefined> {
-        const row = await this.db.selectFrom('wilson.chatThreads').selectAll().where('id', '=', id).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.chatThreads').selectAll().where('id', '=', BigInt(id)).executeTakeFirst();
         return row && toThread(row);
     }
 
@@ -59,7 +59,7 @@ export class ChatThreadRepository {
 
     /** Undefined when there is no such thread. */
     async rename(id: string, title: string): Promise<ChatThread | undefined> {
-        const row = await this.db.updateTable('wilson.chatThreads').set({ title }).where('id', '=', id).returningAll().executeTakeFirst();
+        const row = await this.db.updateTable('wilson.chatThreads').set({ title }).where('id', '=', BigInt(id)).returningAll().executeTakeFirst();
         return row && toThread(row);
     }
 
@@ -68,7 +68,7 @@ export class ChatThreadRepository {
         const row = await this.db
             .updateTable('wilson.chatThreads')
             .set({ archivedAt: DateTime.now() })
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .returningAll()
             .executeTakeFirst();
         return row && toThread(row);
@@ -76,6 +76,6 @@ export class ChatThreadRepository {
 
     /** Record the 'cli' engine's session id, so the next turn resumes that session. */
     async setEngineSessionId(id: string, engineSessionId: string): Promise<void> {
-        await this.db.updateTable('wilson.chatThreads').set({ engineSessionId }).where('id', '=', id).execute();
+        await this.db.updateTable('wilson.chatThreads').set({ engineSessionId }).where('id', '=', BigInt(id)).execute();
     }
 }

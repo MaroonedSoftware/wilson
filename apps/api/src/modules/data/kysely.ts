@@ -10,8 +10,6 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
-export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
-
 export type Json = JsonValue;
 
 export type JsonArray = JsonValue[];
@@ -41,7 +39,7 @@ export interface WilsonAccountAuthenticators {
 export interface WilsonAccountPasskeys {
   accountId: string;
   active: Generated<boolean>;
-  counter: Generated<Int8>;
+  counter: Generated<bigint>;
   createdAt: Generated<DateTime>;
   id: Generated<string>;
   label: string | null;
@@ -100,7 +98,7 @@ export interface WilsonCardContext {
   createdAt: Generated<DateTime>;
   fetchedAt: DateTime;
   fetchedBy: string;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   project: string;
   sourceUrl: string;
   title: string | null;
@@ -115,7 +113,7 @@ export interface WilsonCardDeps {
 export interface WilsonCardEvents {
   cardId: string;
   createdAt: Generated<DateTime>;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   payload: Generated<Json>;
   project: string;
   stage: string | null;
@@ -137,7 +135,7 @@ export interface WilsonCards {
   id: string;
   needsHuman: Generated<boolean>;
   needsHumanReason: string | null;
-  pinnedVersionId: Int8 | null;
+  pinnedVersionId: bigint | null;
   position: number | null;
   project: string;
   retries: Generated<Json>;
@@ -152,7 +150,7 @@ export interface WilsonCardVersions {
   cardId: string;
   createdAt: Generated<DateTime>;
   frontmatter: Json;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   message: string;
   project: string;
 }
@@ -164,7 +162,7 @@ export interface WilsonChatMessages {
   operations: Generated<Json>;
   role: "user" | "assistant";
   seq: number;
-  threadId: Int8;
+  threadId: bigint;
 }
 
 export interface WilsonChatPendingActions {
@@ -173,13 +171,13 @@ export interface WilsonChatPendingActions {
   decidedAt: DateTime | null;
   error: string | null;
   expiresAt: DateTime;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   operation: string;
   project: string | null;
   result: Json | null;
   status: Generated<"pending" | "running" | "done" | "failed" | "declined">;
   summary: string;
-  threadId: Int8;
+  threadId: bigint;
 }
 
 export interface WilsonChatThreads {
@@ -187,7 +185,7 @@ export interface WilsonChatThreads {
   createdAt: Generated<DateTime>;
   engine: "api" | "cli";
   engineSessionId: string | null;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   title: string;
   updatedAt: Generated<DateTime>;
 }
@@ -222,7 +220,7 @@ export interface WilsonHosts {
 
 export interface WilsonLearnings {
   createdAt: Generated<DateTime>;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   markdown: string;
   message: string;
   project: string;
@@ -238,7 +236,7 @@ export interface WilsonLeases {
 export interface WilsonPlanComments {
   cardId: string;
   createdAt: Generated<DateTime>;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   prefix: string;
   project: string;
   quote: string;
@@ -281,7 +279,7 @@ export interface WilsonSourceCursors {
 
 export interface WilsonStageConfigs {
   createdAt: Generated<DateTime>;
-  id: Generated<Int8>;
+  id: Generated<bigint>;
   message: string;
   project: string;
   yaml: string;

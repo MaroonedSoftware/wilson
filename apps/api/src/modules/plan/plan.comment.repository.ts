@@ -92,7 +92,7 @@ export class PlanCommentRepository {
             .set({ resolved: true })
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .returningAll()
             .executeTakeFirst();
         return row ? toPlanComment(row) : undefined;
@@ -100,7 +100,7 @@ export class PlanCommentRepository {
 }
 
 function toPlanComment(row: {
-    id: string;
+    id: bigint;
     quote: string;
     prefix: string;
     suffix: string;

@@ -66,7 +66,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .select(['frontmatter', 'body'])
             .where('project', '=', this.config.project)
             .where('cardId', '=', id)
-            .where('id', '=', version)
+            .where('id', '=', BigInt(version))
             .executeTakeFirst();
         if (!row) {
             throw new CardNotFoundError(`card ${id} has no version ${version}`);
@@ -226,7 +226,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 sourceClosed: fm.sourceClosed ?? null,
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
-                pinnedVersionId: fm.planVersionId ?? null,
+                pinnedVersionId: fm.planVersionId ? BigInt(fm.planVersionId) : null,
             })
             .where('project', '=', this.config.project)
             .where('id', '=', id)
@@ -282,7 +282,7 @@ export class PostgresBoardRepository extends BoardRepository {
  * BigInt` the first time it reaches an HTTP response, which is where `/api/cards/{id}/versions`
  * found it. `EventLog.tail` already did this conversion for the same reason; this is the rest of it.
  */
-const versionId = (id: string): string => String(id);
+const versionId = (id: bigint): string => String(id);
 
 const toCard = (
     row: {
@@ -296,7 +296,7 @@ const toCard = (
         sourceClosed: boolean | null;
         needsHuman: boolean;
         needsHumanReason: string | null;
-        pinnedVersionId: string | null;
+        pinnedVersionId: bigint | null;
         position: number | null;
     },
     dependsOn: string[],

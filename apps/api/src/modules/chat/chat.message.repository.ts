@@ -67,7 +67,7 @@ export class ChatMessageRepository {
             const last = await trx
                 .selectFrom('wilson.chatMessages')
                 .select('seq')
-                .where('threadId', '=', threadId)
+                .where('threadId', '=', BigInt(threadId))
                 .orderBy('seq', 'desc')
                 .limit(1)
                 .executeTakeFirst();
@@ -75,7 +75,7 @@ export class ChatMessageRepository {
             const row = await trx
                 .insertInto('wilson.chatMessages')
                 .values({
-                    threadId,
+                    threadId: BigInt(threadId),
                     seq: (last?.seq ?? 0) + 1,
                     role: message.role,
                     content: message.content,
@@ -85,7 +85,7 @@ export class ChatMessageRepository {
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await trx.updateTable('wilson.chatThreads').set({ updatedAt: row.createdAt }).where('id', '=', threadId).execute();
+            await trx.updateTable('wilson.chatThreads').set({ updatedAt: row.createdAt }).where('id', '=', BigInt(threadId)).execute();
 
             return toMessage(row);
         });
@@ -96,7 +96,7 @@ export class ChatMessageRepository {
         const rows = await this.db
             .selectFrom('wilson.chatMessages')
             .selectAll()
-            .where('threadId', '=', threadId)
+            .where('threadId', '=', BigInt(threadId))
             .where('seq', '>', afterSeq)
             .orderBy('seq')
             .execute();

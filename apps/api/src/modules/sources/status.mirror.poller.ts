@@ -262,7 +262,7 @@ export class StatusMirrorPoller {
             .orderBy('id', 'asc');
 
         if (cursor !== undefined) {
-            query = query.where('id', '>', cursor);
+            query = query.where('id', '>', BigInt(cursor));
         }
 
         const rows = await query.execute();

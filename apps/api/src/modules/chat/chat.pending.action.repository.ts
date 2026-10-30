@@ -65,7 +65,7 @@ export class ChatPendingActionRepository {
         const row = await this.db
             .insertInto('wilson.chatPendingActions')
             .values({
-                threadId,
+                threadId: BigInt(threadId),
                 project: action.project ?? null,
                 operation: action.operation,
                 arguments: JSON.stringify(action.arguments),
@@ -78,13 +78,18 @@ export class ChatPendingActionRepository {
     }
 
     async get(id: string): Promise<PendingAction | undefined> {
-        const row = await this.db.selectFrom('wilson.chatPendingActions').selectAll().where('id', '=', id).executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.chatPendingActions').selectAll().where('id', '=', BigInt(id)).executeTakeFirst();
         return row && toAction(row);
     }
 
     /** A thread's actions, oldest first, whatever their status. */
     async forThread(threadId: string): Promise<PendingAction[]> {
-        const rows = await this.db.selectFrom('wilson.chatPendingActions').selectAll().where('threadId', '=', threadId).orderBy('id').execute();
+        const rows = await this.db
+            .selectFrom('wilson.chatPendingActions')
+            .selectAll()
+            .where('threadId', '=', BigInt(threadId))
+            .orderBy('id')
+            .execute();
         return rows.map(toAction);
     }
 
@@ -111,7 +116,7 @@ export class ChatPendingActionRepository {
                     ? { status: 'failed', error: outcome.error }
                     : { status: 'done', result: outcome.result === undefined ? null : JSON.stringify(outcome.result) },
             )
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .where('status', '=', 'running')
             .returningAll()
             .executeTakeFirst();
@@ -123,7 +128,7 @@ export class ChatPendingActionRepository {
         const row = await this.db
             .updateTable('wilson.chatPendingActions')
             .set({ status, decidedAt: now })
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .where('status', '=', 'pending')
             .where('expiresAt', '>', now)
             .returningAll()

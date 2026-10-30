@@ -82,7 +82,7 @@ export class CardContextRepository {
             .selectFrom('wilson.cardContext')
             .selectAll()
             .where('project', '=', this.config.project)
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .executeTakeFirst();
         return row ? toCardContext(row) : undefined;
     }
@@ -101,14 +101,14 @@ export class CardContextRepository {
             .deleteFrom('wilson.cardContext')
             .where('project', '=', this.config.project)
             .where('cardId', '=', cardId)
-            .where('id', '=', id)
+            .where('id', '=', BigInt(id))
             .executeTakeFirst();
         return (result?.numDeletedRows ?? 0n) > 0n;
     }
 }
 
 function toCardContext(row: {
-    id: string;
+    id: bigint;
     sourceUrl: string;
     fetchedAt: DateTime;
     fetchedBy: string;

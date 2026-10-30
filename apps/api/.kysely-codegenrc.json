@@ -18,6 +18,7 @@
         }
     },
     "typeMapping": {
+        "int8": "bigint",
         "timestamptz": "DateTime"
     },
     "typeOnlyImports": true,

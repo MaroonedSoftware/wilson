@@ -28,7 +28,7 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
                 accountId: actorId,
                 publicKey: options.publicKey,
                 publicKeyId: options.publicKeyId,
-                counter: options.counter,
+                counter: BigInt(options.counter),
                 label: options.label ?? null,
             })
             .returningAll()
@@ -66,7 +66,12 @@ export class AccountPasskeyRepository extends FidoFactorRepository {
     }
 
     async updateFactorCounter(actorId: string, factorId: string, counter: number): Promise<void> {
-        await this.db.updateTable('wilson.accountPasskeys').set({ counter }).where('accountId', '=', actorId).where('id', '=', factorId).execute();
+        await this.db
+            .updateTable('wilson.accountPasskeys')
+            .set({ counter: BigInt(counter) })
+            .where('accountId', '=', actorId)
+            .where('id', '=', factorId)
+            .execute();
     }
 
     async deleteFactor(actorId: string, factorId: string): Promise<void> {
