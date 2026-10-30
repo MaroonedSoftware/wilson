@@ -38,6 +38,12 @@ variable "service_account_email" {
   default = "agent-vm@toku-agents.iam.gserviceaccount.com"
 }
 
+variable "machine_type" {
+  type        = string
+  default     = "n2-highmem-4"
+  description = "The build VM's shape. Anything will do, since an image does not depend on it, which helps when a zone is out of the usual one."
+}
+
 variable "claude_code_version" {
   type        = string
   description = "npm version of @anthropic-ai/claude-code. build.sh passes CLAUDE_BINARY_VERSION, the version Wilson's engine probes last passed on."
@@ -58,7 +64,7 @@ source "googlecompute" "wilson" {
   source_image_family     = "ubuntu-2404-lts-amd64"
   source_image_project_id = ["ubuntu-os-cloud"]
 
-  machine_type = "n2-highmem-4"
+  machine_type = var.machine_type
   disk_type    = "pd-ssd"
 
   # The image's own size, and so the smallest disk a VM can boot it on. No project is in it, so it
@@ -83,8 +89,10 @@ source "googlecompute" "wilson" {
   omit_external_ip = true
   use_internal_ip  = true
   use_iap          = true
-  use_os_login     = true
-  tags             = ["agent-vm"]
+  # Out of the 8000s Packer otherwise picks from, where a laptop's dev servers tend to be.
+  iap_localhost_port = 18099
+  use_os_login       = true
+  tags               = ["agent-vm"]
 
   # OS Login decides the user Packer signs in as; this only satisfies the communicator.
   ssh_username = "packer"
