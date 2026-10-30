@@ -39,6 +39,7 @@ export const CreateProjectRequest = z.strictObject({
     codeRoot: z.string(),
     worktreeRoot: z.string(),
     runRoot: z.string(),
+    repository: z.string().optional().describe('The GitHub repository the code comes from, as `owner/name`.'),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
@@ -56,6 +57,7 @@ export const UpdateProjectRequest = z.strictObject({
     codeRoot: z.string().optional(),
     worktreeRoot: z.string().optional(),
     runRoot: z.string().optional(),
+    repository: z.string().optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
 

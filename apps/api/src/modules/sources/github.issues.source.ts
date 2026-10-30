@@ -1,4 +1,5 @@
 import { GITHUB_LABEL } from '#modules/settings/github.label.setting.js';
+import { REPO_PATTERN } from '#modules/github/github.repo.js';
 import { GITHUB_REPO } from '#modules/settings/github.repo.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { CardSource, CardSourceFetchResult, CardSourceItem, MirrorStatus } from './card.source.js';
@@ -36,12 +37,6 @@ type GitHubIssuePayload = {
      * likely defect in the card". */
     readonly pull_request?: unknown;
 };
-
-/** `owner/name` only: no scheme, no path traversal, no query string, no more or fewer than one
- * slash. Deliberately conservative rather than GitHub's own (looser) rules for what a login or repo
- * name may contain — this card's Constraints ask only that the string be safe to interpolate into a
- * URL path, not that it accept everything GitHub itself would. */
-const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
 /** `owner/name#number` — the exact shape `changedSince` composes for `externalId`
  * (`${repo}#${issue.number}`, above) — parsed back apart for `mirrorStatus`. */

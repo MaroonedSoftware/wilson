@@ -55,6 +55,8 @@ contract CreateProjectRequest: {
     codeRoot: string
     worktreeRoot: string
     runRoot: string
+    # The GitHub repository the code comes from, as `owner/name`.
+    repository?: string
 }
 
 # Every field optional, unlike `CreateProjectRequest`: this is `patch`, not `put` (see the operation
@@ -68,6 +70,7 @@ contract UpdateProjectRequest: {
     codeRoot?: string
     worktreeRoot?: string
     runRoot?: string
+    repository?: string
 }
 
 # The query for `GET /api/projects/directories`. A named contract rather than an inline `query:` so

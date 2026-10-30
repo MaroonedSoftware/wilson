@@ -16,7 +16,15 @@ export interface ProjectRow {
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
+    /** The GitHub repository the code comes from, as `owner/name`. Absent for one registered by path. */
+    repository?: string;
 }
+
+const COLUMNS = ['name', 'codeRoot', 'worktreeRoot', 'runRoot', 'repository'] as const;
+
+/** A row as this class answers with it: a column Postgres holds as NULL is simply not set. */
+const toRow = ({ repository, ...row }: Omit<ProjectRow, 'repository'> & { repository: string | null }): ProjectRow =>
+    repository === null ? row : { ...row, repository };
 
 /**
  * `wilson.projects`, in Postgres — a project's name and the three paths `BoardConfig` exposes.
@@ -34,11 +42,8 @@ export class ProjectRepository {
 
     /** The named project's row, or undefined if it has never been created. */
     async find(name: string): Promise<ProjectRow | undefined> {
-        return this.db
-            .selectFrom('wilson.projects')
-            .select(['name', 'codeRoot', 'worktreeRoot', 'runRoot'])
-            .where('name', '=', name)
-            .executeTakeFirst();
+        const row = await this.db.selectFrom('wilson.projects').select(COLUMNS).where('name', '=', name).executeTakeFirst();
+        return row && toRow(row);
     }
 
     /**
@@ -50,7 +55,8 @@ export class ProjectRepository {
      * see this class's own doc comment), so this is additive, not a replacement for either.
      */
     async list(): Promise<ProjectRow[]> {
-        return this.db.selectFrom('wilson.projects').select(['name', 'codeRoot', 'worktreeRoot', 'runRoot']).orderBy('name').execute();
+        const rows = await this.db.selectFrom('wilson.projects').select(COLUMNS).orderBy('name').execute();
+        return rows.map(toRow);
     }
 
     /** Create a project's row. Fails if the name is already taken. */
@@ -59,7 +65,7 @@ export class ProjectRepository {
     }
 
     /**
-     * Set whichever of the three path columns `patch` names, for the named project, leaving the
+     * Set whichever columns `patch` names, for the named project, leaving the
      * others untouched. Returns whether a row matched `name`, so the caller can answer 404 rather
      * than succeeding silently against nothing.
      *

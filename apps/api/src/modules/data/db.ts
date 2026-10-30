@@ -260,6 +260,7 @@ export interface WilsonProjects {
   codeRoot: string;
   createdAt: Generated<DateTime>;
   name: string;
+  repository: string | null;
   runRoot: string;
   worktreeRoot: string;
 }

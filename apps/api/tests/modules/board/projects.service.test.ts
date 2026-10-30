@@ -229,4 +229,41 @@ describe('ProjectsService', () => {
             expect(Object.keys(result)).toEqual(['name']);
         });
     });
+
+    describe('repository', () => {
+        const fake = () => {
+            const created: ProjectRow[] = [];
+            const patches: unknown[] = [];
+            const repository = {
+                find: async () => undefined,
+                create: async (row: ProjectRow) => void created.push(row),
+                update: async (_: string, patch: unknown) => (patches.push(patch), true),
+            } as unknown as ProjectRepository;
+            return { service: new ProjectsService(repository), created, patches };
+        };
+        const paths = { codeRoot: '/code/a', worktreeRoot: '/wt/a', runRoot: '/run/a' };
+
+        it('keeps the repository a project is registered with', async () => {
+            const { service, created } = fake();
+
+            await service.create({ name: 'a', ...paths, repository: 'acme/app' });
+
+            expect(created[0]?.repository).toBe('acme/app');
+        });
+
+        it('sets a repository on a registered project', async () => {
+            const { service, patches } = fake();
+
+            await service.update('a', { repository: 'acme/app' });
+
+            expect(patches).toEqual([{ repository: 'acme/app' }]);
+        });
+
+        it.each(['app', 'acme/app/extra', 'https://github.com/acme/app', '../app'])('refuses "%s", which is not owner/name', async value => {
+            const { service, created } = fake();
+
+            await expect(service.create({ name: 'a', ...paths, repository: value })).rejects.toMatchObject({ statusCode: 400 });
+            expect(created).toEqual([]);
+        });
+    });
 });

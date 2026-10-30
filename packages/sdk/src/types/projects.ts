@@ -36,6 +36,8 @@ export interface CreateProjectRequest {
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
+    /** The GitHub repository the code comes from, as `owner/name`. */
+    repository?: string;
 }
 
 /**
@@ -52,6 +54,7 @@ export interface UpdateProjectRequest {
     codeRoot?: string;
     worktreeRoot?: string;
     runRoot?: string;
+    repository?: string;
 }
 
 /**
