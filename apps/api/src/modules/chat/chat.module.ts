@@ -1,7 +1,8 @@
-import { Registry } from 'injectkit';
+import { Registry, type Container } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
-import { ServerKitModule } from '@maroonedsoftware/koa';
+import { ServerKitContext, ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
+import { requireSession } from '#modules/authentication/request.session.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { ApiChatEngine } from './api.chat.engine.js';
@@ -13,6 +14,15 @@ import { ChatPendingActionRepository } from './chat.pending.action.repository.js
 import { ChatService } from './chat.service.js';
 import { ChatThreadRepository } from './chat.thread.repository.js';
 import { CliChatEngine } from './cli.chat.engine.js';
+
+/**
+ * The root container, reachable from a request's scope. A singleton's factory is handed the root
+ * whatever scope triggered it, which is the only way to come by it. A turn needs it because the
+ * request scope is disposed when the response closes, and a follow-up always runs after that.
+ */
+class ChatRootContainer {
+    constructor(readonly container: Container) {}
+}
 
 /**
  * The chat a person drives Wilson from, modelled on ats's web chat: an agent that reads through the
@@ -32,22 +42,30 @@ export const ChatModule: ServerKitModule = {
         registry.register(ChatEngineSettingService).useClass(ChatEngineSettingService).asTransient();
         // A factory, not `useClass`: the service runs each catalog operation in a fresh scope of the
         // container itself (`ChatCatalog.run`), and the container is not a token it could inject.
+        // The session is read when a turn needs it, not here: the service also resolves outside a
+        // request, where `ServerKitContext` throws. That is the one thing it takes from the request's
+        // scope once built; what a turn resolves comes from the root, which outlives the response.
+        registry
+            .register(ChatRootContainer)
+            .useFactory(container => new ChatRootContainer(container))
+            .asSingleton();
         registry
             .register(ChatService)
-            .useFactory(
-                container =>
-                    new ChatService(
-                        container,
-                        container.get(Logger),
-                        container.get(ChatThreadRepository),
-                        container.get(ChatMessageRepository),
-                        container.get(ChatPendingActionRepository),
-                        container.get(ChatCatalog),
-                        container.get(ProjectRepository),
-                        { api: container.get(ApiChatEngine), cli: container.get(CliChatEngine) },
-                        () => container.get(SettingsStore).get(CHAT_ENGINE),
-                    ),
-            )
+            .useFactory(container => {
+                const root = container.get(ChatRootContainer).container;
+                return new ChatService(
+                    root,
+                    container.get(Logger),
+                    container.get(ChatThreadRepository),
+                    container.get(ChatMessageRepository),
+                    container.get(ChatPendingActionRepository),
+                    container.get(ChatCatalog),
+                    container.get(ProjectRepository),
+                    { api: container.get(ApiChatEngine), cli: container.get(CliChatEngine) },
+                    () => root.get(SettingsStore).get(CHAT_ENGINE),
+                    () => requireSession(container.get(ServerKitContext)),
+                );
+            })
             .asTransient();
     },
 };

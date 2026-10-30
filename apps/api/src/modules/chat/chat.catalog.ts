@@ -1,4 +1,5 @@
 import { Injectable, type Container } from 'injectkit';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
@@ -36,7 +37,8 @@ export const explainError = (err: unknown): string => {
  * checks a named project against `wilson.projects`, registers its row, and runs the request inside
  * `runAsProject`; {@link run} does the same, so a catalog handler reads `BoardConfig` exactly as the
  * route it mirrors would. Each call gets its own scoped container, as each request does, which is
- * where the handler resolves its service (`resolve: perCall`).
+ * where the handler resolves its service (`resolve: perCall`). It runs as the person whose message
+ * or decision asked for it, so a handler's policy judges that person's session, as the route's would.
  */
 @Injectable()
 export class ChatCatalog {
@@ -84,7 +86,14 @@ export class ChatCatalog {
      * names none) and answer with its result. Throws what the operation throws, and a 400 for a
      * project that is not registered or an operation that does not exist.
      */
-    async run(container: Container, logger: Logger, name: string, args: Record<string, unknown>, project?: string): Promise<unknown> {
+    async run(
+        container: Container,
+        logger: Logger,
+        session: AuthenticationSession,
+        name: string,
+        args: Record<string, unknown>,
+        project?: string,
+    ): Promise<unknown> {
         const handler = this.catalog.get(name);
         if (!handler) throw httpError(400).withDetails({ reason: `there is no operation named "${name}"` });
 
@@ -97,7 +106,7 @@ export class ChatCatalog {
         }
 
         const result = await runAsProject(project ?? board.project, () =>
-            handler.handle(args, { requestId: `chat:${name}`, logger, container: scope, toolName: name }),
+            handler.handle(args, { requestId: `chat:${name}`, logger, container: scope, authenticationSession: session, toolName: name }),
         );
         if (result.structuredContent !== undefined) return result.structuredContent;
         const text = result.content?.find(part => part.type === 'text')?.text;
