@@ -15,7 +15,7 @@ export type Int8 = ColumnType<string, bigint | number | string, bigint | number 
 export interface WilsonAccountAuthenticators {
   accountId: string;
   active: Generated<boolean>;
-  algorithm: string;
+  algorithm: "sha1" | "sha256" | "sha512";
   counter: Generated<number>;
   createdAt: Generated<Timestamptz>;
   id: Generated<string>;
@@ -23,7 +23,7 @@ export interface WilsonAccountAuthenticators {
   periodSeconds: number;
   secret: string;
   tokenLength: number;
-  type: string;
+  type: "totp" | "hotp";
 }
 
 export interface WilsonAccountPasskeys {
@@ -61,7 +61,7 @@ export interface WilsonApiKeys {
   hint: string;
   id: Generated<string>;
   lastUsedAt: Timestamptz | null;
-  metadata: ColumnType<Record<string, unknown>, string | undefined, string>;
+  metadata: Generated<unknown>;
   name: string;
   revokedAt: Timestamptz | null;
   scopes: string[];
@@ -150,7 +150,7 @@ export interface WilsonChatMessages {
   createdAt: Generated<Timestamptz>;
   engineMessages: unknown | null;
   operations: Generated<unknown>;
-  role: string;
+  role: "user" | "assistant";
   seq: number;
   threadId: Int8;
 }
@@ -165,7 +165,7 @@ export interface WilsonChatPendingActions {
   operation: string;
   project: string | null;
   result: unknown | null;
-  status: Generated<string>;
+  status: Generated<"pending" | "running" | "done" | "failed" | "declined">;
   summary: string;
   threadId: Int8;
 }
@@ -173,7 +173,7 @@ export interface WilsonChatPendingActions {
 export interface WilsonChatThreads {
   archivedAt: Timestamptz | null;
   createdAt: Generated<Timestamptz>;
-  engine: string;
+  engine: "api" | "cli";
   engineSessionId: string | null;
   id: Generated<Int8>;
   title: string;
@@ -195,7 +195,7 @@ export interface WilsonHosts {
   enabled: Generated<boolean>;
   engineVersion: string | null;
   expiresAt: Timestamptz | null;
-  kind: Generated<string>;
+  kind: Generated<"ssh" | "worker">;
   lifetimeMinutes: number | null;
   name: string;
   probedAt: Timestamptz | null;
@@ -241,7 +241,7 @@ export interface WilsonPlanTurns {
   createdAt: Generated<Timestamptz>;
   engineSessionId: string | null;
   project: string;
-  role: string;
+  role: "user" | "assistant";
   seq: number;
 }
 

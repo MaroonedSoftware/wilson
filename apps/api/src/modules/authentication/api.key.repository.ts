@@ -16,7 +16,7 @@ const toKey = (row: Selectable<WilsonApiKeys>): ApiKey<AccountActor> => ({
     hint: row.hint,
     secretHash: row.secretHash,
     scopes: row.scopes,
-    metadata: row.metadata ?? {},
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdAt: row.createdAt,
     ...(row.expiresAt ? { expiresAt: row.expiresAt } : {}),
     ...(row.lastUsedAt ? { lastUsedAt: row.lastUsedAt } : {}),

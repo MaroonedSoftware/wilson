@@ -1,0 +1,13 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "..",
+        "noEmit": true,
+        "paths": {
+            "#src/*": ["../src/*"],
+            "#modules/*": ["../src/modules/*"],
+            "#shared/*": ["../src/shared/*"]
+        }
+    },
+    "include": ["../scripts/**/*", "../src/**/*"]
+}

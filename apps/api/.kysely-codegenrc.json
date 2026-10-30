@@ -3,13 +3,18 @@
     "customImports": {
         "Timestamptz": "./column.types.js"
     },
-    "defaultSchemas": ["public"],
     "dialect": "postgres",
     "includePattern": "wilson.*",
     "outFile": "./src/modules/data/kysely.ts",
     "overrides": {
         "columns": {
-            "wilson.api_keys.metadata": "ColumnType<Record<string, unknown>, string | undefined, string>"
+            "wilson.account_authenticators.type": "'totp' | 'hotp'",
+            "wilson.account_authenticators.algorithm": "'sha1' | 'sha256' | 'sha512'",
+            "wilson.hosts.kind": "Generated<'ssh' | 'worker'>",
+            "wilson.plan_turns.role": "'user' | 'assistant'",
+            "wilson.chat_threads.engine": "'api' | 'cli'",
+            "wilson.chat_messages.role": "'user' | 'assistant'",
+            "wilson.chat_pending_actions.status": "Generated<'pending' | 'running' | 'done' | 'failed' | 'declined'>"
         }
     },
     "typeMapping": {
