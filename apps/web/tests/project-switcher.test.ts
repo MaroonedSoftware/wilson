@@ -107,11 +107,11 @@ afterEach(() => {
 });
 
 describe('the project switcher in the header', () => {
-    // Card 0173: a single registered project used to render nothing here at all — there was
-    // nothing to *switch* between, but also no way to reach the one project's own board without
-    // already being there. Now it renders a direct link instead, and the ≥2 menu below it (with its
-    // own "Switch project" trigger) never mounts.
-    it('renders a direct link to the one registered project\'s board instead of the switcher menu', async () => {
+    // Card 0173: a single registered project used to render nothing here at all. Now it renders a
+    // direct link instead, and the ≥2 menu below it (with its own "Switch project" trigger) never
+    // mounts. The link goes to the dashboard, not the one project's board, so it still leads somewhere
+    // from the board itself.
+    it('renders a direct link to the projects dashboard instead of the switcher menu', async () => {
         const listProjects = stubProjectsEndpoint(['demo']);
 
         renderApp('/projects/demo');
@@ -119,24 +119,8 @@ describe('the project switcher in the header', () => {
         await waitFor(() => expect(listProjects).toHaveBeenCalled());
 
         expect(screen.queryByLabelText('Switch project')).toBeNull();
-        const link = (await screen.findByLabelText('Go to the board')) as HTMLAnchorElement;
-        expect(link.getAttribute('href')).toBe('/projects/demo');
-    });
-
-    // Card 0179: this link used to pass `c="inherit"` to work around `--mantine-color-anchor` being
-    // unreadable in the dark scheme — Mantine's `c` style prop lands as an inline `color` style on the
-    // rendered element (`Box`'s `getBoxStyle`), so that workaround was directly observable as
-    // `style="color: inherit"` on the anchor. Now that `theme.ts`'s `cssVariablesResolver` fixes the
-    // token itself, the prop is gone and the link takes its colour from the CSS variable like every
-    // other `Anchor`, with no inline colour override at all.
-    it('no longer forces its colour to inherit — it takes the same token every other Anchor does', async () => {
-        stubProjectsEndpoint(['demo']);
-
-        renderApp('/projects/demo');
-        await screen.findByText('0 cards');
-
-        const link = (await screen.findByLabelText('Go to the board')) as HTMLAnchorElement;
-        expect(link.style.color).toBe('');
+        const link = (await screen.findByLabelText('All projects')) as HTMLAnchorElement;
+        expect(link.getAttribute('href')).toBe('/projects');
     });
 
     it('lists every registered project once two or more are registered', async () => {
