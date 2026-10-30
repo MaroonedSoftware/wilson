@@ -208,6 +208,7 @@ export interface WilsonHosts {
   expiresAt: DateTime | null;
   kind: Generated<"ssh" | "worker">;
   lifetimeMinutes: number | null;
+  projectsRoot: string | null;
   name: string;
   probedAt: DateTime | null;
   probeDetail: string | null;

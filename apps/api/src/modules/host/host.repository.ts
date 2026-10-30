@@ -62,6 +62,8 @@ export interface HostRow {
     lifetimeMinutes?: number;
     /** Variables the host's own environment supplies to configured commands there. */
     commandEnv: string[];
+    /** Where a project with a GitHub repository can add itself on this host; absent, only `projects` are served. */
+    projectsRoot?: string;
     projects: HostProjectRow[];
     /** Slots held by stages right now, slot order. */
     running: HostSlotUseRow[];
@@ -75,7 +77,10 @@ export interface HostRow {
  * The columns `update` may set; the probe's own columns are written only by `recordProbe`.
  * `lifetimeMinutes: null` clears it, the one place "explicitly emptied" differs from "left alone".
  */
-export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining' | 'commandEnv'>> & { lifetimeMinutes?: number | null };
+export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining' | 'commandEnv'>> & {
+    lifetimeMinutes?: number | null;
+    projectsRoot?: string | null;
+};
 
 /**
  * `wilson.hosts` and `wilson.host_projects`, in Postgres: the machines a stage can run on besides
@@ -140,6 +145,7 @@ export class HostRepository {
         slots: number;
         lifetimeMinutes?: number;
         commandEnv?: string[];
+        projectsRoot?: string;
     }): Promise<void> {
         await this.db.insertInto('wilson.hosts').values(row).execute();
     }
@@ -240,6 +246,7 @@ type HostSelection = {
     expiresAt?: DateTime | null;
     lifetimeMinutes?: number | null;
     commandEnv: string[];
+    projectsRoot?: string | null;
     workerTokenHint?: string | null;
     workerTokenIssuedAt?: DateTime | null;
 };
@@ -253,6 +260,7 @@ const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease
     draining: host.draining,
     ...(host.lifetimeMinutes && { lifetimeMinutes: host.lifetimeMinutes }),
     commandEnv: host.commandEnv,
+    ...(host.projectsRoot && { projectsRoot: host.projectsRoot }),
     projects: projects.map(({ project, codeRoot, worktreeRoot, runRoot }) => ({ project, codeRoot, worktreeRoot, runRoot })),
     running: slots
         .filter(lease => lease.resourceKey.startsWith(slotPrefix(host.name)))

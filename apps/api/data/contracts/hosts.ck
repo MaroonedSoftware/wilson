@@ -84,6 +84,9 @@ contract Host: {
     # Variables the host's own environment supplies to the commands stage config runs there (setup,
     # build, test, format), e.g. GITHUB_TOKEN on an agent VM. Never given to the agent's tools.
     commandEnv: array(string)
+    # A folder on the host any project with a GitHub repository can live under. A stage for a project
+    # not in `projects` adds itself there. Absent, the host serves only what is in `projects`.
+    projectsRoot?: string
     projects: array(HostProject)
     # The slots in use right now, slot order. `slots` minus this many are free.
     running: array(HostSlotUse)
@@ -101,6 +104,7 @@ contract CreateHostRequest: {
     slots?: int
     lifetimeMinutes?: int
     commandEnv?: array(string)
+    projectsRoot?: string
 }
 
 # A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
@@ -116,6 +120,8 @@ contract UpdateHostRequest: {
     lifetimeMinutes?: int
     # Replaces the whole list; an empty list clears it.
     commandEnv?: array(string)
+    # An empty string clears it.
+    projectsRoot?: string
 }
 
 # The three paths for one project on one host. All three are absolute paths on the host.

@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { DateTime } from 'luxon';
@@ -7,7 +8,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import { ProjectClones } from './project.clones.js';
 import { HostConnector } from './host.connector.js';
-import { HostRepository, type HostRow } from './host.repository.js';
+import { HostRepository, type HostProjectRow, type HostRow } from './host.repository.js';
 import { hostSlotKey, localSlotKey, type RemotePlacement } from './placement.js';
 
 /**
@@ -32,8 +33,8 @@ export class NoHostAvailable {
  * Picks the host a stage runs on, and takes a slot there.
  *
  * A host is a candidate only when everything an operator and the last probe said about it allows it:
- * enabled, not draining, serving the card's project, its last probe passed, and not due to expire
- * before the stage could finish. Candidates are tried in name order, each slot in turn; a slot is a
+ * enabled, not draining, serving the card's project (or able to take it on under its projects root),
+ * its last probe passed, and not due to expire before the stage could finish. Candidates are tried in name order, each slot in turn; a slot is a
  * `wilson.leases` row, so two stages cannot hold one and a slot held by a card with no live job is
  * swept the way any lease is (`LeaseService.acquire`). Before a slot is kept, the host is reached
  * once: a probe can be hours old, and an agent VM is gone the moment it is deleted.
@@ -86,7 +87,8 @@ export class HostPlacer {
         const deadline = DateTime.now().plus({ milliseconds: stage.maxWallClockMs, minutes: EXPIRY_MARGIN_MINUTES });
 
         for (const row of await this.hosts.list()) {
-            const serves = row.projects.find(p => p.project === project);
+            const listed = row.projects.find(p => p.project === project);
+            const serves = listed ?? (await this.defaultRoots(row, project));
             if (!serves) continue;
 
             const refusal = unsuitable(row, deadline);
@@ -101,7 +103,10 @@ export class HostPlacer {
                 continue;
             }
 
-            const host = this.connector.connect(row);
+            // Recorded before connecting, and read back: connecting tells a worker its roots, replacing
+            // the last list, so that list has to hold this project and any another stage just added.
+            if (!listed) await this.hosts.putProject(row.name, serves);
+            const host = this.connector.connect((await this.hosts.find(row.name)) ?? row);
             const reached = await host.exec('true', [], { cwd: '/', env: {}, timeoutMs: REACH_TIMEOUT_MS }).then(
                 () => true,
                 (err: Error) => {
@@ -156,6 +161,13 @@ export class HostPlacer {
     async markLost(placement: RemotePlacement, detail: string): Promise<void> {
         await this.hosts.recordProbe(placement.hostName, { probedAt: DateTime.now(), ok: false, detail: `lost during a stage: ${detail}` });
         this.logger.warn(`${placement.hostName} stopped answering: ${detail}`);
+    }
+
+    /** Where `project` goes under `row`'s projects root, when it has one and the project can be cloned there. */
+    private async defaultRoots(row: HostRow, project: string): Promise<HostProjectRow | undefined> {
+        if (!row.projectsRoot || !(await this.clones?.canClone(project))) return undefined;
+        const root = posix.join(row.projectsRoot, project);
+        return { project, codeRoot: posix.join(root, 'code'), worktreeRoot: posix.join(root, 'worktrees'), runRoot: posix.join(root, 'run') };
     }
 
     /** The first free slot on `row`, now held by `cardId`, or undefined when every one is taken. */

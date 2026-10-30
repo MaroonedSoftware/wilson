@@ -46,6 +46,14 @@ guardrail, not a boundary: a command run inside a project folder can still reach
 4. Back on Wilson, `wilson host probe unraid-vm` should pass. Stages placed `remote` or `any` can now
    land on it.
 
+A VM built from `infra/vm-image` needs none of this by hand except the registration: it runs the worker
+at boot and reads its token from Secret Manager. Register it with the VM's own name and a projects root,
+and any project with a GitHub repository can run there with no `wilson host serve`:
+
+```bash
+wilson host add wilson-1 --worker --projects-root /srv/wilson
+```
+
 ## Environment
 
 | Variable                  | Required | What it is                                                            |

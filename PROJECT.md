@@ -264,7 +264,9 @@ own machine, `remote` on a registered host, or `any` on a host when one has a fr
 otherwise. Planning sessions and stages with `worktree: none` always run here. A host is a
 `wilson.hosts` row (`wilson host add`, the web app's Hosts page) with a number of slots, the projects
 it serves and where each one's clone lives on it, and a probe (`wilson host probe`) that has to pass
-before placement will choose it.
+before placement will choose it. A worker probes itself each time it connects. A host with a
+`projectsRoot` also takes on any project with a GitHub repository: the first stage placed there adds
+its paths under that folder, and a worker clones it through the GitHub App.
 
 Only the work moves. Everything above the `ExecutionHost` seam (`execution.host.ts`) stays in the
 daemon: the Agent SDK's loop, the tool guard and its denials, budgets, verification, the commit,

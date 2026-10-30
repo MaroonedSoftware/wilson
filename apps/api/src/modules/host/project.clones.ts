@@ -21,6 +21,11 @@ export class ProjectClones {
         private readonly app: GitHubApp,
     ) {}
 
+    /** Whether a clone of `project` can be made anywhere: it has a repository to clone from. */
+    async canClone(project: string): Promise<boolean> {
+        return (await this.projects.find(project))?.repository !== undefined;
+    }
+
     /** Make sure `codeRoot` on `host` is a clone. Rejects, with a reason, when one cannot be made. */
     async ensure(host: ExecutionHost, project: string, codeRoot: string): Promise<void> {
         if (!host.cloneRepository) return;

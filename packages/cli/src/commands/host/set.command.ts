@@ -8,6 +8,7 @@ interface SetOpts {
     slots?: number;
     lifetimeMinutes?: number;
     commandEnv?: string;
+    projectsRoot?: string;
     enable?: boolean;
     disable?: boolean;
     drain?: boolean;
@@ -33,6 +34,11 @@ const command: CommandModule<SetOpts> = {
                 "Comma-separated variables the host's own environment gives setup, build and test commands, replacing the list; empty clears it",
             type: 'string',
         },
+        {
+            flags: '--projects-root <path>',
+            description: 'Absolute path on the host any project with a GitHub repository can add itself under; empty clears it',
+            type: 'string',
+        },
         { flags: '--enable', description: 'Let it take work again', type: 'boolean' },
         { flags: '--disable', description: 'Stop it taking work and stop probing it', type: 'boolean' },
         { flags: '--drain', description: 'Take no new stage, but let running ones finish', type: 'boolean' },
@@ -54,6 +60,7 @@ const command: CommandModule<SetOpts> = {
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
             ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
+            ...(opts.projectsRoot !== undefined && { projectsRoot: opts.projectsRoot }),
             ...((opts.enable || opts.disable) && { enabled: !!opts.enable }),
             ...((opts.drain || opts.undrain) && { draining: !!opts.drain }),
         };

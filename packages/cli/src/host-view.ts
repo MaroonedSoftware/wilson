@@ -20,7 +20,8 @@ export const describeHost = (host: Host): string[] => {
     for (const project of host.projects) {
         lines.push(`  ${project.project}  ${project.codeRoot}  worktrees ${project.worktreeRoot}  run ${project.runRoot}`);
     }
-    if (host.projects.length === 0) lines.push('  serves no project yet: `wilson host serve` adds one');
+    if (host.projectsRoot) lines.push(`  any project with a GitHub repository can add itself under ${host.projectsRoot}`);
+    else if (host.projects.length === 0) lines.push('  serves no project yet: `wilson host serve` adds one');
     return lines;
 };
 

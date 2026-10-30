@@ -95,6 +95,7 @@ export interface CreateHostRequest {
     slots?: number;
     lifetimeMinutes?: number;
     commandEnv?: string[];
+    projectsRoot?: string;
 }
 
 /**
@@ -113,6 +114,8 @@ export interface UpdateHostRequest {
     lifetimeMinutes?: number;
     /** Replaces the whole list; an empty list clears it. */
     commandEnv?: string[];
+    /** An empty string clears it. */
+    projectsRoot?: string;
 }
 
 /**
@@ -152,6 +155,11 @@ export interface Host {
      * build, test, format), e.g. GITHUB_TOKEN on an agent VM. Never given to the agent's tools.
      */
     commandEnv: string[];
+    /**
+     * A folder on the host any project with a GitHub repository can live under. A stage for a project
+     * not in `projects` adds itself there. Absent, the host serves only what is in `projects`.
+     */
+    projectsRoot?: string;
     projects: HostProject[];
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];

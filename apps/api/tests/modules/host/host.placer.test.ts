@@ -216,6 +216,62 @@ describe('HostPlacer', () => {
         expect(clones.ensure).toHaveBeenLastCalledWith(placed.host, project, '/opt/agent/TGA');
     });
 
+    describe('a host with a projects root', () => {
+        const defaulting = () =>
+            new HostPlacer(
+                hosts,
+                new HostConnector(FAKE_SSH),
+                leases,
+                silentLogger,
+                undefined,
+                new ProjectClones(new ProjectRepository(db), {} as never),
+            );
+
+        const withRoot = async (repository?: string) => {
+            const { project, name } = await setUp();
+            const other = uniqueProject();
+            await new ProjectRepository(db).create({
+                name: other,
+                codeRoot: '/tmp/code',
+                worktreeRoot: '/tmp/wt',
+                runRoot: '/tmp/run',
+                ...(repository && { repository }),
+            });
+            await insertCard(other, '0001');
+            await service.update(name, { projectsRoot: '/srv/wilson' });
+            return { project, name, other };
+        };
+
+        it('takes on a project with a repository, and records where it went', async () => {
+            const { name, other } = await withRoot('acme/widgets');
+
+            const placed = (await defaulting().place(other, '0001', stage('remote'))) as RemotePlacement;
+
+            expect(placed.hostName).toBe(name);
+            expect(placed.codeRoot).toBe(`/srv/wilson/${other}/code`);
+            expect(placed.worktreeRoot).toBe(`/srv/wilson/${other}/worktrees`);
+            expect(placed.runRoot).toBe(`/srv/wilson/${other}/run`);
+            expect((await service.get(name)).projects.map(p => p.project)).toContain(other);
+        });
+
+        it('passes over a project with nothing to clone from', async () => {
+            const { name, other } = await withRoot();
+
+            const result = await defaulting().place(other, '0001', stage('remote'));
+
+            expect(result).toBeInstanceOf(NoHostAvailable);
+            expect((await service.get(name)).projects.map(p => p.project)).not.toContain(other);
+        });
+
+        it('leaves a project’s own paths on the host as they are', async () => {
+            const { project } = await withRoot('acme/widgets');
+
+            const placed = (await defaulting().place(project, '0001', stage('remote'))) as RemotePlacement;
+
+            expect(placed.codeRoot).toBe('/opt/agent/TGA');
+        });
+    });
+
     it('gives the slot back when the host does not answer', async () => {
         const { project, name } = await setUp();
 

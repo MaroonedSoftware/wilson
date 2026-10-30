@@ -70,6 +70,7 @@ export const CreateHostRequest = z.strictObject({
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     lifetimeMinutes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     commandEnv: z.array(z.string()).optional(),
+    projectsRoot: z.string().optional(),
 });
 export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
 
@@ -89,6 +90,7 @@ export const UpdateHostRequest = z.strictObject({
         .optional()
         .describe('0 clears it: the host has no known end.'),
     commandEnv: z.array(z.string()).optional().describe('Replaces the whole list; an empty list clears it.'),
+    projectsRoot: z.string().optional().describe('An empty string clears it.'),
 });
 export type UpdateHostRequest = z.infer<typeof UpdateHostRequest>;
 
@@ -129,6 +131,12 @@ export const Host = z.strictObject({
         .array(z.string())
         .describe(
             "Variables the host's own environment supplies to the commands stage config runs there (setup,\nbuild, test, format), e.g. GITHUB_TOKEN on an agent VM. Never given to the agent's tools.",
+        ),
+    projectsRoot: z
+        .string()
+        .optional()
+        .describe(
+            'A folder on the host any project with a GitHub repository can live under. A stage for a project\nnot in `projects` adds itself there. Absent, the host serves only what is in `projects`.',
         ),
     projects: z.array(HostProject),
     running: z.array(HostSlotUse).describe('The slots in use right now, slot order. `slots` minus this many are free.'),

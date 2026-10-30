@@ -46,6 +46,7 @@ export class HostsService {
         const slots = request.slots === undefined ? MIN_SLOTS : requireSlots(request.slots);
         const lifetimeMinutes = request.lifetimeMinutes === undefined ? undefined : requireLifetime(request.lifetimeMinutes);
         const commandEnv = request.commandEnv === undefined ? undefined : requireVariableNames(request.commandEnv);
+        const projectsRoot = request.projectsRoot === undefined ? undefined : requireAbsolutePath('projectsRoot', request.projectsRoot);
 
         if (await this.hosts.find(name)) {
             throw httpError(409).withDetails({ reason: `host "${name}" is already registered` });
@@ -58,6 +59,7 @@ export class HostsService {
             slots,
             ...(lifetimeMinutes && { lifetimeMinutes }),
             ...(commandEnv && { commandEnv }),
+            ...(projectsRoot && { projectsRoot }),
         });
         return this.get(name);
     }
@@ -81,6 +83,10 @@ export class HostsService {
         if (request.commandEnv !== undefined) patch.commandEnv = requireVariableNames(request.commandEnv);
         if (request.lifetimeMinutes !== undefined)
             patch.lifetimeMinutes = request.lifetimeMinutes === 0 ? null : requireLifetime(request.lifetimeMinutes);
+
+        if (request.projectsRoot !== undefined) {
+            patch.projectsRoot = request.projectsRoot === '' ? null : requireAbsolutePath('projectsRoot', request.projectsRoot);
+        }
 
         if (!(await this.hosts.update(name, patch))) {
             throw notFound(name);
@@ -138,6 +144,7 @@ export const toHost = (row: HostRow): Host => ({
     draining: row.draining,
     ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
     commandEnv: row.commandEnv,
+    ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),
     projects: row.projects,
     running: row.running,
     ...(row.probe && { probe: row.probe }),

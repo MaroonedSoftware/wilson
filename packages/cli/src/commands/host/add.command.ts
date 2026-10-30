@@ -8,6 +8,7 @@ interface AddOpts {
     slots?: number;
     lifetimeMinutes?: number;
     commandEnv?: string;
+    projectsRoot?: string;
 }
 
 /**
@@ -33,6 +34,11 @@ const command: CommandModule<AddOpts> = {
             description: "Comma-separated variables the host's own environment gives setup, build and test commands, e.g. GITHUB_TOKEN",
             type: 'string',
         },
+        {
+            flags: '--projects-root <path>',
+            description: 'Absolute path on the host any project with a GitHub repository can add itself under',
+            type: 'string',
+        },
     ],
     run: withApi<AddOpts>(async (opts, ctx, args, api) => {
         const name = String(args[0]);
@@ -43,6 +49,7 @@ const command: CommandModule<AddOpts> = {
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
             ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
+            ...(opts.projectsRoot !== undefined && { projectsRoot: opts.projectsRoot }),
         });
         const reached = host.kind === 'worker' ? 'worker' : `ssh ${host.sshTarget}`;
         ctx.logger.info(`${host.name} registered (${reached}, ${host.slots} slot${host.slots === 1 ? '' : 's'})`);
