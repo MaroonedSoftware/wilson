@@ -19,6 +19,14 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('looking at the "ats" project');
     });
 
+    it('finds a new project\'s paths itself, and initialises the board it registers', () => {
+        const prompt = chatSystemPrompt({ projects: [] });
+
+        expect(prompt).toContain("look for its repo in the daemon's folders yourself");
+        expect(prompt).toContain('/parent/.worktrees/<name>');
+        expect(prompt).toContain('propose initialising its board');
+    });
+
     it('asks for follow-ups to end the answer with', () => {
         expect(chatSystemPrompt({ projects: [] })).toContain('<suggestions>');
     });
