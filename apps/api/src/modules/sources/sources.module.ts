@@ -6,6 +6,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { CacheIdempotencyStore, CacheProvider, IdempotencyStore } from '@maroonedsoftware/cache';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { GitHubApp } from '#modules/github/github.app.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { optionalConfigString } from '#shared/require.config.js';
@@ -78,8 +79,11 @@ export const SourcesModule: ServerKitModule = {
             .register(CardSourceRegistry)
             .useFactory(container => {
                 const sources: CardSource[] = [];
-                if (githubToken && githubRepo) {
-                    sources.push(new GitHubIssuesSource(container.get(SettingsStore), githubToken));
+                const app = container.get(GitHubApp);
+                // A token set by hand keeps working: the app need not be installed on that repo.
+                const token = githubToken ?? (app.configured ? (repo: string) => app.tokenFor(repo) : undefined);
+                if (token && githubRepo) {
+                    sources.push(new GitHubIssuesSource(container.get(SettingsStore), token));
                 }
                 return new CardSourceRegistry(sources);
             })

@@ -449,4 +449,17 @@ describe('GitHubIssuesSource.mirrorStatus', () => {
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.reason).toContain('timed out');
     });
+
+    it('asks for a token per repository when given a way to get one, and reports a refusal rather than throwing', async () => {
+        const fetchImpl = vi.fn(async () => new Response('[]', { status: 200 }));
+        const token = vi.fn(async (repo: string) => `token-for-${repo}`);
+
+        await new GitHubIssuesSource(withRepo('octocat/hello-world'), token, fetchImpl as unknown as typeof fetch).changedSince(undefined);
+
+        const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+        expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-for-octocat/hello-world');
+
+        const refused = new GitHubIssuesSource(withRepo('octocat/hello-world'), async () => Promise.reject(new Error('not installed')));
+        expect(await refused.changedSince(undefined)).toMatchObject({ ok: false, reason: expect.stringContaining('not installed') });
+    });
 });

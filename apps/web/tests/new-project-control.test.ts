@@ -115,6 +115,36 @@ describe('the dashboard\'s New project control', () => {
         expect(field('Run root').value).toBe('/var/run/myapp');
     });
 
+    it('offers no repository without a GitHub App', async () => {
+        vi.spyOn(ProjectsClient.prototype, 'listRepositories').mockResolvedValue({ configured: false, repositories: [] });
+        renderApp();
+        await openForm();
+
+        await waitFor(() => expect(ProjectsClient.prototype.listRepositories).toHaveBeenCalled());
+        expect(screen.queryAllByLabelText('Repository')).toEqual([]);
+        expect(field('Code root')).toBeTruthy();
+    });
+
+    it('registers from a picked repository alone, naming the project after it', async () => {
+        vi.spyOn(ProjectsClient.prototype, 'listRepositories').mockResolvedValue({
+            configured: true,
+            repositories: [{ fullName: 'acme/toku-ats', private: true, defaultBranch: 'main' }],
+        });
+        fetchMock.mockImplementation(async (url: string) => (url === REGISTER_URL ? json(201, { name: 'toku-ats' }) : json(200, { stages: [] })));
+        renderApp();
+        await openForm();
+
+        fireEvent.click((await screen.findAllByLabelText('Repository'))[0]!);
+        fireEvent.click(await screen.findByRole('option', { name: 'acme/toku-ats', hidden: true }));
+
+        await waitFor(() => expect(field('Name').value).toBe('toku-ats'));
+        expect(screen.queryByLabelText('Code root')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+        await waitFor(() => expect(callsTo(REGISTER_URL)).toHaveLength(1));
+        expect(JSON.parse(callsTo(REGISTER_URL)[0]![1].body as string)).toEqual({ name: 'toku-ats', repository: 'acme/toku-ats' });
+    });
+
     it('keeps Create disabled until every field has a value', async () => {
         renderApp();
         await openForm();

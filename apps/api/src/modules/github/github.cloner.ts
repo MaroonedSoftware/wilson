@@ -58,11 +58,22 @@ export class GitHubCloner {
         const partial = join(dirname(target), `.${randomUUID()}.cloning`);
         await mkdir(dirname(target), { recursive: true });
         try {
-            await this.git(['-c', 'credential.helper=', '-c', `credential.helper=${CREDENTIAL_HELPER}`, 'clone', `https://github.com/${repository}.git`, partial], {
-                ...process.env,
-                WILSON_GIT_TOKEN: token,
-                GIT_TERMINAL_PROMPT: '0',
-            });
+            await this.git(
+                [
+                    '-c',
+                    'credential.helper=',
+                    '-c',
+                    `credential.helper=${CREDENTIAL_HELPER}`,
+                    'clone',
+                    `https://github.com/${repository}.git`,
+                    partial,
+                ],
+                {
+                    ...process.env,
+                    WILSON_GIT_TOKEN: token,
+                    GIT_TERMINAL_PROMPT: '0',
+                },
+            );
             await rename(partial, target);
         } catch (err) {
             await rm(partial, { recursive: true, force: true });

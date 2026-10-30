@@ -433,11 +433,12 @@ describe('ProjectsRouter writes (card 0168)', () => {
         expect(ctx.body).toEqual({ name: 'wilson' });
     });
 
-    it('rejects a create body missing a required path field with a 400, and never calls the service', async () => {
+    // Paths are the service's to require, since a `repository` stands in for them.
+    it('rejects a create body with no name with a 400, and never calls the service', async () => {
         const create = vi.fn(async () => ({ name: 'wilson' }));
-        const withoutCodeRoot = { name: createBody.name, worktreeRoot: createBody.worktreeRoot, runRoot: createBody.runRoot };
+        const withoutName = { codeRoot: createBody.codeRoot, worktreeRoot: createBody.worktreeRoot, runRoot: createBody.runRoot };
 
-        await expect(dispatchWrite('POST', '/api/projects', withoutCodeRoot, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(dispatchWrite('POST', '/api/projects', withoutName, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
 
         expect(create).not.toHaveBeenCalled();
     });

@@ -119,8 +119,12 @@
         Description="Let the daemon pick up cards itself rather than waiting for them to be started."
         Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
 
+    <Config Name="GitHub App ID" Target="GITHUB_APP_ID" Default="" Mode=""
+        Description="Optional. Lets Wilson clone repositories and import issues as a GitHub App. Put the app's private key at secrets/github-app.pem under the data folder."
+        Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
     <Config Name="GitHub token" Target="GITHUB_TOKEN" Default="" Mode=""
-        Description="Optional. Read access to the repository below, to import its issues as cards."
+        Description="Optional. Used instead of the GitHub App to import issues from the repository below."
         Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 
     <Config Name="GitHub repository" Target="GITHUB_REPO" Default="" Mode=""

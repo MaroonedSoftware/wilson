@@ -116,6 +116,7 @@ services:
             PROJECT_BROWSE_ROOT: /srv/projects
             AUTH_SESSION_KEY_FILE: /data/secrets/session.pem
             AUTH_ENCRYPTION_KEY_FILE: /data/secrets/encryption.key
+            GITHUB_APP_PRIVATE_KEY_FILE: /data/secrets/github-app.pem
             CLAUDE_CONFIG_DIR: /data/claude
             HOME: /data/home
             WILSON_BACKUP_DIR: /backups

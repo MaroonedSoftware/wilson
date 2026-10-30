@@ -89,7 +89,7 @@ describe('GitHubApp', () => {
         });
     });
 
-    it('lists the repositories of every installation, using that installation\'s token', async () => {
+    it("lists the repositories of every installation, using that installation's token", async () => {
         const { fetchImpl, calls } = github();
 
         const repositories = await new GitHubApp({ appId: '123', privateKey }, fetchImpl).repositories();

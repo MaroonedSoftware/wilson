@@ -27,6 +27,7 @@ export PROJECT_CODE_ROOT="${PROJECT_CODE_ROOT:-/projects/$PROJECT_NAME}"
 export PROJECT_WORKTREE_ROOT="$DATA/worktrees" PROJECT_RUN_ROOT="$DATA/run" PROJECT_BROWSE_ROOT=/projects
 export AUTH_SESSION_KEY_FILE="$DATA/secrets/session.pem" AUTH_ENCRYPTION_KEY_FILE="$DATA/secrets/encryption.key"
 export CLAUDE_CONFIG_DIR="$DATA/claude" HOME="$DATA/home" WILSON_BACKUP_DIR="$DATA/backups"
+export GITHUB_APP_PRIVATE_KEY_FILE="$DATA/secrets/github-app.pem"
 export PORT=13100
 export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Wilson}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-wilson@localhost}"
 export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-Wilson}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-wilson@localhost}"

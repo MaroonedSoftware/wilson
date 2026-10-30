@@ -53,7 +53,7 @@ describe('GitHubCloner', () => {
         expect(calls[0]!.env).toMatchObject({ WILSON_GIT_TOKEN: 'secret-token', GIT_TERMINAL_PROMPT: '0' });
     });
 
-    it('leaves nothing behind when the clone fails, and passes on git\'s own reason', async () => {
+    it("leaves nothing behind when the clone fails, and passes on git's own reason", async () => {
         const { git } = cloning('fatal: repository not found');
 
         await expect(new GitHubCloner(app, git).clone('acme/app', target)).rejects.toMatchObject({
@@ -72,13 +72,13 @@ describe('GitHubCloner', () => {
         },
     );
 
-    it.each([['another repository', 'https://github.com/acme/other.git'], ['no repository at all', undefined]])(
-        'refuses a folder holding %s',
-        async (_, origin) => {
-            await writeFile(join(parent, 'marker'), '');
+    it.each([
+        ['another repository', 'https://github.com/acme/other.git'],
+        ['no repository at all', undefined],
+    ])('refuses a folder holding %s', async (_, origin) => {
+        await writeFile(join(parent, 'marker'), '');
 
-            await expect(new GitHubCloner(app, await existing(origin)).clone('acme/app', target)).rejects.toMatchObject({ statusCode: 409 });
-            expect(tokenFor).not.toHaveBeenCalled();
-        },
-    );
+        await expect(new GitHubCloner(app, await existing(origin)).clone('acme/app', target)).rejects.toMatchObject({ statusCode: 409 });
+        expect(tokenFor).not.toHaveBeenCalled();
+    });
 });

@@ -3,7 +3,7 @@ import { ProjectRepositoriesService } from '#modules/board/project.repositories.
 import type { GitHubApp } from '#modules/github/github.app.js';
 
 describe('ProjectRepositoriesService', () => {
-    it("answers with what the app can read", async () => {
+    it('answers with what the app can read', async () => {
         const repository = { fullName: 'acme/app', private: true, defaultBranch: 'main' };
         const app = { configured: true, repositories: async () => [repository] } as unknown as GitHubApp;
 

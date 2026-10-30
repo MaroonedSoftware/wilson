@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDisclosure } from '@mantine/hooks';
-import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Modal, Select, Stack, Text, TextInput } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import type { CreateProjectRequest } from '@wilson/sdk';
 import { DirectoryPicker } from '#src/components/DirectoryPicker.js';
@@ -36,6 +36,9 @@ class CreateProjectError extends Error {
  * field is theirs. Every path still goes to the API as typed, and
  * the API's own refusals (a relative path, a taken name) are shown inline with the form left intact.
  *
+ * With a GitHub App set up, a repository can be picked instead: the API clones it and works out the
+ * paths, so the path fields step aside. No app, or a listing that fails, simply leaves the paths.
+ *
  * On success the registered-projects cache (`['registered-projects']`, shared with the dashboard and
  * `ProjectSwitcher`) is invalidated and the browser goes to the new project's board.
  */
@@ -44,6 +47,7 @@ export function NewProjectControl() {
     const queryClient = useQueryClient();
     const [opened, handlers] = useDisclosure(false);
     const [name, setName] = useState('');
+    const [repository, setRepository] = useState<string>();
     const [codeRoot, setCodeRoot] = useState('');
     const [worktreeRoot, setWorktreeRoot] = useState<string>();
     const [runRoot, setRunRoot] = useState<string>();
@@ -51,15 +55,24 @@ export function NewProjectControl() {
     const [failure, setFailure] = useState<CreateProjectError>();
 
     const defaults = defaultProjectPaths(name, codeRoot);
-    const request: CreateProjectRequest = {
-        name: name.trim(),
-        codeRoot: codeRoot.trim(),
-        worktreeRoot: (worktreeRoot ?? defaults.worktreeRoot).trim(),
-        runRoot: (runRoot ?? defaults.runRoot).trim(),
-    };
+    const request: CreateProjectRequest = repository
+        ? { name: name.trim(), repository }
+        : {
+              name: name.trim(),
+              codeRoot: codeRoot.trim(),
+              worktreeRoot: (worktreeRoot ?? defaults.worktreeRoot).trim(),
+              runRoot: (runRoot ?? defaults.runRoot).trim(),
+          };
+
+    const repositories = useQuery({
+        queryKey: ['github-repositories'],
+        queryFn: () => wilson.projects.listRepositories(),
+        enabled: opened,
+    });
 
     const reset = () => {
         setName('');
+        setRepository(undefined);
         setCodeRoot('');
         setWorktreeRoot(undefined);
         setRunRoot(undefined);
@@ -102,12 +115,17 @@ export function NewProjectControl() {
         if (!name.trim()) setName(path.slice(path.lastIndexOf('/') + 1));
     };
 
+    const pickRepository = (fullName: string | null) => {
+        setRepository(fullName ?? undefined);
+        if (fullName && !name.trim()) setName(fullName.slice(fullName.lastIndexOf('/') + 1));
+    };
+
     const openFresh = () => {
         reset();
         handlers.open();
     };
 
-    const canSubmit = Object.values(request).every(value => value.length > 0) && !create.isPending;
+    const canSubmit = Object.values(request).every(value => Boolean(value)) && !create.isPending;
 
     const submit = () => {
         if (canSubmit) create.mutate(request);
@@ -131,33 +149,50 @@ export function NewProjectControl() {
                         disabled={create.isPending}
                         data-autofocus
                     />
-                    <TextInput
-                        label="Code root"
-                        description="Absolute path to the git repo agents work in."
-                        placeholder="/Users/you/projects/myapp"
-                        value={codeRoot}
-                        onChange={event => setCodeRoot(event.currentTarget.value)}
-                        disabled={create.isPending}
-                        rightSection={<DirectoryPicker label="Code root" value={codeRoot} onSelect={pickCodeRoot} disabled={create.isPending} />}
-                    />
-                    <TextInput
-                        label="Worktree root"
-                        description="Where each card's worktree is cut."
-                        value={worktreeRoot ?? defaults.worktreeRoot}
-                        onChange={event => setWorktreeRoot(event.currentTarget.value)}
-                        disabled={create.isPending}
-                        rightSection={
-                            <DirectoryPicker label="Worktree root" value={worktreeRoot ?? defaults.worktreeRoot} onSelect={setWorktreeRoot} disabled={create.isPending} />
-                        }
-                    />
-                    <TextInput
-                        label="Run root"
-                        description="Where per-card run state is kept."
-                        value={runRoot ?? defaults.runRoot}
-                        onChange={event => setRunRoot(event.currentTarget.value)}
-                        disabled={create.isPending}
-                        rightSection={<DirectoryPicker label="Run root" value={runRoot ?? defaults.runRoot} onSelect={setRunRoot} disabled={create.isPending} />}
-                    />
+                    {repositories.data?.configured && (
+                        <Select
+                            label="Repository"
+                            description="Cloned for you. Leave empty to use a folder already on the machine."
+                            placeholder="owner/name"
+                            data={repositories.data.repositories.map(repo => repo.fullName)}
+                            value={repository ?? null}
+                            onChange={pickRepository}
+                            disabled={create.isPending}
+                            searchable
+                            clearable
+                        />
+                    )}
+                    {!repository && (
+                        <>
+                        <TextInput
+                            label="Code root"
+                            description="Absolute path to the git repo agents work in."
+                            placeholder="/Users/you/projects/myapp"
+                            value={codeRoot}
+                            onChange={event => setCodeRoot(event.currentTarget.value)}
+                            disabled={create.isPending}
+                            rightSection={<DirectoryPicker label="Code root" value={codeRoot} onSelect={pickCodeRoot} disabled={create.isPending} />}
+                        />
+                        <TextInput
+                            label="Worktree root"
+                            description="Where each card's worktree is cut."
+                            value={worktreeRoot ?? defaults.worktreeRoot}
+                            onChange={event => setWorktreeRoot(event.currentTarget.value)}
+                            disabled={create.isPending}
+                            rightSection={
+                                <DirectoryPicker label="Worktree root" value={worktreeRoot ?? defaults.worktreeRoot} onSelect={setWorktreeRoot} disabled={create.isPending} />
+                            }
+                        />
+                        <TextInput
+                            label="Run root"
+                            description="Where per-card run state is kept."
+                            value={runRoot ?? defaults.runRoot}
+                            onChange={event => setRunRoot(event.currentTarget.value)}
+                            disabled={create.isPending}
+                            rightSection={<DirectoryPicker label="Run root" value={runRoot ?? defaults.runRoot} onSelect={setRunRoot} disabled={create.isPending} />}
+                        />
+                        </>
+                    )}
                     {failure && (
                         <Alert color="red" title={failure.step === 'register' ? 'Could not register the project' : 'Registered, but could not initialise its board'}>
                             {failure.message}

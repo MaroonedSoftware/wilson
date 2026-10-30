@@ -64,8 +64,8 @@ const MIRROR_COMMENTS: Record<MirrorStatus['moment'], (status: MirrorStatus) => 
  * call (`GITHUB_REPO`, `GITHUB_LABEL`) rather than cached at construction — see those definitions'
  * own doc comments for why.
  *
- * `SourcesModule` constructs this with the deployment's `GITHUB_TOKEN` only when it and `GITHUB_REPO`
- * are both set in the environment at boot — this class itself never reads `AppConfig` and never
+ * `SourcesModule` constructs this with the deployment's `GITHUB_TOKEN`, or the GitHub App's tokens
+ * without one, only when `GITHUB_REPO` is set in the environment at boot — this class itself never reads `AppConfig` and never
  * decides whether it should exist, per this card's Constraints ("the token comes from `AppConfig`
  * only, never a settings row").
  *
@@ -79,12 +79,15 @@ const MIRROR_COMMENTS: Record<MirrorStatus['moment'], (status: MirrorStatus) => 
  * what stands in its place, refusing anything that is not a bare `owner/name` before a request is
  * ever built.
  */
+/** A fixed token, or the way to get one for a repository: the GitHub App's are short-lived. */
+export type GitHubIssuesToken = string | ((repo: string) => Promise<string>);
+
 export class GitHubIssuesSource implements CardSource {
     readonly name = 'github';
 
     constructor(
         private readonly settings: SettingsStore,
-        private readonly token: string,
+        private readonly token: GitHubIssuesToken,
         private readonly fetchImpl: typeof fetch = fetch,
         private readonly timeoutMs: number = FETCH_TIMEOUT_MS,
         private readonly maxContentBytes: number = MAX_CONTENT_BYTES,
@@ -111,7 +114,7 @@ export class GitHubIssuesSource implements CardSource {
 
         while (url && pages < MAX_PAGES) {
             pages += 1;
-            const page = await this.fetchPage(url);
+            const page = await this.fetchPage(url, repo);
             if (!page.ok) return page;
 
             for (const issue of page.issues) {
@@ -153,10 +156,11 @@ export class GitHubIssuesSource implements CardSource {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
         try {
+            const token = await this.bearer(parsed.repo);
             const response = await this.fetchImpl(url, {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${this.token}`,
+                    Authorization: `Bearer ${token}`,
                     Accept: 'application/vnd.github+json',
                     'X-GitHub-Api-Version': '2022-11-28',
                     'User-Agent': 'wilson-card-sources',
@@ -194,6 +198,10 @@ export class GitHubIssuesSource implements CardSource {
         return { ok: true, repo: repo!, number: number! };
     }
 
+    private bearer(repo: string): Promise<string> | string {
+        return typeof this.token === 'string' ? this.token : this.token(repo);
+    }
+
     /** `owner/name` only. Called before any request is built — a bad repo string must never reach a
      * URL, not merely fail the request that would have used it. */
     private validateRepo(repo: string): { ok: true } | { ok: false; reason: string } {
@@ -223,13 +231,15 @@ export class GitHubIssuesSource implements CardSource {
      */
     private async fetchPage(
         url: string,
+        repo: string,
     ): Promise<{ ok: true; issues: readonly GitHubIssuePayload[]; next: string | undefined } | { ok: false; reason: string }> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
         try {
+            const token = await this.bearer(repo);
             const response = await this.fetchImpl(url, {
                 headers: {
-                    Authorization: `Bearer ${this.token}`,
+                    Authorization: `Bearer ${token}`,
                     Accept: 'application/vnd.github+json',
                     'X-GitHub-Api-Version': '2022-11-28',
                     'User-Agent': 'wilson-card-sources',

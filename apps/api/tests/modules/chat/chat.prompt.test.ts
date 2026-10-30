@@ -22,7 +22,8 @@ describe('the chat system prompt', () => {
     it('finds a new project\'s paths itself, and initialises the board it registers', () => {
         const prompt = chatSystemPrompt({ projects: [] });
 
-        expect(prompt).toContain("look for its repo in the daemon's folders yourself");
+        expect(prompt).toContain('repositories the GitHub App can read');
+        expect(prompt).toContain("look for the repo in the daemon's folders yourself");
         expect(prompt).toContain('/parent/.worktrees/<name>');
         expect(prompt).toContain('propose initialising its board');
     });
