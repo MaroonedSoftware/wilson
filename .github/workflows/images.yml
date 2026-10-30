@@ -1,0 +1,58 @@
+name: Images
+
+# The single-container images (Dockerfile, targets `full` and `slim`) that unraid/wilson.xml installs.
+# amd64 only: that is what an Unraid server runs.
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    packages: write
+
+env:
+    IMAGE: ghcr.io/maroonedsoftware/wilson
+
+jobs:
+    image:
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        strategy:
+            # One variant failing should not hide the state of the other.
+            fail-fast: false
+            matrix:
+                include:
+                    - variant: full
+                      tags: full,latest
+                    - variant: slim
+                      tags: slim
+        steps:
+            - uses: actions/checkout@v4
+            - uses: docker/setup-buildx-action@v3
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Work out the tags
+              id: tags
+              run: |
+                  {
+                      echo 'list<<EOF'
+                      for tag in ${MATRIX_TAGS//,/ }; do echo "$IMAGE:$tag"; done
+                      echo "$IMAGE:$MATRIX_VARIANT-$GITHUB_SHA"
+                      echo EOF
+                  } >> "$GITHUB_OUTPUT"
+              env:
+                  MATRIX_TAGS: ${{ matrix.tags }}
+                  MATRIX_VARIANT: ${{ matrix.variant }}
+            - uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  target: ${{ matrix.variant }}
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.tags.outputs.list }}
+                  cache-from: type=gha,scope=${{ matrix.variant }}
+                  cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
