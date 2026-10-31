@@ -213,7 +213,7 @@ export class PlanService {
         // at all, `request.mode`'s default) never falls back, since only `cuts` mode ever sends the
         // agent looking for cuts with nothing else to go on.
         const mode = request.mode ?? 'chat';
-        const text = mode === 'cuts' && request.text.trim().length === 0 ? '[propose cuts]' : request.text;
+        const text = request.text.trim().length === 0 && mode !== 'chat' ? EMPTY_TURN_TEXT[mode] : request.text;
 
         const priorTurns = await this.planTurns.since(id, 0);
         const isFirstTurn = priorTurns.length === 0;
@@ -249,8 +249,8 @@ export class PlanService {
         // to `commentsBlock`) on every turn it is sent on, not only the first — unlike
         // `contextPreamble`/`commentsPreamble`, which each carry state that is naturally empty once
         // seen, asking for cuts is never "already asked", so there is no equivalent one-shot
-        // condition to fall back to.
-        const cuts = mode === 'cuts' ? cutsPreamble : '';
+        // condition to fall back to. A `draft` turn's `draftPreamble` is the same kind of fixed block.
+        const modePreamble = mode === 'chat' ? '' : MODE_PREAMBLE[mode];
 
         // Two branches rather than one ternary assigning a shared variable: `cutSession` and
         // `existingSession` return different shapes (only the first carries `instructions`, which
@@ -263,12 +263,12 @@ export class PlanService {
             const session = await this.cutSession(id, card);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${session.instructions}\n\n${learningsPreamble}${contextPreamble}${commentsPreamble}${cuts}${text}`;
+            prompt = `${session.instructions}\n\n${learningsPreamble}${contextPreamble}${commentsPreamble}${modePreamble}${text}`;
         } else {
             const session = await this.existingSession(id);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${contextPreamble}${commentsPreamble}${cuts}${text}`;
+            prompt = `${contextPreamble}${commentsPreamble}${modePreamble}${text}`;
         }
 
         await this.planTurns.append(id, 'user', text);
@@ -513,6 +513,31 @@ const cutsPreamble = [
     '---',
     '',
 ].join('\n');
+
+/**
+ * The fixed block `appendTurn` prepends to a `draft` turn's prompt: the one-click version of a
+ * person asking for the plan, so a card gets a whole plan with no conversation first. Unlike
+ * `cutsPreamble` this one does edit the draft file, and it is written against `PlanService.save`'s
+ * two refusals, an empty section and an empty "Files in scope", so that what it leaves can be
+ * approved. Approval itself stays the person's own step.
+ */
+const draftPreamble = [
+    'Write the plan now. Read the current draft and the code it touches, then write the finished plan',
+    'to the draft file, keeping everything the card already says. Every one of the six sections must',
+    'have content, and "Files in scope" must list real paths from this repository.',
+    '',
+    'Do not stop to ask questions first. Where the card leaves something open, make the call, record it',
+    'under "Constraints", and name it in your reply so it can be challenged.',
+    '',
+    '---',
+    '',
+].join('\n');
+
+/** The fixed block each non-`chat` turn mode prepends. */
+const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble };
+
+/** What a non-`chat` turn sent with an empty box is stored as, so the transcript still shows it. */
+const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]' };
 
 /**
  * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each

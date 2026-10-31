@@ -818,6 +818,24 @@ describe('PlanService', () => {
             }
         });
 
+        it('draft mode prepends the draft preamble to the prompt and stores an empty turn as "[draft the plan]"', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+            try {
+                const result = await service.turn(id, { text: '', mode: 'draft' });
+
+                expect(result.content).toContain('Write the plan now.');
+                expect(result.content).not.toContain('Propose cuts to shrink this plan');
+
+                const [userTurn] = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(userTurn?.content).toBe('[draft the plan]');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
         it('a cuts turn with empty text is stored as "[propose cuts]"; a cuts turn with text is stored as the text', async () => {
             const { board, service, config } = await freshEnv();
             const emptyId = randomUUID();
