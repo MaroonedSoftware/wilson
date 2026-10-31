@@ -125,6 +125,23 @@ describe('StageDispatcher.run records the engine’s stop reason on stage.failed
         );
     };
 
+    it('carries the run’s trace onto its end event', async () => {
+        const { config, board, worktrees, events } = await setUp();
+        const trace = { reads: 2, readPaths: ['src/x.ts'], finalMessage: 'stopped here' };
+        const dispatcher = buildDispatcher(
+            config,
+            board,
+            worktrees,
+            events,
+            async () => ({ result: undefined, truncated: true, trace }),
+            async () => ({ passed: true, failures: [], changedPaths: [] }),
+        );
+
+        await dispatcher.run('0001', 'testing');
+
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed', payload: expect.objectContaining({ trace }) }));
+    });
+
     it('carries the engine’s stop reason onto stage.failed when the run ended with nothing reported', async () => {
         const { config, board, worktrees, events } = await setUp();
         const dispatcher = buildDispatcher(

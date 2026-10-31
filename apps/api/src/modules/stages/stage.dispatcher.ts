@@ -628,6 +628,7 @@ export class StageDispatcher {
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
+                    ...(outcome.trace ? { trace: outcome.trace } : {}),
                     ...(outcome.passed
                         ? {}
                         : {
@@ -1209,6 +1210,7 @@ export class StageDispatcher {
             unjudged,
             resultDropped: run.resultDropped,
             engineStopReason: run.engineStopReason,
+            trace: run.trace,
         };
     }
 }

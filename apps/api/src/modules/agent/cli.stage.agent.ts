@@ -17,8 +17,10 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
+import { buildRunTrace } from './run.trace.js';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
+import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { deleteFile } from './tools/delete.tool.js';
@@ -622,6 +624,9 @@ export class CliStageAgent extends StageAgent {
         // result, not the stage failing to finish — `stage.dispatcher.ts` phrases the two failures
         // differently and `kickback.ts` charges them differently, so the distinction has to survive
         // past this function rather than collapse back into a plain missing result.
+        const reads: (string | undefined)[] = [];
+        const traceField = (): { trace: RunTrace } => ({ trace: buildRunTrace(reads, summary || undefined) });
+
         const droppedField = (): { resultDropped?: boolean } => (reported === undefined && reportToolSeen ? { resultDropped: true } : {});
 
         try {
@@ -650,6 +655,7 @@ export class CliStageAgent extends StageAgent {
                                 ? { budgetFailure: inputTokenFailure }
                                 : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
                         ...droppedField(),
+                        ...traceField(),
                     };
                 }
                 // The iterator ending on its own, with no `result` message ever seen and no error
@@ -680,6 +686,10 @@ export class CliStageAgent extends StageAgent {
                     // whose id `canUseTool` was never asked about can be named at the end of the run.
                     for (const part of message.message.content) {
                         if (part.type !== 'tool_use') continue;
+                        if (READ_TOOLS.includes(part.name)) {
+                            const input = (part.input ?? {}) as { file_path?: string; path?: string };
+                            reads.push(input.file_path ?? input.path);
+                        }
                         if (!WRITE_TOOLS.includes(part.name) && !EXEC_TOOLS.includes(part.name)) continue;
                         const input = (part.input ?? {}) as Record<string, unknown>;
                         const detail =
@@ -748,6 +758,7 @@ export class CliStageAgent extends StageAgent {
                             // not a budget or an engine problem at all, and deserves its own name.
                             engineStopReason: describeEngineStop(message),
                             ...droppedField(),
+                            ...traceField(),
                         };
                         return output;
                     }
@@ -794,6 +805,7 @@ export class CliStageAgent extends StageAgent {
                         // stays exactly as noisy as it was before this card.
                         ...(reported === undefined ? { engineStopReason: describeEngineStop(message) } : {}),
                         ...droppedField(),
+                        ...traceField(),
                     };
                 }
             }
@@ -811,6 +823,7 @@ export class CliStageAgent extends StageAgent {
                     truncated: true,
                     budgetFailure: stepsExceeded(stage.maxSteps, denied),
                     ...droppedField(),
+                    ...traceField(),
                 };
             }
             if (stoppedBecause === 'wall-clock') {
@@ -821,6 +834,7 @@ export class CliStageAgent extends StageAgent {
                     truncated: true,
                     budgetFailure: wallClockExceeded(stage.maxWallClockMs),
                     ...droppedField(),
+                    ...traceField(),
                 };
             }
             if (stoppedBecause === 'silent') {
@@ -830,6 +844,7 @@ export class CliStageAgent extends StageAgent {
                     truncated: true,
                     engineFailure: engineSilent(stage.maxIdleMs),
                     ...droppedField(),
+                    ...traceField(),
                 };
             }
             // `abort()` alone was already shown not to reliably unblock a parked read (the comment
@@ -843,6 +858,7 @@ export class CliStageAgent extends StageAgent {
                     truncated: true,
                     budgetFailure: contextFailure,
                     ...droppedField(),
+                    ...traceField(),
                 };
             }
             if (stoppedBecause === 'input-tokens') {
@@ -852,6 +868,7 @@ export class CliStageAgent extends StageAgent {
                     truncated: true,
                     budgetFailure: inputTokenFailure,
                     ...droppedField(),
+                    ...traceField(),
                 };
             }
 
@@ -897,6 +914,7 @@ export class CliStageAgent extends StageAgent {
                 truncated: true,
                 engineFailure: `the engine aborted or exited on its own — none of the runner's wall-clock, idle or step controls fired — ${detail}`,
                 ...droppedField(),
+                ...traceField(),
             };
         } finally {
             // Card 0248: whatever way the run ended — passed, failed, or truncated — a guarded call
@@ -952,6 +970,7 @@ export class CliStageAgent extends StageAgent {
             truncated: false,
             budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
             ...droppedField(),
+            ...traceField(),
         };
         return output;
     }

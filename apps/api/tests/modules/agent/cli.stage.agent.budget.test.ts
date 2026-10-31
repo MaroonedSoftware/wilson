@@ -96,6 +96,16 @@ describe('CliStageAgent budget wiring', () => {
             expect(output.usage?.inputTokens).toBe(1500);
         });
 
+        it('reports what the run read and last said, however it ended', async () => {
+            const read = (id: string, input: unknown) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Read', input }] } });
+            const said = { type: 'assistant', message: { content: [{ type: 'text', text: 'gave up here' }] } };
+            queryMock.mockReturnValue(streamOf([read('t1', { file_path: 'src/a.ts' }), read('t2', { file_path: 'src/a.ts' }), said, assistant('msg_1', 1500)]));
+
+            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
+
+            expect(output.trace).toEqual({ reads: 2, readPaths: ['src/a.ts'], finalMessage: 'working' });
+        });
+
         it('charges an API message once, however many content blocks repeat its usage', async () => {
             queryMock.mockReturnValue(streamOf([assistant('msg_1', 600), assistant('msg_1', 600), assistant('msg_1', 600), resultMessage('success', 600)]));
 

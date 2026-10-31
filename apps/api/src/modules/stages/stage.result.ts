@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { RunTrace } from '#modules/agent/run.trace.js';
 
 /**
  * What a stage returns.
@@ -265,4 +266,6 @@ export interface StageOutcome {
      * routing signal — `kickback`/`shouldAdvance` never read it. Unset on a passing outcome.
      */
     engineStopReason?: string;
+    /** `AgentRunOutput.trace`, for the stage's end event. */
+    trace?: RunTrace;
 }

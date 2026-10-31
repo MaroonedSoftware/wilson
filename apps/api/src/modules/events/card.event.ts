@@ -131,7 +131,8 @@ export type CardEventType =
     // Deliberately does NOT cover `read`/`grep`/`glob`/search tools: those run hundreds of times per
     // stage, and an event each would swamp `card_events`, which backs `wilson card show` and the web
     // board, for rows nobody asks "what did this stage do" about. Do not "complete" this type by
-    // wiring reads up to it.
+    // wiring reads up to it. What a run read is a bounded summary on its `stage.passed` or
+    // `stage.failed` event instead, under `trace` (`run.trace.ts`): one field, no extra rows.
     | 'tool.executed'
     // Card 0248. `CliStageAgent`'s enforcement lives entirely inside `canUseTool`
     // (`createToolGuard`) — every Write, Edit and Bash the engine proposes is supposed to pass

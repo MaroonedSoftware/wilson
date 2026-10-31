@@ -1,3 +1,4 @@
+import type { RunTrace } from './run.trace.js';
 import type { ToolContext } from './tools/index.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 
@@ -70,6 +71,8 @@ export interface AgentRunOutput {
      * guess.
      */
     engineStopReason?: string;
+    /** What the run read and last said, for reading its attempt back later. */
+    trace?: RunTrace;
 }
 
 /**

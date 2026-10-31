@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import type { z } from 'zod';
 import { overBudget, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
+import { buildRunTrace } from './run.trace.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
@@ -92,6 +93,7 @@ export class ApiStageAgent extends StageAgent {
                 usage: { inputTokens, outputTokens: run.usage?.outputTokens },
                 truncated: run.steps.length >= stage.maxSteps,
                 budgetFailure: overBudget(inputTokens, stage.maxInputTokens),
+                trace: buildRunTrace(readCalls(run.steps), run.text),
             };
             return output;
         } catch (err) {
@@ -102,6 +104,15 @@ export class ApiStageAgent extends StageAgent {
         }
     }
 }
+
+/** This adapter's read tools, as `file.tools.ts` and `search.tools.ts` name them. */
+const READ_TOOLS = ['read', 'grep', 'glob'];
+
+/** One entry per read tool call across a run's steps, for its trace. */
+const readCalls = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): (string | undefined)[] =>
+    steps.flatMap(step => step.toolCalls ?? [])
+        .filter(call => READ_TOOLS.includes(call.toolName))
+        .map(call => (call.input as { path?: string } | undefined)?.path);
 
 /**
  * The agent's report, read back off the step where it called the report tool.
