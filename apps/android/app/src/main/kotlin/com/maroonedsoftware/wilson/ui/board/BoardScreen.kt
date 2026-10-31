@@ -50,7 +50,11 @@ fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(state.project) {
         val project = state.project ?: return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow(project) }
+        // Each time this screen comes back: the feed says nothing about what happened while it was away.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            model.refresh()
+            model.follow(project)
+        }
     }
     Scaffold(
         floatingActionButton = {

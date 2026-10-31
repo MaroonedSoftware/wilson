@@ -71,6 +71,8 @@ class CardModel(private val app: WilsonApp, private val project: String, private
         }
     }
 
+    suspend fun reload() = load()
+
     private suspend fun load() {
         try {
             val card = app.session.call(project) { it.board.getCard(id) }

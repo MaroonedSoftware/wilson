@@ -15,6 +15,8 @@ This needs JDK 21 and an Android SDK with platform 37.2, named by `sdk.dir` in a
 that is not committed. Changing a contract means running `pnpm codegen` from the repo root; never edit
 `packages/sdk-kotlin/src`.
 
+To run it on an emulator against a local API, see `apps/android/CLAUDE.md`.
+
 ## Things that are not obvious
 
 - **A refresh is single-flight.** Refresh tokens are single-use and replaying one revokes the family,

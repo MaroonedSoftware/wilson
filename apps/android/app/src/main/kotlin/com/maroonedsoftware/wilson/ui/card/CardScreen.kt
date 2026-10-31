@@ -55,7 +55,13 @@ fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit, onPlan:
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val snackbars = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow() } }
+    // Re-reads on every return, such as back from editing, since the feed only reports what follows.
+    LaunchedEffect(Unit) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            model.reload()
+            model.follow()
+        }
+    }
     LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it) } }
     LaunchedEffect(tab) { if (tab == 2 && state.diff == null) model.loadDiff() }
 
