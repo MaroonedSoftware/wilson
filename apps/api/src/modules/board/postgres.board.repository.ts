@@ -132,6 +132,7 @@ export class PostgresBoardRepository extends BoardRepository {
                     sourceClosed: fm.sourceClosed ?? null,
                     needsHuman: fm.needsHuman ?? false,
                     needsHumanReason: fm.needsHumanReason ?? null,
+                    splitFrom: fm.splitFrom ?? null,
                 })
                 .execute();
             await this.syncDeps(trx, fm.id, [], fm.dependsOn);
@@ -298,6 +299,7 @@ const toCard = (
         needsHumanReason: string | null;
         pinnedVersionId: bigint | null;
         position: number | null;
+        splitFrom: string | null;
     },
     dependsOn: string[],
 ): Card => {
@@ -320,6 +322,7 @@ const toCard = (
         needsHuman: row.needsHuman,
         needsHumanReason: row.needsHumanReason ?? undefined,
         position: row.position ?? undefined,
+        splitFrom: row.splitFrom ?? undefined,
     };
     return { frontmatter, sections: sectionsOf(row.body), body: row.body };
 };

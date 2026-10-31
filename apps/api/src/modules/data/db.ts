@@ -140,6 +140,7 @@ export interface WilsonCards {
   project: string;
   retries: Generated<Json>;
   sourceClosed: boolean | null;
+  splitFrom: string | null;
   stage: string;
   title: string;
   updatedAt: Generated<DateTime>;

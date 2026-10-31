@@ -63,6 +63,32 @@ describe('PostgresBoardRepository', () => {
         expect(stored.sections['Files in scope']).toBe('- src/a.ts');
     });
 
+    it('reads back splitFrom through read, list and the version snapshot, and undefined when unset', async () => {
+        await board.create(card('0001'), 'create');
+        await board.create(card('0002', { splitFrom: '0001' }), 'create');
+
+        expect((await board.read('0001')).frontmatter.splitFrom).toBeUndefined();
+        expect((await board.read('0002')).frontmatter.splitFrom).toBe('0001');
+        expect((await board.list()).find(c => c.frontmatter.id === '0002')!.frontmatter.splitFrom).toBe('0001');
+
+        const version = await board.currentVersion('0002');
+        expect((await board.readAt('0002', version!)).frontmatter.splitFrom).toBe('0001');
+    });
+
+    it('refuses a splitFrom naming a card that does not exist', async () => {
+        await expect(board.create(card('0002', { splitFrom: '9999' }), 'create')).rejects.toThrow();
+    });
+
+    it('keeps splitFrom across a later write, even one whose mutate callback changes it', async () => {
+        await board.create(card('0001'), 'create');
+        await board.create(card('0002'), 'create');
+        await board.create(card('0003', { splitFrom: '0001' }), 'create');
+
+        await board.write('0003', 'try to move it', c => ({ ...c, frontmatter: { ...c.frontmatter, splitFrom: '0002' } }));
+
+        expect((await board.read('0003')).frontmatter.splitFrom).toBe('0001');
+    });
+
     it('throws for a card that does not exist rather than returning an empty one', async () => {
         await expect(board.read('9999')).rejects.toThrow(CardNotFoundError);
     });

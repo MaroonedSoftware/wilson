@@ -1023,7 +1023,7 @@ export class BoardWriteService {
         for (const piece of request.pieces) {
             const cardId = nextCardId(await this.boardRepository.list());
             const card: Card = {
-                frontmatter: { id: cardId, title: piece.title, stage: 'planning', dependsOn: [], retries: {} },
+                frontmatter: { id: cardId, title: piece.title, stage: 'planning', dependsOn: [], retries: {}, splitFrom: id },
                 sections: {},
                 body: seedSplitBody(id, origin.frontmatter.title, piece),
             };
