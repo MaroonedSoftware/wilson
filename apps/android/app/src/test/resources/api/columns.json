@@ -1,0 +1,11 @@
+{
+  "stages": [
+    "implementing"
+  ],
+  "nonStages": [
+    "parking-lot",
+    "merged",
+    "poisoned",
+    "dropped"
+  ]
+}
