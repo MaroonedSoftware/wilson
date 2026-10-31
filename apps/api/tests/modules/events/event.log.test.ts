@@ -240,6 +240,18 @@ describe('EventLog.usageByStage', () => {
         await db.destroy();
     });
 
+    it('counts cached tokens in a card’s total, and takes older events as they are', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        const append = (usage: Record<string, number>) =>
+            eventLog.append({ project, cardId: '0001', stage: 'implementing', type: 'stage.passed', payload: { usage } });
+
+        await append({ inputTokens: 100 });
+        await append({ inputTokens: 6, cachedInputTokens: 1000 });
+
+        expect(await eventLog.totalInputTokens(project, '0001')).toBe(1106);
+    });
+
     // AC1: two implementing attempts and one review attempt come back as three attempts across
     // two stages, with the token sums of their own events.
     it('sums attempts and tokens across two attempts of one stage and one attempt of another', async () => {

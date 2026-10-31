@@ -230,7 +230,7 @@ export interface StageOutcome {
     changedPaths: string[];
     scopeGrants: string[];
     result?: unknown;
-    usage?: { inputTokens?: number; outputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */

@@ -106,6 +106,23 @@ describe('CliStageAgent budget wiring', () => {
             expect(output.trace).toEqual({ reads: 2, readPaths: ['src/a.ts'], finalMessage: 'working' });
         });
 
+        it('counts cached tokens, which is nearly all of what a real turn sends', async () => {
+            const cached = (id: string) => ({
+                type: 'assistant',
+                message: {
+                    id,
+                    usage: { input_tokens: 2, output_tokens: 1, cache_read_input_tokens: 60_000, cache_creation_input_tokens: 5000 },
+                    content: [{ type: 'text', text: 'working' }],
+                },
+            });
+            queryMock.mockReturnValue(streamOf([cached('msg_1'), cached('msg_2'), cached('msg_3')]));
+
+            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 100_000 })) as never);
+
+            expect(output.budgetFailure).toBe('input token budget exceeded: used 130004, cap 100000');
+            expect(output.usage).toEqual({ inputTokens: 4, cachedInputTokens: 130_000 });
+        });
+
         it('charges an API message once, however many content blocks repeat its usage', async () => {
             queryMock.mockReturnValue(streamOf([assistant('msg_1', 600), assistant('msg_1', 600), assistant('msg_1', 600), resultMessage('success', 600)]));
 

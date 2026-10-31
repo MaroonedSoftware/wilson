@@ -20,6 +20,7 @@ export interface CardAttempt {
     stage: string;
     outcome: AttemptOutcome;
     startedAt: CardEvent['createdAt'];
+    /** Everything the run was sent, cached tokens included. */
     inputTokens?: number;
     outputTokens?: number;
     toolCalls: number;
@@ -45,8 +46,8 @@ const withEnding = (attempt: CardAttempt, event: CardEvent, outcome: AttemptOutc
     return {
         ...attempt,
         outcome,
-        inputTokens: number(usage.inputTokens),
-        outputTokens: number(usage.outputTokens),
+        ...(number(usage.inputTokens) !== undefined && { inputTokens: (number(usage.inputTokens) ?? 0) + (number(usage.cachedInputTokens) ?? 0) }),
+        ...(number(usage.outputTokens) !== undefined && { outputTokens: number(usage.outputTokens) }),
         reads: number(trace.reads),
         readPaths: strings(trace.readPaths),
         ...(typeof trace.finalMessage === 'string' ? { finalMessage: trace.finalMessage } : {}),

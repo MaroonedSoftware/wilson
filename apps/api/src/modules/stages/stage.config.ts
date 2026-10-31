@@ -142,8 +142,13 @@ export const StageConfigSchema = z
         verifier: z.string().optional(),
         maxSteps: z.number().int().min(1).default(60),
         maxOutputTokens: z.number().int().min(1024).default(16000),
-        /** Cumulative input tokens a single run may consume before it is cut off as a budget failure. */
-        maxInputTokens: z.number().int().min(1000).default(2_000_000),
+        /**
+         * Cumulative input tokens a single run may consume before it is cut off as a budget failure,
+         * cached tokens included (`budgetedInputTokens`). Every turn resends the conversation, so this
+         * grows with steps times context size: the default allows `maxSteps` turns at 250k each, which
+         * is meant to catch a runaway, not to shape an ordinary run.
+         */
+        maxInputTokens: z.number().int().min(1000).default(15_000_000),
         /**
          * Fraction of the model's context window a run's usage may reach before it is stopped as a
          * budget failure.
@@ -194,7 +199,8 @@ export const StageConfigSchema = z
         /**
          * Ceiling on everything a card has ever spent, across every stage and every attempt.
          *
-         * Unlike `maxInputTokens`, which bounds one run, this bounds the card. It sits on the stage
+         * Unlike `maxInputTokens`, which bounds one run, this bounds the card, and counts the same
+         * way, cached tokens included. It sits on the stage
          * rather than the card because that is where every other budget lives, and a project sets it
          * once across its stages. Optional: absent means unbounded, exactly as today.
          */

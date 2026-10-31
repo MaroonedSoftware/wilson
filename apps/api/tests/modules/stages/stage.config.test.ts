@@ -16,9 +16,9 @@ const minimalStage = {
 };
 
 describe('StageConfigSchema budget fields', () => {
-    it('defaults maxInputTokens to 2,000,000 when omitted', () => {
+    it('defaults maxInputTokens to 15,000,000 when omitted', () => {
         const stage = StageConfigSchema.parse(minimalStage);
-        expect(stage.maxInputTokens).toBe(2_000_000);
+        expect(stage.maxInputTokens).toBe(15_000_000);
     });
 
     it('defaults maxWallClockMs to 1,800,000 (30 minutes) when omitted', () => {

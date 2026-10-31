@@ -18,7 +18,7 @@ import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.j
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { buildRunTrace } from './run.trace.js';
-import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
@@ -615,8 +615,8 @@ export class CliStageAgent extends StageAgent {
         let usage: AgentRunOutput['usage'];
         // Input tokens per API message, by id: the engine emits one assistant message per content
         // block, each repeating its API message's `usage`, so counting messages would charge a turn
-        // once per block. Same figure the `result` message totals, cache reads and writes excluded.
-        const inputTokensByMessage = new Map<string, number>();
+        // once per block. Summed, these match the `result` message's own totals.
+        const inputTokensByMessage = new Map<string, { inputTokens: number; cachedInputTokens: number }>();
 
         // `reported` still undefined at the point a result is built, despite the report tool having
         // been seen on the stream: the call was made but never reached the callback above (or
@@ -714,13 +714,23 @@ export class CliStageAgent extends StageAgent {
                     // into `usage` too: this run ends with no `result`, and a card's spend is summed
                     // from what its stage events carry.
                     if (message.message.id && message.message.usage) {
-                        inputTokensByMessage.set(message.message.id, message.message.usage.input_tokens);
-                        const spent = [...inputTokensByMessage.values()].reduce((total, tokens) => total + tokens, 0);
-                        const failure = overBudget(spent, stage.maxInputTokens);
+                        const turn = message.message.usage;
+                        inputTokensByMessage.set(message.message.id, {
+                            inputTokens: turn.input_tokens,
+                            cachedInputTokens: (turn.cache_read_input_tokens ?? 0) + (turn.cache_creation_input_tokens ?? 0),
+                        });
+                        const spent = [...inputTokensByMessage.values()].reduce(
+                            (total, tokens) => ({
+                                inputTokens: total.inputTokens + tokens.inputTokens,
+                                cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
+                            }),
+                            { inputTokens: 0, cachedInputTokens: 0 },
+                        );
+                        const failure = overBudget(budgetedInputTokens(spent), stage.maxInputTokens);
                         if (failure && !stoppedBecause) {
                             stoppedBecause = 'input-tokens';
                             inputTokenFailure = failure;
-                            usage = { inputTokens: spent };
+                            usage = spent;
                             this.logger.warn(`cli stage reached its input token budget of ${stage.maxInputTokens}`);
                             abortController.abort();
                             stop();
@@ -741,7 +751,11 @@ export class CliStageAgent extends StageAgent {
                     }
                 }
                 if (message.type === 'result') {
-                    usage = { inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens };
+                    usage = {
+                        inputTokens: message.usage?.input_tokens,
+                        outputTokens: message.usage?.output_tokens,
+                        cachedInputTokens: (message.usage?.cache_read_input_tokens ?? 0) + (message.usage?.cache_creation_input_tokens ?? 0),
+                    };
                     // The engine reports its own truncation; treat anything but a clean end as cut off.
                     // That covers `error_max_budget_usd` too: it is not `success`, so it lands here.
                     if (message.subtype !== 'success') {
@@ -750,7 +764,7 @@ export class CliStageAgent extends StageAgent {
                             result: reported ?? (summary ? { summary } : undefined),
                             usage,
                             truncated: true,
-                            budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                            budgetFailure: overBudget(budgetedInputTokens(usage), stage.maxInputTokens),
                             // The one case this card is about: the SDK's own result message names why
                             // the run ended, and that reason is worth more than the generic "ran out of
                             // steps" text `stage.dispatcher.ts` falls back to when neither budgetFailure
@@ -796,7 +810,7 @@ export class CliStageAgent extends StageAgent {
                         result: reported,
                         usage,
                         truncated: false,
-                        budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+                        budgetFailure: overBudget(budgetedInputTokens(usage), stage.maxInputTokens),
                         // Set only when this "clean" ending still produced nothing: `reported` is
                         // undefined, meaning the model finished its turn — subtype `success` — without
                         // ever calling report_result. That is card 0118's clearest observed case (card
@@ -968,7 +982,7 @@ export class CliStageAgent extends StageAgent {
             result: reported,
             usage,
             truncated: false,
-            budgetFailure: overBudget(usage?.inputTokens, stage.maxInputTokens),
+            budgetFailure: overBudget(budgetedInputTokens(usage), stage.maxInputTokens),
             ...droppedField(),
             ...traceField(),
         };

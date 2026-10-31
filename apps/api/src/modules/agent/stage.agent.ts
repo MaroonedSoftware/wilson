@@ -35,7 +35,7 @@ export interface AgentRunOutput {
     /** What the agent reported, or undefined when it never reported finishing. */
     result?: unknown;
     /** Cumulative usage, as far as the adapter can report it. */
-    usage?: { inputTokens?: number; outputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
     /** True when the loop was cut off rather than ending because the agent finished. */
     truncated: boolean;
     /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextBudgetExceeded, overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
+import { budgetedInputTokens, contextBudgetExceeded, overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
 
 /**
  * Card 0015: nothing bounded input tokens before this. One stage consumed 6.3M input tokens while
@@ -136,5 +136,20 @@ describe('wallClockExceeded', () => {
         expect(wallClock).not.toBe(tokenBudget);
         expect(wallClock).toContain('wall-clock');
         expect(tokenBudget).toContain('input token');
+    });
+});
+
+describe('budgetedInputTokens', () => {
+    it('counts cached tokens alongside uncached ones', () => {
+        expect(budgetedInputTokens({ inputTokens: 6, cachedInputTokens: 195_286 })).toBe(195_292);
+    });
+
+    it('counts what a usage holds when it has no cached figure', () => {
+        expect(budgetedInputTokens({ inputTokens: 900 })).toBe(900);
+    });
+
+    it('has nothing to count when no usage was reported', () => {
+        expect(budgetedInputTokens(undefined)).toBeUndefined();
+        expect(budgetedInputTokens({})).toBeUndefined();
     });
 });

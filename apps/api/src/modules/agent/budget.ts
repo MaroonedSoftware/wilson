@@ -23,6 +23,16 @@ export const tokenBudgetExceeded =
         sumInputTokens(steps) >= cap;
 
 /**
+ * What a run's usage counts as against an input budget: everything the model was sent, cached or not.
+ *
+ * The `cli` engine's `input_tokens` leaves caching out. On a real run it reported 2 per turn beside
+ * 65,000 cached, so a cap on that figure alone could never be reached. `undefined` when no usage was
+ * reported at all, which `overBudget` treats as nothing to judge.
+ */
+export const budgetedInputTokens = (usage: { inputTokens?: number; cachedInputTokens?: number } | undefined): number | undefined =>
+    usage?.inputTokens === undefined && usage?.cachedInputTokens === undefined ? undefined : (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
+
+/**
  * A failure string naming both the cap and what was actually spent, or `undefined` when `used` is
  * still under `cap`.
  *

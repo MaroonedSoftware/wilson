@@ -20,7 +20,7 @@ describe('groupAttempts', () => {
             event('tool.denied', 'testing', { tool: 'Bash', reason: 'no' }),
             event('stage.failed', 'testing', {
                 failures: ['tests failed'],
-                usage: { inputTokens: 900, outputTokens: 40 },
+                usage: { inputTokens: 100, outputTokens: 40, cachedInputTokens: 800 },
                 trace: { reads: 3, readPaths: ['src/a.ts'], finalMessage: 'stopped' },
             }),
             event('stage.dispatched', 'testing'),

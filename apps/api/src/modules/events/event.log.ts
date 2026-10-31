@@ -149,9 +149,11 @@ export class EventLog {
     }
 
     /**
-     * What a card has spent in total, across every stage and every attempt.
+     * What a card has spent in total, across every stage and every attempt, cached tokens included
+     * as `budgetedInputTokens` counts them. Events from before `cachedInputTokens` was recorded count
+     * only what they hold.
      *
-     * Every stage already records `usage.inputTokens` in its `stage.passed` / `stage.failed`
+     * Every stage already records `usage` in its `stage.passed` / `stage.failed`
      * payload, so this reads that history rather than tracking a separate running counter. Nulls —
      * a card with no usage recorded — coalesce to zero rather than surfacing as null.
      */
@@ -160,7 +162,11 @@ export class EventLog {
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .select(sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('total'))
+            .select(
+                sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
+                    'total',
+                ),
+            )
             .executeTakeFirstOrThrow();
 
         return Number(row.total);
