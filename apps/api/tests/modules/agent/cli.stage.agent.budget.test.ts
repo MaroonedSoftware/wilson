@@ -120,7 +120,7 @@ describe('CliStageAgent budget wiring', () => {
             const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 100_000 })) as never);
 
             expect(output.budgetFailure).toBe('input token budget exceeded: used 130004, cap 100000');
-            expect(output.usage).toEqual({ inputTokens: 4, cachedInputTokens: 130_000 });
+            expect(output.usage).toEqual({ inputTokens: 4, outputTokens: 2, cachedInputTokens: 130_000 });
         });
 
         it('charges an API message once, however many content blocks repeat its usage', async () => {

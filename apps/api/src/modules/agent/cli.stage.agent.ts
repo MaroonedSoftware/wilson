@@ -616,7 +616,7 @@ export class CliStageAgent extends StageAgent {
         // Input tokens per API message, by id: the engine emits one assistant message per content
         // block, each repeating its API message's `usage`, so counting messages would charge a turn
         // once per block. Summed, these match the `result` message's own totals.
-        const inputTokensByMessage = new Map<string, { inputTokens: number; cachedInputTokens: number }>();
+        const inputTokensByMessage = new Map<string, { inputTokens: number; outputTokens: number; cachedInputTokens: number }>();
 
         // `reported` still undefined at the point a result is built, despite the report tool having
         // been seen on the stream: the call was made but never reached the callback above (or
@@ -717,14 +717,16 @@ export class CliStageAgent extends StageAgent {
                         const turn = message.message.usage;
                         inputTokensByMessage.set(message.message.id, {
                             inputTokens: turn.input_tokens,
+                            outputTokens: turn.output_tokens,
                             cachedInputTokens: (turn.cache_read_input_tokens ?? 0) + (turn.cache_creation_input_tokens ?? 0),
                         });
                         const spent = [...inputTokensByMessage.values()].reduce(
                             (total, tokens) => ({
                                 inputTokens: total.inputTokens + tokens.inputTokens,
+                                outputTokens: total.outputTokens + tokens.outputTokens,
                                 cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
                             }),
-                            { inputTokens: 0, cachedInputTokens: 0 },
+                            { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
                         );
                         const failure = overBudget(budgetedInputTokens(spent), stage.maxInputTokens);
                         if (failure && !stoppedBecause) {

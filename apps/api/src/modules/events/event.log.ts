@@ -182,7 +182,8 @@ export class EventLog {
      * back in the order each stage was first run — `min(id)` ascending, since `id` is a `BIGSERIAL`
      * assigned in insertion order (`append`) — not alphabetically. An event whose payload has no
      * `usage` still counts as an attempt, at zero tokens, so `attempts` can never disagree with what
-     * `tail` shows for the same card: nothing here is silently skipped.
+     * `tail` shows for the same card: nothing here is silently skipped. `inputTokens` includes cached
+     * tokens, the same total `totalInputTokens` holds a card to.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
@@ -193,7 +194,9 @@ export class EventLog {
             .select([
                 'stage',
                 sql<string>`count(*)`.as('attempts'),
-                sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
+                    'inputTokens',
+                ),
                 sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
                 sql<string>`min(id)`.as('firstId'),
             ])
