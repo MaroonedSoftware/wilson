@@ -41,6 +41,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.maroonedsoftware.wilson.board.PARKING_LOT
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.ui.Loading
 import com.maroonedsoftware.wilson.ui.Problem
@@ -49,7 +50,7 @@ private val TABS = listOf("Plan", "Activity", "Diff")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit) {
+fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit, onPlan: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val snackbars = remember { SnackbarHostState() }
@@ -75,7 +76,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit) {
         }
         Column(Modifier.padding(padding).fillMaxSize()) {
             Header(card)
-            Actions(card, state, model)
+            Actions(card, state, model, onPlan)
             PrimaryTabRow(selectedTabIndex = tab) {
                 TABS.forEachIndexed { index, name -> Tab(selected = tab == index, onClick = { tab = index }, text = { Text(name) }) }
             }
@@ -102,12 +103,13 @@ private fun Header(card: CardDetail) {
  * back in its own words. Merge and release ask first, because a thumb is not a mouse.
  */
 @Composable
-private fun Actions(card: CardDetail, state: CardState, model: CardModel) {
+private fun Actions(card: CardDetail, state: CardState, model: CardModel, onPlan: () -> Unit) {
     var confirming by remember { mutableStateOf<Confirm?>(null) }
     var moving by remember { mutableStateOf(false) }
     val idle = state.acting == null
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (card.needsHuman) Button(onClick = model::acknowledge, enabled = idle) { Text("Acknowledge") }
+        if (card.stage == "planning" || card.stage == PARKING_LOT) OutlinedButton(onClick = onPlan) { Text("Plan") }
         OutlinedButton(onClick = model::start, enabled = idle) { Text("Start") }
         OutlinedButton(onClick = model::approve, enabled = idle) { Text("Approve plan") }
         OutlinedButton(onClick = { confirming = Confirm.MERGE }, enabled = idle) { Text(if (state.acting == "merge") "Merging…" else "Merge") }

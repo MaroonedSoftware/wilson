@@ -27,6 +27,8 @@ import com.maroonedsoftware.wilson.ui.edit.CardFormModel
 import com.maroonedsoftware.wilson.ui.edit.CardFormScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
 import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
+import com.maroonedsoftware.wilson.ui.plan.PlanModel
+import com.maroonedsoftware.wilson.ui.plan.PlanScreen
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
 import com.maroonedsoftware.wilson.ui.signin.SignInScreen
 import kotlinx.coroutines.flow.map
@@ -77,6 +79,14 @@ private fun SignedIn(app: WilsonApp) {
                     viewModel(key = "card:${key.project}:${key.id}", factory = viewModelFactory { initializer { CardModel(app, key.project, key.id) } }),
                     onBack = { backStack.removeLastOrNull() },
                     onEdit = { backStack.add(Destination.EditCard(key.project, key.id)) },
+                    onPlan = { backStack.add(Destination.Plan(key.project, key.id)) },
+                )
+            }
+            entry<Destination.Plan> { key ->
+                PlanScreen(
+                    viewModel(key = "plan:${key.project}:${key.id}", factory = viewModelFactory { initializer { PlanModel(app, key.project, key.id) } }),
+                    heading = "Plan ${key.id}",
+                    onBack = { backStack.removeLastOrNull() },
                 )
             }
             entry<Destination.NewCard> { key ->
