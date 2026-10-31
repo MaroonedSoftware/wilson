@@ -18,6 +18,8 @@ contract EngineTokenSummary: {
     name: string
     createdAt: datetime
     updatedAt: datetime
+    # The worker hosts assigned this token, name ascending.
+    hosts: array(string)
 }
 
 contract PutEngineTokenRequest: {
@@ -63,6 +65,7 @@ operation /api/engine-tokens/{name}: {
         }
     }
     # Forget a token. This does not revoke it with Anthropic, and an engine already running keeps it.
+    # Hosts assigned it go back to the worker's own sign-in.
     delete: {
         mcp: exclude # Credentials are never handed to an agent
         name: Remove engine token

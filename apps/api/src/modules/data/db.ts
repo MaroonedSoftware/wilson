@@ -211,6 +211,7 @@ export interface WilsonHosts {
   createdAt: Generated<DateTime>;
   draining: Generated<boolean>;
   enabled: Generated<boolean>;
+  engineToken: string | null;
   engineVersion: string | null;
   expiresAt: DateTime | null;
   kind: Generated<"ssh" | "worker">;

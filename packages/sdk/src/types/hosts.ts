@@ -132,6 +132,14 @@ export interface UpdateHostRequest {
 }
 
 /**
+ * generated from [PutHostEngineTokenRequest](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface PutHostEngineTokenRequest {
+    /** The name a token was saved under (`/api/engine-tokens/{name}`). */
+    name: string;
+}
+
+/**
  * The three paths for one project on one host. All three are absolute paths on the host.
  * generated from [PutHostProjectRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
@@ -179,6 +187,11 @@ export interface Host {
     probe?: HostProbe;
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     workerToken?: WorkerTokenSummary;
+    /**
+     * The name of the saved engine token its engines sign in with, never the token. Absent, a worker's
+     * engines sign in as that machine was set up to. Never present on an `ssh` host.
+     */
+    engineToken?: string;
 }
 
 /** Rehydrates every wire-encoded scalar in a Host into its runtime type. Mutates and returns `raw`. */

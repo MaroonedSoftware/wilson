@@ -32,6 +32,7 @@ export class EngineTokensClient {
     /**
      * @name Remove engine token
      * @description Forget a token. This does not revoke it with Anthropic, and an engine already running keeps it.
+     * Hosts assigned it go back to the worker's own sign-in.
      */
     async removeEngineToken(name: string): Promise<void> {
         await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}`, { method: 'DELETE' });

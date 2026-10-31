@@ -149,6 +149,7 @@ export const toHost = (row: HostRow): Host => ({
     running: row.running,
     ...(row.probe && { probe: row.probe }),
     ...(row.workerToken && { workerToken: row.workerToken }),
+    ...(row.engineToken && { engineToken: row.engineToken }),
 });
 
 const notFound = (name: string) => httpError(404).withDetails({ reason: `host "${name}" is not registered` });

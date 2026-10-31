@@ -46,6 +46,7 @@ EngineTokensRouter.put('/api/engine-tokens/:name', requirePolicy({ policy: 'wils
 
 /**
  * Forget a token. This does not revoke it with Anthropic, and an engine already running keeps it.
+ * Hosts assigned it go back to the worker's own sign-in.
  * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `DELETE /api/engine-tokens/{name}`
  */
 EngineTokensRouter.delete('/api/engine-tokens/:name', requirePolicy({ policy: 'wilson.manage' }), async ctx => {

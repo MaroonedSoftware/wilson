@@ -10,6 +10,8 @@ export interface EngineTokenRow {
     name: string;
     createdAt: DateTime;
     updatedAt: DateTime;
+    /** The worker hosts assigned it, name ascending. */
+    hosts: string[];
 }
 
 /** `wilson.engine_tokens`, in Postgres. Sees only ciphertext; `EngineTokensService` holds the key. */
@@ -19,17 +21,23 @@ export class EngineTokenRepository {
 
     /** Every saved token, name ascending. */
     async list(): Promise<EngineTokenRow[]> {
-        return this.db.selectFrom('wilson.engineTokens').select(['name', 'createdAt', 'updatedAt']).orderBy('name').execute();
+        const tokens = await this.db.selectFrom('wilson.engineTokens').select(['name', 'createdAt', 'updatedAt']).orderBy('name').execute();
+        const hosts = await this.db
+            .selectFrom('wilson.hosts')
+            .select(['name', 'engineToken'])
+            .where('engineToken', 'is not', null)
+            .orderBy('name')
+            .execute();
+        return tokens.map(token => ({ ...token, hosts: hosts.filter(host => host.engineToken === token.name).map(host => host.name) }));
     }
 
     /** Save `ciphertext` under `name`, replacing any saved there, and leaving every other row alone. */
-    async put(name: string, ciphertext: string): Promise<EngineTokenRow> {
-        return this.db
+    async put(name: string, ciphertext: string): Promise<void> {
+        await this.db
             .insertInto('wilson.engineTokens')
             .values({ name, ciphertext })
             .onConflict(oc => oc.column('name').doUpdateSet({ ciphertext, updatedAt: sql`now()` }))
-            .returning(['name', 'createdAt', 'updatedAt'])
-            .executeTakeFirstOrThrow();
+            .execute();
     }
 
     /** The stored ciphertext for `name`, or undefined when none is saved. */

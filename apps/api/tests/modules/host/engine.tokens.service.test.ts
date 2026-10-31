@@ -5,18 +5,21 @@ import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import type { DB } from '#modules/data/db.js';
 import { EngineTokenRepository } from '#modules/host/engine.token.repository.js';
 import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
+import { HostRepository } from '#modules/host/host.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /** Against a real connection, as `worker.tokens.service.test.ts` is. Names are unique: the table is deployment-scoped. */
 let db: Kysely<DB>;
 let tokens: EngineTokensService;
+let hosts: HostRepository;
 const key = randomBytes(32);
 
 const uniqueName = (): string => uniqueProject().toLowerCase();
 
 beforeAll(() => {
     db = testDb();
-    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key));
+    hosts = new HostRepository(db);
+    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key), hosts);
 });
 afterAll(async () => {
     await db.destroy();
@@ -68,8 +71,54 @@ describe('EngineTokensService', () => {
     it('says so when a row will not decrypt, without saying what it held', async () => {
         const name = uniqueName();
         await tokens.put(name, { token: 'unreadable' });
-        const rekeyed = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(randomBytes(32)));
+        const rekeyed = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(randomBytes(32)), hosts);
 
         await expect(rekeyed.resolve(name)).rejects.toThrow(`The engine token "${name}" cannot be decrypted`);
+    });
+
+    it('assigns a token to a worker host by name, and shows the name and never the value', async () => {
+        const [host, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'assigned-value' });
+
+        const assigned = await tokens.assign(host, { name });
+
+        expect(assigned.engineToken).toBe(name);
+        expect(JSON.stringify(assigned)).not.toContain('assigned-value');
+        expect((await tokens.list()).find(token => token.name === name)?.hosts).toEqual([host]);
+
+        expect((await tokens.unassign(host)).engineToken).toBeUndefined();
+        expect((await tokens.list()).find(token => token.name === name)?.hosts).toEqual([]);
+    });
+
+    it('refuses an ssh host with 400, and an unknown host or token with 404', async () => {
+        const [ssh, worker, name] = [uniqueName(), uniqueName(), uniqueName()];
+        await hosts.create({ name: ssh, kind: 'ssh', sshTarget: 'box', slots: 1 });
+        await hosts.create({ name: worker, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+
+        await expect(tokens.assign(ssh, { name })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.assign(uniqueName(), { name })).rejects.toMatchObject({ statusCode: 404 });
+        await expect(tokens.assign(worker, { name: uniqueName() })).rejects.toMatchObject({ statusCode: 404 });
+        await expect(tokens.unassign(uniqueName())).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('removes a token that is still assigned, leaving its hosts with none', async () => {
+        const [host, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+        await tokens.assign(host, { name });
+
+        await tokens.remove(name);
+
+        expect((await hosts.find(host))?.engineToken).toBeUndefined();
+    });
+
+    it('has Postgres refuse a token on an ssh host, whatever reaches the table', async () => {
+        const [ssh, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: ssh, kind: 'ssh', sshTarget: 'box', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+
+        await expect(hosts.setEngineToken(ssh, name)).rejects.toThrow();
     });
 });

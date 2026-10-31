@@ -14,6 +14,7 @@ export const EngineTokenSummary = z.strictObject({
     name: z.string(),
     createdAt: _ZodDatetime,
     updatedAt: _ZodDatetime,
+    hosts: z.array(z.string()).describe('The worker hosts assigned this token, name ascending.'),
 });
 export type EngineTokenSummary = z.infer<typeof EngineTokenSummary>;
 

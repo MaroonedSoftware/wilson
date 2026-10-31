@@ -16,6 +16,8 @@ export interface EngineTokenSummary {
     name: string;
     createdAt: DateTime;
     updatedAt: DateTime;
+    /** The worker hosts assigned this token, name ascending. */
+    hosts: string[];
 }
 
 /** Rehydrates every wire-encoded scalar in a EngineTokenSummary into its runtime type. Mutates and returns `raw`. */
