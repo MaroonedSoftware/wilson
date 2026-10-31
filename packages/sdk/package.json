@@ -6,7 +6,8 @@
     "main": "./src/index.ts",
     "scripts": {
         "build": "tsc --noEmit",
-        "lint": "eslint --fix"
+        "lint": "eslint --fix",
+        "lint:check": "eslint"
     },
     "devDependencies": {
         "@repo/config-eslint": "workspace:*",

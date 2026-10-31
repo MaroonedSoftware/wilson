@@ -6,6 +6,7 @@
         "build": "vite build && tsc",
         "dev": "vite --port 13101",
         "lint": "eslint --fix",
+        "lint:check": "eslint",
         "test": "vitest run"
     },
     "dependencies": {

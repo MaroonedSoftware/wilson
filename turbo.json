@@ -10,6 +10,10 @@
             "dependsOn": ["^lint"],
             "env": ["VISUAL", "EDITOR"]
         },
+        "lint:check": {
+            "dependsOn": ["^lint:check"],
+            "env": ["VISUAL", "EDITOR"]
+        },
         "dev": {
             "cache": false,
             "persistent": true
