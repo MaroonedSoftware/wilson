@@ -415,6 +415,21 @@ describe('PlanService', () => {
         });
     });
 
+    describe('open, after a close with no conversation', () => {
+        it('seeds from the card again once the session has been closed', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0031', { stage: 'planning', title: 'Reopened after close' }, FULL_BODY), 'seed');
+            const first = await service.open('0031');
+            await writeFile(first.draftPath, 'abandoned draft\n', 'utf8');
+
+            await service.close('0031');
+            const second = await service.open('0031');
+
+            expect(await readFile(second.draftPath, 'utf8')).toBe(FULL_BODY);
+            expect(existsSync(second.worktreePath)).toBe(true);
+        });
+    });
+
     describe('draft', () => {
         it('returns the exact bytes on disk, including a draft the agent has partly written mid-session', async () => {
             const { board, service } = await freshEnv();
