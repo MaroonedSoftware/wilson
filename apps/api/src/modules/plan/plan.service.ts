@@ -329,6 +329,35 @@ export class PlanService {
     }
 
     /**
+     * Draft a card's whole plan with nobody in the conversation: one `draft` turn, then the same
+     * `save` a person's draft goes through. Returns why it did not, or `undefined` once the plan is
+     * saved. A draft `save` refuses throws, and stays in `draft.md` for a person to pick up.
+     *
+     * Only ever a card's first turn, so a retried job or a person who got there first is left alone.
+     * The session closes afterwards, however the turn went, because nobody is sitting in it: its
+     * turns stay stored and `open` rejoins them. Never approves: the card stays in `planning`.
+     */
+    async autoDraft(id: string): Promise<string | undefined> {
+        const card = await this.readOrThrow(id);
+        if (card.frontmatter.stage !== 'planning') return `${id} is in "${card.frontmatter.stage}", not "planning"`;
+        if ((await this.planTurns.since(id, 0)).length > 0) return `${id} already has a planning conversation`;
+
+        try {
+            await this.appendTurn(id, { text: '', mode: 'draft' });
+        } finally {
+            await this.close(id);
+        }
+
+        // A person may have approved or moved it during the turn, and a plan pinned for `backlog`
+        // must not change under them.
+        const after = await this.readOrThrow(id);
+        if (after.frontmatter.stage !== 'planning') return `${id} moved to "${after.frontmatter.stage}" while its plan was drafted`;
+
+        await this.save(id, await this.draft(id));
+        return undefined;
+    }
+
+    /**
      * Reclaim a session's worktree and delete its throwaway branch. Idempotent, and safe to call for
      * a session that was never saved, or never opened at all: `WorktreeManager.reclaim` is already
      * safe to call on nothing there, and the branch delete is best-effort for the same reason.
