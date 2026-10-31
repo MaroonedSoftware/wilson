@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maroonedsoftware.wilson.board.cardState
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
@@ -42,6 +46,11 @@ import com.maroonedsoftware.wilson.ui.StateIcon
 @Composable
 fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(state.project) {
+        val project = state.project ?: return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow(project) }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -51,12 +60,10 @@ fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            FilterChip(
-                selected = state.flaggedOnly,
-                onClick = model::toggleFlagged,
-                label = { Text("Needs you (${state.flagged.size})") },
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(selected = state.flaggedOnly, onClick = model::toggleFlagged, label = { Text("Needs you (${state.flagged.size})") })
+                Text(if (state.live) "live" else "reconnecting", style = MaterialTheme.typography.labelSmall)
+            }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             when {
                 !state.loaded -> Loading()

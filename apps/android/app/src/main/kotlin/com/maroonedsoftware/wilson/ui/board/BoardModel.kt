@@ -3,13 +3,24 @@ package com.maroonedsoftware.wilson.ui.board
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.maroonedsoftware.wilson.WilsonApp
+import com.maroonedsoftware.wilson.auth.StreamSignal
+import com.maroonedsoftware.wilson.auth.liveStream
 import com.maroonedsoftware.wilson.board.columnOrder
 import com.maroonedsoftware.wilson.board.groupByStage
+import com.maroonedsoftware.wilson.net.HttpClients
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 data class BoardState(
     val projects: List<String> = emptyList(),
@@ -19,6 +30,7 @@ data class BoardState(
     val flaggedOnly: Boolean = false,
     val refreshing: Boolean = false,
     val loaded: Boolean = false,
+    val live: Boolean = false,
     val error: String? = null,
 ) {
     val flagged: List<CardSummary> get() = cards.values.flatten().filter { it.needsHuman }
@@ -58,6 +70,28 @@ class BoardModel(private val app: WilsonApp) : ViewModel() {
         }
     }
 
+    /**
+     * Follows the card feed for as long as the screen is started. Each burst of events becomes one
+     * reload, since connecting replays a snapshot of every card. `tool.*` events change nothing the
+     * board shows, as the web feed also knows, so they do not reload it. A reconnect always reloads:
+     * the feed does not replay what happened during the drop.
+     */
+    suspend fun follow(project: String) {
+        app.session.liveStream(HttpClients.stream, "/api/feed", project)
+            .onEach { signal -> if (signal !is StreamSignal.Event) state.update { it.copy(live = signal == StreamSignal.Live) } }
+            .mapNotNull { signal ->
+                when (signal) {
+                    StreamSignal.Live -> Unit
+                    StreamSignal.Down -> null
+                    is StreamSignal.Event -> Unit.takeIf { !isToolEvent(signal.event.data) }
+                }
+            }
+            .collectLatest {
+                delay(RELOAD_SETTLE_MS)
+                load(project)
+            }
+    }
+
     fun selectProject(name: String) {
         state.update { it.copy(project = name, columns = emptyList(), cards = emptyMap(), loaded = false) }
         viewModelScope.launch { app.settings.saveProject(name) }
@@ -69,4 +103,12 @@ class BoardModel(private val app: WilsonApp) : ViewModel() {
     fun signOut() {
         viewModelScope.launch { app.session.signOut() }
     }
+
+    private companion object {
+        const val RELOAD_SETTLE_MS = 300L
+    }
 }
+
+/** A feed event's type is its `message` (`card.feed.listener.ts`). Anything unreadable reloads, which is safe. */
+internal fun isToolEvent(data: String): Boolean =
+    runCatching { Json.parseToJsonElement(data).jsonObject["message"]?.jsonPrimitive?.contentOrNull?.startsWith("tool.") == true }.getOrDefault(false)
