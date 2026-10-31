@@ -191,6 +191,13 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonEngineTokens {
+  ciphertext: string;
+  createdAt: Generated<DateTime>;
+  name: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonHostProjects {
   codeRoot: string;
   host: string;
@@ -208,11 +215,11 @@ export interface WilsonHosts {
   expiresAt: DateTime | null;
   kind: Generated<"ssh" | "worker">;
   lifetimeMinutes: number | null;
-  projectsRoot: string | null;
   name: string;
   probedAt: DateTime | null;
   probeDetail: string | null;
   probeOk: boolean | null;
+  projectsRoot: string | null;
   slots: Generated<number>;
   sshTarget: string | null;
   workerTokenHash: string | null;
@@ -305,6 +312,7 @@ export interface DB {
   "wilson.chatMessages": WilsonChatMessages;
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
   "wilson.learnings": WilsonLearnings;

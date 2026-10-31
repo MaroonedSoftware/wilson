@@ -5,6 +5,15 @@ import type { EngineTokenSetting, SetEngineTokenSettingRequest } from '#src/gene
 import { SettingsStore } from './settings.store.js';
 import { ENGINE_TOKEN } from './engine.token.setting.js';
 
+/** `token` trimmed, refusing what `CLAUDE_CODE_OAUTH_TOKEN` could not carry with 400. */
+export const requireEngineToken = (token: string): string => {
+    const trimmed = token.trim();
+    if (trimmed === '' || /\s/.test(trimmed)) {
+        throw httpError(400).withDetails({ reason: 'the engine token must be a single word, as `claude setup-token` prints it' });
+    }
+    return trimmed;
+};
+
 /**
  * The engine token saved in `wilson.settings`, encrypted under the same root key as the TOTP seeds.
  *
@@ -38,11 +47,7 @@ export class EngineTokenSettingService {
 
     /** Encrypt and persist `token`, refusing what `CLAUDE_CODE_OAUTH_TOKEN` could not carry. */
     async save(token: string): Promise<void> {
-        const trimmed = token.trim();
-        if (trimmed === '' || /\s/.test(trimmed)) {
-            throw httpError(400).withDetails({ reason: 'the engine token must be a single word, as `claude setup-token` prints it' });
-        }
-        await this.settings.set(ENGINE_TOKEN, this.encryption.encrypt(trimmed));
+        await this.settings.set(ENGINE_TOKEN, this.encryption.encrypt(requireEngineToken(token)));
     }
 
     /** Remove the saved token. Never decrypts it, so this still works after the key is lost. */
