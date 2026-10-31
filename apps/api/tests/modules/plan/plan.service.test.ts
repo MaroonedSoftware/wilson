@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -548,6 +548,59 @@ describe('PlanService', () => {
             expect(stored.body).toBe(body);
             expect(await board.versions('0016', 10)).toHaveLength(1);
         });
+
+        describe('reopening a card that already has a conversation', () => {
+            const conversation = async (id: string) => {
+                const env = await freshEnv();
+                await env.board.create(card(id, { stage: 'planning', title: 'Rejoined' }, FULL_BODY), 'seed');
+                const session = await env.service.open(id);
+                await env.service.turn(id, { text: 'hello' });
+                await writeFile(session.draftPath, 'the agent\'s draft', 'utf8');
+                await writeFile(join(session.worktreePath, 'scratch.txt'), 'in progress', 'utf8');
+                return { ...env, session };
+            };
+
+            it('keeps the draft and leaves the worktree alone', async () => {
+                const { service, session } = await conversation('0060');
+
+                const rejoined = await service.open('0060');
+
+                expect(await readFile(session.draftPath, 'utf8')).toBe('the agent\'s draft');
+                expect(rejoined.worktreePath).toBe(session.worktreePath);
+                expect(existsSync(join(session.worktreePath, 'scratch.txt'))).toBe(true);
+                expect(rejoined.instructions).toContain('the draft so far');
+            });
+
+            it('cuts the worktree again after a close, still keeping the draft', async () => {
+                const { service, session } = await conversation('0061');
+                await service.close('0061');
+
+                await service.open('0061');
+
+                expect(existsSync(session.worktreePath)).toBe(true);
+                expect(await readFile(session.draftPath, 'utf8')).toBe('the agent\'s draft');
+            });
+
+            it('seeds the draft again when the file is gone', async () => {
+                const { service, session } = await conversation('0062');
+                await rm(session.draftPath);
+
+                await service.open('0062');
+
+                expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
+            });
+        });
+
+        it('re-seeds the draft on reopening a card with no conversation yet', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0063', { stage: 'planning', title: 'Not started' }, FULL_BODY), 'seed');
+            const session = await service.open('0063');
+            await writeFile(session.draftPath, 'stale', 'utf8');
+
+            await service.open('0063');
+
+            expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
+        });
     });
 
     describe('close', () => {
@@ -762,6 +815,24 @@ describe('PlanService', () => {
             } finally {
                 planSessions.dispose(chatId);
                 planSessions.dispose(noModeId);
+            }
+        });
+
+        it('draft mode prepends the draft preamble to the prompt and stores an empty turn as "[draft the plan]"', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+            try {
+                const result = await service.turn(id, { text: '', mode: 'draft' });
+
+                expect(result.content).toContain('Write the plan now.');
+                expect(result.content).not.toContain('Propose cuts to shrink this plan');
+
+                const [userTurn] = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(userTurn?.content).toBe('[draft the plan]');
+            } finally {
+                planSessions.dispose(id);
             }
         });
 

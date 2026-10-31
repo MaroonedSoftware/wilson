@@ -309,6 +309,34 @@ describe('a card in planning', () => {
         expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: '', mode: 'cuts' });
     });
 
+    it('"Draft the plan" sends a draft turn with an empty composer, and carries anything typed as guidance', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
+        const sendAPlanTurn = vi
+            .spyOn(wilson.board, 'sendAPlanTurn')
+            .mockResolvedValue(turn(1, { role: 'assistant', content: 'The plan is in the draft.' }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+        await waitFor(() => expect(BoardClient.prototype.openAPlanningSession).toHaveBeenCalled());
+
+        const draftThePlan = await screen.findByRole('button', { name: 'Draft the plan' });
+        await waitFor(() => expect((draftThePlan as HTMLButtonElement).disabled).toBe(false));
+        await act(async () => {
+            fireEvent.click(draftThePlan);
+        });
+        expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: '', mode: 'draft' });
+        await screen.findByText('The plan is in the draft.');
+
+        const textarea = await screen.findByRole('textbox', { name: 'Message' });
+        await act(async () => {
+            fireEvent.change(textarea, { target: { value: 'keep it to the API' } });
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Draft the plan' }));
+        });
+        expect(sendAPlanTurn).toHaveBeenLastCalledWith('0007', { text: 'keep it to the API', mode: 'draft' });
+    });
+
     it("shows the server's own refusal sentence inline next to the composer, not a generic message", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         vi.spyOn(wilson.board, 'sendAPlanTurn').mockRejectedValue(
