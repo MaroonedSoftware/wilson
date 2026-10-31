@@ -736,6 +736,30 @@ describe('the dependencies section', () => {
 // an operator reading the web timeline saw a bare "dispatch.deferred" with no way to tell a scope
 // conflict from any other deferral without going to the server log. These assertions fail on the
 // pre-change tree: no reason text is rendered there for any event, deferred or otherwise.
+describe('the split section', () => {
+    it('links to the origin and to each piece, with its stage', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
+            card('implementing', { splitFrom: '0001', pieces: [{ id: '0008', title: 'Piece A', stage: 'merged' }] }),
+        );
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByRole('heading', { name: 'Split' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: '0001' }).getAttribute('href')).toBe('/projects/demo/cards/0001');
+        expect(screen.getByRole('link', { name: '0008' }).getAttribute('href')).toBe('/projects/demo/cards/0008');
+        expect(screen.getByText('Piece A')).toBeTruthy();
+    });
+
+    it('is absent on a card that has neither an origin nor pieces', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('implementing', { pieces: [] }));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(screen.queryByRole('heading', { name: 'Split' })).toBeNull();
+    });
+});
+
 describe('the events timeline', () => {
     it('shows the reason on a dispatch.deferred event', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));

@@ -475,6 +475,7 @@ export function CardDetailView({
     // Only from the events this page already loaded, so a card whose last stage ran on a host long
     // ago, past the loaded tail, shows nothing rather than a guess.
     const ranOn = events ? lastStageHost(events) : undefined;
+    const pieces = card.pieces ?? [];
 
     return (
         <Stack gap="lg">
@@ -584,6 +585,34 @@ export function CardDetailView({
                 <Title order={4}>Dependencies</Title>
                 <DependenciesSection card={card} />
             </Stack>
+
+            {(card.splitFrom || pieces.length > 0) && (
+                <>
+                    <Divider />
+                    <Stack gap={6}>
+                        <Title order={4}>Split</Title>
+                        {card.splitFrom && (
+                            <Text size="sm">
+                                Split from{' '}
+                                <AnchorLink to="/projects/$project/cards/$cardId" params={{ project, cardId: card.splitFrom }} size="sm">
+                                    {card.splitFrom}
+                                </AnchorLink>
+                            </Text>
+                        )}
+                        {pieces.map(piece => (
+                            <Group key={piece.id} gap="xs" wrap="nowrap">
+                                <AnchorLink to="/projects/$project/cards/$cardId" params={{ project, cardId: piece.id }} size="sm">
+                                    {piece.id}
+                                </AnchorLink>
+                                <Badge size="xs" variant="light" color={piece.stage === 'merged' ? 'green' : 'gray'}>
+                                    {piece.stage}
+                                </Badge>
+                                <Text size="sm">{piece.title}</Text>
+                            </Group>
+                        ))}
+                    </Stack>
+                </>
+            )}
 
             <Divider />
 

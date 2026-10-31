@@ -50,6 +50,9 @@ contract CardSummary: {
     needsHuman: boolean
     needsHumanReason?: string
     position?: int
+    # The card this one was split out of. Absent on every other card, including pieces split before
+    # the field existed, so absence does not prove a card has no origin.
+    splitFrom?: string
     # Card 0178. The moment this card entered its current stage — the most recent
     # `transition.written` event's timestamp, or its earliest recorded event if the card has never
     # transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -63,9 +66,21 @@ contract CardSummary: {
     stageEnteredAt?: datetime
 }
 
+# One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+# has got without a read per piece.
+contract SplitPieceSummary: {
+    id: string
+    title: string
+    stage: string
+}
+
 contract CardDetail: CardSummary & {
     body: string
     sections: record(string, string)
+    # The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+    # same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+    # absent rather than guess. Empty, from `getById`, on a card that was never split.
+    pieces?: array(SplitPieceSummary)
 }
 
 # `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel

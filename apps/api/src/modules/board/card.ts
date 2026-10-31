@@ -45,6 +45,11 @@ export interface CardFrontmatter {
     /** What the runner or the operator said when they set `needsHuman`. */
     needsHumanReason?: string;
     /**
+     * The card this one was split out of, set once by `BoardWriteService.split`. Like `position`,
+     * not part of what `write`/`writeWithEvent` persist: a piece's origin never changes.
+     */
+    splitFrom?: string;
+    /**
      * Orders the parking lot; absent for a card nothing has ever dragged, which sorts by `id`
      * instead (`PostgresBoardRepository.list`) and meaningless outside `parking-lot` (card 0091).
      *
