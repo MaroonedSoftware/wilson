@@ -91,6 +91,27 @@ describe('EngineTokensService', () => {
         expect((await tokens.list()).find(token => token.name === name)?.hosts).toEqual([]);
     });
 
+    it('reads back the token a host is assigned now, and none once it has none', async () => {
+        const [host, first, second] = [uniqueName(), uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(first, { token: 'first-value' });
+        await tokens.put(second, { token: 'second-value' });
+
+        await expect(tokens.forHost(host)).resolves.toBeUndefined();
+
+        await tokens.assign(host, { name: first });
+        await expect(tokens.forHost(host)).resolves.toBe('first-value');
+
+        await tokens.put(first, { token: 'first-rotated' });
+        await expect(tokens.forHost(host)).resolves.toBe('first-rotated');
+
+        await tokens.assign(host, { name: second });
+        await expect(tokens.forHost(host)).resolves.toBe('second-value');
+
+        await tokens.remove(second);
+        await expect(tokens.forHost(host)).resolves.toBeUndefined();
+    });
+
     it('refuses an ssh host with 400, and an unknown host or token with 404', async () => {
         const [ssh, worker, name] = [uniqueName(), uniqueName(), uniqueName()];
         await hosts.create({ name: ssh, kind: 'ssh', sshTarget: 'box', slots: 1 });

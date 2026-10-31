@@ -70,6 +70,12 @@ export class EngineTokensService {
         return toHost((await this.hosts.find(hostName))!);
     }
 
+    /** The token worker host `hostName` is assigned now, or undefined when it has none. */
+    async forHost(hostName: string): Promise<string | undefined> {
+        const name = (await this.hosts.find(hostName))?.engineToken;
+        return name === undefined ? undefined : this.resolve(name);
+    }
+
     /**
      * The token saved as `name`, or undefined when none is. Refuses a row that will not decrypt, for
      * the reason `EngineTokenSettingService.resolve` does.

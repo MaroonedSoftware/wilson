@@ -30,7 +30,12 @@ export const HostModule: ServerKitModule = {
         // reaches exactly the workers the endpoint accepted.
         registry
             .register(HostConnector)
-            .useFactory(c => new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections)))
+            .useFactory(
+                c =>
+                    new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections), hostName =>
+                        c.get(EngineTokensService).forHost(hostName),
+                    ),
+            )
             .asSingleton();
         registry.register(ProjectClones).useClass(ProjectClones).asTransient();
         registry.register(HostProber).useClass(HostProber).asTransient();
