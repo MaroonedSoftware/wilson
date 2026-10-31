@@ -6,6 +6,10 @@ const { default: setCommand } = await import('#src/commands/host/set.command.js'
 const { default: listCommand } = await import('#src/commands/host/list.command.js');
 const { default: addCommand } = await import('#src/commands/host/add.command.js');
 const { default: tokenCommand } = await import('#src/commands/host/token.command.js');
+const { default: hostEngineTokenCommand } = await import('#src/commands/host/engine-token.command.js');
+const { default: engineTokenSetCommand } = await import('#src/commands/engine-token/set.command.js');
+const { default: engineTokenListCommand } = await import('#src/commands/engine-token/list.command.js');
+const { terminalIo } = await import('#src/sign.in.js');
 
 type Handler<Opts> = (opts: Opts, ctx: unknown, args: unknown[]) => Promise<number | void>;
 
@@ -180,5 +184,59 @@ describe('wilson host token', () => {
         await (tokenCommand.run as unknown as Handler<object>)({ revoke: true }, ctx, ['unraid-vm']);
 
         expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('DELETE');
+    });
+});
+
+describe('wilson host engine-token', () => {
+    it('assigns a saved token by name', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...host, kind: 'worker', engineToken: 'pool-a' }));
+        const { ctx } = buildCtx();
+
+        await (hostEngineTokenCommand.run as unknown as Handler<object>)({}, ctx, ['unraid-vm', 'pool-a']);
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(String(url)).toContain('/api/hosts/unraid-vm/engine-token');
+        expect(init.method).toBe('PUT');
+        expect(sentBody()).toEqual({ name: 'pool-a' });
+    });
+
+    it('clears it with --clear, and needs a name otherwise', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...host, kind: 'worker' }));
+        const { ctx } = buildCtx();
+
+        await (hostEngineTokenCommand.run as unknown as Handler<object>)({ clear: true }, ctx, ['unraid-vm']);
+        expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('DELETE');
+
+        expect(await (hostEngineTokenCommand.run as unknown as Handler<object>)({}, ctx, ['unraid-vm'])).toBe(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('wilson engine-token', () => {
+    const summary = { name: 'pool-a', createdAt: '2026-10-31T10:00:00Z', updatedAt: '2026-10-31T11:00:00Z', hosts: ['unraid-vm'] };
+
+    it('reads the token from stdin, sends it in the body, and never prints it', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(summary));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin').mockResolvedValue('secret-value\n');
+        const { ctx, logger } = buildCtx();
+
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({}, ctx, ['pool-a']);
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(String(url)).toContain('/api/engine-tokens/pool-a');
+        expect(String(url)).not.toContain('secret-value');
+        expect(init.method).toBe('PUT');
+        expect(sentBody()).toEqual({ token: 'secret-value\n' });
+        expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret-value');
+        readStdin.mockRestore();
+    });
+
+    it('lists names and the hosts assigned each', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse([summary]));
+        const { ctx, logger } = buildCtx();
+
+        await (engineTokenListCommand.run as unknown as Handler<object>)({}, ctx, []);
+
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe('pool-a  saved 2026-10-31T11:00:00Z  assigned to unraid-vm');
     });
 });
