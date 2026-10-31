@@ -36,14 +36,20 @@ guardrail, not a boundary: a command run inside a project folder can still reach
     wilson host serve unraid-vm wilson --code-root /srv/wilson --worktree-root /srv/worktrees --run-root /srv/run
     ```
 
-3. On the worker's machine, get a token for the engine with `claude setup-token`, then start the
-   worker from a checkout of this repository:
+3. Give the host an engine token. Save one on Wilson once, from `claude setup-token`, then assign it:
 
     ```bash
-    WILSON_URL=http://tower:13101 WILSON_WORKER_TOKEN=wilson_worker_... CLAUDE_CODE_OAUTH_TOKEN=... pnpm --filter @wilson/worker start
+    wilson engine-token set pool-a
+    wilson host engine-token unraid-vm pool-a
     ```
 
-4. Back on Wilson, `wilson host probe unraid-vm` should pass. Stages placed `remote` or `any` can now
+4. Start the worker from a checkout of this repository on its machine:
+
+    ```bash
+    WILSON_URL=http://tower:13101 WILSON_WORKER_TOKEN=wilson_worker_... pnpm --filter @wilson/worker start
+    ```
+
+5. Back on Wilson, `wilson host probe unraid-vm` should pass. Stages placed `remote` or `any` can now
    land on it.
 
 A VM built from `infra/vm-image` needs none of this by hand except the registration: it runs the worker
@@ -69,15 +75,15 @@ engine's token.
     ```bash
     wilson host add my-mac --worker --projects-root /srv/projects
     wilson host token my-mac
+    wilson host engine-token my-mac pool-a
     ```
 
-2. On the machine, from a checkout of this repository, put the three variables in `worker.env`, which
+2. On the machine, from a checkout of this repository, put the two variables in `worker.env`, which
    git ignores:
 
     ```bash
     WILSON_URL=http://tower:13101
     WILSON_WORKER_TOKEN=wilson_worker_...
-    CLAUDE_CODE_OAUTH_TOKEN=...
     ```
 
 3. Build and start it, then run `wilson host probe my-mac` on Wilson:
@@ -95,14 +101,31 @@ restarts. After a refused token, `docker compose logs` says why.
 
 ## Environment
 
-| Variable                  | Required | What it is                                                            |
-| ------------------------- | -------- | --------------------------------------------------------------------- |
-| `WILSON_URL`              | yes      | Wilson's address, e.g. `http://tower:13101`                           |
-| `WILSON_WORKER_TOKEN`     | yes      | This host's token, from `wilson host token <name>`                    |
-| `CLAUDE_CODE_OAUTH_TOKEN` | no       | What the engine signs in with. Unset, `claude`'s own sign-in is used. |
-| `WILSON_CLAUDE`           | no       | The `claude` binary, when it is not the one on `PATH`                 |
+| Variable                  | Required | What it is                                                                        |
+| ------------------------- | -------- | --------------------------------------------------------------------------------- |
+| `WILSON_URL`              | yes      | Wilson's address, e.g. `http://tower:13101`                                       |
+| `WILSON_WORKER_TOKEN`     | yes      | This host's token, from `wilson host token <name>`                                |
+| `CLAUDE_CODE_OAUTH_TOKEN` | no       | The fallback when Wilson assigns no token. Unset, `claude`'s own sign-in is used. |
+| `WILSON_CLAUDE`           | no       | The `claude` binary, when it is not the one on `PATH`                             |
 
-Wilson never sends the engine token. Only this machine's own is used.
+## The engine's token
+
+Wilson holds named tokens, encrypted, and sends the one assigned to this host with each engine start.
+The worker gives it to that process and keeps no copy, so an idle worker holds none. In order, the
+engine signs in with the assigned token, then `CLAUDE_CODE_OAUTH_TOKEN`, then `claude`'s own sign-in.
+
+- **To rotate,** run `wilson engine-token set <name>` again. The next engine started on each host using
+  it gets the new one, and no other token is touched.
+- **To revoke,** run `wilson engine-token remove <name>`. That host falls back as above. An engine
+  already running keeps the token, and this only makes Wilson forget it: revoke it with Anthropic too.
+- **Use `https` for `WILSON_URL`** unless the network is private. Over `http` the token crosses the
+  network in clear, and the worker logs a warning.
+
+Stages on this host can get its token. It is kept out of the environment of configured commands and
+Wilson's `bash` tool, and of anything that inherits the worker's own environment, but the engine's
+built-in Bash tool hands its environment on, and any process running as this user can read the engine's
+from `/proc`. So a stage on a host holds that host's token, and nothing stops hostile code using it. Give
+hosts that run different trust levels different tokens, so that replacing one leaves the others alone.
 
 ## Keeping it running
 
@@ -123,5 +146,4 @@ Restart=on-failure
 RestartPreventExitStatus=1
 ```
 
-with `WILSON_WORKER_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` in `/etc/wilson-worker.env`, readable by root
-only.
+with `WILSON_WORKER_TOKEN` in `/etc/wilson-worker.env`, readable by root only.

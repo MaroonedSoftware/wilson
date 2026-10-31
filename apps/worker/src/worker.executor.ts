@@ -40,7 +40,7 @@ export const toWorkerError = (err: unknown): WorkerError => {
 };
 
 export interface WorkerExecutorOptions {
-    /** The worker's own environment, which the passthrough names, `hostEnv` and the engine token come from. */
+    /** The worker's own environment, which the passthrough names, `hostEnv` and any fallback engine token come from. */
     env?: Env;
     /** The engine binary. A test substitutes a stand-in. */
     claudeCommand?: string;

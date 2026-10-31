@@ -17,8 +17,9 @@ export const requireEngineToken = (token: string): string => {
 /**
  * The engine token saved in `wilson.settings`, encrypted under the same root key as the TOTP seeds.
  *
- * Reaches engines on this machine only: `engineEnvironment` and `SshHost` both drop a token Wilson
- * sends, so a worker or SSH host goes on signing in as it was set up to.
+ * Reaches engines on this machine only: `WorkerExecutionHost` and `SshHost` both keep it out of what
+ * they send. A worker host signs in with the token assigned to it (`EngineTokensService`), or as that
+ * machine was set up to, and an SSH host with `REMOTE_CLAUDE_CODE_OAUTH_TOKEN`.
  *
  * Callers resolve it once per engine start and pass it to `subscriptionEnv`, the same as
  * `claude-config-dir`, so a save reaches the next stage or session and never one already running.
