@@ -115,6 +115,10 @@
         Description="The public address above, so a notification can link to its card."
         Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
 
+    <Config Name="Push notifications" Target="FCM_SERVICE_ACCOUNT_FILE" Default="" Mode=""
+        Description="Optional. A Firebase service-account file for the Android app, such as /data/secrets/firebase.json. Blank is off."
+        Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
     <Config Name="Start work automatically" Target="POLLER_ENABLED" Default="false" Mode=""
         Description="Let the daemon pick up cards itself rather than waiting for them to be started."
         Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>

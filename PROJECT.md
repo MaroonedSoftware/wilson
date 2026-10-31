@@ -1012,6 +1012,30 @@ database and the backup) and the API runs from the checkout (`pnpm --filter @wil
 On a server, `docker-compose.unraid.yml` runs the whole orchestrator in containers, and the stages
 that touch a worktree run on workers.
 
+### Reaching it from a public host
+
+The Android app talks to the API directly and push does not need it reachable, but a phone away from
+home does, so the stack can sit behind a public HTTPS host. Decision 10 is what makes that safe:
+every API request is authenticated. What the host must do:
+
+- **HTTPS only.** Terminate TLS at the proxy or tunnel, in front of the published web port. Release
+  builds of the app refuse plain http.
+- **Create the account first.** Onboarding is unauthenticated until an account exists, so finish it
+  before the host goes public, or anyone can claim the board.
+- **Add the address to `WEB_ORIGINS`**, and use it for `NOTIFY_BASE_URL`, so passkeys and links keep
+  working there. The app itself is not a browser and is not held to `WEB_ORIGINS`.
+- **Leave streams and merges alone.** Turn off response buffering on `/api/`, and keep idle and read
+  timeouts well over 20 seconds for streams and over 20 minutes for a merge, or a planning turn or a
+  chat turn. `deploy/web.nginx.conf` already does this; a proxy in front of it has to as well, and a
+  heartbeat crosses the stream every 15 seconds. Longer calls can outlast a tunnel's own limit, in
+  which case the app reports a lost merge as unknown and re-reads the card.
+- **Expose `/` and `/api/` only if you want workers to connect from outside.** Workers hold a
+  WebSocket at `/api/workers/connect`, so a proxy that serves them must allow upgrades there. A proxy
+  that does not need them can refuse that path.
+- **Push is outbound.** `FCM_SERVICE_ACCOUNT_FILE` needs the container to reach `oauth2.googleapis.com`
+  and `fcm.googleapis.com`, and nothing inbound. Keep the file with the other secrets, under
+  `/data/secrets`.
+
 ### The server stack
 
 `Dockerfile` builds two images from one tree. `api` is the API and daemon: it migrates the database

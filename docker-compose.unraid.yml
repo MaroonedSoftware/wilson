@@ -116,6 +116,8 @@ services:
             PROJECT_BROWSE_ROOT: /srv/projects
             AUTH_SESSION_KEY_FILE: /data/secrets/session.pem
             AUTH_ENCRYPTION_KEY_FILE: /data/secrets/encryption.key
+            # Blank keeps push off. Set to a path under /data/secrets, such as /data/secrets/firebase.json.
+            FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
             GITHUB_APP_PRIVATE_KEY_FILE: /data/secrets/github-app.pem
             CLAUDE_CONFIG_DIR: /data/claude
             HOME: /data/home
