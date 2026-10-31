@@ -3,7 +3,7 @@ import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
 import { BoardConfig } from './board.config.js';
-import { BoardRepository, type CardVersionSummary } from './board.repository.js';
+import { BoardRepository, type CardVersionSummary, type SplitWrite } from './board.repository.js';
 import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
 
 /** Either the pool or an open transaction; every read and write takes one so they can be composed. */
@@ -34,7 +34,11 @@ export class PostgresBoardRepository extends BoardRepository {
     }
 
     async list(): Promise<Card[]> {
-        const rows = await this.db
+        return this.listWith(this.db);
+    }
+
+    private async listWith(executor: Executor): Promise<Card[]> {
+        const rows = await executor
             .selectFrom('wilson.cards')
             .selectAll()
             .where('project', '=', this.config.project)
@@ -42,7 +46,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .orderBy('id')
             .execute();
 
-        const deps = await this.db
+        const deps = await executor
             .selectFrom('wilson.cardDeps')
             .select(['cardId', 'dependsOnId'])
             .where('project', '=', this.config.project)
@@ -115,28 +119,34 @@ export class PostgresBoardRepository extends BoardRepository {
 
     async create(card: Card, message: string): Promise<string> {
         return this.db.transaction().execute(async trx => {
-            const fm = card.frontmatter;
-            // No upsert: `create` means create. The file-backed implementation used `writeFile`,
-            // which silently overwrote an existing card — a real card was destroyed that way.
-            await trx
-                .insertInto('wilson.cards')
-                .values({
-                    project: this.config.project,
-                    id: fm.id,
-                    title: fm.title,
-                    stage: fm.stage,
-                    branch: fm.branch ?? null,
-                    body: card.body,
-                    retries: JSON.stringify(fm.retries ?? {}),
-                    external: fm.external ? JSON.stringify(fm.external) : null,
-                    sourceClosed: fm.sourceClosed ?? null,
-                    needsHuman: fm.needsHuman ?? false,
-                    needsHumanReason: fm.needsHumanReason ?? null,
-                    splitFrom: fm.splitFrom ?? null,
-                })
-                .execute();
-            await this.syncDeps(trx, fm.id, [], fm.dependsOn);
+            await this.insertRow(trx, card);
+            await this.syncDeps(trx, card.frontmatter.id, [], card.frontmatter.dependsOn);
             return this.snapshot(trx, card, message);
+        });
+    }
+
+    async applySplit(originId: string, plan: (origin: Card, board: Card[]) => SplitWrite | undefined): Promise<SplitWrite | undefined> {
+        return this.db.transaction().execute(async trx => {
+            await trx
+                .selectFrom('wilson.cards')
+                .select('id')
+                .where('project', '=', this.config.project)
+                .where('id', '=', originId)
+                .forUpdate()
+                .executeTakeFirst();
+
+            const write = plan(await this.readWith(trx, originId), await this.listWith(trx));
+            if (!write) return undefined;
+
+            // Rows first, then dependencies, then versions: a piece may depend on one created after
+            // it, and `card_deps` refuses a row naming a card that is not there yet.
+            for (const { card } of write.pieces) await this.insertRow(trx, card);
+            for (const { card } of write.pieces) await this.syncDeps(trx, card.frontmatter.id, [], card.frontmatter.dependsOn);
+            for (const { card, message } of write.pieces) await this.snapshot(trx, card, message);
+
+            await this.writeIn(trx, originId, write.originMessage, () => write.origin);
+            for (const event of write.events) await this.events.append(event, trx);
+            return write;
         });
     }
 
@@ -235,6 +245,29 @@ export class PostgresBoardRepository extends BoardRepository {
 
         await this.syncDeps(trx, id, before.frontmatter.dependsOn, fm.dependsOn);
         return this.snapshot(trx, after, message);
+    }
+
+    private async insertRow(trx: Transaction<DB>, card: Card): Promise<void> {
+        const fm = card.frontmatter;
+        // No upsert: `create` means create. The file-backed implementation used `writeFile`,
+        // which silently overwrote an existing card — a real card was destroyed that way.
+        await trx
+            .insertInto('wilson.cards')
+            .values({
+                project: this.config.project,
+                id: fm.id,
+                title: fm.title,
+                stage: fm.stage,
+                branch: fm.branch ?? null,
+                body: card.body,
+                retries: JSON.stringify(fm.retries ?? {}),
+                external: fm.external ? JSON.stringify(fm.external) : null,
+                sourceClosed: fm.sourceClosed ?? null,
+                needsHuman: fm.needsHuman ?? false,
+                needsHumanReason: fm.needsHumanReason ?? null,
+                splitFrom: fm.splitFrom ?? null,
+            })
+            .execute();
     }
 
     /** Append the version row and return its id. */

@@ -55,6 +55,55 @@ describe('PostgresBoardRepository', () => {
         expect((await board.read('0001')).frontmatter.title).toBe('the original');
     });
 
+    describe('applySplit', () => {
+        const write = (origin: Card) => ({
+            // The first piece depends on the second, which does not exist until the same transaction.
+            pieces: [
+                { card: card('0002', { splitFrom: '0001', dependsOn: ['0003'] }), message: 'Auto-split 0001 into 0002' },
+                { card: card('0003', { splitFrom: '0001' }), message: 'Auto-split 0001 into 0003' },
+            ],
+            origin: { ...origin, frontmatter: { ...origin.frontmatter, stage: 'split' } },
+            originMessage: 'Auto-split 0001 into 0002, 0003',
+            events: [],
+        });
+
+        it('creates the pieces with their dependencies and versions, and rewrites the origin', async () => {
+            await board.create(card('0001', { stage: 'scope-check' }), 'create');
+
+            await board.applySplit('0001', write);
+
+            expect((await board.read('0001')).frontmatter.stage).toBe('split');
+            expect((await board.read('0002')).frontmatter.dependsOn).toEqual(['0003']);
+            expect((await board.versions('0002', 5)).map(v => v.message)).toEqual(['Auto-split 0001 into 0002']);
+            expect((await board.versions('0001', 1))[0]?.message).toBe('Auto-split 0001 into 0002, 0003');
+        });
+
+        it('hands the plan the board as it stands, and writes nothing when the plan declines', async () => {
+            await board.create(card('0001'), 'create');
+            await board.create(card('0002'), 'create');
+            let seen: string[] = [];
+
+            const result = await board.applySplit('0001', (_origin, cards) => {
+                seen = cards.map(c => c.frontmatter.id);
+                return undefined;
+            });
+
+            expect(result).toBeUndefined();
+            expect(seen).toEqual(['0001', '0002']);
+            expect((await board.versions('0001', 5))).toHaveLength(1);
+        });
+
+        it('leaves no piece behind when one of them cannot be created', async () => {
+            await board.create(card('0001', { stage: 'scope-check' }), 'create');
+            await board.create(card('0003'), 'create');
+
+            await expect(board.applySplit('0001', write)).rejects.toThrow();
+
+            expect((await board.list()).map(c => c.frontmatter.id)).toEqual(['0001', '0003']);
+            expect((await board.read('0001')).frontmatter.stage).toBe('scope-check');
+        });
+    });
+
     it('reads back what it created, sections included', async () => {
         await board.create(card('0001', {}, '## Goal\n\nShip it.\n\n## Files in scope\n\n- src/a.ts\n'), 'create');
 
