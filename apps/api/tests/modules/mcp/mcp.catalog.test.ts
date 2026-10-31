@@ -12,6 +12,7 @@ import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
+import { DevicesRouter } from '#src/routes/devices.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { HostsRouter } from '#src/routes/hosts.router.js';
@@ -40,6 +41,7 @@ const ROUTERS = [
     BoardRouter,
     ChatRouter,
     ContextRouter,
+    DevicesRouter,
     FactorsRouter,
     HealthRouter,
     HostsRouter,

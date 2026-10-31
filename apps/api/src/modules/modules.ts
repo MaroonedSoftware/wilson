@@ -12,6 +12,7 @@ import { EventsModule } from './events/events.module.js';
 import { GitHubModule } from './github/github.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
+import { NotifyModule } from './notify/notify.module.js';
 import { PolicyModule } from './policy/policy.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
 import { McpModule } from './mcp/mcp.module.js';
@@ -72,6 +73,7 @@ export const modules: ServerKitModule[] = [
     AgentModule,
     StagesModule,
     LearningsModule,
+    NotifyModule,
     SettingsModule,
     McpModule,
     ChatModule,
