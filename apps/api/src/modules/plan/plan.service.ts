@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
@@ -178,10 +179,8 @@ export class PlanService {
      * branch already has work — via the same `assertPlannable` `open` itself calls, rather than a
      * copy of them.
      *
-     * The very first turn for a card cuts (or re-cuts, harmlessly — nothing has touched the code
-     * worktree yet, since the finished plan is written to `draftPath`, outside it) the same
-     * throwaway worktree `open` cuts, by calling `cutSession` — this class's own method, not a
-     * duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
+     * The very first turn for a card reaches the same throwaway worktree `open` cuts, by calling
+     * `cutSession` — this class's own method, not a duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
      * the engine ever sees. Every later turn resumes that same conversation instead: the model's
      * own context, not `wilson.plan_turns`, is what carries the instructions forward from there
      * (this card's Constraints — never rebuild model context by replaying stored turns into a fresh
@@ -376,11 +375,12 @@ export class PlanService {
     }
 
     /**
-     * Cuts (or re-cuts) the throwaway worktree and seeds the draft file — `open`'s own body, moved
-     * here so `turn` can call it for a card's very first turn without duplicating it. Safe to call
-     * more than once for the same card as long as nothing has written to the code worktree since:
-     * `WorktreeManager.create` resets it to a fresh checkout, and the one file a planning session
-     * actually writes, `draftPath`, lives outside that worktree entirely.
+     * Cuts the throwaway worktree and seeds the draft file — `open`'s own body, moved here so
+     * `turn` can call it for a card's very first turn without duplicating it. Safe to call any
+     * number of times: a session already on disk (its worktree and its draft both there) is
+     * returned as it stands, because `POST .../plan/open` runs on every mount of the planning pane,
+     * and re-seeding from the card body there would throw away whatever the agent has written to
+     * `draftPath` since. `close` is what ends a session, so the next `open` after it cuts afresh.
      */
     private async cutSession(id: string, card: Card): Promise<PlanSession> {
         // Config, not a string here: the stage's model and its planning instructions live in the
@@ -395,9 +395,12 @@ export class PlanService {
 
         const seed = completeSections(card.body);
         const complete = seed === card.body;
-        await writeFile(draftPath, seed, 'utf8');
 
-        const worktree = await this.worktrees.create(planId(id), planBranch(id));
+        let worktreePath = join(this.boardConfig.worktreeRoot, planId(id));
+        if (!existsSync(worktreePath) || !existsSync(draftPath)) {
+            await writeFile(draftPath, seed, 'utf8');
+            worktreePath = (await this.worktrees.create(planId(id), planBranch(id))).path;
+        }
 
         // The stage's own instructions, plus the one fact only this session knows: where the draft
         // lives. Travels as one string so a caller appends it as the spawned agent's system prompt,
@@ -415,7 +418,7 @@ export class PlanService {
 
         return {
             sessionId: id,
-            worktreePath: worktree.path,
+            worktreePath,
             draftPath,
             model: stage.model,
             instructions,
