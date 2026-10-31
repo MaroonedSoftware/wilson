@@ -4,6 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BoardColumns, CardDetail, CardDiff, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
+import { CardAttempts } from '#src/components/CardAttempts.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
@@ -582,6 +583,13 @@ export function CardDetailView({
             <Stack gap={6}>
                 <Title order={4}>Dependencies</Title>
                 <DependenciesSection card={card} />
+            </Stack>
+
+            <Divider />
+
+            <Stack gap={6}>
+                <Title order={4}>Attempts</Title>
+                <CardAttempts events={events} />
             </Stack>
 
             <Divider />
