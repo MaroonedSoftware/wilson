@@ -998,6 +998,12 @@ export class BoardWriteService {
     async split(id: string, request: SplitCardsRequest): Promise<SplitResult> {
         const origin = await this.readOrThrow(id);
 
+        // Its division is still on the event log, so `division` still answers, but the pieces already
+        // exist: confirming it would create every one of them a second time.
+        if (origin.frontmatter.stage === 'split') {
+            throw httpError(400).withDetails({ reason: `${id} has already been split` });
+        }
+
         if (request.pieces.length < 2) {
             throw httpError(400).withDetails({ reason: 'a split needs at least two pieces' });
         }

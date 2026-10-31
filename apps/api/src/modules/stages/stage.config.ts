@@ -407,7 +407,7 @@ export const assertRoutesResolve = (stages: ProjectStages, path = 'stage config'
  * Terminal states end a card's life and nothing dispatches them, so they have no stage config
  * (PROJECT.md, Stage model). `parking-lot` is a column the dispatch query excludes.
  */
-export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped'] as const;
+export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped', 'split'] as const;
 
 /**
  * Every state a card may legitimately be moved to.
