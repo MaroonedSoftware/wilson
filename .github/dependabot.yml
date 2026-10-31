@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+    # The workflows' actions. A pinned action (`pnpm/action-setup` is pinned to a commit with its
+    # version in a trailing comment, because a tag is a pointer its owner can move) goes stale unless
+    # something moves it, comment included. This is what moves them.
+    #
+    # One pull request a week for all of them, and nothing younger than a week: a compromised
+    # release is usually noticed and pulled inside a few days.
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 7
+      groups:
+          actions:
+              patterns:
+                  - '*'
+      commit-message:
+          prefix: ci
+
+    # The Dockerfile's base images, on the same clock and cooldown as the actions, for the same
+    # reasons.
+    - package-ecosystem: docker
+      directory: /
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 7
+      groups:
+          images:
+              patterns:
+                  - '*'
+      commit-message:
+          prefix: build

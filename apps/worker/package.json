@@ -11,6 +11,7 @@
         "start": "node --import @swc-node/register/esm-register ./src/main.ts",
         "build": "tsc --noEmit",
         "lint": "eslint --fix",
+        "lint:check": "eslint",
         "test": "vitest run"
     },
     "dependencies": {
