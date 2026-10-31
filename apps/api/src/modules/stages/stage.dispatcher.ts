@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
+import { AutoSplitter } from '#modules/board/auto.splitter.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/append.attempts.js';
@@ -259,6 +260,9 @@ export class StageDispatcher {
         // Optional for the reason the three above are. Left undefined, every stage runs on this
         // machine whatever its `placement` says, which is how every stage ran before hosts existed.
         private readonly placer?: HostPlacer,
+        // Optional for the reason the four above are. Left undefined, a refusal routes as it always
+        // has, which is also what `AUTO_SPLIT_ENABLED` being off does.
+        private readonly autoSplitter?: AutoSplitter,
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
@@ -703,6 +707,14 @@ export class StageDispatcher {
         card: Card,
         outcome: StageOutcome,
     ): Promise<{ target: string; needsHuman: boolean }> {
+        // Before any routing: a split replaces the kickback rather than following it, and when it
+        // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
+        // left to the halt below: nobody wants its work divided up.
+        if (outcome.supportedRefusal && this.autoSplitter && !head.frontmatter.sourceClosed) {
+            const split = await this.autoSplitter.split(cardId, stageName, outcome.supportedRefusal);
+            if (split) return this.finishAutoSplit(cardId, stageName, card, split.pieceIds);
+        }
+
         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
         // is frozen at approval — a retry count read from it would forget every attempt made since,
         // and a flag read from it would look unset even after the card was flagged post-approval.
@@ -856,6 +868,41 @@ export class StageDispatcher {
         }
 
         return { target: decision.target, needsHuman: needsHuman !== undefined };
+    }
+
+    /**
+     * What `writeTransition` does after a transition, for the one `AutoSplitter` wrote itself: give
+     * the worktree back, and tell a person the pieces are waiting. Empty `pieceIds` means another run
+     * of this stage got there first and did both.
+     */
+    private async finishAutoSplit(
+        cardId: string,
+        stageName: string,
+        card: Card,
+        pieceIds: string[],
+    ): Promise<{ target: string; needsHuman: boolean }> {
+        const target = 'split';
+        if (pieceIds.length === 0) return { target, needsHuman: false };
+
+        const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            target,
+            flagged: false,
+        });
+        if (reclaimed.error) {
+            this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${target}": ${reclaimed.error}`);
+        }
+
+        await this.notify({
+            cardId,
+            title: card.frontmatter.title,
+            stage: target,
+            moment: 'auto-split',
+            reason: `split into ${pieceIds.join(', ')}, which wait in planning`,
+        });
+        return { target, needsHuman: false };
     }
 
     /**

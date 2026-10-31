@@ -1,6 +1,7 @@
 import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
+import { AutoSplitter } from '#modules/board/auto.splitter.js';
 import { ChallengeVerifier } from './challenge.verifier.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
@@ -52,6 +53,7 @@ export const StagesModule: ServerKitModule = {
         // Stage config is a `wilson.stage_configs` row, read through this token everywhere
         // `loadStages(boardRoot)` used to read the file — see `StageConfigStore`'s own doc comment.
         registry.register(StageConfigStore).useClass(PostgresStageConfigStore).asTransient();
+        registry.register(AutoSplitter).useClass(AutoSplitter).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
         registry.register(StagesService).useClass(StagesService).asTransient();
         // The document's own surface (`stages.ck`): `wilson stages show|edit|set|versions`.

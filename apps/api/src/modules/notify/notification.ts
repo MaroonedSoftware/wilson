@@ -13,8 +13,11 @@
  * over budget) or `manual`'s (a gate reached normally). The one exception is the mid-run halt
  * (`StageDispatcher.writeTransition`), which keeps using `needs-human` with `reason: 'source-closed'`
  * since that machinery already notifies on every fresh flag.
+ *
+ * `auto-split` says a refusal retired a card in favour of pieces that now wait in `planning`: nothing
+ * failed and nothing is flagged, but nothing moves until a person plans them.
  */
-export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned' | 'source-closed';
+export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned' | 'source-closed' | 'auto-split';
 
 /**
  * Everything a notification says, independent of the channel that carries it.

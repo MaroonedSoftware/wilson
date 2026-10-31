@@ -729,7 +729,8 @@ operation /api/cards/{id}/division: {
 # drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
 # pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
 # deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
-# already confirmed.
+# already confirmed. A project with `auto-split-enabled` on gets none of that confirmation:
+# `AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.
 operation /api/cards/{id}/split: {
     params: {
         id: string

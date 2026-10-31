@@ -973,7 +973,8 @@ export class BoardWriteService {
      * pieces are exactly what would be stranded), and never re-runs `scope-check` on what it creates
      * — deciding a split is `scope-check`'s job (card 0105); this only acts on pieces an operator
      * already confirmed, which is the whole of `request.pieces` rather than anything re-read from the
-     * event log.
+     * event log. This is the confirmed path, the only one when `AUTO_SPLIT_ENABLED` is off. With it on,
+     * `AutoSplitter` splits a supported refusal itself, retires the origin to `split` and asks nobody.
      *
      * Cards are created one at a time, each computing the next id over the board it just extended —
      * the same sequential assignment {@link create} uses, applied in a loop because this creates more

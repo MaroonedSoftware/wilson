@@ -155,9 +155,9 @@ export const ScopeGroupSchema = z.object({
 /**
  * One piece of a proposed division, reported only when the verdict is "refuse".
  *
- * Not itself a split — dividing a card is `planning`'s decision (card 0105's Goal) — but concrete
- * enough that a human or `wilson card plan` has seams to start from instead of "this card is too
- * large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
+ * Not itself a split: that takes an operator confirming it, or `AUTO_SPLIT_ENABLED` being on for the
+ * project (`AutoSplitter`). Concrete enough either way that a human or `wilson card plan` has seams to
+ * start from instead of "this card is too large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
  * on its own. `dependsOn` is the third thing card 0105's Constraints requires the refusal to name —
  * "which tasks group together, what each piece would deliver on its own, what depends on what" — kept
  * optional and defaulted to `[]` so a division where every piece is independent (the common case)

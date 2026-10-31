@@ -165,6 +165,10 @@ export type CardEventType =
     | 'chain.stopped'
     | 'card.flagged'
     | 'card.acked'
+    /** `AutoSplitter` split this card on a supported refusal. Payload: `pieces` and the refusal's `reason`. */
+    | 'card.auto-split'
+    /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */
+    | 'card.auto-split-skipped'
     // Card 0272. Appended once per `card.stage` job `BoundedCardStageJobRunner.start()`'s boot sweep
     // finds `active` in pg-boss with no daemon left that could be running it — the API is the only
     // daemon (card 0079), and a process that just started has an empty `RunningCards`, so any job the
