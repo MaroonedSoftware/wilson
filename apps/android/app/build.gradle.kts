@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// `google-services.json` names one Firebase project and is supplied per deployment, so a checkout and
+// CI have none. Without it the app still builds and runs, and push stays off (`PushRegistrar`).
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 android {
     namespace = "com.maroonedsoftware.wilson"
     // AndroidX refuses an older platform, and the minor is part of the coordinate (`android-37.2`).
@@ -45,6 +49,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
+    implementation(libs.firebase.messaging)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.activity.compose)

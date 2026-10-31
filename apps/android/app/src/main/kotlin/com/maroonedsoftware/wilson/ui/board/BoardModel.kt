@@ -101,7 +101,7 @@ class BoardModel(private val app: WilsonApp) : ViewModel() {
     fun toggleFlagged() = state.update { it.copy(flaggedOnly = !it.flaggedOnly) }
 
     fun signOut() {
-        viewModelScope.launch { app.session.signOut() }
+        viewModelScope.launch { app.push.signOut() }
     }
 
     private companion object {

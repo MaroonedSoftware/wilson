@@ -158,9 +158,13 @@ class SessionManager(
         }
 
     /** Best effort at the server, certain on the phone: a dead network never keeps anybody signed in. */
-    suspend fun signOut() {
+    suspend fun signOut(beforeLeaving: suspend (WilsonSdk) -> Unit = {}) {
         val current = store.stored.first()
-        if (current != null) runCatching { authorized(current, null, Patience.SHORT).auth.logout() }
+        if (current != null) {
+            val sdk = authorized(current, null, Patience.SHORT)
+            runCatching { beforeLeaving(sdk) }
+            runCatching { sdk.auth.logout() }
+        }
         store.clear()
     }
 }

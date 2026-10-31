@@ -1,12 +1,18 @@
 package com.maroonedsoftware.wilson
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -18,6 +24,8 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.maroonedsoftware.wilson.auth.StoredSession
+import com.maroonedsoftware.wilson.push.EXTRA_CARD
+import com.maroonedsoftware.wilson.push.EXTRA_PROJECT
 import com.maroonedsoftware.wilson.ui.WilsonTheme
 import com.maroonedsoftware.wilson.ui.board.BoardModel
 import com.maroonedsoftware.wilson.ui.board.BoardScreen
@@ -35,18 +43,45 @@ import com.maroonedsoftware.wilson.ui.plan.PlanModel
 import com.maroonedsoftware.wilson.ui.plan.PlanScreen
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
 import com.maroonedsoftware.wilson.ui.signin.SignInScreen
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
+    /** The card a tapped notification named, until the back stack has taken it. */
+    private val opening = MutableStateFlow<Destination.Card?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as WilsonApp
+        // Only on a fresh start: a rotation would otherwise reopen the card from the same intent.
+        if (savedInstanceState == null) read(intent)
         setContent {
             WilsonTheme {
-                Surface(modifier = Modifier.fillMaxSize()) { Root(app) }
+                Surface(modifier = Modifier.fillMaxSize()) { Root(app, opening) }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        read(intent)
+    }
+
+    private fun read(intent: Intent) {
+        val project = intent.getStringExtra(EXTRA_PROJECT)
+        val card = intent.getStringExtra(EXTRA_CARD)
+        if (project != null && card != null) opening.value = Destination.Card(project, card)
+    }
+}
+
+/** Sends this install's token now that there is a session, and asks to show notifications on Android 13+. */
+@Composable
+private fun AskForPush(app: WilsonApp) {
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+        app.push.register()
     }
 }
 
@@ -54,19 +89,27 @@ class MainActivity : ComponentActivity() {
 private class Read(val session: StoredSession?)
 
 @Composable
-private fun Root(app: WilsonApp) {
+private fun Root(app: WilsonApp, opening: MutableStateFlow<Destination.Card?>) {
     val read by remember { app.session.session.map(::Read) }.collectAsState(initial = null)
     val current = read ?: return
     if (current.session == null) {
         SignInScreen(viewModel(factory = viewModelFactory { initializer { SignInModel(app) } }))
     } else {
-        SignedIn(app)
+        SignedIn(app, opening)
     }
 }
 
 @Composable
-private fun SignedIn(app: WilsonApp) {
+private fun SignedIn(app: WilsonApp, opening: MutableStateFlow<Destination.Card?>) {
     val backStack = rememberNavBackStack(NavConfiguration, Destination.Board)
+    val card by opening.collectAsState()
+    LaunchedEffect(card) {
+        card?.let {
+            if (backStack.lastOrNull() != it) backStack.add(it)
+            opening.value = null
+        }
+    }
+    AskForPush(app)
     NavDisplay(
         backStack = backStack,
         onBack = { backStack.removeLastOrNull() },
