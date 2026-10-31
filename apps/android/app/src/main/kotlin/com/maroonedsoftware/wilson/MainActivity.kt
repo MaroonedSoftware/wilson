@@ -4,25 +4,28 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
+import com.maroonedsoftware.wilson.auth.StoredSession
 import com.maroonedsoftware.wilson.ui.WilsonTheme
+import com.maroonedsoftware.wilson.ui.board.BoardModel
+import com.maroonedsoftware.wilson.ui.board.BoardScreen
+import com.maroonedsoftware.wilson.ui.nav.Destination
+import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
 import com.maroonedsoftware.wilson.ui.signin.SignInScreen
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,18 +40,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** A value around the stored session, so "still reading the disk" is not mistaken for "signed out". */
+private class Read(val session: StoredSession?)
+
 @Composable
 private fun Root(app: WilsonApp) {
-    val session by app.session.session.collectAsState(initial = null)
-    val scope = rememberCoroutineScope()
-    if (session == null) {
+    val read by remember { app.session.session.map(::Read) }.collectAsState(initial = null)
+    val current = read ?: return
+    if (current.session == null) {
         SignInScreen(viewModel(factory = viewModelFactory { initializer { SignInModel(app) } }))
     } else {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Signed in as ${session?.email}")
-                Button(onClick = { scope.launch { app.session.signOut() } }) { Text("Sign out") }
-            }
-        }
+        SignedIn(app)
     }
+}
+
+@Composable
+private fun SignedIn(app: WilsonApp) {
+    val backStack = rememberNavBackStack(NavConfiguration, Destination.Board)
+    NavDisplay(
+        backStack = backStack,
+        onBack = { backStack.removeLastOrNull() },
+        entryProvider = entryProvider {
+            entry<Destination.Board> {
+                BoardScreen(viewModel(factory = viewModelFactory { initializer { BoardModel(app) } })) { _, _ -> }
+            }
+        },
+    )
 }
