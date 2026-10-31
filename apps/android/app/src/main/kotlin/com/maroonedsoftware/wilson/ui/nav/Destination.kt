@@ -22,6 +22,12 @@ sealed interface Destination : NavKey {
 
     @Serializable
     data class Plan(val project: String, val id: String) : Destination
+
+    @Serializable
+    data object Threads : Destination
+
+    @Serializable
+    data class Chat(val id: String) : Destination
 }
 
 /** Every destination must be named here: the stack saves as `NavKey`, and an unnamed subclass fails to restore. */
@@ -33,6 +39,8 @@ val NavConfiguration = SavedStateConfiguration {
             subclass(Destination.NewCard::class, Destination.NewCard.serializer())
             subclass(Destination.EditCard::class, Destination.EditCard.serializer())
             subclass(Destination.Plan::class, Destination.Plan.serializer())
+            subclass(Destination.Threads::class, Destination.Threads.serializer())
+            subclass(Destination.Chat::class, Destination.Chat.serializer())
         }
     }
 }

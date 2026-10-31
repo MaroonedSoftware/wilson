@@ -23,6 +23,10 @@ import com.maroonedsoftware.wilson.ui.board.BoardModel
 import com.maroonedsoftware.wilson.ui.board.BoardScreen
 import com.maroonedsoftware.wilson.ui.card.CardModel
 import com.maroonedsoftware.wilson.ui.card.CardScreen
+import com.maroonedsoftware.wilson.ui.chat.ChatModel
+import com.maroonedsoftware.wilson.ui.chat.ChatScreen
+import com.maroonedsoftware.wilson.ui.chat.ThreadsModel
+import com.maroonedsoftware.wilson.ui.chat.ThreadsScreen
 import com.maroonedsoftware.wilson.ui.edit.CardFormModel
 import com.maroonedsoftware.wilson.ui.edit.CardFormScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
@@ -72,6 +76,20 @@ private fun SignedIn(app: WilsonApp) {
                     viewModel(factory = viewModelFactory { initializer { BoardModel(app) } }),
                     onCard = { project, id -> backStack.add(Destination.Card(project, id)) },
                     onNewCard = { project -> backStack.add(Destination.NewCard(project)) },
+                    onChat = { backStack.add(Destination.Threads) },
+                )
+            }
+            entry<Destination.Threads> {
+                ThreadsScreen(
+                    viewModel(factory = viewModelFactory { initializer { ThreadsModel(app) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                    onThread = { id -> backStack.add(Destination.Chat(id)) },
+                )
+            }
+            entry<Destination.Chat> { key ->
+                ChatScreen(
+                    viewModel(key = "chat:${key.id}", factory = viewModelFactory { initializer { ChatModel(app, key.id) } }),
+                    onBack = { backStack.removeLastOrNull() },
                 )
             }
             entry<Destination.Card> { key ->
