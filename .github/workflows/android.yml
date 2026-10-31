@@ -5,10 +5,14 @@ on:
         branches: [main]
         paths:
             - apps/android/**
+            - apps/api/data/contracts/**
+            - packages/sdk-kotlin/**
             - .github/workflows/android.yml
     pull_request:
         paths:
             - apps/android/**
+            - apps/api/data/contracts/**
+            - packages/sdk-kotlin/**
             - .github/workflows/android.yml
 
 permissions:
@@ -29,4 +33,19 @@ jobs:
                   java-version: '21'
             - uses: gradle/actions/setup-gradle@v4
             # bundleRelease is here for R8, which breaks without a source change and fails on a phone.
-            - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:bundleRelease
+            - run: ./gradlew :sdk:build :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:bundleRelease
+
+    # The Kotlin SDK is committed output of the contracts, so a contract change must carry it.
+    sdk:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm --filter @wilson/api run codegen
+            - run: git diff --exit-code -- packages/sdk-kotlin

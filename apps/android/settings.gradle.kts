@@ -16,3 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "wilson-android"
 include(":app")
+
+// Generated from the contracts, and beside the TypeScript SDK rather than inside this app.
+include(":sdk")
+project(":sdk").projectDir = file("../../packages/sdk-kotlin")
