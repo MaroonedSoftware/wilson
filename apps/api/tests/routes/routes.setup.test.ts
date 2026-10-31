@@ -265,6 +265,10 @@ describe('routers', () => {
         expect(SettingsRouter.match('/api/settings/dry-run', method).route).toBe(true);
     });
 
+    it.each([['GET'], ['PUT']])('routes %s /api/settings/auto-split to the settings router', method => {
+        expect(SettingsRouter.match('/api/settings/auto-split', method).route).toBe(true);
+    });
+
     it('does not route an undeclared method to the dry-run settings path', () => {
         expect(SettingsRouter.match('/api/settings/dry-run', 'POST').route).toBe(false);
         expect(SettingsRouter.match('/api/settings/dry-run', 'DELETE').route).toBe(false);

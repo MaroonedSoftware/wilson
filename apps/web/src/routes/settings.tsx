@@ -26,6 +26,7 @@ import { useWilsonSdk } from '#src/lib/sdk-context.js';
 import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
+const AUTO_SPLIT_QUERY_KEY = ['settings', 'auto-split'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
@@ -75,6 +76,43 @@ function AutoModeToggle() {
             <Switch
                 label="Auto-mode"
                 description="Whether the runner picks up cards on its own, without a human dispatching them."
+                checked={setting.data.enabled}
+                disabled={mutation.isPending}
+                onChange={event => mutation.mutate(event.currentTarget.checked)}
+            />
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/** The same shape as `AutoModeToggle`, for whether a supported scope-check refusal splits its card. */
+function AutoSplitToggle() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: AUTO_SPLIT_QUERY_KEY, queryFn: () => wilson.settings.getAutoSplitSetting() });
+    const mutation = useMutation({
+        mutationFn: (enabled: boolean) => wilson.settings.setAutoSplitSetting({ enabled }),
+        onSuccess: result => queryClient.setQueryData(AUTO_SPLIT_QUERY_KEY, result),
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load auto-split">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    return (
+        <Stack gap="xs">
+            <Switch
+                label="Auto-split"
+                description="When scope-check refuses a card, split it into the proposed pieces without asking. The pieces wait in planning."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
@@ -866,6 +904,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Auto-mode</Title>
                     <AutoModeToggle />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Auto-split</Title>
+                    <AutoSplitToggle />
                 </Stack>
             </Paper>
 
