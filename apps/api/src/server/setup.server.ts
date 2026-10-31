@@ -8,7 +8,10 @@ import { HostProber } from '#modules/host/host.prober.js';
 import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { attachWorkerEndpoint } from '#modules/worker/worker.endpoint.js';
-import { configNumber, requireConfigString } from '#shared/require.config.js';
+import { DeviceRepository } from '#modules/notify/device.repository.js';
+import { fcmChannelFrom } from '#modules/notify/fcm.channel.js';
+import { registerNotificationChannel } from '#modules/notify/notifier.js';
+import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 import { buildConfig, modules } from '../cli-bootstrap.js';
 import { routers } from '../routes/routes.setup.js';
 import { setupMiddleware } from './setup.middleware.js';
@@ -33,6 +36,9 @@ export const setupServer = async (): Promise<Server> => {
     await captureBuildHead(requireConfigString(config, 'PROJECT_CODE_ROOT'));
     const logger = new ConsoleLogger();
     const container = await serverBuilder.setup(config, logger, modules);
+    // Here rather than in a module's `start`, since only the daemon sends: a CLI command never does.
+    const fcm = await fcmChannelFrom(optionalConfigString(config, 'FCM_SERVICE_ACCOUNT_FILE'), container.get(DeviceRepository), logger);
+    if (fcm) registerNotificationChannel(fcm);
     // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
     // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
     await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);

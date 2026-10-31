@@ -756,7 +756,9 @@ there redeem the refresh cookie and read the access token it returns. The CLI an
 opt into cookies and get the refresh token in the body. The CLI keeps an API key in the OS keyring
 (`@maroonedsoftware/johnny5/keyring`): `wilson auth login` signs in with the password, mints a key
 named for the host, and signs the password session out again; `logout` / `status` / `token`
-manage it, and `WILSON_API_KEY` overrides it for scripts.
+manage it, and `WILSON_API_KEY` overrides it for scripts. The Android app does the same as the CLI at
+the token endpoint, keeping the refresh token in app-private storage. It signs in with a password
+and an authenticator code; passkeys work only in the web app for now.
 
 **Enforcement.** Every `.ck` operation is gated by default. An operation with no `security`
 block requires an authenticated session. Public routes, which are health, onboarding and the
@@ -839,6 +841,13 @@ Four triggers only — anything more and the operator learns to ignore them:
 - a dry-run pass completes end to end
 
 Each message deep-links to the card in the web app.
+
+Push to the Android app is a second channel beside the webhook, registered with `Notifier` at boot
+and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. Delivery is
+at-most-once, like the webhook, and a failure can never reach a stage. Phones sign up through
+`POST /api/devices`, and FCM reporting a token `UNREGISTERED` removes it from `wilson.push_devices`.
+A message carries only the moment, the project and the card id, so card titles and failure reasons
+never pass through Google; the app fetches the title over its own session when the message lands.
 
 ## Card granularity
 

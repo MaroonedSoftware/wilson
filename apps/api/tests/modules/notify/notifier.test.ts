@@ -168,7 +168,9 @@ describe('Notifier', () => {
             vi.stubGlobal('fetch', fetchMock);
             const logger = fakeLogger();
 
-            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' }))).resolves.toBeUndefined();
+            await expect(
+                new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' })),
+            ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
             expect(logger.warn.mock.calls[0][0]).toContain('0072');
@@ -180,7 +182,9 @@ describe('Notifier', () => {
             vi.stubGlobal('fetch', fetchMock);
             const logger = fakeLogger();
 
-            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' }))).resolves.toBeUndefined();
+            await expect(
+                new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' })),
+            ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
             expect(logger.warn.mock.calls[0][0]).toContain('0072');

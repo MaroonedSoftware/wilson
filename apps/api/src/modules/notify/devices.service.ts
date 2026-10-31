@@ -17,7 +17,11 @@ export class DevicesService {
     ) {}
 
     async register(request: RegisterDeviceRequest): Promise<void> {
-        await this.devices.register({ token: request.token, accountId: requireSession(this.context).subject, ...(request.label ? { label: request.label } : {}) });
+        await this.devices.register({
+            token: request.token,
+            accountId: requireSession(this.context).subject,
+            ...(request.label ? { label: request.label } : {}),
+        });
     }
 
     async unregister(request: UnregisterDeviceRequest): Promise<void> {
