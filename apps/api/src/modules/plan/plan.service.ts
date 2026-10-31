@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
@@ -105,11 +106,16 @@ export class PlanService {
      * Open a planning session for a card in `planning`. Refuses, and cuts nothing, for a card
      * outside `planning` or whose real branch already has work — re-planning a card with code on it
      * is a different, more dangerous operation. Mirrors `wilson card plan`'s guards exactly.
+     *
+     * A card that already has a conversation is rejoined, not reset: the web pane calls this every
+     * time it mounts, so re-seeding here would throw away the agent's unsaved draft on a page reload
+     * and pull the worktree out from under a turn still running in it.
      */
     async open(id: string): Promise<PlanSession> {
         const card = await this.readOrThrow(id);
         await this.assertPlannable(id, card);
-        return this.cutSession(id, card);
+        const rejoining = (await this.planTurns.since(id, 0)).length > 0;
+        return this.cutSession(id, card, rejoining);
     }
 
     /**
@@ -381,8 +387,11 @@ export class PlanService {
      * more than once for the same card as long as nothing has written to the code worktree since:
      * `WorktreeManager.create` resets it to a fresh checkout, and the one file a planning session
      * actually writes, `draftPath`, lives outside that worktree entirely.
+     *
+     * `rejoining` keeps whatever a conversation already has on disk, and supplies only what is gone:
+     * a worktree `close` reclaimed, or a draft file that no longer exists.
      */
-    private async cutSession(id: string, card: Card): Promise<PlanSession> {
+    private async cutSession(id: string, card: Card, rejoining = false): Promise<PlanSession> {
         // Config, not a string here: the stage's model and its planning instructions live in the
         // stage config like every other stage's do.
         const stage = await this.loadPlanningStage();
@@ -395,9 +404,12 @@ export class PlanService {
 
         const seed = completeSections(card.body);
         const complete = seed === card.body;
-        await writeFile(draftPath, seed, 'utf8');
+        const keepDraft = rejoining && existsSync(draftPath);
+        if (!keepDraft) await writeFile(draftPath, seed, 'utf8');
 
-        const worktree = await this.worktrees.create(planId(id), planBranch(id));
+        const existingWorktree = join(this.boardConfig.worktreeRoot, planId(id));
+        const worktreePath =
+            rejoining && existsSync(existingWorktree) ? existingWorktree : (await this.worktrees.create(planId(id), planBranch(id))).path;
 
         // The stage's own instructions, plus the one fact only this session knows: where the draft
         // lives. Travels as one string so a caller appends it as the spawned agent's system prompt,
@@ -407,15 +419,17 @@ export class PlanService {
             '',
             `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
             `delivered. It currently holds ${
-                complete
-                    ? "this card's existing body"
-                    : "the card's own notes above, followed by the plan-contract headings it was missing, each left empty for you to fill in"
+                keepDraft
+                    ? 'the draft so far'
+                    : complete
+                      ? "this card's existing body"
+                      : "the card's own notes above, followed by the plan-contract headings it was missing, each left empty for you to fill in"
             }; read it before anything else.`,
         ].join('\n');
 
         return {
             sessionId: id,
-            worktreePath: worktree.path,
+            worktreePath,
             draftPath,
             model: stage.model,
             instructions,
