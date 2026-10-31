@@ -10,6 +10,9 @@ import kotlinx.serialization.modules.subclass
 sealed interface Destination : NavKey {
     @Serializable
     data object Board : Destination
+
+    @Serializable
+    data class Card(val project: String, val id: String) : Destination
 }
 
 /** Every destination must be named here: the stack saves as `NavKey`, and an unnamed subclass fails to restore. */
@@ -17,6 +20,7 @@ val NavConfiguration = SavedStateConfiguration {
     serializersModule = SerializersModule {
         polymorphic(NavKey::class) {
             subclass(Destination.Board::class, Destination.Board.serializer())
+            subclass(Destination.Card::class, Destination.Card.serializer())
         }
     }
 }

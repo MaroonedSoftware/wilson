@@ -21,6 +21,8 @@ import com.maroonedsoftware.wilson.auth.StoredSession
 import com.maroonedsoftware.wilson.ui.WilsonTheme
 import com.maroonedsoftware.wilson.ui.board.BoardModel
 import com.maroonedsoftware.wilson.ui.board.BoardScreen
+import com.maroonedsoftware.wilson.ui.card.CardModel
+import com.maroonedsoftware.wilson.ui.card.CardScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
 import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
@@ -62,7 +64,15 @@ private fun SignedIn(app: WilsonApp) {
         onBack = { backStack.removeLastOrNull() },
         entryProvider = entryProvider {
             entry<Destination.Board> {
-                BoardScreen(viewModel(factory = viewModelFactory { initializer { BoardModel(app) } })) { _, _ -> }
+                BoardScreen(viewModel(factory = viewModelFactory { initializer { BoardModel(app) } })) { project, id ->
+                    backStack.add(Destination.Card(project, id))
+                }
+            }
+            entry<Destination.Card> { key ->
+                CardScreen(
+                    viewModel(key = "card:${key.project}:${key.id}", factory = viewModelFactory { initializer { CardModel(app, key.project, key.id) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
         },
     )
