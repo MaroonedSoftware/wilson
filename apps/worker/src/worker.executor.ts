@@ -3,7 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
-import { commandEnvironment, engineEnvironment, type CallOp, type FromWorker, type ToWorker, type WorkerError } from '@wilson/worker-protocol';
+import {
+    commandEnvironment,
+    engineEnvironment,
+    inheritedEnvironment,
+    type CallOp,
+    type FromWorker,
+    type ToWorker,
+    type WorkerError,
+} from '@wilson/worker-protocol';
 
 const execFileAsync = promisify(execFile);
 
@@ -79,7 +87,7 @@ export class WorkerExecutor {
                 void this.answer(message.id, () => this.call(message.call));
                 return;
             case 'run-claude':
-                void this.answer(message.id, () => this.runClaude(message.args, message.timeoutMs));
+                void this.answer(message.id, () => this.runClaude(message.args, message.timeoutMs, message.engineToken));
                 return;
             case 'spawn':
                 this.spawn(message);
@@ -166,7 +174,8 @@ export class WorkerExecutor {
                     cwd: options.cwd,
                     ...(options.timeoutMs !== undefined && { timeout: options.timeoutMs }),
                     ...(options.maxBuffer !== undefined && { maxBuffer: options.maxBuffer }),
-                    ...(options.env !== undefined && { env: commandEnvironment(options.env, options.hostEnv ?? [], this.env) }),
+                    env:
+                        options.env !== undefined ? commandEnvironment(options.env, options.hostEnv ?? [], this.env) : inheritedEnvironment(this.env),
                 });
                 return { stdout, stderr };
             }
@@ -190,7 +199,7 @@ export class WorkerExecutor {
                 ['-c', 'credential.helper=', '-c', `credential.helper=${CREDENTIAL_HELPER}`, 'clone', '--quiet', url, partial],
                 {
                     timeout: CLONE_TIMEOUT_MS,
-                    env: { ...this.env, WILSON_GIT_TOKEN: token, GIT_TERMINAL_PROMPT: '0' },
+                    env: { ...inheritedEnvironment(this.env), WILSON_GIT_TOKEN: token, GIT_TERMINAL_PROMPT: '0' },
                 },
             );
             await rename(partial, path);
@@ -205,11 +214,11 @@ export class WorkerExecutor {
         }
     }
 
-    private async runClaude(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+    private async runClaude(args: string[], timeoutMs: number, engineToken?: string): Promise<{ stdout: string; stderr: string }> {
         const { stdout, stderr } = await execFileAsync(this.claudeCommand, args, {
             cwd: '/',
             timeout: timeoutMs,
-            env: engineEnvironment({}, this.env),
+            env: engineEnvironment({}, this.env, engineToken),
         });
         return { stdout, stderr };
     }
@@ -230,7 +239,7 @@ export class WorkerExecutor {
         // spawn starts, and the name Wilson uses for it means nothing here.
         const child = spawn(this.claudeCommand, message.args, {
             ...(message.cwd && { cwd: message.cwd }),
-            env: engineEnvironment(message.env, this.env),
+            env: engineEnvironment(message.env, this.env, message.engineToken),
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         this.processes.set(message.id, child);

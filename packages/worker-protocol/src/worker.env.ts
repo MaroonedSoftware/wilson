@@ -14,6 +14,9 @@ export const PASSED_THROUGH_ENV = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPD
 /** The variable `claude` signs in with when it is set, as `claude setup-token` documents. */
 export const ENGINE_TOKEN_VARIABLE = 'CLAUDE_CODE_OAUTH_TOKEN';
 
+/** The variable the worker program connects to Wilson with. */
+export const WORKER_TOKEN_VARIABLE = 'WILSON_WORKER_TOKEN';
+
 /** The prefixes of the variables the Agent SDK sets for the engine, the only ones a `spawn` carries. */
 export const ENGINE_ENV_PREFIXES = ['CLAUDE_CODE_', 'CLAUDE_AGENT_SDK_'] as const;
 
@@ -44,15 +47,32 @@ export const commandEnvironment = (sent: Env, hostEnv: readonly string[], own: E
 };
 
 /**
- * The environment for the engine: the SDK's own variables from `sent` and nothing else of Wilson's,
- * the passthrough names from the worker, and the worker's own engine token. A token Wilson sent is
- * dropped, so the engine on a worker always signs in as that machine was set up to.
+ * The environment for an `exec` that sent none, or a clone: the worker's own, without the two tokens
+ * in it. Git runs a repository's hooks here, and a hook holding the worker token could connect as this
+ * host and be sent the engine token Wilson assigns it.
  */
-export const engineEnvironment = (sent: Env, own: Env): Record<string, string> => {
+export const inheritedEnvironment = (own: Env): Env => {
+    const env = { ...own };
+    delete env[ENGINE_TOKEN_VARIABLE];
+    delete env[WORKER_TOKEN_VARIABLE];
+    return env;
+};
+
+/**
+ * The environment for the engine: the SDK's own variables from `sent` and nothing else of Wilson's,
+ * the passthrough names from the worker, and `assigned`, the token Wilson gave this process, or else
+ * the worker's own. A token in `sent` is dropped: only the host's assignment decides, so the token an
+ * engine on Wilson's own machine uses can never sign in an engine here.
+ */
+export const engineEnvironment = (sent: Env, own: Env, assigned?: string): Record<string, string> => {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(sent)) {
         if (value === undefined || key === ENGINE_TOKEN_VARIABLE) continue;
         if (ENGINE_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
-    return { ...env, ...pick(own, [...PASSED_THROUGH_ENV, ENGINE_TOKEN_VARIABLE]) };
+    return {
+        ...env,
+        ...pick(own, [...PASSED_THROUGH_ENV, ENGINE_TOKEN_VARIABLE]),
+        ...(assigned !== undefined && { [ENGINE_TOKEN_VARIABLE]: assigned }),
+    };
 };
