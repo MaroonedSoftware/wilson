@@ -22,3 +22,14 @@ class ReasonTest {
         assertNull(feedCardId("nonsense"))
     }
 }
+
+class MergeMessageTest {
+    @Test
+    fun aLandedMergeNamesItsCommit() = assertEquals("Landed on main as abcdef12.", mergeMessage(MergeOutcome.Landed("abcdef1234567")))
+
+    @Test
+    fun aRefusalIsTheServersOwn() = assertEquals("tests failed", mergeMessage(MergeOutcome.Refused("tests failed")))
+
+    @Test
+    fun aLostAnswerNeverClaimsEitherWay() = assertEquals(true, "may still have landed" in mergeMessage(MergeOutcome.Unknown))
+}

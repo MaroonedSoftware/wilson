@@ -2,14 +2,21 @@ package com.maroonedsoftware.wilson.ui.card
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -23,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -47,6 +55,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit) {
     val snackbars = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow() } }
+    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it) } }
     LaunchedEffect(tab) { if (tab == 2 && state.diff == null) model.loadDiff() }
 
     Scaffold(
@@ -65,6 +74,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit) {
         }
         Column(Modifier.padding(padding).fillMaxSize()) {
             Header(card)
+            Actions(card, state, model)
             PrimaryTabRow(selectedTabIndex = tab) {
                 TABS.forEachIndexed { index, name -> Tab(selected = tab == index, onClick = { tab = index }, text = { Text(name) }) }
             }
@@ -84,6 +94,51 @@ private fun Header(card: CardDetail) {
         Text(card.stage + (card.branch?.let { "  ·  $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
         if (card.needsHuman) Text(card.needsHumanReason ?: "This card is flagged for a human.", color = MaterialTheme.colorScheme.error)
     }
+}
+
+/**
+ * Offered as the web app offers them: whatever applies is the server's to decide, and a refusal comes
+ * back in its own words. Merge and release ask first, because a thumb is not a mouse.
+ */
+@Composable
+private fun Actions(card: CardDetail, state: CardState, model: CardModel) {
+    var confirming by remember { mutableStateOf<Confirm?>(null) }
+    var moving by remember { mutableStateOf(false) }
+    val idle = state.acting == null
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (card.needsHuman) Button(onClick = model::acknowledge, enabled = idle) { Text("Acknowledge") }
+        OutlinedButton(onClick = model::start, enabled = idle) { Text("Start") }
+        OutlinedButton(onClick = model::approve, enabled = idle) { Text("Approve plan") }
+        OutlinedButton(onClick = { confirming = Confirm.MERGE }, enabled = idle) { Text(if (state.acting == "merge") "Merging…" else "Merge") }
+        OutlinedButton(onClick = { confirming = Confirm.RELEASE }, enabled = idle) { Text("Release") }
+        Box {
+            OutlinedButton(onClick = { moving = true }, enabled = idle && state.stages.isNotEmpty()) { Text("Move") }
+            DropdownMenu(expanded = moving, onDismissRequest = { moving = false }) {
+                state.stages.filter { it != card.stage }.forEach { stage ->
+                    DropdownMenuItem(text = { Text(stage) }, onClick = { moving = false; model.move(stage) })
+                }
+            }
+        }
+    }
+    confirming?.let { asked ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text(asked.title) },
+            text = { Text(asked.detail) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirming = null
+                    if (asked == Confirm.MERGE) model.merge() else model.release()
+                }) { Text(asked.verb) }
+            },
+            dismissButton = { TextButton(onClick = { confirming = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private enum class Confirm(val title: String, val detail: String, val verb: String) {
+    MERGE("Merge to main?", "This runs the project's tests, then lands the branch. It can take several minutes.", "Merge"),
+    RELEASE("Release this card?", "This stops work on the card and frees what it holds.", "Release"),
 }
 
 @Composable
