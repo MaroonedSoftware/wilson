@@ -59,7 +59,7 @@ FROM source AS web-build
 ARG VITE_API_URL=/
 RUN pnpm --filter @wilson/web exec vite build
 
-FROM nginx:1.27-alpine AS web
+FROM nginx:1.29-alpine AS web
 # The image's entrypoint fills in ${API_UPSTREAM} from the environment, and nothing else in the file.
 ENV API_UPSTREAM=api:13100
 COPY deploy/web.nginx.conf /etc/nginx/templates/default.conf.template
