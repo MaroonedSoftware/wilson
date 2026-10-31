@@ -24,7 +24,7 @@ import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { cardOverBudget } from './card.budget.js';
+import { cardOverBudget, withinCardBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
@@ -1110,8 +1110,12 @@ export class StageDispatcher {
             );
         }
 
+        // Read again rather than passed down from `run`'s own check: nothing here has spent anything
+        // since, and `run` reaches this through three separate call sites.
+        const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.totalInputTokens(this.config.project, card.frontmatter.id);
+
         const run = await adapter.run({
-            stage,
+            stage: withinCardBudget(stage, spent),
             context,
             planPath,
             learningsPath,
