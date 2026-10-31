@@ -50,6 +50,12 @@ export const CardSummary = z.strictObject({
         ),
     needsHumanReason: z.string().optional(),
     position: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    splitFrom: z
+        .string()
+        .optional()
+        .describe(
+            'The card this one was split out of. Absent on every other card, including pieces split before\nthe field existed, so absence does not prove a card has no origin.',
+        ),
     stageEnteredAt: _ZodDatetime
         .optional()
         .describe(
@@ -57,6 +63,18 @@ export const CardSummary = z.strictObject({
         ),
 });
 export type CardSummary = z.infer<typeof CardSummary>;
+
+/**
+ * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+ * has got without a read per piece.
+ * generated from [SplitPieceSummary](../../data/contracts/board.ck)
+ */
+export const SplitPieceSummary = z.strictObject({
+    id: z.string(),
+    title: z.string(),
+    stage: z.string(),
+});
+export type SplitPieceSummary = z.infer<typeof SplitPieceSummary>;
 
 /**
  * The write surface. Each request body is its own named contract rather than inlined on the
@@ -388,6 +406,12 @@ export type HumanFinding = z.infer<typeof HumanFinding>;
 export const CardDetail = CardSummary.extend({
     body: z.string(),
     sections: z.record(z.string(), z.string()),
+    pieces: z
+        .array(SplitPieceSummary)
+        .optional()
+        .describe(
+            'The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the\nsame way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it\nabsent rather than guess. Empty, from `getById`, on a card that was never split.',
+        ),
 });
 export type CardDetail = z.infer<typeof CardDetail>;
 

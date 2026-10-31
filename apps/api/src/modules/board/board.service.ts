@@ -3,7 +3,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery } from '../../generated/board.js';
+import type { CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery, SplitPieceSummary } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -40,6 +40,7 @@ export const toCardSummary = (card: Card): CardSummary => ({
     needsHuman: card.frontmatter.needsHuman ?? false,
     needsHumanReason: card.frontmatter.needsHumanReason,
     position: card.frontmatter.position,
+    splitFrom: card.frontmatter.splitFrom,
 });
 
 export const toCardDetail = (card: Card): CardDetail => ({
@@ -97,6 +98,15 @@ export class BoardService {
         return { ...summary, stageEnteredAt: stageEnteredAt(events, { fullHistory }) };
     }
 
+    /** The cards split out of `id`, lowest id first; empty for a card that was never split. */
+    private async piecesOf(id: string): Promise<SplitPieceSummary[]> {
+        const cards = await this.boardRepository.list();
+        return cards
+            .filter(card => card.frontmatter.splitFrom === id)
+            .map(({ frontmatter: { id, title, stage } }) => ({ id, title, stage }))
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
     async list(): Promise<CardSummary[]> {
         const cards = await this.boardRepository.list();
         return Promise.all(cards.map(card => this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))));
@@ -105,7 +115,8 @@ export class BoardService {
     async getById(id: string): Promise<CardDetail> {
         try {
             const card = await this.boardRepository.read(id);
-            return await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card)));
+            const detail = await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card)));
+            return { ...detail, pieces: await this.piecesOf(id) };
         } catch (err) {
             if (err instanceof CardNotFoundError) throw httpError(404);
             throw err;
