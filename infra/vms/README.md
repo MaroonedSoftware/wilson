@@ -9,16 +9,24 @@ state bucket, and nothing in TGA's repository refers to it.
 
 | Resource                     | Why                                                                        |
 | ---------------------------- | -------------------------------------------------------------------------- |
-| `wilson-*` instance template | What a VM is: `e2-highmem-4`, 75 GB, no public address, the `wilson` image |
-| `wilson-vm` service account  | Reads the secrets below, writes logs and metrics, holds nothing else       |
+| One instance template per VM | What a VM is: `e2-highmem-4`, 75 GB, no public address, the `wilson` image |
+| One service account per VM   | Reads that VM's secrets, writes logs and metrics, holds nothing else       |
 | Secret Manager secrets       | Empty. Values are added by hand, so they never reach Terraform state       |
 
 ## Who can reach a VM
 
 Only `wilson_operators`. TGA's agent users have sudo through OS Login on every VM in the project, but
-OS Login refuses a VM whose account you cannot act as, and only `wilson_operators` can act as
-`wilson-vm`. An agent session cannot read the secrets, since it runs as `agent-vm`, which has no role
-here. Project owners can still reach everything.
+OS Login refuses a VM whose account you cannot act as, and only `wilson_operators` can act as these
+accounts. An agent session on an agent VM cannot read the secrets, since it runs as `agent-vm`, which
+has no role here. Project owners can still reach everything.
+
+## What a stage can read
+
+Everything its VM's account can. A stage runs as `wilson`, which is in the docker group and so is root
+in all but name, and nothing on the VM keeps it from the metadata server. That is why each VM has its
+own account: a stage can read its own VM's worker token and the three shared secrets, and no other
+VM's token, so it cannot connect to Wilson as another host. The shared secrets are within its reach
+on every VM, so treat them as held by every project that runs here.
 
 ## Lifetime
 

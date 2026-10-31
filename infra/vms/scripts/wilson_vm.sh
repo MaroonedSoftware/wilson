@@ -49,8 +49,8 @@ cmd_up() {
   fi
 
   template="$(gcloud compute instance-templates list --project="$project" \
-    --filter='name~^wilson-' --sort-by=~creationTimestamp --limit=1 --format='value(name)')"
-  [[ -n "$template" ]] || die "no wilson-* instance template in ${project} (infra/vms/main.tf)"
+    --filter="name~^${name}-" --sort-by=~creationTimestamp --limit=1 --format='value(name)')"
+  [[ -n "$template" ]] || die "no ${name}-* instance template in ${project} (infra/vms/main.tf)"
 
   for zone in $zones; do
     if gcloud compute instances create "$name" --project="$project" --zone="$zone" \

@@ -8,19 +8,34 @@ locals {
 
   wilson_vm_pool = toset(["wilson-1", "wilson-2", "wilson-3", "wilson-4", "wilson-5", "wilson-6"])
 
+  wilson_shared_secrets = toset(["wilson-claude-token", "wilson-github-packages-token", "wilson-tailscale-key"])
+
   # Empty shells: the values are added by hand, so they never reach Terraform state. A VM treats a
-  # secret with no version as unset, which is what makes the last three optional.
-  wilson_secrets = toset(concat(
-    [for vm in local.wilson_vm_pool : "wilson-worker-token-${vm}"],
-    ["wilson-claude-token", "wilson-github-packages-token", "wilson-tailscale-key"],
-  ))
+  # secret with no version as unset, which is what makes the shared ones optional.
+  wilson_secrets = setunion([for vm in local.wilson_vm_pool : "wilson-worker-token-${vm}"], local.wilson_shared_secrets)
+
+  # A stage can do whatever its VM's account can: it runs as a user in the docker group, so nothing on
+  # the VM keeps it from the metadata server. Each VM therefore gets its own token and no other's, and
+  # a stage cannot connect to Wilson as a different host.
+  wilson_secret_grants = {
+    for grant in concat(
+      [for vm in local.wilson_vm_pool : { vm = vm, secret = "wilson-worker-token-${vm}" }],
+      [for pair in setproduct(local.wilson_vm_pool, local.wilson_shared_secrets) : { vm = pair[0], secret = pair[1] }],
+    ) : "${grant.vm}/${grant.secret}" => grant
+  }
 
   wilson_vm_roles = toset([
-    # Every secret in this project is one of the above, and only this account can read them.
-    "roles/secretmanager.secretAccessor",
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
   ])
+
+  wilson_role_grants = {
+    for pair in setproduct(local.wilson_vm_pool, local.wilson_vm_roles) : "${pair[0]}/${pair[1]}" => { vm = pair[0], role = pair[1] }
+  }
+
+  wilson_operator_grants = {
+    for pair in setproduct(local.wilson_vm_pool, var.wilson_operators) : "${pair[0]}/${pair[1]}" => { vm = pair[0], member = pair[1] }
+  }
 }
 
 # The agents network. Looked up, so nothing here can change it. TGA's Terraform never sees this root's
@@ -41,28 +56,30 @@ resource "google_project_service" "secretmanager" {
 
 # Not agent-vm: every agent session runs as that, and none should be able to read these secrets.
 resource "google_service_account" "wilson_vm" {
+  for_each = local.wilson_vm_pool
+
   project      = var.project_id
-  account_id   = "wilson-vm"
-  display_name = "Wilson VM"
-  description  = "Runs Wilson's VMs. Reads the worker's secrets and writes the VM's logs and metrics, nothing else."
+  account_id   = each.value
+  display_name = "Wilson VM ${each.value}"
+  description  = "Runs ${each.value}. Reads that VM's worker token and the shared secrets, and writes its logs and metrics, nothing else."
 }
 
 resource "google_project_iam_member" "wilson_vm" {
-  for_each = local.wilson_vm_roles
+  for_each = local.wilson_role_grants
 
   project = var.project_id
-  role    = each.value
-  member  = google_service_account.wilson_vm.member
+  role    = each.value.role
+  member  = "serviceAccount:${google_service_account.wilson_vm[each.value.vm].email}"
 }
 
 # The one thing that keeps a Wilson VM's tokens to its operators. TGA's agent users have sudo through
 # OS Login on every VM in this project, but OS Login refuses a VM whose account you cannot act as.
 resource "google_service_account_iam_member" "wilson_operators_act_as_vm" {
-  for_each = var.wilson_operators
+  for_each = local.wilson_operator_grants
 
-  service_account_id = google_service_account.wilson_vm.name
+  service_account_id = google_service_account.wilson_vm[each.value.vm].name
   role               = "roles/iam.serviceAccountUser"
-  member             = each.value
+  member             = each.value.member
 }
 
 resource "google_secret_manager_secret" "wilson" {
@@ -78,10 +95,22 @@ resource "google_secret_manager_secret" "wilson" {
   depends_on = [google_project_service.secretmanager]
 }
 
+resource "google_secret_manager_secret_iam_member" "wilson_vm" {
+  for_each = local.wilson_secret_grants
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.wilson[each.value.secret].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.wilson_vm[each.value.vm].email}"
+}
+
+# One each, because a VM's account is part of what it is. scripts/wilson_vm.sh picks by this prefix.
 resource "google_compute_instance_template" "wilson" {
+  for_each = local.wilson_vm_pool
+
   project      = var.project_id
-  name_prefix  = "wilson-"
-  description  = "Wilson VM: the wilson image, no public address, IAP SSH only, powered off when idle."
+  name_prefix  = "${each.value}-"
+  description  = "${each.value}: the wilson image, no public address, IAP SSH only, powered off when idle."
   machine_type = local.wilson_machine_type
   region       = var.region
   tags         = [var.network_tag]
@@ -101,7 +130,7 @@ resource "google_compute_instance_template" "wilson" {
   }
 
   service_account {
-    email  = google_service_account.wilson_vm.email
+    email  = google_service_account.wilson_vm[each.value].email
     scopes = ["cloud-platform"]
   }
 
