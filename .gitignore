@@ -19,6 +19,7 @@ coverage
 # Env
 .env
 .env.local
+worker.env
 *.log
 logs/
 

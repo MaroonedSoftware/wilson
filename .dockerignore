@@ -11,6 +11,7 @@
 
 # Secrets and local state never belong in an image.
 **/.env
+worker.env
 .wilson-secrets
 .wilson-backups
 

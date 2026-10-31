@@ -54,6 +54,45 @@ and any project with a GitHub repository can run there with no `wilson host serv
 wilson host add wilson-1 --worker --projects-root /srv/wilson
 ```
 
+## Running it in Docker
+
+The `worker` image holds a stage to one container: what it runs can touch the container and its
+`/srv/projects` volume, not the machine's files. Stages then run on Linux, whatever the machine is. It
+needs no inbound port. Never mount the Docker socket, a home folder or `~/.ssh` into it: any of them
+undoes this.
+
+The network is not contained. A stage can still reach whatever the machine can, and it holds the
+engine's token.
+
+1. On Wilson, register the host with a projects root inside the container, and mint its token:
+
+    ```bash
+    wilson host add my-mac --worker --projects-root /srv/projects
+    wilson host token my-mac
+    ```
+
+2. On the machine, from a checkout of this repository, put the three variables in `worker.env`, which
+   git ignores:
+
+    ```bash
+    WILSON_URL=http://tower:13101
+    WILSON_WORKER_TOKEN=wilson_worker_...
+    CLAUDE_CODE_OAUTH_TOKEN=...
+    ```
+
+3. Build and start it, then run `wilson host probe my-mac` on Wilson:
+
+    ```bash
+    docker compose -f docker-compose.worker.yml up --build -d
+    ```
+
+The image has Node, pnpm and git. A project that needs more names it at build time, with
+`WORKER_PACKAGES="build-essential python3"` in the environment of that command. A project without a
+GitHub repository cannot be cloned into the volume, so it does not suit this image.
+
+Docker has no restart policy for "not after status 1", so the compose file gives up after five
+restarts. After a refused token, `docker compose logs` says why.
+
 ## Environment
 
 | Variable                  | Required | What it is                                                            |

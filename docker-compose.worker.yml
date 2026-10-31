@@ -1,0 +1,29 @@
+# A worker (apps/worker) in a container, on a machine that runs Wilson's stages. Nothing here talks to
+# Wilson's database or publishes a port: the worker connects out. See "Running it in Docker" in
+# apps/worker/README.md.
+name: wilson-worker
+
+services:
+    worker:
+        build:
+            context: .
+            target: worker
+            args:
+                WORKER_PACKAGES: ${WORKER_PACKAGES:-}
+        image: wilson-worker
+        # Capped, not `unless-stopped`: status 1 is Wilson refusing this worker for good, and the worker
+        # reconnects by itself through anything less.
+        restart: on-failure:5
+        env_file: worker.env
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        volumes:
+            - projects:/srv/projects
+            - home:/home/node
+
+volumes:
+    projects:
+    # The engine's own state, kept across a rebuild.
+    home:
