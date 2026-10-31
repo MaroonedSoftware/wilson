@@ -294,9 +294,11 @@ export interface PlanTurnRequest {
     /**
      * Card 0240. `chat`, the default, sends exactly `text`. `cuts` prepends `PlanService`'s
      * `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
-     * of its own because the preamble, not the request shape, is what changes.
+     * of its own because the preamble, not the request shape, is what changes. `draft` works the same
+     * way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
+     * through it first.
      */
-    mode?: 'chat' | 'cuts';
+    mode?: 'chat' | 'cuts' | 'draft';
 }
 
 /**

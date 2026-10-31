@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useScrollIntoView } from '@mantine/hooks';
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Paper, ScrollArea, Skeleton, Stack, Text, Textarea } from '@mantine/core';
-import { IconScissors, IconSend } from '@tabler/icons-react';
+import { IconScissors, IconSend, IconSparkles } from '@tabler/icons-react';
 import type { CardDetail, PlanTurn, PlanTurnRequest } from '@wilson/sdk';
 import { Markdown } from '#src/components/Markdown.js';
 import { formatTimestamp } from '#src/lib/card.js';
@@ -88,14 +88,20 @@ function OutgoingTurn({ text }: { text: string }) {
  * Ordinary send stays gated on non-empty text, exactly as before; "Propose cuts" is not — this
  * card's Constraints send `[propose cuts]` for an empty box (`PlanService.appendTurn`), so the
  * button asking for that has nothing to require the box hold first.
+ *
+ * "Draft the plan" is the same again with `mode: 'draft'`: the agent fills in the whole draft with
+ * nothing typed, and anything that is typed goes along as guidance. It is the filled button only
+ * while the conversation is empty, because that is the moment it is the obvious next step.
  */
 function Composer({
     sendTurn,
     disabled,
+    noTurnsYet,
     onSent,
 }: {
     sendTurn: ReturnType<typeof useSendPlanTurn>;
     disabled: boolean;
+    noTurnsYet: boolean;
     onSent: (turn: PlanTurn) => void;
 }) {
     const [text, setText] = useState('');
@@ -117,6 +123,7 @@ function Composer({
     };
 
     const proposeCuts = () => sendRequest({ text: text.trim(), mode: 'cuts' });
+    const draftThePlan = () => sendRequest({ text: text.trim(), mode: 'draft' });
 
     return (
         <Paper withBorder p="xs" radius="sm">
@@ -150,17 +157,28 @@ function Composer({
                         <IconSend size={16} />
                     </ActionIcon>
                 </Group>
-                <Button
-                    size="xs"
-                    variant="light"
-                    leftSection={<IconScissors size={14} />}
-                    disabled={disabled || sendTurn.isPending}
-                    loading={sendTurn.isPending}
-                    onClick={proposeCuts}
-                    style={{ alignSelf: 'flex-start' }}
-                >
-                    Propose cuts
-                </Button>
+                <Group gap={6}>
+                    <Button
+                        size="xs"
+                        variant={noTurnsYet ? 'filled' : 'light'}
+                        leftSection={<IconSparkles size={14} />}
+                        disabled={disabled || sendTurn.isPending}
+                        loading={sendTurn.isPending}
+                        onClick={draftThePlan}
+                    >
+                        Draft the plan
+                    </Button>
+                    <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<IconScissors size={14} />}
+                        disabled={disabled || sendTurn.isPending}
+                        loading={sendTurn.isPending}
+                        onClick={proposeCuts}
+                    >
+                        Propose cuts
+                    </Button>
+                </Group>
                 {sendTurn.isError && (
                     <Text size="xs" c="red">
                         {reasonFor(sendTurn.error)}
@@ -236,7 +254,7 @@ export function PlanningSessionPane({ card, project }: { card: CardDetail; proje
                     <div ref={targetRef} />
                 </Stack>
             </ScrollArea>
-            <Composer sendTurn={sendTurn} disabled={!session.data} onSent={transcript.commitTurn} />
+            <Composer sendTurn={sendTurn} disabled={!session.data} noTurnsYet={transcript.turns.length === 0} onSent={transcript.commitTurn} />
         </Stack>
     );
 }

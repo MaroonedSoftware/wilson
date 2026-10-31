@@ -106,11 +106,16 @@ export class PlanService {
      * Open a planning session for a card in `planning`. Refuses, and cuts nothing, for a card
      * outside `planning` or whose real branch already has work — re-planning a card with code on it
      * is a different, more dangerous operation. Mirrors `wilson card plan`'s guards exactly.
+     *
+     * A card that already has a conversation is rejoined, not reset: the web pane calls this every
+     * time it mounts, so re-seeding here would throw away the agent's unsaved draft on a page reload
+     * and pull the worktree out from under a turn still running in it.
      */
     async open(id: string): Promise<PlanSession> {
         const card = await this.readOrThrow(id);
         await this.assertPlannable(id, card);
-        return this.cutSession(id, card);
+        const rejoining = (await this.planTurns.since(id, 0)).length > 0;
+        return this.cutSession(id, card, rejoining);
     }
 
     /**
@@ -179,8 +184,10 @@ export class PlanService {
      * branch already has work — via the same `assertPlannable` `open` itself calls, rather than a
      * copy of them.
      *
-     * The very first turn for a card reaches the same throwaway worktree `open` cuts, by calling
-     * `cutSession` — this class's own method, not a duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
+     * The very first turn for a card cuts (or re-cuts, harmlessly — nothing has touched the code
+     * worktree yet, since the finished plan is written to `draftPath`, outside it) the same
+     * throwaway worktree `open` cuts, by calling `cutSession` — this class's own method, not a
+     * duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
      * the engine ever sees. Every later turn resumes that same conversation instead: the model's
      * own context, not `wilson.plan_turns`, is what carries the instructions forward from there
      * (this card's Constraints — never rebuild model context by replaying stored turns into a fresh
@@ -206,7 +213,7 @@ export class PlanService {
         // at all, `request.mode`'s default) never falls back, since only `cuts` mode ever sends the
         // agent looking for cuts with nothing else to go on.
         const mode = request.mode ?? 'chat';
-        const text = mode === 'cuts' && request.text.trim().length === 0 ? '[propose cuts]' : request.text;
+        const text = request.text.trim().length === 0 && mode !== 'chat' ? EMPTY_TURN_TEXT[mode] : request.text;
 
         const priorTurns = await this.planTurns.since(id, 0);
         const isFirstTurn = priorTurns.length === 0;
@@ -242,8 +249,8 @@ export class PlanService {
         // to `commentsBlock`) on every turn it is sent on, not only the first — unlike
         // `contextPreamble`/`commentsPreamble`, which each carry state that is naturally empty once
         // seen, asking for cuts is never "already asked", so there is no equivalent one-shot
-        // condition to fall back to.
-        const cuts = mode === 'cuts' ? cutsPreamble : '';
+        // condition to fall back to. A `draft` turn's `draftPreamble` is the same kind of fixed block.
+        const modePreamble = mode === 'chat' ? '' : MODE_PREAMBLE[mode];
 
         // Two branches rather than one ternary assigning a shared variable: `cutSession` and
         // `existingSession` return different shapes (only the first carries `instructions`, which
@@ -256,12 +263,12 @@ export class PlanService {
             const session = await this.cutSession(id, card);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${session.instructions}\n\n${learningsPreamble}${contextPreamble}${commentsPreamble}${cuts}${text}`;
+            prompt = `${session.instructions}\n\n${learningsPreamble}${contextPreamble}${commentsPreamble}${modePreamble}${text}`;
         } else {
             const session = await this.existingSession(id);
             worktreePath = session.worktreePath;
             model = session.model;
-            prompt = `${contextPreamble}${commentsPreamble}${cuts}${text}`;
+            prompt = `${contextPreamble}${commentsPreamble}${modePreamble}${text}`;
         }
 
         await this.planTurns.append(id, 'user', text);
@@ -375,14 +382,16 @@ export class PlanService {
     }
 
     /**
-     * Cuts the throwaway worktree and seeds the draft file — `open`'s own body, moved here so
-     * `turn` can call it for a card's very first turn without duplicating it. Safe to call any
-     * number of times: a session already on disk (its worktree and its draft both there) is
-     * returned as it stands, because `POST .../plan/open` runs on every mount of the planning pane,
-     * and re-seeding from the card body there would throw away whatever the agent has written to
-     * `draftPath` since. `close` is what ends a session, so the next `open` after it cuts afresh.
+     * Cuts (or re-cuts) the throwaway worktree and seeds the draft file — `open`'s own body, moved
+     * here so `turn` can call it for a card's very first turn without duplicating it. Safe to call
+     * more than once for the same card as long as nothing has written to the code worktree since:
+     * `WorktreeManager.create` resets it to a fresh checkout, and the one file a planning session
+     * actually writes, `draftPath`, lives outside that worktree entirely.
+     *
+     * `rejoining` keeps whatever a conversation already has on disk, and supplies only what is gone:
+     * a worktree `close` reclaimed, or a draft file that no longer exists.
      */
-    private async cutSession(id: string, card: Card): Promise<PlanSession> {
+    private async cutSession(id: string, card: Card, rejoining = false): Promise<PlanSession> {
         // Config, not a string here: the stage's model and its planning instructions live in the
         // stage config like every other stage's do.
         const stage = await this.loadPlanningStage();
@@ -395,12 +404,12 @@ export class PlanService {
 
         const seed = completeSections(card.body);
         const complete = seed === card.body;
+        const keepDraft = rejoining && existsSync(draftPath);
+        if (!keepDraft) await writeFile(draftPath, seed, 'utf8');
 
-        let worktreePath = join(this.boardConfig.worktreeRoot, planId(id));
-        if (!existsSync(worktreePath) || !existsSync(draftPath)) {
-            await writeFile(draftPath, seed, 'utf8');
-            worktreePath = (await this.worktrees.create(planId(id), planBranch(id))).path;
-        }
+        const existingWorktree = join(this.boardConfig.worktreeRoot, planId(id));
+        const worktreePath =
+            rejoining && existsSync(existingWorktree) ? existingWorktree : (await this.worktrees.create(planId(id), planBranch(id))).path;
 
         // The stage's own instructions, plus the one fact only this session knows: where the draft
         // lives. Travels as one string so a caller appends it as the spawned agent's system prompt,
@@ -410,9 +419,11 @@ export class PlanService {
             '',
             `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
             `delivered. It currently holds ${
-                complete
-                    ? "this card's existing body"
-                    : "the card's own notes above, followed by the plan-contract headings it was missing, each left empty for you to fill in"
+                keepDraft
+                    ? 'the draft so far'
+                    : complete
+                      ? "this card's existing body"
+                      : "the card's own notes above, followed by the plan-contract headings it was missing, each left empty for you to fill in"
             }; read it before anything else.`,
         ].join('\n');
 
@@ -502,6 +513,31 @@ const cutsPreamble = [
     '---',
     '',
 ].join('\n');
+
+/**
+ * The fixed block `appendTurn` prepends to a `draft` turn's prompt: the one-click version of a
+ * person asking for the plan, so a card gets a whole plan with no conversation first. Unlike
+ * `cutsPreamble` this one does edit the draft file, and it is written against `PlanService.save`'s
+ * two refusals, an empty section and an empty "Files in scope", so that what it leaves can be
+ * approved. Approval itself stays the person's own step.
+ */
+const draftPreamble = [
+    'Write the plan now. Read the current draft and the code it touches, then write the finished plan',
+    'to the draft file, keeping everything the card already says. Every one of the six sections must',
+    'have content, and "Files in scope" must list real paths from this repository.',
+    '',
+    'Do not stop to ask questions first. Where the card leaves something open, make the call, record it',
+    'under "Constraints", and name it in your reply so it can be challenged.',
+    '',
+    '---',
+    '',
+].join('\n');
+
+/** The fixed block each non-`chat` turn mode prepends. */
+const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble };
+
+/** What a non-`chat` turn sent with an empty box is stored as, so the transcript still shows it. */
+const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]' };
 
 /**
  * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each
