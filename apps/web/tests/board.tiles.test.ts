@@ -170,6 +170,24 @@ describe('the dependency indicator', () => {
 });
 
 describe('the age-in-stage line', () => {
+    it('shows split progress on an origin tile, counting only merged pieces', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
+            card('0001', 'implementing'),
+            { ...card('0002', 'merged'), splitFrom: '0001' },
+            { ...card('0003', 'implementing'), splitFrom: '0001' },
+        ]);
+
+        renderApp('/projects/demo');
+
+        const title = await screen.findByText('card 0001');
+        const tile = title.closest('.mantine-Paper-root') as HTMLElement;
+        expect(within(tile).getByText('1/2 pieces')).toBeTruthy();
+
+        const piece = (await screen.findByText('card 0003')).closest('.mantine-Paper-root') as HTMLElement;
+        expect(within(piece).queryByText(/pieces/)).toBeNull();
+    });
+
     it('renders a relative age line when stageEnteredAt is present', async () => {
         const threeDaysAgo = DateTime.now().minus({ days: 3 });
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);

@@ -79,6 +79,19 @@ export const unfinishedDeps = (card: CardSummary, cards: CardSummary[]): string[
     return card.dependsOn.filter(id => !isFinished(id));
 };
 
+/** How far a split origin has got. */
+export interface SplitProgress {
+    merged: number;
+    total: number;
+}
+
+/** `card`'s split progress, or `undefined` for a card that has no pieces. */
+export const splitProgress = (card: CardSummary, cards: CardSummary[]): SplitProgress | undefined => {
+    const pieces = cards.filter(c => c.splitFrom === card.id);
+    if (pieces.length === 0) return undefined;
+    return { merged: pieces.filter(piece => piece.stage === 'merged').length, total: pieces.length };
+};
+
 export const stagesById = (cards: CardSummary[]): Map<string, string> => new Map(cards.map(card => [card.id, card.stage]));
 
 /**
