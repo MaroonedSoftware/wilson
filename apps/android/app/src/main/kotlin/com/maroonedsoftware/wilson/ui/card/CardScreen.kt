@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
@@ -62,7 +63,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit, onPlan:
             model.follow()
         }
     }
-    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it) } }
+    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Long) } }
     LaunchedEffect(tab) { if (tab == 2 && state.diff == null) model.loadDiff() }
 
     Scaffold(

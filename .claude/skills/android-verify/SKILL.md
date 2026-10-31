@@ -12,7 +12,9 @@ Read `apps/android/CLAUDE.md` first. Everything below runs from the repo root.
 1. Start the local API with `preview_start` and the `android-api` config, or run `apps/android/tools/api.sh` in the background. It uses a throwaway database and never touches the real board. Never point this at Tower.
 2. `apps/android/tools/verify.sh up` boots the emulator, installs a fresh debug build, seeds the API and launches the app. It prints the server address and test sign-in to use.
 
-If `up` says `node_modules` is missing, run `pnpm install` first. A first boot takes several minutes. If `adb devices` stays empty, run `adb kill-server` and look again before deciding it failed. If `./gradlew` fails on the proxy or on `~/.gradle`, `.claude/settings.json` has not loaded or does not exclude it: report that rather than bypassing the sandbox.
+If `up` says `node_modules` is missing, run `pnpm install` first. The emulator cannot boot inside the sandbox: it stalls silently after three log lines. Start it outside, in a terminal tab (`apps/android/tools/verify.sh boot`), where it boots in about 20 seconds; `adb` inside the sandbox can then drive it. If `adb devices` stays empty once it is up, run `adb kill-server` and look again.
+
+**Use only the `wilson` AVD.** Check with `adb shell getprop ro.boot.qemu.avd_name` before doing anything. Any other emulator is the person's own: never install on it, change its settings or stop it, even if it is the only one attached. `verify.sh` refuses to. If `./gradlew` fails on the proxy or on `~/.gradle`, `.claude/settings.json` has not loaded or does not exclude it: report that rather than bypassing the sandbox.
 
 ## Look and act
 
@@ -38,7 +40,9 @@ Prefer `ui` over guessing from a screenshot. Screenshot after every step that sh
 7. Back works from every screen; rotate the device with `adb shell settings put system user_rotation 1` and confirm nothing is lost.
 8. Sign out returns to sign-in, and killing and reopening the app keeps a signed-in session.
 
-Planning, chat and merge need an engine and a real repository, so they stop at their first server refusal here. Say that they were not exercised. Push needs a Google Play image and a Firebase project and is not covered at all.
+Screenshot straight after an action that may be refused: a dump takes a couple of seconds, long enough to miss a snackbar and wrongly conclude nothing happened. Check the API log before calling a button silent.
+
+A fresh database has no `planning` stage, and the project root must be a git repository, so add both before testing planning. With no engine credentials a planning or chat turn answers an auth error, and a successful merge is not reachable. Say what was not exercised. Push needs a Google Play image and a Firebase project and is not covered at all.
 
 ## Finish
 

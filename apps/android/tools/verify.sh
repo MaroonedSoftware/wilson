@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Drives the Android app on an emulator. See .claude/skills/android-verify/SKILL.md.
-#   up          boot, build, install, seed the local API and launch
+#   boot        start the wilson emulator; run this outside the sandbox, where it can boot
+#   up          build, install, seed the local API and launch
 #   seed        create the test account and cards on the local API
 #   shot NAME   screenshot to $SHOTS/NAME.png
 #   ui          list on-screen elements with the centre to tap
@@ -19,16 +20,32 @@ EMAIL=operator@example.com
 PASSWORD='correct horse battery staple 47'
 SHOTS="${SHOTS:-${TMPDIR:-/tmp}/wilson-android-shots}"
 
+# The AVD on the attached emulator, empty when there is none.
+attached() {
+    adb devices | grep -q '^emulator-.*device$' || return 0
+    adb shell getprop ro.boot.qemu.avd_name </dev/null | tr -d '\r'
+}
+
+# Any other emulator is the person's own, so nothing here may install on it or stop it.
+require_ours() {
+    local name
+    name="$(attached)"
+    if [ "$name" != "$AVD" ]; then
+        echo "expected the $AVD emulator, found '${name:-none}': start it with verify.sh boot, and leave any other alone" >&2
+        exit 1
+    fi
+}
+
 boot() {
-    if adb devices | grep -q '^emulator-'; then return; fi
+    if [ "$(attached)" = "$AVD" ]; then return; fi
     avdmanager list avd -c 2>/dev/null | grep -qx "$AVD" || echo no | avdmanager create avd -n "$AVD" -k "$IMAGE" -d pixel_8
-    nohup emulator -avd "$AVD" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect >"${TMPDIR:-/tmp}/wilson-emulator.log" 2>&1 &
+    nohup emulator -avd "$AVD" -no-window -no-audio -no-boot-anim -no-snapshot-save >"${TMPDIR:-/tmp}/wilson-emulator.log" 2>&1 &
     echo "waiting for the emulator (log: ${TMPDIR:-/tmp}/wilson-emulator.log)"
-    for _ in $(seq 1 90); do
-        if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then return; fi
+    for _ in $(seq 1 60); do
+        if [ "$(attached)" = "$AVD" ] && [ "$(adb shell getprop sys.boot_completed 2>/dev/null </dev/null | tr -d '\r')" = 1 ]; then return; fi
         sleep 2
     done
-    echo "the emulator did not boot within three minutes" >&2
+    echo "the emulator did not boot within two minutes" >&2
     exit 1
 }
 
@@ -68,9 +85,10 @@ for attrs in re.findall(r"<node ([^>]*?)/?>", sys.stdin.read()):
 }
 
 case "${1:-}" in
+    boot) boot ;;
     up)
+        require_ours
         seed
-        boot
         (cd "$ROOT/apps/android" && ./gradlew --console=plain :app:assembleDebug)
         adb install -r "$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
         adb logcat -c
@@ -86,9 +104,12 @@ case "${1:-}" in
         ;;
     ui) ui ;;
     log) adb logcat -d -t 400 '*:E' | grep -E -A12 "FATAL|$APP" || echo "no errors from $APP" ;;
-    down) adb emu kill ;;
+    down)
+        require_ours
+        adb emu kill
+        ;;
     *)
-        sed -n '2,8p' "$0"
+        sed -n '2,9p' "$0"
         exit 1
         ;;
 esac

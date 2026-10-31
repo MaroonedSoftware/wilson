@@ -17,10 +17,11 @@ skill, and say plainly what you did not run. Record what you find here, dated.
 - JDK 21 at `/opt/homebrew/opt/openjdk@21`: there is no system Java. `sdk.dir` goes in `local.properties`.
 - `compileSdk` is 37 with minor 2 because AndroidX refuses less. AGP's built-in Kotlin rules out the
   `kotlin.android` plugin, and `:sdk` applies its Kotlin plugins with no version. Both are deadair's facts.
-- In the sandbox, `adb` and the emulator work, but `./gradlew` needs help: Java ignores `HTTPS_PROXY`, and
-  `~/.gradle`, `~/.android` and the JVM's temp folder are not writable. `.claude/settings.json` excluding
-  `./gradlew *` and `apps/android/tools/*` from the sandbox is the fix, and only you can add that file;
-  `verify.sh up` needs it. Writes to `.idea` paths are denied too, which breaks a fresh `pnpm install`
+- The emulator does not boot inside the sandbox: it stalls after three log lines, with no error. Started
+  outside it boots in about 20 seconds, and `adb` inside the sandbox can then drive it. `./gradlew` needs
+  help too: Java ignores `HTTPS_PROXY`, and `~/.gradle`, `~/.android` and the JVM's temp folder are not
+  writable. `.claude/settings.json` excluding `./gradlew *` and `apps/android/tools/*` from the sandbox is
+  the fix, and a person has to add that file. Writes to `.idea` paths are denied too, which breaks a fresh `pnpm install`
   inside the sandbox because `iconv-lite` ships one.
 - A migration's timestamp must be unused on every branch, not just this one: dbmate skips a version
   already recorded in the shared test database, so a clash silently loses the table.
@@ -39,10 +40,12 @@ skill, and say plainly what you did not run. Record what you find here, dated.
 - 2026-10-31, API 36: a screen does not re-run `init` when navigated back to, and `/api/feed` reports
   nothing about what happened meanwhile, so both the board and card detail showed stale data after
   creating or editing a card. Each now reads afresh every time it starts following the feed.
-- 2026-10-31: a first boot takes several minutes under `swiftshader_indirect`, and `adb devices` can
-  show nothing until the daemon restarts. `adb kill-server` before deciding the emulator failed.
-- 2026-10-31: a fresh database has no `planning` stage, so opening a plan there answers 500 with
-  `no stage named "planning"`. That is the seed data, not the app. Planning is not yet exercised.
+- 2026-10-31: an `emulator-5554` in `adb devices` is not necessarily ours. An early run drove the person's
+  `deadair` emulator by mistake and `adb emu kill` shut it down. Always read `ro.boot.qemu.avd_name`
+  first; `verify.sh` now refuses anything but `wilson`.
+- 2026-10-31: a fresh database has no `planning` stage, so opening a plan answers 500, and the project root
+  must be a git repository. With both in place, opening a session, the draft, comments and closing all
+  worked. The app shows refusals as a snackbar, now held long enough to read a full sentence.
 - 2026-10-31: creating a card publishes no feed event, so a card made elsewhere reaches an open board
   only on its next reload. Moves arrive in about two seconds. The web app has the same gap.
 - 2026-10-31: the feed's response headers can wait for its first write, up to the 15 second heartbeat,

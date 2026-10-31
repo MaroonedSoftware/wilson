@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
@@ -56,7 +57,7 @@ fun PlanScreen(model: PlanModel, heading: String, onBack: () -> Unit) {
     val snackbars = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(state.open) { if (state.open) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow() } }
-    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it) } }
+    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Long) } }
     LaunchedEffect(Unit) { model.finished.collect { onBack() } }
 
     Scaffold(
