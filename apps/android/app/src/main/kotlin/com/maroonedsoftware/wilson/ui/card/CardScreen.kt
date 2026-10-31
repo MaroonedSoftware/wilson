@@ -49,7 +49,7 @@ private val TABS = listOf("Plan", "Activity", "Diff")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CardScreen(model: CardModel, onBack: () -> Unit) {
+fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val snackbars = remember { SnackbarHostState() }
@@ -63,6 +63,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit) {
             TopAppBar(
                 title = { Text(state.card?.id ?: "", maxLines = 1) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                actions = { TextButton(onClick = onEdit) { Text("Edit") } },
             )
         },
         snackbarHost = { SnackbarHost(snackbars) },
@@ -138,7 +139,7 @@ private fun Actions(card: CardDetail, state: CardState, model: CardModel) {
 
 private enum class Confirm(val title: String, val detail: String, val verb: String) {
     MERGE("Merge to main?", "This runs the project's tests, then lands the branch. It can take several minutes.", "Merge"),
-    RELEASE("Release this card?", "This stops work on the card and frees what it holds.", "Release"),
+    RELEASE("Release this card?", "This cancels the job carrying this card and releases its claim. The server refuses if a daemon may really be running it.", "Release"),
 }
 
 @Composable

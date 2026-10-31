@@ -23,6 +23,8 @@ import com.maroonedsoftware.wilson.ui.board.BoardModel
 import com.maroonedsoftware.wilson.ui.board.BoardScreen
 import com.maroonedsoftware.wilson.ui.card.CardModel
 import com.maroonedsoftware.wilson.ui.card.CardScreen
+import com.maroonedsoftware.wilson.ui.edit.CardFormModel
+import com.maroonedsoftware.wilson.ui.edit.CardFormScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
 import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
@@ -64,14 +66,36 @@ private fun SignedIn(app: WilsonApp) {
         onBack = { backStack.removeLastOrNull() },
         entryProvider = entryProvider {
             entry<Destination.Board> {
-                BoardScreen(viewModel(factory = viewModelFactory { initializer { BoardModel(app) } })) { project, id ->
-                    backStack.add(Destination.Card(project, id))
-                }
+                BoardScreen(
+                    viewModel(factory = viewModelFactory { initializer { BoardModel(app) } }),
+                    onCard = { project, id -> backStack.add(Destination.Card(project, id)) },
+                    onNewCard = { project -> backStack.add(Destination.NewCard(project)) },
+                )
             }
             entry<Destination.Card> { key ->
                 CardScreen(
                     viewModel(key = "card:${key.project}:${key.id}", factory = viewModelFactory { initializer { CardModel(app, key.project, key.id) } }),
                     onBack = { backStack.removeLastOrNull() },
+                    onEdit = { backStack.add(Destination.EditCard(key.project, key.id)) },
+                )
+            }
+            entry<Destination.NewCard> { key ->
+                CardFormScreen(
+                    viewModel(key = "new:${key.project}", factory = viewModelFactory { initializer { CardFormModel(app, key.project, null) } }),
+                    heading = "New card",
+                    onBack = { backStack.removeLastOrNull() },
+                    onSaved = { id ->
+                        backStack.removeLastOrNull()
+                        backStack.add(Destination.Card(key.project, id))
+                    },
+                )
+            }
+            entry<Destination.EditCard> { key ->
+                CardFormScreen(
+                    viewModel(key = "edit:${key.project}:${key.id}", factory = viewModelFactory { initializer { CardFormModel(app, key.project, key.id) } }),
+                    heading = "Edit ${key.id}",
+                    onBack = { backStack.removeLastOrNull() },
+                    onSaved = { backStack.removeLastOrNull() },
                 )
             }
         },

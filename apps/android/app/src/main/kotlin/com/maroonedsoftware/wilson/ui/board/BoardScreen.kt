@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +45,7 @@ import com.maroonedsoftware.wilson.ui.StateIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit) {
+fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit, onNewCard: (project: String) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(state.project) {
@@ -52,6 +53,9 @@ fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow(project) }
     }
     Scaffold(
+        floatingActionButton = {
+            state.project?.let { project -> ExtendedFloatingActionButton(onClick = { onNewCard(project) }) { Text("New card") } }
+        },
         topBar = {
             TopAppBar(
                 title = { ProjectSwitcher(state, model::selectProject) },
