@@ -17,11 +17,18 @@ import type { CardEvent, CardSummary } from '@wilson/sdk';
  * Mirrors `unsatisfiedDependencies` in `apps/api/src/modules/board/next.card.ts`, adapted to
  * `CardSummary`'s flat shape (no `frontmatter` wrapper). A dependency is satisfied only once the
  * named card exists on the board and has reached `merged` — one missing from the board entirely
- * counts as unfinished, never as fine.
+ * counts as unfinished, never as fine. A split origin also counts as finished once it has pieces and
+ * every one of them is finished, whatever stage the origin sits in.
  */
 export const unsatisfiedDependencies = (card: CardSummary, cards: CardSummary[]): string[] => {
     const byId = new Map(cards.map(c => [c.id, c]));
-    const isFinished = (id: string): boolean => byId.get(id)?.stage === 'merged';
+    const isFinished = (id: string): boolean => {
+        const dep = byId.get(id);
+        if (dep === undefined) return false;
+        if (dep.stage === 'merged') return true;
+        const pieces = cards.filter(c => c.splitFrom === id);
+        return pieces.length > 0 && pieces.every(piece => isFinished(piece.id));
+    };
     return card.dependsOn.filter(id => !isFinished(id));
 };
 
@@ -40,14 +47,20 @@ export const deadStages = (nonStages: string[]): string[] => nonStages.filter(st
  * `unsatisfiedDependencies`: a dependency still in progress is unsatisfied but not dead, and this
  * card does not change what "satisfied" means. Used to tell an operator "this will never clear"
  * apart from "this just isn't done yet".
+ *
+ * A dropped split origin is not dead while its pieces can still finish it for
+ * `unsatisfiedDependencies`; it is dead only once one of them is.
  */
 export const deadDependencies = (card: CardSummary, cards: CardSummary[], nonStages: string[]): string[] => {
     const dead = new Set(deadStages(nonStages));
     const byId = new Map(cards.map(c => [c.id, c]));
-    return card.dependsOn.filter(id => {
+    const isDead = (id: string): boolean => {
         const dep = byId.get(id);
-        return dep !== undefined && dead.has(dep.stage);
-    });
+        if (dep === undefined || !dead.has(dep.stage)) return false;
+        const pieces = cards.filter(c => c.splitFrom === id);
+        return pieces.length === 0 || pieces.some(piece => isDead(piece.id));
+    };
+    return card.dependsOn.filter(isDead);
 };
 
 /**

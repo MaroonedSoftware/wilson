@@ -64,10 +64,20 @@ export const groupByStage = (cards: CardSummary[]): Map<string, CardSummary[]> =
  * Finished means `merged`, matching the runner's own rule in `next.card.ts` — and deliberately not
  * matching `wilson card list`, which labels a card blocked whenever `dependsOn` is non-empty
  * whether or not the dependency landed. A dependency on a card missing from the board entirely
- * counts as unfinished, never as fine.
+ * counts as unfinished, never as fine. A split origin also counts as finished once it has pieces and
+ * every one of them is finished, whatever stage the origin sits in.
  */
-export const unfinishedDeps = (card: CardSummary, stageById: Map<string, string>): string[] =>
-    card.dependsOn.filter(id => stageById.get(id) !== 'merged');
+export const unfinishedDeps = (card: CardSummary, cards: CardSummary[]): string[] => {
+    const byId = new Map(cards.map(c => [c.id, c]));
+    const isFinished = (id: string): boolean => {
+        const dep = byId.get(id);
+        if (dep === undefined) return false;
+        if (dep.stage === 'merged') return true;
+        const pieces = cards.filter(c => c.splitFrom === id);
+        return pieces.length > 0 && pieces.every(piece => isFinished(piece.id));
+    };
+    return card.dependsOn.filter(id => !isFinished(id));
+};
 
 export const stagesById = (cards: CardSummary[]): Map<string, string> => new Map(cards.map(card => [card.id, card.stage]));
 

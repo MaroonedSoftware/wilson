@@ -34,10 +34,20 @@ export interface NextCard {
  * dependency has not finished, never as "fine". The one place this question is answered; `nextCard`
  * and every other caller go through it so there is no second definition of "blocked" to drift out
  * of sync.
+ *
+ * A split origin never merges, so it also counts as finished once it has pieces and every one of
+ * them is finished, whatever stage the origin sits in. A dropped piece keeps the origin unfinished:
+ * its work was not delivered, so a dependent waits for a person to look.
  */
 export const unsatisfiedDependencies = (card: Card, cards: Card[]): string[] => {
     const byId = new Map(cards.map(c => [c.frontmatter.id, c]));
-    const isFinished = (id: string): boolean => byId.get(id)?.frontmatter.stage === 'merged';
+    const isFinished = (id: string): boolean => {
+        const dep = byId.get(id);
+        if (dep === undefined) return false;
+        if (dep.frontmatter.stage === 'merged') return true;
+        const pieces = cards.filter(c => c.frontmatter.splitFrom === id);
+        return pieces.length > 0 && pieces.every(piece => isFinished(piece.frontmatter.id));
+    };
     return card.frontmatter.dependsOn.filter(id => !isFinished(id));
 };
 

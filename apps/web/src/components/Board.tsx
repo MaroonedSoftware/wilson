@@ -226,7 +226,7 @@ function SortableCard({
 function Column({
     stage,
     cards,
-    stageById,
+    boardCards,
     pendingId,
     project,
     collapsed,
@@ -234,7 +234,7 @@ function Column({
 }: {
     stage: string;
     cards: CardSummary[];
-    stageById: Map<string, string>;
+    boardCards: CardSummary[];
     pendingId: string | null;
     project: string;
     collapsed: boolean;
@@ -311,7 +311,7 @@ function Column({
                                     <SortableCard
                                         key={card.id}
                                         card={card}
-                                        blockedBy={unfinishedDeps(card, stageById)}
+                                        blockedBy={unfinishedDeps(card, boardCards)}
                                         pending={card.id === pendingId}
                                         project={project}
                                     />
@@ -322,7 +322,7 @@ function Column({
                                 <Card
                                     key={card.id}
                                     card={card}
-                                    blockedBy={unfinishedDeps(card, stageById)}
+                                    blockedBy={unfinishedDeps(card, boardCards)}
                                     pending={card.id === pendingId}
                                     project={project}
                                 />
@@ -386,7 +386,8 @@ export function Board({
 }) {
     const order = columnOrder(columns, cards);
     const grouped = groupByStage(cards);
-    const stageById = stagesById(allCards ?? cards);
+    const boardCards = allCards ?? cards;
+    const stageById = stagesById(boardCards);
 
     // Card 0183: which stages are collapsed, per project. `getInitialValueInEffect: false` because
     // this is a client-only Vite SPA with no SSR to hydrate against — the default (`true`) would
@@ -492,7 +493,7 @@ export function Board({
                                 key={stage}
                                 stage={stage}
                                 cards={grouped.get(stage) ?? []}
-                                stageById={stageById}
+                                boardCards={boardCards}
                                 pendingId={pendingId}
                                 project={project}
                                 collapsed={collapsedSet.has(stage)}
@@ -503,7 +504,7 @@ export function Board({
                 </Box>
             </ScrollArea>
             <DragOverlay>
-                {activeCard ? <CardBody card={activeCard} blockedBy={unfinishedDeps(activeCard, stageById)} pending={false} /> : null}
+                {activeCard ? <CardBody card={activeCard} blockedBy={unfinishedDeps(activeCard, boardCards)} pending={false} /> : null}
             </DragOverlay>
         </DndContext>
     );
