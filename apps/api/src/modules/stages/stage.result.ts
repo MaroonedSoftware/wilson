@@ -242,6 +242,8 @@ export interface StageOutcome {
      * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.
      */
     supportedRefusal?: SupportedRefusal;
+    /** The pieces this stage's automatic split created, for `CardStageJob` to have drafted. */
+    splitInto?: string[];
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */

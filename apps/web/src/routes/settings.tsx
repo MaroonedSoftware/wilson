@@ -112,7 +112,7 @@ function AutoSplitToggle() {
         <Stack gap="xs">
             <Switch
                 label="Auto-split"
-                description="When scope-check refuses a card, split it into the proposed pieces without asking. The pieces wait in planning."
+                description="When scope-check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}

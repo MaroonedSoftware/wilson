@@ -38,8 +38,8 @@ export interface AutoSplitResult {
  * stage it sits in, so a dependent waits for the pieces and is not stranded. Its own dependencies need
  * no copying: they were satisfied, or this stage could not have dispatched.
  *
- * Automation stops at `planning`. A piece is a title, a task list and a sentence, and reaching
- * `backlog` needs a plan a person approved.
+ * Automation stops short of approval. `PlanDraftJob` drafts each piece's plan afterwards, and the
+ * piece stays in `planning` until a person approves it, since reaching `backlog` needs that.
  *
  * A refusal this declines to act on falls back to the runner's ordinary kickback, with a
  * `card.auto-split-skipped` event saying why.

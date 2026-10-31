@@ -114,11 +114,19 @@ describe('StageDispatcher auto-split routing', () => {
         const result = await transition(dispatcher({ split } as unknown as AutoSplitter), refused());
 
         expect(split).toHaveBeenCalledWith('0001', 'scope-check', refusal);
-        expect(result).toEqual({ target: 'split', needsHuman: false });
+        expect(result).toEqual({ target: 'split', needsHuman: false, splitInto: ['0002', '0003'] });
         // The fake split wrote nothing, and this proves the kickback did not write either.
         const stored = await board.read('0001');
         expect(stored.frontmatter.stage).toBe('scope-check');
         expect(stored.frontmatter.retries).toEqual({});
+    });
+
+    it('names no pieces to draft when another run of the stage already split the card', async () => {
+        split.mockResolvedValue({ pieceIds: [] });
+
+        const result = await transition(dispatcher({ split } as unknown as AutoSplitter), refused());
+
+        expect(result).toEqual({ target: 'split', needsHuman: false });
     });
 
     it('routes to planning, as it always has, when the splitter declines', async () => {

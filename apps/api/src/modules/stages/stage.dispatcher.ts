@@ -656,10 +656,12 @@ export class StageDispatcher {
             // run, leaving the card's history contradicting itself about what the stage did.
             let transitionedTo: string | undefined;
             let needsHuman = false;
+            let splitInto: string[] | undefined;
             try {
                 const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
                 transitionedTo = transition.target;
                 needsHuman = transition.needsHuman;
+                splitInto = transition.splitInto;
             } catch (err) {
                 await this.events.append({
                     project: this.config.project,
@@ -672,7 +674,7 @@ export class StageDispatcher {
                 // silent failure here is how a card sits untouched forever.
                 throw err;
             }
-            return { ...outcome, transitionedTo, needsHuman };
+            return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
@@ -706,7 +708,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target: string; needsHuman: boolean }> {
+    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -880,7 +882,7 @@ export class StageDispatcher {
         stageName: string,
         card: Card,
         pieceIds: string[],
-    ): Promise<{ target: string; needsHuman: boolean }> {
+    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
         const target = 'split';
         if (pieceIds.length === 0) return { target, needsHuman: false };
 
@@ -900,9 +902,9 @@ export class StageDispatcher {
             title: card.frontmatter.title,
             stage: target,
             moment: 'auto-split',
-            reason: `split into ${pieceIds.join(', ')}, which wait in planning`,
+            reason: `split into ${pieceIds.join(', ')}, which wait in planning for their plans to be approved`,
         });
-        return { target, needsHuman: false };
+        return { target, needsHuman: false, splitInto: pieceIds };
     }
 
     /**

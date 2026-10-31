@@ -19,6 +19,7 @@ import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
+import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
 import { Poller } from './poller.js';
 import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
 
@@ -555,10 +556,12 @@ export const JobsModule: ServerKitModule = {
         // injection resolves instead of throwing.
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
+        registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
+        jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 

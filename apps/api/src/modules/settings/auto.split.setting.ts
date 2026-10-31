@@ -1,7 +1,8 @@
 import type { SettingDefinition } from './setting.definition.js';
 
 /**
- * Whether a scope-check refusal the verifier supported splits its card without asking.
+ * Whether a scope-check refusal the verifier supported splits its card without asking, and has each
+ * piece's plan drafted (`PlanDraftJob`), which spends model tokens per piece. Approval stays a person's.
  * `AutoSplitter` reads this fresh on every refusal, so persisting the row is the whole job, the same
  * posture `DRY_RUN_ENABLED` (`dry.run.setting.ts`) takes.
  *
