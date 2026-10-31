@@ -379,21 +379,17 @@ describe('ScopeCheckVerifier', () => {
     });
 
     /**
-     * Card 0120's shape: nine groups, none of them wide (breadth never fires), collected into one
-     * "pass". Depth is what has to catch this — the whole reason `DEPTH_THRESHOLD` exists.
+     * Card 0004's shape: many groups, none wide or fanned out. Depth supports a refusal but does not
+     * contradict a pass, because whether many kinds of work belong together is the model's call
+     * (`DEPTH_THRESHOLD`'s doc comment). Card 0120's fixture has the same shape, so it stands in here.
      */
-    it('rejects a "pass" backed by card 0120\'s nine-group shape, naming depth rather than breadth', async () => {
+    it('accepts a "pass" past the depth threshold when neither breadth nor fan-out fired (card 0004)', async () => {
+        expect(card0120.groups.length).toBeGreaterThanOrEqual(DEPTH_THRESHOLD);
+
         const outcome = await verify(card0120);
 
-        expect(outcome.passed).toBe(false);
-        // Only the depth signal fired (no group repeats), so exactly one failure, and it must name
-        // depth/groups, not breadth — a message blaming breadth here would send `planning` after the
-        // wrong thing (Constraints: "each failure message must name whichever signal actually fired").
-        expect(outcome.failures).toHaveLength(1);
-        expect(outcome.failures[0]).toContain(`${card0120.groups.length} distinct groups`);
-        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[0]).toContain('"pass"');
-        expect(outcome.failures[0]).not.toContain('repeats across');
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
     });
 
     it('accepts a "refuse" on card 0120\'s nine-group shape, with no consistency failure beyond the routing one', async () => {
@@ -426,14 +422,13 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual(['refusing: nine distinct pieces collected into one card.']);
     });
 
-    it('names both signals when a "pass" is both too broad and too deep', async () => {
+    it('still rejects a too-broad "pass" when it is also too deep, naming only breadth', async () => {
         const bothTooLarge: ScopeCheckResult = {
             ...card0120,
             groups: [
                 { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'], sites: 4 },
                 // Enough further groups that the depth signal fires too — derived from the constant
-                // rather than a literal, so raising or lowering it does not silently turn this into
-                // a breadth-only case that still passes its `toHaveLength(2)`.
+                // rather than a literal, so raising or lowering it keeps this a both-signals case.
                 ...card0120.groups.slice(1, DEPTH_THRESHOLD),
             ],
         };
@@ -441,41 +436,9 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(bothTooLarge);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(2);
+        expect(outcome.failures).toHaveLength(1);
         expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
         expect(outcome.failures[0]).toContain('repeats across');
-        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[1]).toContain('distinct groups');
-    });
-
-    /**
-     * `DEPTH_THRESHOLD` is the exact line, the same way the existing breadth boundary tests check
-     * `BREADTH_THRESHOLD`: one group below it must not force a refusal, exactly at it must.
-     *
-     * Both boundary assertions derive their expected counts from the constant. They previously
-     * hard-coded 4 and 5, which meant raising the threshold from 5 to 6 failed them on arithmetic
-     * rather than on behaviour — the fixture had moved, but what is being tested had not.
-     */
-    it('passes a "pass" whose group count sits one below the depth threshold', async () => {
-        const belowThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD - 1) };
-        expect(belowThreshold.groups).toHaveLength(DEPTH_THRESHOLD - 1);
-
-        const outcome = await verify(belowThreshold);
-
-        expect(outcome.passed).toBe(true);
-        expect(outcome.failures).toEqual([]);
-    });
-
-    it('requires "refuse" once the group count reaches the depth threshold exactly', async () => {
-        const atThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD) };
-        expect(atThreshold.groups).toHaveLength(DEPTH_THRESHOLD);
-
-        const outcome = await verify(atThreshold);
-
-        expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(1);
-        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[0]).toContain('distinct groups');
     });
 
     it('still passes card 0079\'s three-group shape now that depth is checked too', async () => {
@@ -671,7 +634,7 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([]);
     });
 
-    it('names all three signals when a "pass" is too broad, too deep, and too fanned out at once', async () => {
+    it('names breadth and fan-out when a "pass" is too broad, too deep, and too fanned out at once', async () => {
         const allThreeTooLarge: ScopeCheckResult = {
             ...card0120,
             groups: [
@@ -683,13 +646,11 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(allThreeTooLarge);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(3);
+        expect(outcome.failures).toHaveLength(2);
         expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
         expect(outcome.failures[0]).toContain('repeats across');
-        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[1]).toContain('distinct groups');
-        expect(outcome.failures[2]).toContain(`>= ${FANOUT_THRESHOLD}`);
-        expect(outcome.failures[2]).toContain('places');
+        expect(outcome.failures[1]).toContain(`>= ${FANOUT_THRESHOLD}`);
+        expect(outcome.failures[1]).toContain('places');
     });
 
     /**
