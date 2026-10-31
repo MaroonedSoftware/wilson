@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
@@ -58,7 +58,17 @@ beforeAll(async () => {
     await chmod(unreachableSsh, 0o755);
 });
 
+/**
+ * A host with a projects root can take on any project, so one left in the shared test database is a
+ * candidate in every later placement here, and sorts ahead of a newer host by name. Only this file
+ * makes them.
+ */
+const deleteRootedHosts = () => db.deleteFrom('wilson.hosts').where('projectsRoot', 'is not', null).execute();
+
+beforeEach(deleteRootedHosts);
+
 afterAll(async () => {
+    await deleteRootedHosts();
     await db.destroy();
 });
 
