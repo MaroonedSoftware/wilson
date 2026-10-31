@@ -1,0 +1,32 @@
+name: Android
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - apps/android/**
+            - .github/workflows/android.yml
+    pull_request:
+        paths:
+            - apps/android/**
+            - .github/workflows/android.yml
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        defaults:
+            run:
+                working-directory: apps/android
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: '21'
+            - uses: gradle/actions/setup-gradle@v4
+            # bundleRelease is here for R8, which breaks without a source change and fails on a phone.
+            - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:bundleRelease

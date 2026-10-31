@@ -1,0 +1,4 @@
+<resources>
+    <style name="Theme.Wilson" parent="android:Theme.Material.NoActionBar" />
+    <color name="ic_launcher_background">#242424</color>
+</resources>
