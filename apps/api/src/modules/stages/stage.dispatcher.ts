@@ -1200,6 +1200,10 @@ export class StageDispatcher {
                 Boolean(run.engineFailure) ||
                 Boolean(verification.reportRejected));
 
+        // Only the verifier's own failures may stand: one added above means the run did not finish,
+        // and a report from a run that did not finish is not a division to act on.
+        const supportedRefusal = !unjudged && failures.length === verification.failures.length ? verification.supportedRefusal : undefined;
+
         return {
             passed: failures.length === 0,
             failures,
@@ -1211,6 +1215,7 @@ export class StageDispatcher {
             resultDropped: run.resultDropped,
             engineStopReason: run.engineStopReason,
             trace: run.trace,
+            ...(supportedRefusal && { supportedRefusal }),
         };
     }
 }

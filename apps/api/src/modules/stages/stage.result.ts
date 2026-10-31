@@ -223,6 +223,12 @@ export type ScopeCheckResult = z.infer<typeof ScopeCheckResultSchema>;
  */
 export class StageResultSchemaMap extends Map<string, z.ZodTypeAny> {}
 
+/** A scope-check refusal the verifier believed: why, and the pieces the model proposed. */
+export interface SupportedRefusal {
+    reason: string;
+    division: z.infer<typeof ScopeDivisionPieceSchema>[];
+}
+
 export interface StageOutcome {
     passed: boolean;
     /** Why the exit condition failed, in the order the checks ran. */
@@ -231,6 +237,11 @@ export interface StageOutcome {
     scopeGrants: string[];
     result?: unknown;
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    /**
+     * `VerificationOutcome.supportedRefusal`, carried only when the run itself added no failure of
+     * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.
+     */
+    supportedRefusal?: SupportedRefusal;
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */

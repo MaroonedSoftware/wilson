@@ -279,6 +279,36 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([`refusing: ${dividedCard.reason}`]);
     });
 
+    describe('supportedRefusal', () => {
+        it('carries the division when the refusal is the only failure', async () => {
+            const outcome = await verify(card0075);
+
+            expect(outcome.supportedRefusal?.reason).toBe(card0075.reason);
+            expect(outcome.supportedRefusal?.division.map(piece => piece.title)).toEqual(card0075.division.map(piece => piece.title));
+        });
+
+        it('is absent when a division cites an invented task, even though the refusal still routes', async () => {
+            const outcome = await verify({
+                ...card0075,
+                division: [{ ...card0075.division[0], tasks: ['a task nobody reported'] }, card0075.division[1]],
+            });
+
+            expect(outcome.failures.some(failure => failure.startsWith('refusing:'))).toBe(true);
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('is absent on an unsupported refusal, which advances instead', async () => {
+            const division = card0075.division;
+            const outcome = await verify({ ...card0079, verdict: 'refuse', division: [division[0], division[1]] });
+
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('is absent on a pass', async () => {
+            expect((await verify(card0079)).supportedRefusal).toBeUndefined();
+        });
+    });
+
     it('rejects a division piece that names itself as a dependency', async () => {
         const outcome = await verify({
             ...card0075,

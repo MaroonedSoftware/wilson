@@ -3,6 +3,7 @@ import type { Card } from '#modules/board/card.js';
 import { worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
+import type { SupportedRefusal } from './stage.result.js';
 
 export interface VerificationInput {
     worktree: Worktree;
@@ -43,6 +44,12 @@ export interface VerificationOutcome {
      * and an explicit `false` are indistinguishable to a consumer either way.
      */
     reportRejected?: boolean;
+    /**
+     * Set by `ScopeCheckVerifier` alone, and only when the refusal is the one and only failure: the
+     * evidence backed it and nothing else in the report was wrong. A `refusing:` failure alongside
+     * any other is a report this stage does not fully believe, so it carries no division to act on.
+     */
+    supportedRefusal?: SupportedRefusal;
 }
 
 export interface StageVerifier {

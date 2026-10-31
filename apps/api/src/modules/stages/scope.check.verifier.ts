@@ -273,6 +273,11 @@ export class ScopeCheckVerifier implements StageVerifier {
         // tracks whether the verdict was a clean, uncontradicted "pass", not whether the card actually
         // advances, which `failures.length` alone decides. An unfounded refusal above leaves `failures`
         // empty and so does advance, even though it is reported as `passed: false` here.
-        return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [] };
+        //
+        // `supportedRefusal` asks for exactly one failure, the `refusing:` push above: anything beside
+        // it (a stage that wrote files, an empty reason, an invented task) means the division cannot
+        // be acted on without a person, even though the card still goes back to `planning` as it did.
+        const supportedRefusal = verdict === 'refuse' && tooLarge && failures.length === 1 ? { reason, division } : undefined;
+        return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [], ...(supportedRefusal && { supportedRefusal }) };
     }
 }
