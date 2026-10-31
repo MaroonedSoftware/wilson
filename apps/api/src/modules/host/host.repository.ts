@@ -71,6 +71,8 @@ export interface HostRow {
     probe?: HostProbeRow;
     /** A worker host's current token, absent until one is minted. Never set on an `ssh` host. */
     workerToken?: WorkerTokenSummaryRow;
+    /** The name of the saved engine token its engines sign in with. Never set on an `ssh` host. */
+    engineToken?: string;
 }
 
 /**
@@ -206,6 +208,12 @@ export class HostRepository {
         return result.numUpdatedRows > 0n;
     }
 
+    /** Sign host `name`'s engines in with saved token `token`, or with `null` the worker's own. Returns whether a row matched. */
+    async setEngineToken(name: string, token: string | null): Promise<boolean> {
+        const result = await this.db.updateTable('wilson.hosts').set({ engineToken: token }).where('name', '=', name).executeTakeFirst();
+        return result.numUpdatedRows > 0n;
+    }
+
     /** The host whose worker token hashes to `hash`, or undefined when none does. */
     async findByWorkerTokenHash(hash: string): Promise<HostRow | undefined> {
         const host = await this.db.selectFrom('wilson.hosts').select('name').where('workerTokenHash', '=', hash).executeTakeFirst();
@@ -249,6 +257,7 @@ type HostSelection = {
     projectsRoot?: string | null;
     workerTokenHint?: string | null;
     workerTokenIssuedAt?: DateTime | null;
+    engineToken?: string | null;
 };
 
 const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease[]): HostRow => ({
@@ -283,4 +292,5 @@ const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease
           }
         : {}),
     ...(host.workerTokenHint && host.workerTokenIssuedAt && { workerToken: { hint: host.workerTokenHint, issuedAt: host.workerTokenIssuedAt } }),
+    ...(host.engineToken && { engineToken: host.engineToken }),
 });

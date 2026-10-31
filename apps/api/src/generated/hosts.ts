@@ -108,6 +108,14 @@ export const UpdateHostRequest = z.strictObject({
 export type UpdateHostRequest = z.infer<typeof UpdateHostRequest>;
 
 /**
+ * generated from [PutHostEngineTokenRequest](../../data/contracts/hosts.ck)
+ */
+export const PutHostEngineTokenRequest = z.strictObject({
+    name: z.string().describe('The name a token was saved under (`/api/engine-tokens/{name}`).'),
+});
+export type PutHostEngineTokenRequest = z.infer<typeof PutHostEngineTokenRequest>;
+
+/**
  * The three paths for one project on one host. All three are absolute paths on the host.
  * generated from [PutHostProjectRequest](../../data/contracts/hosts.ck)
  */
@@ -155,6 +163,12 @@ export const Host = z.strictObject({
     running: z.array(HostSlotUse).describe('The slots in use right now, slot order. `slots` minus this many are free.'),
     probe: HostProbe.optional(),
     workerToken: WorkerTokenSummary.optional().describe("A worker host's current token, absent until one is minted. Never present on an `ssh` host."),
+    engineToken: z
+        .string()
+        .optional()
+        .describe(
+            "The name of the saved engine token its engines sign in with, never the token. Absent, a worker's\nengines sign in as that machine was set up to. Never present on an `ssh` host.",
+        ),
 });
 export type Host = z.infer<typeof Host>;
 

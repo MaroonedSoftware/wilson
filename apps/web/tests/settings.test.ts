@@ -464,6 +464,7 @@ describe('the engine token control', () => {
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
         vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
         vi.spyOn(wilson.settings, 'getEngineTokenSetting').mockResolvedValue({ source });
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([]);
     };
 
     it.each([
@@ -477,6 +478,29 @@ describe('the engine token control', () => {
 
         expect(await screen.findByText(new RegExp(wording))).toBeTruthy();
         expect(((await screen.findByLabelText('Engine token')) as HTMLInputElement).value).toBe('');
+    });
+
+    it('saves a worker engine token under a name, empties both fields, and lists only names', async () => {
+        load('none');
+        const saved = { name: 'pool-a', createdAt: DateTime.now(), updatedAt: DateTime.now(), hosts: ['unraid-vm'] };
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(saved);
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValueOnce([]).mockResolvedValue([saved]);
+
+        renderApp('/settings');
+
+        const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+        const token = screen.getByLabelText('Token') as HTMLInputElement;
+        await act(async () => {
+            fireEvent.change(name, { target: { value: 'pool-a' } });
+            fireEvent.change(token, { target: { value: 'sk-ant-oat-secret' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(token));
+        });
+
+        expect(put).toHaveBeenCalledWith('pool-a', { token: 'sk-ant-oat-secret' });
+        await waitFor(() => expect(token.value).toBe(''));
+        expect(await screen.findByText('unraid-vm')).toBeTruthy();
     });
 
     it('sends what was typed, then empties the field', async () => {

@@ -11,8 +11,9 @@ export const describeHost = (host: Host): string[] => {
     const lifetime = host.lifetimeMinutes ? `  lives ${host.lifetimeMinutes}m after boot` : '';
     const commandEnv = host.commandEnv.length > 0 ? `  commands get ${host.commandEnv.join(', ')} from it` : '';
     const token = host.kind !== 'worker' ? '' : host.workerToken ? `  token …${host.workerToken.hint}` : '  no token yet';
+    const engine = host.engineToken ? `  engine token ${host.engineToken}` : '';
     const lines = [
-        `${host.name}${target}  ${state}  ${host.running.length}/${host.slots} slot${host.slots === 1 ? '' : 's'} in use${lifetime}${commandEnv}${token}  ${describeProbe(host)}`,
+        `${host.name}${target}  ${state}  ${host.running.length}/${host.slots} slot${host.slots === 1 ? '' : 's'} in use${lifetime}${commandEnv}${token}${engine}  ${describeProbe(host)}`,
     ];
     for (const use of host.running) {
         lines.push(`  slot ${use.slot}: ${use.project} ${use.cardId} since ${utc(use.since)}`);

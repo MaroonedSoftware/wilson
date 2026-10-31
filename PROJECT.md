@@ -288,8 +288,9 @@ There are two kinds of host, fixed when one is registered:
   `node:fs` or `execFile` call `LocalHost` would make (`WorkerExecutor`); commits move as git bundles
   holding only what the other side lacks (`WorkerGitTransport`). The daemon needs no route to the
   machine and no key for it, which is what lets the daemon live in a container on a NAS while the
-  stages run on a VM or a laptop. A worker's engine signs in with the worker's own
-  `CLAUDE_CODE_OAUTH_TOKEN`, which never leaves that machine.
+  stages run on a VM or a laptop. A worker's engine signs in with the token the host is assigned
+  (`wilson host engine-token`), sent with each engine start and kept by the worker for no longer than
+  that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`.
 
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
 worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the
@@ -1058,8 +1059,8 @@ Wilson has no Redis, so there is nothing else to leave out.
 
 A worker is `apps/worker` on a machine kept for it, set up as `apps/worker/README.md` describes:
 register the host with `wilson host add <name> --worker`, mint its token with `wilson host token`,
-say where each project's clone is with `wilson host serve`, and start the worker with `WILSON_URL`,
-`WILSON_WORKER_TOKEN` and its own `CLAUDE_CODE_OAUTH_TOKEN`. It reconnects by itself and exits for good
+say where each project's clone is with `wilson host serve`, assign it an engine token with
+`wilson host engine-token`, and start the worker with `WILSON_URL` and `WILSON_WORKER_TOKEN`. It reconnects by itself and exits for good
 only when retrying cannot help.
 
 - **Toolchains are declared, not discovered,** and live on the workers. Each registered project
@@ -1088,14 +1089,25 @@ only when retrying cannot help.
   `pg_restore -d wilson <file>`.
 - **Back up the secrets with the database.** The session signing key and the encryption key under
   `secrets` are generated on first boot. Losing the encryption key makes every enrolled
-  authenticator unreadable, and the engine token saved on the Settings page: a dump holds only its
-  ciphertext. Save the token again to recover it.
+  authenticator unreadable, and every engine token saved in Wilson: a dump holds only their
+  ciphertext. Save each token again to recover it.
 - **The engine token.** The Settings page saves it in `wilson.settings`, encrypted under the same
   key, and it needs no restart to change. Resolved in order: that row, `CLAUDE_CODE_OAUTH_TOKEN` from
   the environment, then the login under the Claude config directory. It signs in engines on this
-  machine only: workers and SSH hosts keep their own. A new token reaches stages and planning sessions
+  machine only, and never travels to a host. A new token reaches stages and planning sessions
   started afterwards. A local stage can still read it from its environment, so this protects it at
   rest and nothing more.
+- **Worker engine tokens.** Wilson holds any number of named tokens in `wilson.engine_tokens`, encrypted
+  under the same key, and each worker host is assigned one, or none to use the worker's own
+  (`wilson engine-token`, the Settings and Hosts pages). None of it is readable through the API or
+  reachable by MCP, and the assignment is an operation of its own so that it stays out of agents'
+  reach too. Each engine start reads the assignment again and sends the token in that one `spawn`
+  or `run-claude` message, not in `welcome`, so a replaced token needs no reconnect and an idle worker
+  holds none. Wilson is therefore the holder of these credentials. Anyone with a host's worker token
+  can obtain the token assigned to it, and so can a stage on that host (`apps/worker/README.md`), so one
+  token per trust level is what limits the damage. Removing a token here stops it being sent, and does
+  not revoke it with Anthropic. Wilson and its workers must be the same protocol version, so update
+  them together.
 
 ### Moving the board to the server
 

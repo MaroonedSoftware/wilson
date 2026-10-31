@@ -5,6 +5,7 @@ import { AuthClient } from './auth.client.js';
 import { BoardClient } from './board.client.js';
 import { ChatClient } from './chat.client.js';
 import { ContextClient } from './context.client.js';
+import { EngineTokensClient } from './engine.tokens.client.js';
 import { FactorsClient } from './factors.client.js';
 import { HealthClient } from './health.client.js';
 import { HostsClient } from './hosts.client.js';
@@ -20,6 +21,7 @@ export class WilsonSdk {
     readonly board: BoardClient;
     readonly chat: ChatClient;
     readonly context: ContextClient;
+    readonly engineTokens: EngineTokensClient;
     readonly factors: FactorsClient;
     readonly health: HealthClient;
     readonly hosts: HostsClient;
@@ -36,6 +38,7 @@ export class WilsonSdk {
         this.board = new BoardClient(sdkFetch);
         this.chat = new ChatClient(sdkFetch);
         this.context = new ContextClient(sdkFetch);
+        this.engineTokens = new EngineTokensClient(sdkFetch);
         this.factors = new FactorsClient(sdkFetch);
         this.health = new HealthClient(sdkFetch);
         this.hosts = new HostsClient(sdkFetch);

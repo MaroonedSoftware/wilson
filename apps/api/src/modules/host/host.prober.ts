@@ -99,7 +99,7 @@ export class HostProber {
             if (loggedIn === false) {
                 problems.push(
                     row.kind === 'worker'
-                        ? 'claude is not signed in for an engine started there; set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in the worker’s environment'
+                        ? 'claude is not signed in for an engine started there; assign it a token with `wilson host engine-token`, or set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in the worker’s environment'
                         : 'claude is not signed in for an engine started there; set REMOTE_CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in apps/api/.env',
                 );
             } else if (loggedIn === undefined) {

@@ -3,6 +3,7 @@ options {
         HostsService: "#modules/host/hosts.service.js"
         HostProber: "#modules/host/host.prober.js"
         WorkerTokensService: "#modules/host/worker.tokens.service.js"
+        EngineTokensService: "#modules/host/engine.tokens.service.js"
     }
     security: {
         policy: wilson.manage
@@ -93,6 +94,9 @@ contract Host: {
     probe?: HostProbe
     # A worker host's current token, absent until one is minted. Never present on an `ssh` host.
     workerToken?: WorkerTokenSummary
+    # The name of the saved engine token its engines sign in with, never the token. Absent, a worker's
+    # engines sign in as that machine was set up to. Never present on an `ssh` host.
+    engineToken?: string
 }
 
 # `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
@@ -131,6 +135,11 @@ contract UpdateHostRequest: {
     commandEnv?: array(string)
     # An empty string clears it.
     projectsRoot?: string
+}
+
+contract PutHostEngineTokenRequest: {
+    # The name a token was saved under (`/api/engine-tokens/{name}`).
+    name: string
 }
 
 # The three paths for one project on one host. All three are absolute paths on the host.
@@ -303,6 +312,46 @@ operation /api/hosts/{name}/worker-token: {
         response: {
             204:
             400:
+            404:
+        }
+    }
+}
+
+# Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
+# on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
+# reaches the next engine started there, never one already running.
+operation /api/hosts/{name}/engine-token: {
+    params: {
+        name: string
+    }
+    put: {
+        name: Assign engine token
+        mcp: exclude # Credentials are never handed to an agent
+        sdk: assignEngineToken
+        service: EngineTokensService.assign
+        request: {
+            application/json: PutHostEngineTokenRequest
+        }
+        response: {
+            200: {
+                application/json: Host
+            }
+            # The host is reached over SSH, which keeps `REMOTE_CLAUDE_CODE_OAUTH_TOKEN`.
+            400:
+            # No such host, or no token saved under that name.
+            404:
+        }
+    }
+    # Back to the worker's own sign-in.
+    delete: {
+        name: Unassign engine token
+        mcp: exclude # Credentials are never handed to an agent
+        sdk: unassignEngineToken
+        service: EngineTokensService.unassign
+        response: {
+            200: {
+                application/json: Host
+            }
             404:
         }
     }

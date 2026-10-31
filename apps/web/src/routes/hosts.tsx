@@ -56,7 +56,7 @@ function ProbeBadge({ host, now }: { host: Host; now: number }) {
  * projects it serves. Every action goes through the API and the page shows what came back, so a
  * refused write never shows as applied.
  */
-function HostPanel({ host, projects, now }: { host: Host; projects: string[]; now: number }) {
+function HostPanel({ host, projects, engineTokens, now }: { host: Host; projects: string[]; engineTokens: string[]; now: number }) {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const [confirmRemove, setConfirmRemove] = useState(false);
@@ -66,8 +66,13 @@ function HostPanel({ host, projects, now }: { host: Host; projects: string[]; no
     const probe = useMutation({ mutationFn: () => wilson.hosts.probeHost(host.name), onSuccess: refresh });
     const remove = useMutation({ mutationFn: () => wilson.hosts.removeHost(host.name), onSuccess: refresh });
     const unserve = useMutation({ mutationFn: (project: string) => wilson.hosts.removeHostProject(host.name, project), onSuccess: refresh });
+    const assign = useMutation({
+        mutationFn: (name: string | null) =>
+            name === null ? wilson.hosts.unassignEngineToken(host.name) : wilson.hosts.assignEngineToken(host.name, { name }),
+        onSuccess: refresh,
+    });
     const busy = update.isPending || probe.isPending || remove.isPending;
-    const failed = [update, probe, remove, unserve].find(mutation => mutation.isError);
+    const failed = [update, probe, remove, unserve, assign].find(mutation => mutation.isError);
 
     return (
         <Paper withBorder p="md" aria-label={`host ${host.name}`}>
@@ -173,6 +178,20 @@ function HostPanel({ host, projects, now }: { host: Host; projects: string[]; no
                                 ))}
                             </Table.Tbody>
                         </Table>
+                    )}
+                    {host.kind === 'worker' && (
+                        <Select
+                            size="xs"
+                            maw={320}
+                            label="Engine token"
+                            description="What engines here sign in with, from the next one started. Empty uses the worker's own sign-in."
+                            placeholder="The worker's own"
+                            clearable
+                            data={engineTokens}
+                            value={host.engineToken ?? null}
+                            disabled={assign.isPending}
+                            onChange={name => assign.mutate(name)}
+                        />
                     )}
                     <ServeProjectForm host={host} projects={projects.filter(name => !host.projects.some(p => p.project === name))} />
                 </Stack>
@@ -359,6 +378,7 @@ function HostsRoute() {
     const wilson = useWilsonSdk();
     const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: () => wilson.hosts.listHosts(), refetchInterval: REFRESH_MS });
     const projects = useQuery({ queryKey: ['registered-projects'], queryFn: listRegisteredProjects });
+    const engineTokens = useQuery({ queryKey: ['engine-tokens'], queryFn: () => wilson.engineTokens.listEngineTokens() });
     const now = hosts.dataUpdatedAt || Date.now();
 
     return (
@@ -383,7 +403,13 @@ function HostsRoute() {
                 </Text>
             )}
             {hosts.data?.map(host => (
-                <HostPanel key={host.name} host={host} projects={(projects.data ?? []).map(p => p.name)} now={now} />
+                <HostPanel
+                    engineTokens={engineTokens.data?.map(token => token.name) ?? []}
+                    key={host.name}
+                    host={host}
+                    projects={(projects.data ?? []).map(p => p.name)}
+                    now={now}
+                />
             ))}
 
             <RegisterHostForm />

@@ -14,6 +14,7 @@ import { ChatRouter } from '#src/routes/chat.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
+import { EngineTokensRouter } from '#src/routes/engine.tokens.router.js';
 import { HostsRouter } from '#src/routes/hosts.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { OnboardingRouter } from '#src/routes/onboarding.router.js';
@@ -40,6 +41,7 @@ const ROUTERS = [
     BoardRouter,
     ChatRouter,
     ContextRouter,
+    EngineTokensRouter,
     FactorsRouter,
     HealthRouter,
     HostsRouter,

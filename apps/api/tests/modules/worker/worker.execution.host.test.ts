@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ExecFailure } from '#modules/host/execution.host.js';
 import { WorkerConnectionLostError } from '#modules/worker/worker.connection.js';
 import { WorkerExecutionHost } from '#modules/worker/worker.execution.host.js';
@@ -110,6 +110,106 @@ describe('WorkerExecutionHost', () => {
 });
 
 describe('WorkerExecutionHost when the worker goes away', () => {
+    describe('with an engine token assigned', () => {
+        let tokenServer: Awaited<ReturnType<typeof startWorkerServer>>;
+        let frames: string[];
+
+        beforeAll(async () => {
+            tokenServer = await startWorkerServer({
+                token: workerRow('token-vm', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]),
+            });
+            // A worker with no token of its own, as one set up with only WILSON_URL and WILSON_WORKER_TOKEN is.
+            await connectLoopbackWorker(tokenServer.apiUrl, 'token', {
+                env: { PATH: process.env.PATH, HOME: '/home/worker' },
+                claudeCommand: fakeClaude,
+            });
+            await eventually(() => tokenServer.connections.get('token-vm') !== undefined);
+            const connection = tokenServer.connections.get('token-vm')!;
+            const send = connection.send.bind(connection);
+            connection.send = message => {
+                frames.push(JSON.stringify(message));
+                send(message);
+            };
+        });
+        afterAll(async () => {
+            await tokenServer.close();
+        });
+        beforeEach(() => {
+            frames = [];
+        });
+
+        /** Start the engine, end its stdin, and collect what it printed: the token it saw, then `got:` lines. */
+        const runEngine = async (assigned: () => Promise<string | undefined>, env: Record<string, string> = {}): Promise<string> => {
+            const engine = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], assigned).spawnClaude({
+                command: 'claude',
+                args: [],
+                cwd: root,
+                env,
+            });
+            let output = '';
+            engine.stdout!.on('data', (chunk: Buffer) => (output += chunk.toString()));
+            engine.stdin!.end('early\n');
+            await new Promise(resolve => engine.once('close', resolve));
+            return output;
+        };
+
+        it('signs the engine in with it on a worker that has none, without losing what was written first', async () => {
+            const output = await runEngine(async () => {
+                await new Promise(resolve => setTimeout(resolve, 20));
+                return 'assigned-token';
+            });
+
+            expect(output).toContain('token=assigned-token');
+            expect(output).toContain('got:early');
+        });
+
+        it('reaches the next engine when replaced, with no reconnect', async () => {
+            let current = 'first';
+            const assigned = async () => current;
+
+            expect(await runEngine(assigned)).toContain('token=first');
+            current = 'second';
+            expect(await runEngine(assigned)).toContain('token=second');
+        });
+
+        it('leaves a worker with none of its own unsigned when nothing is assigned', async () => {
+            expect(await runEngine(async () => undefined)).toContain('token=none');
+        });
+
+        it('never puts this machine’s own engine token in a frame', async () => {
+            const output = await runEngine(async () => 'assigned-token', {
+                CLAUDE_CODE_OAUTH_TOKEN: 'wilsons-own',
+                CLAUDE_CODE_ENTRYPOINT: 'sdk-ts',
+            });
+
+            expect(output).toContain('token=assigned-token');
+            expect(frames.join('')).not.toContain('wilsons-own');
+            expect(frames.join('')).toContain('CLAUDE_CODE_ENTRYPOINT');
+        });
+
+        it('passes the probe’s sign-in check with it', async () => {
+            const probing = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], async () => 'assigned-token');
+
+            await probing.runClaude(['auth', 'status'], 5_000);
+
+            expect(frames.some(frame => JSON.parse(frame).type === 'run-claude' && JSON.parse(frame).engineToken === 'assigned-token')).toBe(true);
+        });
+
+        it('ends the engine with the reason when the token cannot be read, starting nothing', async () => {
+            const engine = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], async () => {
+                throw new Error('The engine token "a" cannot be decrypted');
+            }).spawnClaude({ command: 'claude', args: [], cwd: root, env: {} });
+            let stderr = '';
+            engine.stderr!.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+            engine.stdin!.end('early\n');
+
+            await new Promise(resolve => engine.once('close', resolve));
+
+            expect(stderr).toContain('cannot be decrypted');
+            expect(frames.some(frame => JSON.parse(frame).type === 'spawn')).toBe(false);
+        });
+    });
+
     it('ends a running engine and fails calls as a lost connection, which a stage retries', async () => {
         const lostServer = await startWorkerServer({
             token: workerRow('flaky', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]),

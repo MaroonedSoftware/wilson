@@ -102,10 +102,11 @@ export class WorkerConnection {
     }
 
     /** `claude` with `args` on the worker, started as a `spawn` would start it, and collected. */
-    runClaude(args: string[], timeoutMs: number): Promise<CallResults['exec']> {
+    runClaude(args: string[], timeoutMs: number, engineToken?: string): Promise<CallResults['exec']> {
         const id = randomUUID();
+        const message: ToWorker = { type: 'run-claude', id, args, timeoutMs, ...(engineToken !== undefined && { engineToken }) };
         // A little past the worker's own limit, so its timeout, which says more, arrives first.
-        return this.request(id, { type: 'run-claude', id, args, timeoutMs }, timeoutMs + 5_000, 'claude') as Promise<CallResults['exec']>;
+        return this.request(id, message, timeoutMs + 5_000, 'claude') as Promise<CallResults['exec']>;
     }
 
     /**
