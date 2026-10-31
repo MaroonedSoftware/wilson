@@ -58,6 +58,16 @@ export const BREADTH_THRESHOLD = 4;
  * lower. Cards 0075 and 0078 — the breadth cases `BREADTH_THRESHOLD` was calibrated against — report
  * a single group each (all the repeated work is one kind, per `ScopeGroupSchema`'s own doc comment)
  * and are unaffected by a depth threshold at any setting.
+ *
+ * Because the metric cannot see cohesion, depth is one-directional: reaching this line supports a
+ * refusal, but does not make a "pass" inconsistent. Breadth and fan-out are counts of repetition, so a
+ * pass past those lines contradicts itself; a group count past this one does not, because whether
+ * many kinds of work belong together is exactly the merit this class leaves to the model. Card 0004
+ * is what forced this: a single feature through every layer reported 20 groups, the model passed it
+ * twice on those grounds, and no regrouping could have got it under 6, so the verifier's override
+ * left the card with no route forward except a split nobody had judged necessary. The cost is that a
+ * model that passes a card shaped like 0120 is now believed. That is the trade this comment's last
+ * paragraph already asks for.
  */
 export const DEPTH_THRESHOLD = 6;
 
@@ -109,10 +119,11 @@ const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((
  * from the model's own reported evidence (`groups`), and — when refusing — is the division concrete
  * (at least two pieces, each naming what it delivers alone and what it depends on, each built only
  * from tasks — and citing only dependencies on other pieces — the model itself reported). A model
- * that says "pass" while its own `groups` show an eight-wide repeat, or nine groups of different work,
- * or says "refuse" while reporting neither, has produced an inconsistent report regardless of which
- * way it leans — but, as of card 0157, the two directions no longer carry the same consequence. See
- * the last paragraph below.
+ * that says "pass" while its own `groups` show an eight-wide repeat, or says "refuse" while reporting
+ * no signal at all, has produced an inconsistent report regardless of which way it leans — but, as of
+ * card 0157, the two directions no longer carry the same consequence. See the last paragraph below.
+ * Depth is the exception on the "pass" side: it supports a refusal without contradicting a pass (see
+ * `DEPTH_THRESHOLD`).
  *
  * Three signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
  * width of the widest group) catches one kind of work repeated until it will not fit — card 0075's
@@ -191,15 +202,12 @@ export class ScopeCheckVerifier implements StageVerifier {
         const tooFannedOut = mostFannedOut.sites >= FANOUT_THRESHOLD;
         const tooLarge = tooBroad || tooDeep || tooFannedOut;
 
-        if (tooLarge && verdict !== 'refuse') {
+        // Depth has no branch here: it backs a refusal (`tooLarge`) but never contradicts a pass. See
+        // `DEPTH_THRESHOLD`'s doc comment.
+        if (verdict !== 'refuse') {
             if (tooBroad) {
                 failures.push(
                     `"${widest.title}" repeats across ${widest.tasks.length} tasks (>= ${BREADTH_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
-                );
-            }
-            if (tooDeep) {
-                failures.push(
-                    `the plan reports ${groups.length} distinct groups (>= ${DEPTH_THRESHOLD}) — many different kinds of work collected into one card, which is what this stage exists to catch, but the verdict is "pass"`,
                 );
             }
             if (tooFannedOut) {
