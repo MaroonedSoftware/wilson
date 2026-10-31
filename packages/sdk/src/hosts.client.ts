@@ -15,7 +15,12 @@ export class HostsClient {
         return (await parseJson<Host[]>(result)).map(reviveHost);
     }
 
-    /** @name Register host */
+    /**
+     * @name Register host
+     * @description Register a machine card stages can run on, reached over SSH or by a worker program that connects
+     * in. A worker host then needs its token minted with `wilson host token` or on the web app's Hosts
+     * page, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).
+     */
     async registerHost(body: CreateHostRequest): Promise<Host> {
         const result = await this.fetch(`/api/hosts`, {
             method: 'POST',
@@ -59,8 +64,8 @@ export class HostsClient {
 
     /**
      * @name Set host project
-     * @description `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
-     * cut worktrees from a clone that is not there.
+     * @description Say where a project lives on a host, which lets stages for it run there. Not needed for a
+     * project a worker host's `projectsRoot` takes on by itself.
      */
     async setHostProject(name: string, project: string, body: PutHostProjectRequest): Promise<Host> {
         const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/projects/${encodeURIComponent(project)}`, {
@@ -73,8 +78,7 @@ export class HostsClient {
 
     /**
      * @name Remove host project
-     * @description `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
-     * cut worktrees from a clone that is not there.
+     * @description Stop serving a project from a host. Files already on the machine are left there.
      */
     async removeHostProject(name: string, project: string): Promise<void> {
         await this.fetch(`/api/hosts/${encodeURIComponent(name)}/projects/${encodeURIComponent(project)}`, { method: 'DELETE' });

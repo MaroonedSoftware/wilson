@@ -65,12 +65,25 @@ export type WorkerTokenSummary = z.infer<typeof WorkerTokenSummary>;
  */
 export const CreateHostRequest = z.strictObject({
     name: z.string(),
-    kind: z.enum(['ssh', 'worker']).optional(),
-    sshTarget: z.string().optional(),
-    slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    kind: z
+        .enum(['ssh', 'worker'])
+        .optional()
+        .describe(
+            "`ssh`: the daemon connects out with `ssh`, so it needs a route to the machine, a key for it and\nan ssh client, which Wilson's container images do not have. `worker`: the worker program\n(`apps/worker`) on the machine connects in to the daemon, so the daemon needs no route or key.\nFixed at registration.",
+        ),
+    sshTarget: z.string().optional().describe('Only for an `ssh` host.'),
+    slots: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .optional()
+        .describe('How many stages can run there at once, 1 to 8.'),
     lifetimeMinutes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     commandEnv: z.array(z.string()).optional(),
-    projectsRoot: z.string().optional(),
+    projectsRoot: z
+        .string()
+        .optional()
+        .describe(
+            'A folder on the host. A worker clones any project with a GitHub repository under it, so such a\nproject needs no host project of its own. An `ssh` host clones nothing, so each project needs\na clone already on the machine.',
+        ),
 });
 export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
 

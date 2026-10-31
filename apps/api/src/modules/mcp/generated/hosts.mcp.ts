@@ -56,6 +56,8 @@ export class ListHostsMcpTool implements McpToolHandler {
 export class RegisterHostMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'register_host',
+        description:
+            "Register a machine card stages can run on, reached over SSH or by a worker program that connects\nin. A worker host then needs its token minted with `wilson host token` or on the web app's Hosts\npage, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).",
         inputSchema: z.toJSONSchema(RegisterHostArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(Host, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -168,7 +170,7 @@ export class SetHostProjectMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'set_host_project',
         description:
-            '`put`, not `patch`: a project on a host is its three paths together, and a half-set one would\ncut worktrees from a clone that is not there.',
+            "Say where a project lives on a host, which lets stages for it run there. Not needed for a\nproject a worker host's `projectsRoot` takes on by itself.",
         inputSchema: z.toJSONSchema(SetHostProjectArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(Host, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -191,8 +193,7 @@ export class SetHostProjectMcpTool implements McpToolHandler {
 export class RemoveHostProjectMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'remove_host_project',
-        description:
-            '`put`, not `patch`: a project on a host is its three paths together, and a half-set one would\ncut worktrees from a clone that is not there.',
+        description: 'Stop serving a project from a host. Files already on the machine are left there.',
         inputSchema: z.toJSONSchema(RemoveHostProjectArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
         _meta: { 'contractkit/security': { policy: 'wilson.manage' } },

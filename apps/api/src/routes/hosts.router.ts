@@ -24,6 +24,9 @@ HostsRouter.get('/api/hosts', requirePolicy({ policy: 'wilson.view' }), async ct
 });
 
 /**
+ * Register a machine card stages can run on, reached over SSH or by a worker program that connects
+ * in. A worker host then needs its token minted with `wilson host token` or on the web app's Hosts
+ * page, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).
  * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts`
  */
 HostsRouter.post('/api/hosts', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
@@ -117,8 +120,8 @@ HostsRouter.post('/api/hosts/:name/probe', requirePolicy({ policy: 'wilson.manag
 });
 
 /**
- * `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
- * cut worktrees from a clone that is not there.
+ * Say where a project lives on a host, which lets stages for it run there. Not needed for a
+ * project a worker host's `projectsRoot` takes on by itself.
  * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/projects/{project}`
  */
 HostsRouter.put('/api/hosts/:name/projects/:project', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
@@ -141,8 +144,7 @@ HostsRouter.put('/api/hosts/:name/projects/:project', requirePolicy({ policy: 'w
 });
 
 /**
- * `put`, not `patch`: a project on a host is its three paths together, and a half-set one would
- * cut worktrees from a clone that is not there.
+ * Stop serving a project from a host. Files already on the machine are left there.
  * from [hosts.ck](../../data/contracts/hosts.ck) `DELETE /api/hosts/{name}/projects/{project}`
  */
 HostsRouter.delete('/api/hosts/:name/projects/:project', requirePolicy({ policy: 'wilson.manage' }), async ctx => {

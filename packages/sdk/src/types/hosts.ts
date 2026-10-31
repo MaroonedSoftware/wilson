@@ -90,11 +90,24 @@ export function reviveWorkerTokenSummary(raw: WorkerTokenSummary): WorkerTokenSu
  */
 export interface CreateHostRequest {
     name: string;
+    /**
+     * `ssh`: the daemon connects out with `ssh`, so it needs a route to the machine, a key for it and
+     * an ssh client, which Wilson's container images do not have. `worker`: the worker program
+     * (`apps/worker`) on the machine connects in to the daemon, so the daemon needs no route or key.
+     * Fixed at registration.
+     */
     kind?: 'ssh' | 'worker';
+    /** Only for an `ssh` host. */
     sshTarget?: string;
+    /** How many stages can run there at once, 1 to 8. */
     slots?: number;
     lifetimeMinutes?: number;
     commandEnv?: string[];
+    /**
+     * A folder on the host. A worker clones any project with a GitHub repository under it, so such a
+     * project needs no host project of its own. An `ssh` host clones nothing, so each project needs
+     * a clone already on the machine.
+     */
     projectsRoot?: string;
 }
 

@@ -99,11 +99,20 @@ contract Host: {
 # VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
 contract CreateHostRequest: {
     name: string
+    # `ssh`: the daemon connects out with `ssh`, so it needs a route to the machine, a key for it and
+    # an ssh client, which Wilson's container images do not have. `worker`: the worker program
+    # (`apps/worker`) on the machine connects in to the daemon, so the daemon needs no route or key.
+    # Fixed at registration.
     kind?: enum(ssh, worker)
+    # Only for an `ssh` host.
     sshTarget?: string
+    # How many stages can run there at once, 1 to 8.
     slots?: int
     lifetimeMinutes?: int
     commandEnv?: array(string)
+    # A folder on the host. A worker clones any project with a GitHub repository under it, so such a
+    # project needs no host project of its own. An `ssh` host clones nothing, so each project needs
+    # a clone already on the machine.
     projectsRoot?: string
 }
 
@@ -144,6 +153,9 @@ operation /api/hosts: {
             }
         }
     }
+    # Register a machine card stages can run on, reached over SSH or by a worker program that connects
+    # in. A worker host then needs its token minted with `wilson host token` or on the web app's Hosts
+    # page, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).
     post: {
         name: Register host
         service: HostsService.create
@@ -232,6 +244,8 @@ operation /api/hosts/{name}/projects/{project}: {
         name: string
         project: string
     }
+    # Say where a project lives on a host, which lets stages for it run there. Not needed for a
+    # project a worker host's `projectsRoot` takes on by itself.
     put: {
         name: Set host project
         service: HostsService.putProject
@@ -248,6 +262,7 @@ operation /api/hosts/{name}/projects/{project}: {
             404:
         }
     }
+    # Stop serving a project from a host. Files already on the machine are left there.
     delete: {
         name: Remove host project
         service: HostsService.removeProject
