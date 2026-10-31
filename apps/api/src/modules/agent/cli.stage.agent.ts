@@ -380,12 +380,14 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
         // figures rather than just "budget exceeded".
         let contextFailure: string | undefined;
+        // The same, for `stoppedBecause === 'input-tokens'`.
+        let inputTokenFailure: string | undefined;
         let stop!: () => void;
         const stopped = new Promise<typeof STOPPED>(resolve => {
             stop = () => resolve(STOPPED);
@@ -609,6 +611,10 @@ export class CliStageAgent extends StageAgent {
 
         let summary = '';
         let usage: AgentRunOutput['usage'];
+        // Input tokens per API message, by id: the engine emits one assistant message per content
+        // block, each repeating its API message's `usage`, so counting messages would charge a turn
+        // once per block. Same figure the `result` message totals, cache reads and writes excluded.
+        const inputTokensByMessage = new Map<string, number>();
 
         // `reported` still undefined at the point a result is built, despite the report tool having
         // been seen on the stream: the call was made but never reached the callback above (or
@@ -640,7 +646,9 @@ export class CliStageAgent extends StageAgent {
                             ? { engineFailure: engineSilent(stage.maxIdleMs) }
                             : stoppedBecause === 'context'
                               ? { budgetFailure: contextFailure }
-                              : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
+                              : stoppedBecause === 'input-tokens'
+                                ? { budgetFailure: inputTokenFailure }
+                                : { budgetFailure: wallClockExceeded(stage.maxWallClockMs) }),
                         ...droppedField(),
                     };
                 }
@@ -689,6 +697,24 @@ export class CliStageAgent extends StageAgent {
                         stoppedBecause ??= 'steps';
                         this.logger.warn(`cli stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
                         abortController.abort();
+                    }
+
+                    // The `result` message's own total arrives only once the run has spent it, so
+                    // waiting for it reports an overrun rather than preventing one. The figure goes
+                    // into `usage` too: this run ends with no `result`, and a card's spend is summed
+                    // from what its stage events carry.
+                    if (message.message.id && message.message.usage) {
+                        inputTokensByMessage.set(message.message.id, message.message.usage.input_tokens);
+                        const spent = [...inputTokensByMessage.values()].reduce((total, tokens) => total + tokens, 0);
+                        const failure = overBudget(spent, stage.maxInputTokens);
+                        if (failure && !stoppedBecause) {
+                            stoppedBecause = 'input-tokens';
+                            inputTokenFailure = failure;
+                            usage = { inputTokens: spent };
+                            this.logger.warn(`cli stage reached its input token budget of ${stage.maxInputTokens}`);
+                            abortController.abort();
+                            stop();
+                        }
                     }
                 }
                 if (message.type === 'user') {
@@ -816,6 +842,15 @@ export class CliStageAgent extends StageAgent {
                     usage,
                     truncated: true,
                     budgetFailure: contextFailure,
+                    ...droppedField(),
+                };
+            }
+            if (stoppedBecause === 'input-tokens') {
+                return {
+                    result: reported ?? (summary ? { summary } : undefined),
+                    usage,
+                    truncated: true,
+                    budgetFailure: inputTokenFailure,
                     ...droppedField(),
                 };
             }

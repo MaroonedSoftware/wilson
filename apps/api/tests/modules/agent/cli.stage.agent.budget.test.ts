@@ -80,6 +80,32 @@ describe('CliStageAgent budget wiring', () => {
         queryMock.mockReset();
     });
 
+    describe('input tokens during a run', () => {
+        const assistant = (id: string, inputTokens: number) => ({
+            type: 'assistant',
+            message: { id, usage: { input_tokens: inputTokens, output_tokens: 1 }, content: [{ type: 'text', text: 'working' }] },
+        });
+
+        it('stops the run when its input tokens reach the cap, without waiting for a result', async () => {
+            queryMock.mockReturnValue(streamOf([assistant('msg_1', 600), assistant('msg_2', 900), assistant('msg_3', 900)]));
+
+            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
+
+            expect(output.truncated).toBe(true);
+            expect(output.budgetFailure).toBe('input token budget exceeded: used 1500, cap 1000');
+            expect(output.usage?.inputTokens).toBe(1500);
+        });
+
+        it('charges an API message once, however many content blocks repeat its usage', async () => {
+            queryMock.mockReturnValue(streamOf([assistant('msg_1', 600), assistant('msg_1', 600), assistant('msg_1', 600), resultMessage('success', 600)]));
+
+            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
+
+            expect(output.budgetFailure).toBeUndefined();
+            expect(output.truncated).toBe(false);
+        });
+    });
+
     /**
      * Card 0038 changed what `maxTurns` means here. It used to be the budget; it is now a backstop,
      * because refused calls must not spend steps and the engine cannot be told to raise its own
