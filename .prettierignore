@@ -20,3 +20,6 @@ apps/api/src/modules/data/db.ts
 
 # The router plugin's output: every Vite build rewrites it in its own style.
 apps/web/src/routeTree.gen.ts
+
+# NuGet's lock files: `dotnet restore` writes them, and CI restores them in locked mode.
+apps/desktop/**/packages.lock.json
