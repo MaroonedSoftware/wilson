@@ -54,6 +54,12 @@ The diff step needs a card with a branch: that API's `code_root` is its own scra
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
 
+## Sign-in
+
+The screen is deadair's setup steps: a welcome on a first run, the address, then the sign-in and any
+code. A remembered server opens on the sign-in. `ServerProbe` asks `/api/health` before an address is
+kept, and an address that answers moves straight on, because a server has no name to confirm.
+
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
@@ -117,8 +123,8 @@ signature did not name were both refused.
 
 Not verified:
 
+- A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
 - An update through the running app's own button, or from a real release.
-
 - Typing into the real window, as opposed to driving the view models headless, and a session
   surviving a relaunch of the real app.
 - The app against Tower or the real board.

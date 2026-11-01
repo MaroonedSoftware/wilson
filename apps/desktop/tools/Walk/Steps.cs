@@ -1,3 +1,4 @@
+using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 namespace Walk;
@@ -11,16 +12,39 @@ internal static class Steps
         var signIn = walk.Page<SignInViewModel>();
         walk.Shot("01-sign-in");
 
+        signIn.Start();
+        await walk.UntilAsync("the address step", () => signIn.Finding);
+        walk.Shot("01-sign-in-server");
+
         signIn.Address = "http:/nonsense";
-        await signIn.SubmitAsync();
+        await signIn.CheckAsync();
         await walk.UntilAsync("a bad address refused", () => signIn.Error is not null);
 
+        signIn.Address = "http://localhost:9";
+        await signIn.CheckAsync();
+        await walk.UntilAsync("no answer said", () => signIn.Error?.StartsWith("Nothing answered", StringComparison.Ordinal) is true);
+        walk.Shot("01-sign-in-no-answer");
+
         signIn.Address = origin;
+        await signIn.CheckAsync();
+        await walk.UntilAsync("the password step", () => signIn.ShowsPasswordStep);
+        walk.Shot("02-sign-in-password");
+
+        signIn.Back();
+        await walk.UntilAsync("back at the address", () => signIn.Finding);
+        signIn.Back();
+        await walk.UntilAsync("back at the password, a server being kept", () => signIn.ShowsPasswordStep);
+
         signIn.Email = email;
         signIn.Password = "wrong";
         await signIn.SubmitAsync();
         await walk.UntilAsync("a wrong password refused", () => signIn.Error == "Wrong email or password.");
         walk.Shot("02-sign-in-refused");
+
+        // Posed: the seeded operator has no authenticator, so signing in never reaches it.
+        signIn.Step = SignInStep.Code;
+        walk.Shot("02-sign-in-code");
+        signIn.Back();
 
         signIn.Password = password;
         await signIn.SubmitAsync();

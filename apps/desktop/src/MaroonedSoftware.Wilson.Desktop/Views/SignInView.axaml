@@ -4,13 +4,85 @@
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.SignInView"
     x:DataType="vm:SignInViewModel">
-    <StackPanel Width="340" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <TextBlock Classes="title" Text="Wilson" />
-        <TextBox PlaceholderText="Server address" Text="{Binding Address}" IsEnabled="{Binding !NeedsCode}" />
-        <TextBox PlaceholderText="Email" Text="{Binding Email}" IsVisible="{Binding !NeedsCode}" />
-        <TextBox PlaceholderText="Password" PasswordChar="•" Text="{Binding Password}" IsVisible="{Binding !NeedsCode}" />
-        <TextBox PlaceholderText="Code from your authenticator" Text="{Binding Code}" IsVisible="{Binding NeedsCode}" />
-        <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <Button Content="Sign in" Command="{Binding SubmitCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-    </StackPanel>
+
+    <!-- Alone in a column beside buttons 38 tall, the compact boxes read as undersized. -->
+    <UserControl.Styles>
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.KeyBindings>
+        <KeyBinding Gesture="Escape" Command="{Binding BackCommand}" />
+    </UserControl.KeyBindings>
+
+    <!-- One default button per step: Avalonia answers Enter only for one that is effectively visible. -->
+    <Panel>
+
+        <StackPanel Width="420" Spacing="18" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding Welcoming}">
+            <!-- brand/wilson-mark.svg, drawn rather than an image so it takes each appearance's colour.
+                 The face is the window's colour on top, where the file cuts it out with a mask. -->
+            <Viewbox Width="96" Height="96" HorizontalAlignment="Center">
+                <Canvas Width="100" Height="100">
+                    <Rectangle Canvas.Left="22" Canvas.Top="22" Width="12" Height="30" RadiusX="6" RadiusY="6" Fill="{DynamicResource Ink}" RenderTransform="rotate(-11deg)" />
+                    <Rectangle Canvas.Left="36.5" Canvas.Top="15" Width="12" Height="37" RadiusX="6" RadiusY="6" Fill="{DynamicResource Ink}" RenderTransform="rotate(-4deg)" />
+                    <Rectangle Canvas.Left="51" Canvas.Top="17" Width="12" Height="35" RadiusX="6" RadiusY="6" Fill="{DynamicResource Ink}" RenderTransform="rotate(4deg)" />
+                    <Rectangle Canvas.Left="65.5" Canvas.Top="24" Width="12" Height="28" RadiusX="6" RadiusY="6" Fill="{DynamicResource Ink}" RenderTransform="rotate(11deg)" />
+                    <Path Fill="{DynamicResource Ink}" Data="M16 40 h68 a10 10 0 0 1 10 10 v9 a34 34 0 0 1 -34 34 h-20 a34 34 0 0 1 -34 -34 v-9 a10 10 0 0 1 10 -10 z" />
+                    <Path Stroke="{DynamicResource SystemRegionBrush}" StrokeThickness="5.6" StrokeLineCap="Round" StrokeJoin="Round" Data="M28 61 l5 5 l9 -12 M61 61 l5 5 l9 -12 M34 77 q16 12 32 0" />
+                </Canvas>
+            </Viewbox>
+            <TextBlock Classes="title" Text="Wilson" FontSize="32" HorizontalAlignment="Center" />
+            <Button Classes="primary" Content="Find your server" Command="{Binding StartCommand}" IsDefault="True" Width="280" Margin="0,22,0,0" HorizontalAlignment="Center" HorizontalContentAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Width="420" Spacing="18" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding Finding}">
+            <Button Classes="icon" ToolTip.Tip="Back" AutomationProperties.Name="Back" Command="{Binding BackCommand}" Margin="-8,0,0,0" HorizontalAlignment="Left">
+                <PathIcon Data="{StaticResource IconChevronRight}" RenderTransform="scaleX(-1)" />
+            </Button>
+            <TextBlock Classes="title" Text="Find your server" />
+            <TextBlock Classes="quiet" FontSize="14" TextWrapping="Wrap" Text="The address your board loads from in a browser." />
+            <TextBox x:Name="AddressBox" Text="{Binding Address}" PlaceholderText="wilson.example.com" FontFamily="{StaticResource Mono}" IsEnabled="{Binding !Busy}" />
+            <Button Classes="primary" Content="Check" Command="{Binding CheckCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="quiet" Text="Asking the server…" IsVisible="{Binding Busy}" />
+        </StackPanel>
+
+        <StackPanel Width="420" Spacing="18" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding SigningIn}">
+            <Button Classes="icon" ToolTip.Tip="Back" AutomationProperties.Name="Back" Command="{Binding BackCommand}" Margin="-8,0,0,0" HorizontalAlignment="Left">
+                <PathIcon Data="{StaticResource IconChevronRight}" RenderTransform="scaleX(-1)" />
+            </Button>
+            <TextBlock Classes="title" Text="{Binding SigningInTo, StringFormat='Sign in to {0}'}" TextWrapping="Wrap" />
+
+            <StackPanel Spacing="8" IsVisible="{Binding ShowsPasswordStep}">
+                <TextBox x:Name="EmailBox" Text="{Binding Email}" PlaceholderText="you@example.com" IsEnabled="{Binding !Busy}" />
+                <!-- A password manager cannot see into this app, so a password arrives by paste, and
+                     the reveal is how somebody checks what they pasted. -->
+                <TextBox x:Name="PasswordBox" Text="{Binding Password}" PasswordChar="•" PlaceholderText="Password" IsEnabled="{Binding !Busy}">
+                    <TextBox.InnerRightContent>
+                        <ToggleButton x:Name="RevealToggle" Classes="icon" Margin="0,0,4,0" ToolTip.Tip="Show the password" AutomationProperties.Name="Show the password">
+                            <Panel>
+                                <PathIcon Width="15" Height="15" Data="{StaticResource IconEye}" IsVisible="{Binding !#RevealToggle.IsChecked}" />
+                                <PathIcon Width="15" Height="15" Data="{StaticResource IconEyeOff}" IsVisible="{Binding #RevealToggle.IsChecked}" />
+                            </Panel>
+                        </ToggleButton>
+                    </TextBox.InnerRightContent>
+                </TextBox>
+                <Button Classes="primary" Content="Sign in" Command="{Binding SubmitCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+            </StackPanel>
+
+            <!-- The code continues the same sign-in, so the email is kept. -->
+            <StackPanel Spacing="8" IsVisible="{Binding NeedsCode}">
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Enter the code from your authenticator." />
+                <TextBox x:Name="CodeBox" Text="{Binding Code}" PlaceholderText="000000" FontFamily="{StaticResource Mono}" MaxLength="6" IsEnabled="{Binding !Busy}" />
+                <Button Classes="primary" Content="Sign in" Command="{Binding SubmitCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+            </StackPanel>
+
+            <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <Button Classes="ghost" Content="Use a different server" Command="{Binding BackCommand}" IsVisible="{Binding ShowsPasswordStep}" HorizontalAlignment="Center" />
+        </StackPanel>
+
+    </Panel>
 </UserControl>
