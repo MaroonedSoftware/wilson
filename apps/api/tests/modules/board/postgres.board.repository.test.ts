@@ -90,7 +90,7 @@ describe('PostgresBoardRepository', () => {
 
             expect(result).toBeUndefined();
             expect(seen).toEqual(['0001', '0002']);
-            expect((await board.versions('0001', 5))).toHaveLength(1);
+            expect(await board.versions('0001', 5)).toHaveLength(1);
         });
 
         it('leaves no piece behind when one of them cannot be created', async () => {
@@ -423,14 +423,8 @@ stages:
     });
 
     it("defers on two cards' declared scope overlapping while both sit in an agent stage", async () => {
-        await board.create(
-            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
         await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
@@ -449,14 +443,8 @@ stages:
      * asserted from both directions, since either one could be the one a poller or `card start` asks.
      */
     it('finds no conflict between two cards parked in agent stages with overlapping scope and no live claims (the gridlock)', async () => {
-        await board.create(
-            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
 
         expect(await board.scopeConflict(events, config.project, await board.read('0001'), stages)).toBeUndefined();
         expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
@@ -469,14 +457,8 @@ stages:
      * reintroducing the lock card 0104 deliberately chose not to build.
      */
     it('defers only from the side without the live claim, not symmetrically', async () => {
-        await board.create(
-            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
         await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);
@@ -486,31 +468,16 @@ stages:
     });
 
     it('does not defer against a card sitting in parking-lot or a terminal stage', async () => {
-        await board.create(
-            card('0001', { stage: 'parking-lot' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'merged' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'parking-lot' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'merged' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
 
         expect(await board.scopeConflict(events, config.project, await board.read('0003'), stages)).toBeUndefined();
     });
 
     it('does not defer against a card sitting in a manual (non-agent) stage', async () => {
-        await board.create(
-            card('0001', { stage: 'review' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'review' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
 
         expect(await board.scopeConflict(events, config.project, await board.read('0002'), stages)).toBeUndefined();
     });
@@ -521,18 +488,9 @@ stages:
     // an unrecognised stage counts as holding nothing, the same conclusion `parking-lot` reaches
     // through its own explicit branch.
     it('does not defer against a card sitting in ready or backlog', async () => {
-        await board.create(
-            card('0001', { stage: 'ready' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'backlog' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
-        await board.create(
-            card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'ready' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0002', { stage: 'backlog' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
+        await board.create(card('0003', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/modules/events/card.event.ts\n'), 'create');
 
         expect(await board.scopeConflict(events, config.project, await board.read('0003'), stages)).toBeUndefined();
     });
@@ -568,14 +526,8 @@ stages:
     // `patternsOverlap` (scope.overlap.ts), reused rather than reimplemented — a directory glob
     // overlaps a specific file beneath it even though the glob never spells the file out.
     it('defers on a glob overlapping a literal path beneath it, via the shared patternsOverlap matcher', async () => {
-        await board.create(
-            card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/**\n'),
-            'create',
-        );
-        await board.create(
-            card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/types.ts\n'),
-            'create',
-        );
+        await board.create(card('0001', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/**\n'), 'create');
+        await board.create(card('0002', { stage: 'implementing' }, '## Files in scope\n\n- apps/api/src/generated/types.ts\n'), 'create');
         await claimCard(config.project, '0001');
 
         const conflict = await board.scopeConflict(events, config.project, await board.read('0002'), stages);

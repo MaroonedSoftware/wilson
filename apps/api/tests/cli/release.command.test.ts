@@ -50,13 +50,17 @@ describe('wilson card release', () => {
     });
 
     it('prints the API-supplied reason when the process running the queue may genuinely have the job in flight', async () => {
-        fetchMock.mockResolvedValueOnce(reasonResponse(400, '0001: job job-42 is claimed and this process is running it right now — it may genuinely be in flight'));
+        fetchMock.mockResolvedValueOnce(
+            reasonResponse(400, '0001: job job-42 is claimed and this process is running it right now — it may genuinely be in flight'),
+        );
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001');
 
         expect(result).toBe(1);
-        expect(logger.error).toHaveBeenCalledWith('0001: job job-42 is claimed and this process is running it right now — it may genuinely be in flight');
+        expect(logger.error).toHaveBeenCalledWith(
+            '0001: job job-42 is claimed and this process is running it right now — it may genuinely be in flight',
+        );
     });
 
     it('names the refused connection instead of throwing when the API is not running', async () => {

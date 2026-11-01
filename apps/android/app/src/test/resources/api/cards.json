@@ -1,18 +1,18 @@
 [
-  {
-    "id": "0001",
-    "title": "A card from the capture",
-    "stage": "parking-lot",
-    "dependsOn": [],
-    "needsHuman": false,
-    "resolvedBranch": "card/0001-a-card-from-the-capture"
-  },
-  {
-    "id": "0002",
-    "title": "A card from the capture",
-    "stage": "parking-lot",
-    "dependsOn": [],
-    "needsHuman": false,
-    "resolvedBranch": "card/0002-a-card-from-the-capture"
-  }
+    {
+        "id": "0001",
+        "title": "A card from the capture",
+        "stage": "parking-lot",
+        "dependsOn": [],
+        "needsHuman": false,
+        "resolvedBranch": "card/0001-a-card-from-the-capture"
+    },
+    {
+        "id": "0002",
+        "title": "A card from the capture",
+        "stage": "parking-lot",
+        "dependsOn": [],
+        "needsHuman": false,
+        "resolvedBranch": "card/0002-a-card-from-the-capture"
+    }
 ]

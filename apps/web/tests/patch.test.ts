@@ -31,7 +31,8 @@ describe('parsePatch', () => {
 
         expect(hunks).toHaveLength(2);
 
-        const [first, second] = hunks;
+        const first = hunks[0]!;
+        const second = hunks[1]!;
         expect(first.header).toBe('@@ -1,4 +1,5 @@');
         expect(first).toMatchObject({ oldStart: 1, oldLines: 4, newStart: 1, newLines: 5 });
         expect(first.lines).toEqual([
@@ -65,7 +66,7 @@ describe('parsePatch', () => {
         const patch = ['@@ -1,1 +1,1 @@', '-old', '+new', '\\ No newline at end of file', ''].join('\n');
         const hunks = parsePatch(patch);
         expect(hunks).toHaveLength(1);
-        expect(hunks[0].lines).toEqual([
+        expect(hunks[0]!.lines).toEqual([
             { kind: 'remove', text: 'old', oldLine: 1, newLine: undefined },
             { kind: 'add', text: 'new', oldLine: undefined, newLine: 1 },
         ]);
@@ -75,12 +76,12 @@ describe('parsePatch', () => {
         const patch = ['@@ -5 +5 @@', ' unchanged', ''].join('\n');
         const hunks = parsePatch(patch);
         expect(hunks[0]).toMatchObject({ oldStart: 5, oldLines: 1, newStart: 5, newLines: 1 });
-        expect(hunks[0].lines).toEqual([{ kind: 'context', text: 'unchanged', oldLine: 5, newLine: 5 }]);
+        expect(hunks[0]!.lines).toEqual([{ kind: 'context', text: 'unchanged', oldLine: 5, newLine: 5 }]);
     });
 
     it('keeps the hunk header text verbatim, including any trailing function-context text git appends', () => {
         const patch = ['@@ -1,2 +1,2 @@ function foo() {', ' a', ' b', ''].join('\n');
         const hunks = parsePatch(patch);
-        expect(hunks[0].header).toBe('@@ -1,2 +1,2 @@ function foo() {');
+        expect(hunks[0]!.header).toBe('@@ -1,2 +1,2 @@ function foo() {');
     });
 });

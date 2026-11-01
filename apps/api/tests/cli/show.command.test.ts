@@ -134,9 +134,7 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0155', '0162'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
-        fetchMock.mockResolvedValueOnce(
-            jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]),
-        );
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]));
         fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
@@ -146,7 +144,7 @@ describe('wilson card show', () => {
         // next` (which goes through `unsatisfiedDependencies`) correctly reported only 0162.
         expect(logger.info).toHaveBeenCalledWith('blocked:  0162');
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.includes('0155'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.includes('0155'))).toBe(false);
     });
 
     it('shows no blocked: line at all when every dependency has merged', async () => {
@@ -160,16 +158,14 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
     });
 
     it('shows a dropped or poisoned dependency as one that will never clear, distinct from one still waiting', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002', '0003'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
-        fetchMock.mockResolvedValueOnce(
-            jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]),
-        );
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]));
         fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
@@ -191,7 +187,7 @@ describe('wilson card show', () => {
         // `run()` always fetches usage whether or not there is a dependency to check.
         expect(fetchMock).toHaveBeenCalledTimes(3);
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
     });
 
     it('reports zero files in scope, without throwing, when the plan genuinely has no Files in scope section', async () => {
@@ -220,7 +216,7 @@ describe('wilson card show', () => {
         expect(logger.info).toHaveBeenCalledWith('  2026-01-01T00:00:00.000Z  transition.written (backlog)');
     });
 
-    it('renders a daemon.stale event\'s payload instead of the bare type name', async () => {
+    it("renders a daemon.stale event's payload instead of the bare type name", async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
         fetchMock.mockResolvedValueOnce(
             jsonResponse([
@@ -246,9 +242,7 @@ describe('wilson card show', () => {
     it('falls back to the bare type line for a daemon.stale event whose payload is missing behindBy', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
         fetchMock.mockResolvedValueOnce(
-            jsonResponse([
-                { id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' },
-            ]),
+            jsonResponse([{ id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' }]),
         );
         fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();
@@ -256,8 +250,8 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         expect(logger.info).toHaveBeenCalledWith('  2026-01-01T00:00:00.000Z  daemon.stale (implementing)');
-        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => m.includes('commit(s) behind'))).toBe(false);
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0] as string);
+        expect(messages.some(m => m.includes('commit(s) behind'))).toBe(false);
     });
 
     it('prints a single JSON object with --json, dropping retries/planVersionId (no longer on the wire contract)', async () => {
@@ -320,7 +314,7 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.includes('usage:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.includes('usage:'))).toBe(false);
     });
 
     it('prints the API-supplied reason and exits 1 for a card that does not exist, rather than an HTTP status line', async () => {

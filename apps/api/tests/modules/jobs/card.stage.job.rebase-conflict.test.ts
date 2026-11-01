@@ -178,7 +178,7 @@ stages:
         const history = await board.versions('0001', 10);
         expect(history).toHaveLength(2); // card creation, then this one flag
 
-        const latest = await board.readAt('0001', history[0].id);
+        const latest = await board.readAt('0001', history[0]!.id);
         expect(latest.frontmatter.stage).toBe('testing');
         expect(latest.frontmatter.needsHuman).toBe(true);
     });
@@ -194,14 +194,14 @@ stages:
     });
 
     it('posts a "needs-human" notification naming the reason', async () => {
-        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
         const { job } = await buildJob('https://hooks.example/notify', 'https://board.example');
 
         await job.run({ cardId: '0001', stageName: 'testing' });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'needs-human',
             cardId: '0001',
@@ -222,7 +222,7 @@ stages:
     });
 
     it('does not re-notify a card that was already flagged before this conflict was noticed', async () => {
-        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
         const alreadyFlagged: Card = {
             ...baseCard,

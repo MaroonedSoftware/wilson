@@ -79,7 +79,7 @@ describe('BoardModule.start (card 0149)', () => {
         const container = await bootContainer(await projectConfig(name, paths));
         const boardConfig = container.get(BoardConfig);
 
-        await BoardModule.start!(container);
+        await BoardModule.start!(container, new AbortController().signal);
 
         expect(boardConfig.project).toBe(name);
         expect(boardConfig.codeRoot).toBe(paths.codeRoot);
@@ -116,7 +116,7 @@ describe('BoardModule.start (card 0149)', () => {
         // paths (ProjectScopedBoardConfig's own contract — see project.scoped.board.config.test.ts).
         await expect(runAsProject(handInsertedName, async () => boardConfig.codeRoot)).rejects.toThrow();
 
-        await BoardModule.start!(container);
+        await BoardModule.start!(container, new AbortController().signal);
 
         await runAsProject(handInsertedName, async () => {
             expect(boardConfig.codeRoot).toBe(handInsertedPaths.codeRoot);
@@ -142,7 +142,7 @@ describe('BoardModule.start (card 0149)', () => {
             .values({ name: nameB, codeRoot: pathsB.codeRoot, worktreeRoot: pathsB.worktreeRoot, runRoot: pathsB.runRoot })
             .execute();
 
-        await BoardModule.start!(container);
+        await BoardModule.start!(container, new AbortController().signal);
 
         const seenWorktreeRoots = new Set<string>();
         await runAsProject(nameA, async () => seenWorktreeRoots.add(boardConfig.worktreeRoot));

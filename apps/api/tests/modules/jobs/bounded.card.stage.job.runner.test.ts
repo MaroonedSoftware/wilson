@@ -487,11 +487,14 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
  * ordinary ~30s retry path instead of waiting out `CARD_STAGE_EXPIRES_IN`'s hour.
  */
 describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', () => {
-    const orphanedJob = (overrides: { jobId?: string; project?: string; startedOn?: string | undefined } = {}) => ({
-        jobId: overrides.jobId ?? 'job-1',
-        payload: { cardId: '0001', stageName: 'implementing', project: overrides.project },
-        startedOn: overrides.startedOn === undefined ? undefined : { toISO: () => overrides.startedOn },
-    });
+    const orphanedJob = (overrides: { jobId?: string; project?: string; startedOn?: string | undefined } = {}) => {
+        const { startedOn } = overrides;
+        return {
+            jobId: overrides.jobId ?? 'job-1',
+            payload: { cardId: '0001', stageName: 'implementing', project: overrides.project },
+            startedOn: startedOn === undefined ? undefined : { toISO: () => startedOn },
+        };
+    };
 
     it('fails every active job through pg-boss before inner.start() registers a work() handler — AC1', async () => {
         const order: string[] = [];
@@ -524,9 +527,7 @@ describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', 
     it('appends one job.orphaned event per failed job, naming the job id, stage and start time — AC5', async () => {
         const inner = fakeInnerRunner();
         const events = fakeEvents();
-        const cardJobs = fakeCardJobsWithSweep([
-            orphanedJob({ jobId: 'job-1', project: 'project-a', startedOn: '2026-09-21T12:09:36.000Z' }),
-        ]);
+        const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1', project: 'project-a', startedOn: '2026-09-21T12:09:36.000Z' })]);
         const runner = new BoundedCardStageJobRunner(
             inner,
             new RunningCards(),
@@ -654,10 +655,7 @@ describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', 
         const logger = fakeLogger();
         const pgboss = {
             start: vi.fn(async () => undefined),
-            fail: vi
-                .fn()
-                .mockRejectedValueOnce(new Error('job-1 already settled'))
-                .mockResolvedValueOnce(undefined),
+            fail: vi.fn().mockRejectedValueOnce(new Error('job-1 already settled')).mockResolvedValueOnce(undefined),
         } as unknown as import('pg-boss').PgBoss;
         const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1' }), orphanedJob({ jobId: 'job-2' })]);
         const runner = new BoundedCardStageJobRunner(
@@ -690,7 +688,17 @@ describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', 
         const cardJobs = fakeCardJobsWithSweep([orphanedJob({ jobId: 'job-1' })]);
         const settings = fakeSettingsFor({ [CARD_STAGE_CONCURRENCY.key]: 1 });
         const logger = fakeLogger();
-        const runner = new BoundedCardStageJobRunner(inner, new RunningCards(), cardJobs as never, poller, pollerSettings, settings, logger, pgboss, fakeEvents());
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            cardJobs as never,
+            poller,
+            pollerSettings,
+            settings,
+            logger,
+            pgboss,
+            fakeEvents(),
+        );
         (runner as unknown as { appliedConcurrency: number }).appliedConcurrency = 3;
         CARD_STAGE_WORKER.concurrency = 3;
 

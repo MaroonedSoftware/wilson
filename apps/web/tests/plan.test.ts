@@ -53,7 +53,7 @@ class FakeEventSource {
     }
 }
 
-const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1];
+const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
 
 const turn = (seq: number, overrides: Partial<PlanTurn> = {}): PlanTurn => ({
     seq,

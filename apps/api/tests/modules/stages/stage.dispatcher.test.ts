@@ -13,12 +13,12 @@ import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { ModelRegistry } from '#modules/agent/model.registry.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 
@@ -48,6 +48,7 @@ const baseCard: Card = {
 };
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -102,7 +103,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
             {} as StageConfigStore,
             board,
             worktrees as unknown as WorktreeManager,
-            {} as ModelRegistry,
+            {} as StageAgentMap,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
             events as unknown as EventLog,
@@ -350,7 +351,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         // The append-only half of the board: `wilson.cards` says where the card is now, and this
         // says how it got there — what `git log` on the board repo used to answer.
         const version = await board.currentVersion('0001');
-        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', BigInt(version!)).executeTakeFirstOrThrow();
         expect(row.message).toBe('0001: testing -> review');
     });
 
@@ -380,7 +381,7 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
         const history = await board.versions('0001', 10);
         expect(history).toHaveLength(2); // card creation, then this one transition
 
-        const latest = await board.readAt('0001', history[0].id);
+        const latest = await board.readAt('0001', history[0]!.id);
         expect(latest.frontmatter.stage).toBe('testing');
         expect(latest.frontmatter.needsHuman).toBe(true);
         expect(latest.frontmatter.needsHumanReason).toContain('testing');
@@ -514,7 +515,7 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
             {} as StageConfigStore,
             boardRepo,
             worktrees as unknown as WorktreeManager,
-            {} as ModelRegistry,
+            {} as StageAgentMap,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
             events as unknown as EventLog,
@@ -553,7 +554,7 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         await writeTransition(dispatcher, stage, baseCard, outcome({ passed: false }));
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'needs-human',
             project,
@@ -661,7 +662,7 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
         await writeTransition(dispatcher, stage, baseCard, outcome({ passed: true }), closedHead);
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'needs-human',
             project,
@@ -702,7 +703,7 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
             {} as StageConfigStore,
             board,
             worktrees as unknown as WorktreeManager,
-            {} as ModelRegistry,
+            {} as StageAgentMap,
             {} as StageVerifierMap,
             {} as StageResultSchemaMap,
             events as unknown as EventLog,

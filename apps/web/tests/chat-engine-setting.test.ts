@@ -113,7 +113,7 @@ describe('the chat engine control', () => {
     it("shows the server's own refusal", async () => {
         vi.spyOn(wilson.settings, 'getChatEngineSetting').mockResolvedValue(cliDefault);
         vi.spyOn(wilson.settings, 'setChatEngineSetting').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { message: 'Bad Request', details: { reason: 'a model is required' } }),
+            new SdkError(400, 'Bad Request', { message: 'Bad Request', details: { reason: 'a model is required' } }, new Headers()),
         );
         renderSettings();
         const section = await chatSection();

@@ -186,7 +186,7 @@ describe('CommentableDraft — capturing a selection', () => {
             expect(await screen.findByLabelText('Comment')).toBeTruthy();
         }));
 
-    it("submitting sends exactly the anchor captureAnchor would build for that span, plus the typed text", () =>
+    it('submitting sends exactly the anchor captureAnchor would build for that span, plus the typed text', () =>
         withStubbedRangeRects(RECT, async () => {
             vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([]);
             const addAPlanComment = vi.spyOn(wilson.board, 'addAPlanComment').mockResolvedValue(comment());
@@ -202,9 +202,7 @@ describe('CommentableDraft — capturing a selection', () => {
             fireEvent.click(await screen.findByRole('button', { name: 'Comment', hidden: true }));
 
             const expectedAnchor = captureAnchor(TEXT, start, end);
-            await waitFor(() =>
-                expect(addAPlanComment).toHaveBeenCalledWith('0007', { ...expectedAnchor, text: 'nice catch' }),
-            );
+            await waitFor(() => expect(addAPlanComment).toHaveBeenCalledWith('0007', { ...expectedAnchor, text: 'nice catch' }));
             expect(expectedAnchor.quote).toBe('brown fox');
         }));
 
@@ -242,7 +240,12 @@ describe('CommentableDraft — capturing a selection', () => {
         withStubbedRangeRects(RECT, async () => {
             vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([]);
             vi.spyOn(wilson.board, 'addAPlanComment').mockRejectedValue(
-                new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'a comment already covers this passage' } }, new Headers()),
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: 'a comment already covers this passage' } },
+                    new Headers(),
+                ),
             );
             const { container } = renderDraft(TEXT);
             await waitFor(() => expect(container.querySelector('p')).toBeTruthy());
@@ -259,7 +262,7 @@ describe('CommentableDraft — capturing a selection', () => {
 });
 
 describe('CommentableDraft — anchored comments', () => {
-    it("shows a comment whose quote is unambiguous as anchored, reachable by hovering its highlight — not in the outdated list", async () => {
+    it('shows a comment whose quote is unambiguous as anchored, reachable by hovering its highlight — not in the outdated list', async () => {
         vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment()]);
 
         await withStubbedRangeRects(RECT, async () => {
@@ -335,9 +338,7 @@ describe('CommentableDraft — outdated comments', () => {
         }));
 
     it('a resolved comment stays visible, marked resolved, with no Resolve control left to press', async () => {
-        vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([
-            comment({ quote: 'a phrase the draft no longer has', resolved: true }),
-        ]);
+        vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment({ quote: 'a phrase the draft no longer has', resolved: true })]);
         renderDraft(TEXT);
 
         await screen.findByText('Outdated comments');
@@ -348,7 +349,12 @@ describe('CommentableDraft — outdated comments', () => {
     it("a refused resolve shows the server's own sentence next to the comment", async () => {
         vi.spyOn(wilson.board, 'listPlanComments').mockResolvedValue([comment({ quote: 'a phrase the draft no longer has' })]);
         vi.spyOn(wilson.board, 'resolveAPlanComment').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'comment was already resolved' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'comment was already resolved' } },
+                new Headers(),
+            ),
         );
         renderDraft(TEXT);
         await screen.findByText('Outdated comments');

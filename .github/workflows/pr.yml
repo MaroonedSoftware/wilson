@@ -15,8 +15,9 @@ jobs:
     build:
         uses: ./.github/workflows/build.yml
 
-    # Proves the image builds, into the builder's cache alone: a pull request publishes nothing and is
-    # given no registry credentials. `full` is built on `slim`, so this one target covers both.
+    # Proves the image builds and boots, on the runner alone: a pull request publishes nothing and is
+    # given no registry credentials. `full` is built on `slim`, so this one target covers both builds,
+    # and it needs no database of its own to start.
     image:
         runs-on: ubuntu-latest
         timeout-minutes: 60
@@ -39,9 +40,13 @@ jobs:
                   target: full
                   platforms: linux/amd64
                   push: false
-                  outputs: type=cacheonly
+                  load: true
+                  tags: wilson:ci
                   # Reads what the last `Images` run on main left.
                   cache-from: type=gha,scope=full
+
+            - name: It boots and serves
+              run: deploy/smoke.image.sh wilson:ci
 
     # The one check a ruleset on main should require. Job names inside a called workflow come out as
     # `build / build` and `build / test`, and that list will grow; requiring this instead means the

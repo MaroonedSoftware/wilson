@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DateTime } from 'luxon';
 import { clearAccounts, holdAccounts } from '#tests/support/test.accounts.js';
 import { onboardAndSignIn, request, startTestServer, type TestServer } from '#tests/support/test.server.js';
 
@@ -119,7 +120,11 @@ describe('API keys', () => {
         const res = await createKey(accessToken, { name: 'short', scope: 'view', expiresInDays: 1 });
         const { key, token } = (await res.json()) as { key: { id: string }; token: string };
 
-        await server.db.updateTable('wilson.apiKeys').set({ expiresAt: '2000-01-01T00:00:00Z' }).where('id', '=', key.id).execute();
+        await server.db
+            .updateTable('wilson.apiKeys')
+            .set({ expiresAt: DateTime.fromISO('2000-01-01T00:00:00Z') })
+            .where('id', '=', key.id)
+            .execute();
 
         expect((await request(server, 'GET', '/api/auth/session', { token })).status).toBe(401);
     });

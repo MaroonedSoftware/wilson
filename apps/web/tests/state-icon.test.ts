@@ -22,9 +22,7 @@ function renderedIds(): string[] {
 
 describe('StateIcon', () => {
     it('mints unique DOM ids for two instances of the same state', () => {
-        render(
-            createElement('div', null, createElement(StateIcon, { state: 'passed' }), createElement(StateIcon, { state: 'passed' })),
-        );
+        render(createElement('div', null, createElement(StateIcon, { state: 'passed' }), createElement(StateIcon, { state: 'passed' })));
 
         const ids = renderedIds();
         expect(ids.length).toBeGreaterThan(0);
@@ -40,7 +38,7 @@ describe('StateIcon', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('gives each state its own accessible name, matching brand/states/*.svg\'s own <title>', () => {
+    it("gives each state its own accessible name, matching brand/states/*.svg's own <title>", () => {
         render(createElement(StateIcon, { state: 'needs-human' }));
 
         expect(document.querySelector('svg')?.getAttribute('aria-labelledby')).toBeTruthy();

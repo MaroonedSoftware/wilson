@@ -6,6 +6,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
+import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -101,7 +102,7 @@ const fakeSettingsStore = (): SettingsStore => {
     const values = new Map<string, unknown>();
     return {
         get: async (definition: { key: string; defaultValue: unknown }) =>
-            (values.has(definition.key) ? values.get(definition.key) : definition.defaultValue),
+            values.has(definition.key) ? values.get(definition.key) : definition.defaultValue,
         set: async (definition: { key: string }, value: unknown) => {
             values.set(definition.key, value);
         },
@@ -121,7 +122,16 @@ const buildRealPoller = (cards: Card[], settings: SettingsStore) => {
     };
     const broker = { send: vi.fn(async () => 'job-1') };
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    const poller = new Poller(board as unknown as BoardRepository, config, stageConfigs, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger, settings);
+    const poller = new Poller(
+        board as unknown as BoardRepository,
+        config,
+        stageConfigs,
+        broker as unknown as JobBroker,
+        cardJobs as unknown as CardJobs,
+        logger as unknown as Logger,
+        settings,
+        {} as EventLog,
+    );
     return { poller, board, broker, cardJobs };
 };
 
@@ -201,7 +211,16 @@ describe('PollerSettingService.set — turning the poller on with no restart', (
         const broker = { send: vi.fn(async () => 'job-1') };
         const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
         const settings = fakeSettingsStore();
-        const poller = new Poller(board as unknown as BoardRepository, config, stageConfigs, broker as unknown as JobBroker, cardJobs as unknown as CardJobs, logger as unknown as Logger, settings);
+        const poller = new Poller(
+            board as unknown as BoardRepository,
+            config,
+            stageConfigs,
+            broker as unknown as JobBroker,
+            cardJobs as unknown as CardJobs,
+            logger as unknown as Logger,
+            settings,
+            {} as EventLog,
+        );
         const service = new PollerSettingService(settings, poller);
 
         await service.set({ enabled: true });

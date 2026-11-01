@@ -82,8 +82,7 @@ function RemoveContextControl({ cardId, snapshot }: { cardId: string; snapshot: 
             <Modal opened={opened} onClose={handlers.close} title="Remove this snapshot?">
                 <Stack gap="sm">
                     <Text size="sm">
-                        This removes the snapshot fetched from <Code>{snapshot.sourceUrl}</Code>. It can be re-attached later, which fetches it
-                        again.
+                        This removes the snapshot fetched from <Code>{snapshot.sourceUrl}</Code>. It can be re-attached later, which fetches it again.
                     </Text>
                     <Group justify="flex-end">
                         <Button variant="default" onClick={handlers.close} disabled={removeContext.isPending}>

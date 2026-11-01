@@ -96,7 +96,7 @@ describe('Notifier', () => {
 
     describe('posting the payload', () => {
         it('POSTs the notification as JSON to the configured webhook', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://hooks.example/notify', undefined, fakeLogger()).notify(
@@ -104,7 +104,7 @@ describe('Notifier', () => {
             );
 
             expect(fetchMock).toHaveBeenCalledTimes(1);
-            const [url, init] = fetchMock.mock.calls[0];
+            const [url, init] = fetchMock.mock.calls[0]!;
             expect(url).toBe('https://hooks.example/notify');
             expect(init.method).toBe('POST');
             expect(init.headers).toMatchObject({ 'content-type': 'application/json' });
@@ -118,44 +118,44 @@ describe('Notifier', () => {
         });
 
         it('carries the reason when the notification has one', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://hooks.example/notify', undefined, fakeLogger()).notify(
                 notification({ moment: 'poisoned', reason: 'credit balance too low' }),
             );
 
-            const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+            const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
             expect(body.reason).toBe('credit balance too low');
         });
 
         it('omits the reason key entirely when the notification carries none', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://hooks.example/notify', undefined, fakeLogger()).notify(notification({ reason: undefined }));
 
-            const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+            const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
             expect('reason' in body).toBe(false);
         });
 
         it('builds a deep link to the card from the base URL, stripping a trailing slash', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://hooks.example/notify', 'https://board.example/', fakeLogger()).notify(notification({ cardId: '0072' }));
 
-            const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+            const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
             expect(body.url).toBe('https://board.example/cards/0072');
         });
 
         it('omits the deep link entirely when no base URL is configured, even with a webhook set', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://hooks.example/notify', undefined, fakeLogger()).notify(notification());
 
-            const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+            const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
             expect('url' in body).toBe(false);
         });
     });
@@ -173,8 +173,8 @@ describe('Notifier', () => {
             ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('0072');
-            expect(logger.warn.mock.calls[0][0]).toContain('ECONNREFUSED');
+            expect(logger.warn.mock.calls[0]![0]).toContain('0072');
+            expect(logger.warn.mock.calls[0]![0]).toContain('ECONNREFUSED');
         });
 
         it('does not throw, and logs a warning naming the status, when the webhook responds with a 500', async () => {
@@ -187,8 +187,8 @@ describe('Notifier', () => {
             ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('0072');
-            expect(logger.warn.mock.calls[0][0]).toContain('500');
+            expect(logger.warn.mock.calls[0]![0]).toContain('0072');
+            expect(logger.warn.mock.calls[0]![0]).toContain('500');
         });
 
         it('logs nothing when the webhook responds ok', async () => {
@@ -228,7 +228,7 @@ describe('Notifier', () => {
             await pending;
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('0072');
+            expect(logger.warn.mock.calls[0]![0]).toContain('0072');
         });
     });
 });

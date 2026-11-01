@@ -81,11 +81,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -268,14 +264,16 @@ describe('the enqueue button', () => {
 
     it('refuses a card a job is already carrying, and shows the reason', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
-        const startCard = vi.spyOn(BoardClient.prototype, 'startCard').mockRejectedValue(
-            new SdkError(
-                400,
-                'Bad Request',
-                { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is already carried by job job-42' } },
-                new Headers(),
-            ),
-        );
+        const startCard = vi
+            .spyOn(BoardClient.prototype, 'startCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is already carried by job job-42' } },
+                    new Headers(),
+                ),
+            );
 
         renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
@@ -291,14 +289,16 @@ describe('the enqueue button', () => {
 
     it('refuses a card whyNotDispatchable rejects, and shows the reason the same way', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
-        const startCard = vi.spyOn(BoardClient.prototype, 'startCard').mockRejectedValue(
-            new SdkError(
-                400,
-                'Bad Request',
-                { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
-                new Headers(),
-            ),
-        );
+        const startCard = vi
+            .spyOn(BoardClient.prototype, 'startCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
+                    new Headers(),
+                ),
+            );
 
         renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
@@ -496,14 +496,16 @@ describe('the release control', () => {
 
     it('shows the reason as a notification when release is refused, rather than swallowing it', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
-        const releaseCard = vi.spyOn(BoardClient.prototype, 'releaseCard').mockRejectedValue(
-            new SdkError(
-                400,
-                'Bad Request',
-                { statusCode: 400, message: 'Bad Request', details: { reason: 'job job-42 is actively running card 0007' } },
-                new Headers(),
-            ),
-        );
+        const releaseCard = vi
+            .spyOn(BoardClient.prototype, 'releaseCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: 'job job-42 is actively running card 0007' } },
+                    new Headers(),
+                ),
+            );
 
         renderApp(CARD_PATH);
         await screen.findByText('Do the thing');
@@ -629,7 +631,12 @@ describe('the edit body control', () => {
     it("shows the API's own refusal reason and keeps the typed body in the still-open modal", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         vi.spyOn(BoardClient.prototype, 'editCardBody').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'plan is missing "Acceptance criteria"' } },
+                new Headers(),
+            ),
         );
 
         renderApp(CARD_PATH);
@@ -804,7 +811,13 @@ describe('the events timeline', () => {
     it('renders no reason text for a dispatch.deferred event whose payload carries no reason', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([
-            { id: 'ev-1', type: 'dispatch.deferred', stage: 'implementing', payload: { outstanding: ['0099'] }, createdAt: DateTime.fromISO('2026-09-19T00:00:00.000Z') },
+            {
+                id: 'ev-1',
+                type: 'dispatch.deferred',
+                stage: 'implementing',
+                payload: { outstanding: ['0099'] },
+                createdAt: DateTime.fromISO('2026-09-19T00:00:00.000Z'),
+            },
         ]);
 
         renderApp(CARD_PATH);

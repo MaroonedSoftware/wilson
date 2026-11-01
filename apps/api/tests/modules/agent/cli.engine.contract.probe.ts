@@ -130,7 +130,12 @@ const buildFixture = async (): Promise<string> => {
  * call, the same way `CliStageAgent.run` itself now tells a guarded call the guard saw from one it
  * never got a chance to.
  */
-const buildContext = (root: string, allow: string[], commands: string[], events: { type: string; payload?: Record<string, unknown> }[] = []): ToolContext =>
+const buildContext = (
+    root: string,
+    allow: string[],
+    commands: string[],
+    events: { type: string; payload?: Record<string, unknown> }[] = [],
+): ToolContext =>
     ({
         project: 'p',
         cardId: '0231',
@@ -228,7 +233,9 @@ const throwOnFailedResult = (message: { type: string; subtype?: string; is_error
     if (message.type !== 'result') return;
     if (message.is_error || (message.subtype !== undefined && message.subtype !== 'success')) {
         throw Object.assign(
-            new Error(`engine ended this turn as '${message.subtype}'${message.is_error ? ' (is_error)' : ''} before the probed behaviour was ever observed`),
+            new Error(
+                `engine ended this turn as '${message.subtype}'${message.is_error ? ' (is_error)' : ''} before the probed behaviour was ever observed`,
+            ),
             { errorClass: 'probe_result_error' },
         );
     }
@@ -253,8 +260,8 @@ const attemptedFromContent = (content: { type: string; name?: string; input?: un
         });
 
 /** Wraps a real `canUseTool` so every call and its resolved decision is recorded, without changing what it decides. */
-const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolName: string; result: PermissionResult }[] } => {
-    const calls: { toolName: string; result: PermissionResult }[] = [];
+const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolName: string; result: PermissionResult | null }[] } => {
+    const calls: { toolName: string; result: PermissionResult | null }[] = [];
     const canUseTool: CanUseTool = async (toolName, input, opts) => {
         const result = await raw(toolName, input, opts);
         calls.push({ toolName, result });
@@ -264,104 +271,96 @@ const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolNam
 };
 
 describe.skipIf(!RUN_ENGINE_PROBES)('a write outside scope really is checked by a live engine, through the guard this adapter exports', () => {
-    it(
-        'consults canUseTool for a Write outside the declared scope and denies it, with nothing landing on disk',
-        async () => {
-            const root = await buildFixture();
-            const context = buildContext(root, ['src/runner/**'], []);
-            const { canUseTool, calls } = watchGuard(createToolGuard(context, 'rw'));
-            const abortController = new AbortController();
+    it('consults canUseTool for a Write outside the declared scope and denies it, with nothing landing on disk', async () => {
+        const root = await buildFixture();
+        const context = buildContext(root, ['src/runner/**'], []);
+        const { canUseTool, calls } = watchGuard(createToolGuard(context, 'rw'));
+        const abortController = new AbortController();
 
-            try {
-                const stream = query({
-                    prompt: 'Call the Write tool right now to create the file "src/other/leak.txt" with the content "leak". Do not do anything else, and do not explain.',
-                    options: {
-                        cwd: root,
-                        permissionMode: 'default',
-                        settingSources: [],
-                        strictMcpConfig: true,
-                        canUseTool,
-                        env: subscriptionEnv(),
-                        mcpServers: {},
-                        abortController,
-                        maxTurns: 5,
-                    },
-                });
-                for await (const message of stream) {
-                    if (calls.some(c => c.toolName === 'Write')) break;
-                    throwOnFailedResult(message);
-                    if (message.type === 'result') break;
-                }
-            } catch (err) {
-                asEngineUnreachable(err);
-            } finally {
-                abortController.abort();
+        try {
+            const stream = query({
+                prompt: 'Call the Write tool right now to create the file "src/other/leak.txt" with the content "leak". Do not do anything else, and do not explain.',
+                options: {
+                    cwd: root,
+                    permissionMode: 'default',
+                    settingSources: [],
+                    strictMcpConfig: true,
+                    canUseTool,
+                    env: subscriptionEnv(),
+                    mcpServers: {},
+                    abortController,
+                    maxTurns: 5,
+                },
+            });
+            for await (const message of stream) {
+                if (calls.some(c => c.toolName === 'Write')) break;
+                throwOnFailedResult(message);
+                if (message.type === 'result') break;
             }
+        } catch (err) {
+            asEngineUnreachable(err);
+        } finally {
+            abortController.abort();
+        }
 
-            const writeCall = calls.find(c => c.toolName === 'Write');
-            // CliStageAgent.ts: "canUseTool is where they are put back: every Write, Edit and Bash
-            // the engine proposes is checked against the same guards before it runs."
-            expect(writeCall, 'the engine never proposed a Write — this probe tested nothing').toBeDefined();
-            // scope.guard.ts: "a write outside scope fails at the tool and the diff can never
-            // contain one in the first place."
-            expect(writeCall!.result).toMatchObject({ behavior: 'deny' });
-            await expect(readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8')).rejects.toThrow();
-        },
-        60000,
-    );
+        const writeCall = calls.find(c => c.toolName === 'Write');
+        // CliStageAgent.ts: "canUseTool is where they are put back: every Write, Edit and Bash
+        // the engine proposes is checked against the same guards before it runs."
+        expect(writeCall, 'the engine never proposed a Write — this probe tested nothing').toBeDefined();
+        // scope.guard.ts: "a write outside scope fails at the tool and the diff can never
+        // contain one in the first place."
+        expect(writeCall!.result).toMatchObject({ behavior: 'deny' });
+        await expect(readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8')).rejects.toThrow();
+    }, 60000);
 
-    it(
-        // The inversion: CliStageAgent.ts's own claim, measured rather than assumed — "with Write
-        // allowed [as an allowedTools entry], a probe wrote a file outside the declared scope and
-        // the guard was never called once." Reproduced here on purpose, so this file would catch a
-        // regression back to that exact defect.
-        'is never consulted at all — and the write actually lands — once allowedTools bypasses it, reproducing PROJECT.md’s own defect',
-        async () => {
-            const root = await buildFixture();
-            const events: { type: string; payload?: Record<string, unknown> }[] = [];
-            const context = buildContext(root, ['src/runner/**'], [], events);
-            const { canUseTool, calls } = watchGuard(createToolGuard(context, 'rw'));
-            const abortController = new AbortController();
-            // Card 0252: collected independent of `calls` above — `allowedTools` bypasses the guard
-            // entirely, so `calls` cannot tell "the model never attempted the write" from "the write
-            // was attempted and something else about the engine changed". This is what can.
-            const attempted: AttemptedToolCall[] = [];
+    it(// The inversion: CliStageAgent.ts's own claim, measured rather than assumed — "with Write
+    // allowed [as an allowedTools entry], a probe wrote a file outside the declared scope and
+    // the guard was never called once." Reproduced here on purpose, so this file would catch a
+    // regression back to that exact defect.
+    'is never consulted at all — and the write actually lands — once allowedTools bypasses it, reproducing PROJECT.md’s own defect', async () => {
+        const root = await buildFixture();
+        const events: { type: string; payload?: Record<string, unknown> }[] = [];
+        const context = buildContext(root, ['src/runner/**'], [], events);
+        const { canUseTool, calls } = watchGuard(createToolGuard(context, 'rw'));
+        const abortController = new AbortController();
+        // Card 0252: collected independent of `calls` above — `allowedTools` bypasses the guard
+        // entirely, so `calls` cannot tell "the model never attempted the write" from "the write
+        // was attempted and something else about the engine changed". This is what can.
+        const attempted: AttemptedToolCall[] = [];
 
-            try {
-                const stream = query({
-                    prompt: 'Call the Write tool right now to create the file "src/other/leak.txt" with the content "leak". Do not do anything else, and do not explain.',
-                    options: {
-                        cwd: root,
-                        permissionMode: 'default',
-                        settingSources: [],
-                        strictMcpConfig: true,
-                        allowedTools: ['Write'],
-                        canUseTool,
-                        env: subscriptionEnv(),
-                        mcpServers: {},
-                        abortController,
-                        maxTurns: 5,
-                    },
-                });
-                for await (const message of stream) {
-                    throwOnFailedResult(message);
-                    if (message.type === 'assistant') attempted.push(...attemptedFromContent(message.message.content));
-                    if (message.type === 'result') break;
-                }
-            } catch (err) {
-                asEngineUnreachable(err);
-            } finally {
-                abortController.abort();
+        try {
+            const stream = query({
+                prompt: 'Call the Write tool right now to create the file "src/other/leak.txt" with the content "leak". Do not do anything else, and do not explain.',
+                options: {
+                    cwd: root,
+                    permissionMode: 'default',
+                    settingSources: [],
+                    strictMcpConfig: true,
+                    allowedTools: ['Write'],
+                    canUseTool,
+                    env: subscriptionEnv(),
+                    mcpServers: {},
+                    abortController,
+                    maxTurns: 5,
+                },
+            });
+            for await (const message of stream) {
+                throwOnFailedResult(message);
+                if (message.type === 'assistant') attempted.push(...attemptedFromContent(message.message.content));
+                if (message.type === 'result') break;
             }
+        } catch (err) {
+            asEngineUnreachable(err);
+        } finally {
+            abortController.abort();
+        }
 
-            expect(calls.some(c => c.toolName === 'Write'), describeProbeRun({ attempted, events })).toBe(false);
-            await expect(
-                readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8'),
-                describeProbeRun({ attempted, events }),
-            ).resolves.toBe('leak');
-        },
-        60000,
-    );
+        expect(
+            calls.some(c => c.toolName === 'Write'),
+            describeProbeRun({ attempted, events }),
+        ).toBe(false);
+        await expect(readFile(join(root, 'src', 'other', 'leak.txt'), 'utf8'), describeProbeRun({ attempted, events })).resolves.toBe('leak');
+    }, 60000);
 });
 
 /** The same three tools `CliStageAgent` registers on its `wilson` MCP server, standing in for it. */
@@ -379,96 +378,88 @@ const wilsonServer = (reportHandler: (input: { path?: string }) => Promise<{ con
     });
 
 describe.skipIf(!RUN_ENGINE_PROBES)('a report_result call really reaches this adapter’s in-process MCP handler', () => {
-    it(
-        'invokes the handler when the model calls mcp__wilson__report_result',
-        async () => {
-            const root = await buildFixture();
-            let handlerRan = false;
-            const server = wilsonServer(async () => {
-                handlerRan = true;
-                return { content: [{ type: 'text' as const, text: 'reported' }] };
+    it('invokes the handler when the model calls mcp__wilson__report_result', async () => {
+        const root = await buildFixture();
+        let handlerRan = false;
+        const server = wilsonServer(async () => {
+            handlerRan = true;
+            return { content: [{ type: 'text' as const, text: 'reported' }] };
+        });
+        const context = buildContext(root, ['src/runner/**'], []);
+        const canUseTool = createToolGuard(context, 'rw');
+        const abortController = new AbortController();
+
+        try {
+            const stream = query({
+                prompt: 'Call the mcp__wilson__report_result tool right now, with no arguments. Do not do anything else, and do not explain.',
+                options: {
+                    cwd: root,
+                    permissionMode: 'default',
+                    settingSources: [],
+                    strictMcpConfig: true,
+                    canUseTool,
+                    env: subscriptionEnv(),
+                    mcpServers: { wilson: server },
+                    abortController,
+                    maxTurns: 5,
+                },
             });
-            const context = buildContext(root, ['src/runner/**'], []);
-            const canUseTool = createToolGuard(context, 'rw');
-            const abortController = new AbortController();
-
-            try {
-                const stream = query({
-                    prompt: 'Call the mcp__wilson__report_result tool right now, with no arguments. Do not do anything else, and do not explain.',
-                    options: {
-                        cwd: root,
-                        permissionMode: 'default',
-                        settingSources: [],
-                        strictMcpConfig: true,
-                        canUseTool,
-                        env: subscriptionEnv(),
-                        mcpServers: { wilson: server },
-                        abortController,
-                        maxTurns: 5,
-                    },
-                });
-                for await (const message of stream) {
-                    if (handlerRan) break;
-                    throwOnFailedResult(message);
-                    if (message.type === 'result') break;
-                }
-            } catch (err) {
-                asEngineUnreachable(err);
-            } finally {
-                abortController.abort();
+            for await (const message of stream) {
+                if (handlerRan) break;
+                throwOnFailedResult(message);
+                if (message.type === 'result') break;
             }
+        } catch (err) {
+            asEngineUnreachable(err);
+        } finally {
+            abortController.abort();
+        }
 
-            // CliStageAgent.ts: "The engine has no equivalent of the api adapter's report tool, so
-            // one is supplied as an in-process MCP server." This is that server, actually reached.
-            expect(handlerRan).toBe(true);
-        },
-        60000,
-    );
+        // CliStageAgent.ts: "The engine has no equivalent of the api adapter's report tool, so
+        // one is supplied as an in-process MCP server." This is that server, actually reached.
+        expect(handlerRan).toBe(true);
+    }, 60000);
 
-    it(
-        // Not vacuous: the flag above must actually distinguish "called" from "not called" — the
-        // same reasoning cli.tool.surface.test.ts gives for proving its own decoy server is real.
-        'leaves the handler unentered when the model is never asked to call it',
-        async () => {
-            const root = await buildFixture();
-            let handlerRan = false;
-            const server = wilsonServer(async () => {
-                handlerRan = true;
-                return { content: [{ type: 'text' as const, text: 'reported' }] };
+    it(// Not vacuous: the flag above must actually distinguish "called" from "not called" — the
+    // same reasoning cli.tool.surface.test.ts gives for proving its own decoy server is real.
+    'leaves the handler unentered when the model is never asked to call it', async () => {
+        const root = await buildFixture();
+        let handlerRan = false;
+        const server = wilsonServer(async () => {
+            handlerRan = true;
+            return { content: [{ type: 'text' as const, text: 'reported' }] };
+        });
+        const context = buildContext(root, ['src/runner/**'], []);
+        const canUseTool = createToolGuard(context, 'rw');
+        const abortController = new AbortController();
+
+        try {
+            const stream = query({
+                prompt: 'Do not call any tool. Just reply with the single word "hi".',
+                options: {
+                    cwd: root,
+                    permissionMode: 'default',
+                    settingSources: [],
+                    strictMcpConfig: true,
+                    canUseTool,
+                    env: subscriptionEnv(),
+                    mcpServers: { wilson: server },
+                    abortController,
+                    maxTurns: 5,
+                },
             });
-            const context = buildContext(root, ['src/runner/**'], []);
-            const canUseTool = createToolGuard(context, 'rw');
-            const abortController = new AbortController();
-
-            try {
-                const stream = query({
-                    prompt: 'Do not call any tool. Just reply with the single word "hi".',
-                    options: {
-                        cwd: root,
-                        permissionMode: 'default',
-                        settingSources: [],
-                        strictMcpConfig: true,
-                        canUseTool,
-                        env: subscriptionEnv(),
-                        mcpServers: { wilson: server },
-                        abortController,
-                        maxTurns: 5,
-                    },
-                });
-                for await (const message of stream) {
-                    throwOnFailedResult(message);
-                    if (message.type === 'result') break;
-                }
-            } catch (err) {
-                asEngineUnreachable(err);
-            } finally {
-                abortController.abort();
+            for await (const message of stream) {
+                throwOnFailedResult(message);
+                if (message.type === 'result') break;
             }
+        } catch (err) {
+            asEngineUnreachable(err);
+        } finally {
+            abortController.abort();
+        }
 
-            expect(handlerRan).toBe(false);
-        },
-        60000,
-    );
+        expect(handlerRan).toBe(false);
+    }, 60000);
 });
 
 describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step, asked of a real engine', () => {
@@ -578,47 +569,39 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         return { output, events, attempted, engineTurns: engineTurns.current };
     };
 
-    it(
-        'still reports cleanly at a tight step budget when the one bash call is denied',
-        async () => {
-            const { output, events, attempted, engineTurns: turns } = await runReal([]);
-            if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
-            // Card 0255: `describeTurns` alongside `describeProbeRun` — the engine's own view of what
-            // it attempted, beside the guard's view of what it was asked about. The gap between the
-            // two is what a failure here needs to say, not just that the assertion did not hold.
-            const message = `${describeProbeRun({ attempted, events, output })} | ${describeTurns(turns)}`;
+    it('still reports cleanly at a tight step budget when the one bash call is denied', async () => {
+        const { output, events, attempted, engineTurns: turns } = await runReal([]);
+        if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
+        // Card 0255: `describeTurns` alongside `describeProbeRun` — the engine's own view of what
+        // it attempted, beside the guard's view of what it was asked about. The gap between the
+        // two is what a failure here needs to say, not just that the assertion did not hold.
+        const message = `${describeProbeRun({ attempted, events, output })} | ${describeTurns(turns)}`;
 
-            // Card 0248: on 2026-09-19, against this same host engine, this exact call — one denied
-            // Bash command — ran without `canUseTool` ever being consulted for it: no `tool.denied`,
-            // no `tool.executed`, nothing. `deny()` inside `createToolGuard` appends `tool.denied` for
-            // Bash only when the guard was actually asked, so its presence here is direct evidence the
-            // consultation happened this time — checked before the truncation assertions below, which
-            // would pass the same way whether or not the guard was ever in the loop at all.
-            expect(
-                events.some(e => e.type === 'tool.denied' && (e.payload as { tool?: string } | undefined)?.tool === 'Bash'),
-                message,
-            ).toBe(true);
+        // Card 0248: on 2026-09-19, against this same host engine, this exact call — one denied
+        // Bash command — ran without `canUseTool` ever being consulted for it: no `tool.denied`,
+        // no `tool.executed`, nothing. `deny()` inside `createToolGuard` appends `tool.denied` for
+        // Bash only when the guard was actually asked, so its presence here is direct evidence the
+        // consultation happened this time — checked before the truncation assertions below, which
+        // would pass the same way whether or not the guard was ever in the loop at all.
+        expect(
+            events.some(e => e.type === 'tool.denied' && (e.payload as { tool?: string } | undefined)?.tool === 'Bash'),
+            message,
+        ).toBe(true);
 
-            // cli.stage.agent.ts: "Refused calls do not spend the budget... The ceiling grows by
-            // one per refusal, so a run keeps its full allowance of productive steps."
-            expect(output.truncated, message).toBe(false);
-            expect(output.result, message).toEqual({ summary: 'ok' });
-        },
-        60000,
-    );
+        // cli.stage.agent.ts: "Refused calls do not spend the budget... The ceiling grows by
+        // one per refusal, so a run keeps its full allowance of productive steps."
+        expect(output.truncated, message).toBe(false);
+        expect(output.result, message).toEqual({ summary: 'ok' });
+    }, 60000);
 
-    it(
-        // The inversion: the same budget, the same three steps, but nothing was ever refused — so
-        // there is no credit to grow the ceiling, and it is exceeded. This is what proves the pass
-        // above came from the credit, not from a budget that was generous enough regardless.
-        'control: the same tight budget is exceeded when that one bash call is allowed instead of denied',
-        async () => {
-            const { output } = await runReal(['true']);
-            if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
+    it(// The inversion: the same budget, the same three steps, but nothing was ever refused — so
+    // there is no credit to grow the ceiling, and it is exceeded. This is what proves the pass
+    // above came from the credit, not from a budget that was generous enough regardless.
+    'control: the same tight budget is exceeded when that one bash call is allowed instead of denied', async () => {
+        const { output } = await runReal(['true']);
+        if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
 
-            expect(output.truncated).toBe(true);
-            expect(output.budgetFailure).toBe(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0));
-        },
-        60000,
-    );
+        expect(output.truncated).toBe(true);
+        expect(output.budgetFailure).toBe(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0));
+    }, 60000);
 });

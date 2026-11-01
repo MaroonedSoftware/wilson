@@ -79,8 +79,8 @@ export function NewCardControl() {
             <Modal opened={opened} onClose={handlers.close} title="File a new card" size="lg">
                 <Stack gap="sm">
                     <Text size="sm" c="dimmed">
-                        Lands in parking-lot, same as <code>wilson card create</code> — you can talk it through right
-                        away, and promote it into planning when it's ready.
+                        Lands in parking-lot, same as <code>wilson card create</code> — you can talk it through right away, and promote it into
+                        planning when it's ready.
                     </Text>
                     <TextInput
                         label="Title"

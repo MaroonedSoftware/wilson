@@ -138,8 +138,8 @@ describe('PlanTurnRepository', () => {
         expect(turn.createdAt).toBeDefined();
 
         const [stored] = await repo.since('0001', 0);
-        expect(stored.role).toBe('assistant');
-        expect(stored.content).toBe('the reply body');
-        expect(stored.engineSessionId).toBe('session-xyz');
+        expect(stored!.role).toBe('assistant');
+        expect(stored!.content).toBe('the reply body');
+        expect(stored!.engineSessionId).toBe('session-xyz');
     });
 });

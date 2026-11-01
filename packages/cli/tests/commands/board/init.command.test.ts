@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { keyStore } from '#src/credentials.js';
 import { init } from '#src/commands/board/init.command.js';
 import type { LoginIo } from '#src/sign.in.js';
@@ -56,7 +56,7 @@ const unauthorised = () => json({}, 401);
 const token = () => json({ result: 'token', accessToken: 'session-jwt', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' });
 const signedOut = () => new Response(null, { status: 204 });
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: Mock<(url: string, init: RequestInit) => Promise<Response>>;
 beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 const calls = () =>
-    fetchMock.mock.calls.map(([url, init]: [string, RequestInit]) => ({
+    fetchMock.mock.calls.map(([url, init]) => ({
         url,
         method: init.method,
         headers: init.headers as Record<string, string>,

@@ -1,15 +1,7 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import {
-    ageInStage,
-    cardState,
-    collapsedColumnsKey,
-    columnOrder,
-    groupByStage,
-    toggleCollapsed,
-    unfinishedDeps,
-} from '#src/lib/board.js';
+import { ageInStage, cardState, collapsedColumnsKey, columnOrder, groupByStage, toggleCollapsed, unfinishedDeps } from '#src/lib/board.js';
 
 const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = false): CardSummary => ({
     id,
@@ -64,11 +56,7 @@ describe('groupByStage', () => {
     });
 
     it('sorts a flagged card to the top of its column, ahead of lower ids', () => {
-        const grouped = groupByStage([
-            card('0001', 'review'),
-            card('0002', 'review'),
-            card('0003', 'review', [], true),
-        ]);
+        const grouped = groupByStage([card('0001', 'review'), card('0002', 'review'), card('0003', 'review', [], true)]);
         expect(grouped.get('review')?.map(c => c.id)).toEqual(['0003', '0001', '0002']);
     });
 
@@ -106,11 +94,7 @@ describe('groupByStage', () => {
         });
 
         it('leaves every other column sorted flagged-first, unaffected by any position field', () => {
-            const grouped = groupByStage([
-                parked('0009', 0),
-                card('0001', 'review', [], false),
-                card('0002', 'review', [], true),
-            ]);
+            const grouped = groupByStage([parked('0009', 0), card('0001', 'review', [], false), card('0002', 'review', [], true)]);
             expect(grouped.get('review')?.map(c => c.id)).toEqual(['0002', '0001']);
         });
     });

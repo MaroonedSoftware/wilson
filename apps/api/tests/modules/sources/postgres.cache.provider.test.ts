@@ -23,7 +23,7 @@ const uniqueKey = (): string => `test-cache-key-${randomUUID()}`;
  * already-expired row in the table, since every one of the class's own writes computes `expiresAt`
  * in the future off a `ttl`. */
 const insertRow = async (key: string, value: string, expiresAt: DateTime): Promise<void> => {
-    await db.insertInto('wilson.cacheEntries').values({ key, value, expiresAt: expiresAt.toISO()! }).execute();
+    await db.insertInto('wilson.cacheEntries').values({ key, value, expiresAt }).execute();
 };
 
 const expiresAtOf = async (key: string): Promise<DateTime> => {
@@ -275,7 +275,7 @@ describe('PostgresCacheProvider.take', () => {
 
 /** Inserts a set member directly, the only way to put an already-expired one in the table. */
 const insertMember = async (key: string, member: string, expiresAt: DateTime): Promise<void> => {
-    await db.insertInto('wilson.cacheSetMembers').values({ key, member, expiresAt: expiresAt.toISO()! }).execute();
+    await db.insertInto('wilson.cacheSetMembers').values({ key, member, expiresAt }).execute();
 };
 
 const memberExpiries = async (key: string): Promise<number[]> => {
@@ -283,7 +283,7 @@ const memberExpiries = async (key: string): Promise<number[]> => {
         .selectFrom('wilson.cacheSetMembers')
         .select('expiresAt')
         .where('key', '=', key)
-        .where('expiresAt', '>', DateTime.now().toISO()!)
+        .where('expiresAt', '>', DateTime.now())
         .execute();
     return rows.map(row => row.expiresAt.toMillis());
 };

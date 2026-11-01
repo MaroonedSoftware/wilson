@@ -214,9 +214,7 @@ ${stageWorktree ? `    worktree: ${stageWorktree}\n` : ''}    setupCommand: node
             outPath,
         });
 
-        await expect(dispatcher.run('0001', 'testing')).rejects.toThrow(
-            /could not allocate a dev server port for 0001.*49200-49299/,
-        );
+        await expect(dispatcher.run('0001', 'testing')).rejects.toThrow(/could not allocate a dev server port for 0001.*49200-49299/);
     });
 
     /**

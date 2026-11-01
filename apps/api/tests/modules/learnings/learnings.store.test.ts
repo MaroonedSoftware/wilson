@@ -36,7 +36,7 @@ describe('PostgresLearningsStore', () => {
     });
 
     it('saves a document and reads it back as the current one, with the given message', async () => {
-        const saved = await store.save('# Learnings\n\nDon\'t do that.', 'first learning');
+        const saved = await store.save("# Learnings\n\nDon't do that.", 'first learning');
 
         expect(saved.markdown).toBe("# Learnings\n\nDon't do that.");
         expect(saved.message).toBe('first learning');
@@ -76,7 +76,7 @@ describe('PostgresLearningsStore', () => {
         expect(await store.versions(2)).toHaveLength(2);
     });
 
-    it('answers for the project on the call stack under runAsProject, never mixing two projects\' documents', async () => {
+    it("answers for the project on the call stack under runAsProject, never mixing two projects' documents", async () => {
         const alpha = uniqueProject();
         const beta = uniqueProject();
         const config = new ProjectScopedBoardConfig(alpha);

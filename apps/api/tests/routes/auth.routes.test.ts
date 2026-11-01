@@ -34,7 +34,9 @@ const tokens = async () => {
 
 describe('onboarding over HTTP', () => {
     it('reports no account, creates one with 201, then reports it', async () => {
-        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({ requirements: [expect.objectContaining({ key: 'account', optional: false })] });
+        expect(await (await call('GET', '/api/onboarding')).json()).toEqual({
+            requirements: [expect.objectContaining({ key: 'account', optional: false })],
+        });
 
         const created = await onboard();
 
@@ -67,7 +69,9 @@ describe('the password grant', () => {
     });
 
     it('matches the email without regard to case', async () => {
-        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'OPERATOR@EXAMPLE.COM', password: STRONG_PASSWORD } });
+        const res = await call('POST', '/api/auth/token', {
+            body: { grant_type: 'password', email: 'OPERATOR@EXAMPLE.COM', password: STRONG_PASSWORD },
+        });
 
         expect(res.status).toBe(200);
     });
@@ -77,7 +81,9 @@ describe('the password grant', () => {
     });
 
     it('refuses an unknown email with 401, the same as a wrong password', async () => {
-        const res = await call('POST', '/api/auth/token', { body: { grant_type: 'password', email: 'nobody@example.com', password: STRONG_PASSWORD } });
+        const res = await call('POST', '/api/auth/token', {
+            body: { grant_type: 'password', email: 'nobody@example.com', password: STRONG_PASSWORD },
+        });
 
         expect(res.status).toBe(401);
     });
