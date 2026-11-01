@@ -362,12 +362,7 @@ stages:
     // The verifier fails the first call (a judged failure — a bad diff, not an engine hiccup) and
     // passes the second, so the same stage can be dispatched twice: once to produce the attempt, once
     // to be the retry that must see it in its own materialised plan.
-    const buildDispatcher = (
-        config: StaticBoardConfig,
-        board: BoardRepository,
-        events: { append: ReturnType<typeof vi.fn> },
-        worktrees: unknown,
-    ) => {
+    const buildDispatcher = (config: StaticBoardConfig, board: BoardRepository, events: { append: ReturnType<typeof vi.fn> }, worktrees: unknown) => {
         const agents = new StageAgentMap();
         agents.set('api', {
             run: async (): Promise<AgentRunOutput> => ({

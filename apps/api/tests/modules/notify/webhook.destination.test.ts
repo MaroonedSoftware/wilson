@@ -116,7 +116,7 @@ describe('checkWebhookDestination', () => {
     });
 
     describe('a hostname that fails to resolve', () => {
-        it('is treated as ok — a broken name is not this function\'s job to reject', async () => {
+        it("is treated as ok — a broken name is not this function's job to reject", async () => {
             vi.mocked(lookup).mockRejectedValueOnce(Object.assign(new Error('queryA ENOTFOUND'), { code: 'ENOTFOUND' }));
 
             await expect(checkWebhookDestination('https://does-not-resolve.example/hook')).resolves.toEqual({ ok: true });

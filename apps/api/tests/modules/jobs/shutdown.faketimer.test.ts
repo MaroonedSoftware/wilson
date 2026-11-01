@@ -39,7 +39,7 @@ const fakeCardJobs = (outcomes: Record<string, string | undefined | Error>): Fak
     }),
 });
 
-const fakeRunner = (stop: () => Promise<void>): JobRunner => ({ start: vi.fn(), stop } as unknown as JobRunner);
+const fakeRunner = (stop: () => Promise<void>): JobRunner => ({ start: vi.fn(), stop }) as unknown as JobRunner;
 
 describe('stopCardStageJobs', () => {
     it('reports a clean stop when the runner settles and nothing is tracked as running', async () => {
@@ -104,11 +104,7 @@ describe('stopCardStageJobs', () => {
         const running = new RunningCards();
         running.add('project-x', '0099');
 
-        const report = await stopCardStageJobs(
-            runner,
-            running,
-            fakeCardJobs({ '0099': new Error('Database connection is not opened') }) as never,
-        );
+        const report = await stopCardStageJobs(runner, running, fakeCardJobs({ '0099': new Error('Database connection is not opened') }) as never);
 
         expect(report.abandoned).toEqual([]);
         expect(report.unconfirmed).toEqual([{ cardId: '0099', reason: 'Database connection is not opened' }]);

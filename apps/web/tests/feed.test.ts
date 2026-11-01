@@ -61,8 +61,7 @@ afterEach(() => {
 const renderFeed = (project?: string) => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-    const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(QueryClientProvider, { client: queryClient }, children);
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
     const hook = renderHook(({ project: p }: { project?: string }) => useCardFeed(p), { wrapper, initialProps: { project } });
     return { ...hook, invalidateQueries };
 };
@@ -191,7 +190,7 @@ describe('useCardFeed', () => {
     // per-hook). Before this card, every subscriber invalidated the same `['cards']` key regardless
     // of project, so project A's event would mark project B's board stale too. Seeding project B's
     // cache entry as fresh and firing only project A's feed proves that no longer happens.
-    it('does not mark another project\'s cache entry stale when this project\'s feed fires an event', () => {
+    it("does not mark another project's cache entry stale when this project's feed fires an event", () => {
         const queryClient = new QueryClient();
         queryClient.setQueryData(['project', 'project-b', 'cards'], []);
         const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');

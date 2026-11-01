@@ -73,7 +73,12 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the same
         // as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check falls
         // straight through and these tests exercise `RunningCards` exactly as before.
-        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => {
+                throw new Error('not stubbed');
+            }),
+        };
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
         running = new RunningCards();
     });
@@ -168,7 +173,7 @@ describe('RunningCards', () => {
      * Card 0149: entries are keyed by `(project, cardId)`, not `cardId` alone — two projects' `0001`s
      * running at once must be two distinct entries, and deleting one must not touch the other.
      */
-    it('keeps two different projects\' same-numbered card ids as distinct entries', () => {
+    it("keeps two different projects' same-numbered card ids as distinct entries", () => {
         const running = new RunningCards();
         running.add('project-a', '0001');
         running.add('project-b', '0001');

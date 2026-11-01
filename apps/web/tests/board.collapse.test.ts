@@ -74,11 +74,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -117,7 +113,7 @@ afterEach(() => {
 });
 
 describe('collapsing a board column', () => {
-    it('removes the column\'s card tiles from the DOM while the column and its stage name stay rendered', async () => {
+    it("removes the column's card tiles from the DOM while the column and its stage name stay rendered", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'merged')]);
 
@@ -193,7 +189,7 @@ describe('collapsing a board column', () => {
         expect(screen.queryByText('card 0001')).toBeNull();
     });
 
-    it('keeps each project\'s collapsed set independent', async () => {
+    it("keeps each project's collapsed set independent", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'merged')]);
 

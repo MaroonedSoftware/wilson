@@ -74,7 +74,12 @@ describe('HostsService', () => {
     it('keeps the kind and the SSH target in step in the table itself', async () => {
         await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'worker', sshTarget: 'box' }).execute()).rejects.toThrow();
         await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'ssh', sshTarget: null }).execute()).rejects.toThrow();
-        await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'pigeon' as never, sshTarget: 'box' }).execute()).rejects.toThrow();
+        await expect(
+            db
+                .insertInto('wilson.hosts')
+                .values({ name: uniqueProject(), kind: 'pigeon' as never, sshTarget: 'box' })
+                .execute(),
+        ).rejects.toThrow();
     });
 
     it('refuses a taken name with 409, and a bad target or slot count with 400', async () => {

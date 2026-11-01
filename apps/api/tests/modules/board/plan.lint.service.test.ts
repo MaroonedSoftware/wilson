@@ -162,12 +162,7 @@ describe('PlanLintService', () => {
     it('stops reporting a command once the stage’s own allowlist widens to permit it — proof the check reads config, not a hardcoded list', async () => {
         const c = card({ constraints: 'Only `pnpm migrate:up` fixes this.' });
         const narrow = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']), fakeEventLog, boardConfig);
-        const widened = new PlanLintService(
-            new OneCardBoardRepository(c),
-            stageConfig(['pnpm build', 'pnpm migrate:up']),
-            fakeEventLog,
-            boardConfig,
-        );
+        const widened = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build', 'pnpm migrate:up']), fakeEventLog, boardConfig);
 
         expect(await narrow.lint('c1')).toHaveLength(1);
         expect(await widened.lint('c1')).toHaveLength(0);
@@ -179,7 +174,6 @@ describe('PlanLintService', () => {
 
         expect(await service.lint('c1')).toHaveLength(0);
     });
-
 
     it('reports a scope entry alwaysAllowed already covers', async () => {
         const c = card({ filesInScope: 'apps/api/src/generated/board.ts' });
@@ -371,7 +365,9 @@ describe('PlanLintService scopeConflict findings', () => {
         const conflicts = findings.filter(f => f.kind === 'scopeConflict');
         expect(conflicts).toHaveLength(1);
         // The exact sentence this card's own Constraints prescribe — not a paraphrase.
-        expect(conflicts[0]!.message).toBe('"apps/api/src/modules/board/**" overlaps apps/api/src/** on 0099 (in flight): this card will wait for it');
+        expect(conflicts[0]!.message).toBe(
+            '"apps/api/src/modules/board/**" overlaps apps/api/src/** on 0099 (in flight): this card will wait for it',
+        );
     });
 
     it('reports one finding per overlapping pattern pair when scopeConflict returns several', async () => {

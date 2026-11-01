@@ -1,11 +1,4 @@
 {
-  "stages": [
-    "implementing"
-  ],
-  "nonStages": [
-    "parking-lot",
-    "merged",
-    "poisoned",
-    "dropped"
-  ]
+    "stages": ["implementing"],
+    "nonStages": ["parking-lot", "merged", "poisoned", "dropped"]
 }

@@ -122,7 +122,7 @@ describe('LiveActivity seeding (AC6)', () => {
         expect(screen.getByText('write')).toBeTruthy();
     });
 
-    it('reads only this card\'s own tool log, not another card\'s', () => {
+    it("reads only this card's own tool log, not another card's", () => {
         renderLiveActivity({
             cardId: '0043',
             seedEvents: [],
@@ -136,7 +136,13 @@ describe('LiveActivity seeding (AC6)', () => {
 describe('LiveActivity ordering', () => {
     it('lists a live event ahead of the (older) seeded tail', () => {
         renderLiveActivity({
-            seedEvents: [cardEvent({ id: 'ev-1', createdAt: DateTime.fromISO('2026-01-10T11:00:00.000Z'), payload: { tool: 'bash', command: 'first command' } })],
+            seedEvents: [
+                cardEvent({
+                    id: 'ev-1',
+                    createdAt: DateTime.fromISO('2026-01-10T11:00:00.000Z'),
+                    payload: { tool: 'bash', command: 'first command' },
+                }),
+            ],
             toolLog: {
                 '0043': [toolEvent({ id: 1, ts: '2026-01-10T11:59:30.000Z', payload: { tool: 'bash', command: 'newest command' } })],
             },
@@ -181,10 +187,15 @@ describe('LiveActivity row labels', () => {
 });
 
 describe('LiveActivity dedupe', () => {
-    it('drops a live event that exactly matches the newest seed event\'s own (type, ts), rather than showing it twice', () => {
+    it("drops a live event that exactly matches the newest seed event's own (type, ts), rather than showing it twice", () => {
         renderLiveActivity({
             seedEvents: [
-                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'), payload: { tool: 'bash', command: 'same command' } }),
+                cardEvent({
+                    id: 'ev-1',
+                    type: 'tool.executed',
+                    createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'),
+                    payload: { tool: 'bash', command: 'same command' },
+                }),
             ],
             toolLog: {
                 '0043': [
@@ -199,11 +210,21 @@ describe('LiveActivity dedupe', () => {
     it('keeps a live event that differs from the newest seed only by ts, rather than dropping it as a false match', () => {
         renderLiveActivity({
             seedEvents: [
-                cardEvent({ id: 'ev-1', type: 'tool.executed', createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'), payload: { tool: 'bash', command: 'repeated command' } }),
+                cardEvent({
+                    id: 'ev-1',
+                    type: 'tool.executed',
+                    createdAt: DateTime.fromISO('2026-01-10T11:59:00.000Z'),
+                    payload: { tool: 'bash', command: 'repeated command' },
+                }),
             ],
             toolLog: {
                 '0043': [
-                    toolEvent({ id: 99, type: 'tool.executed', ts: '2026-01-10T11:59:59.000Z', payload: { tool: 'bash', command: 'repeated command' } }),
+                    toolEvent({
+                        id: 99,
+                        type: 'tool.executed',
+                        ts: '2026-01-10T11:59:59.000Z',
+                        payload: { tool: 'bash', command: 'repeated command' },
+                    }),
                 ],
             },
         });

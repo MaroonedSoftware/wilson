@@ -134,9 +134,7 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0155', '0162'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
-        fetchMock.mockResolvedValueOnce(
-            jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]),
-        );
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]));
         fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
@@ -167,9 +165,7 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail({ dependsOn: ['0002', '0003'] })));
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
-        fetchMock.mockResolvedValueOnce(
-            jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]),
-        );
+        fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]));
         fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
@@ -220,7 +216,7 @@ describe('wilson card show', () => {
         expect(logger.info).toHaveBeenCalledWith('  2026-01-01T00:00:00.000Z  transition.written (backlog)');
     });
 
-    it('renders a daemon.stale event\'s payload instead of the bare type name', async () => {
+    it("renders a daemon.stale event's payload instead of the bare type name", async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
         fetchMock.mockResolvedValueOnce(
             jsonResponse([
@@ -246,9 +242,7 @@ describe('wilson card show', () => {
     it('falls back to the bare type line for a daemon.stale event whose payload is missing behindBy', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(detail()));
         fetchMock.mockResolvedValueOnce(
-            jsonResponse([
-                { id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' },
-            ]),
+            jsonResponse([{ id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' }]),
         );
         fetchMock.mockResolvedValueOnce(noUsage());
         const { ctx, logger } = buildCtx();

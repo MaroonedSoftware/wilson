@@ -117,12 +117,7 @@ describe('EventLog.append publishing', () => {
 
         // And the row itself never survived either — confirming this was a real rollback, not a
         // race in the test.
-        const rows = await db
-            .selectFrom('wilson.cardEvents')
-            .where('project', '=', project)
-            .where('cardId', '=', cardId)
-            .selectAll()
-            .execute();
+        const rows = await db.selectFrom('wilson.cardEvents').where('project', '=', project).where('cardId', '=', cardId).selectAll().execute();
         expect(rows).toHaveLength(0);
     });
 
@@ -203,9 +198,7 @@ describe('EventLog.append publishing', () => {
         const spyLogger: Logger = { ...silentLogger, error: err => errors.push(err) };
         const eventLog = new EventLog(db, spyLogger);
 
-        await expect(
-            eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.dispatched', payload: {} }),
-        ).resolves.toBeUndefined();
+        await expect(eventLog.append({ project, cardId, stage: 'implementing', type: 'stage.dispatched', payload: {} })).resolves.toBeUndefined();
 
         const row = await db
             .selectFrom('wilson.cardEvents')

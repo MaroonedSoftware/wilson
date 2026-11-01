@@ -207,7 +207,12 @@ describe('ScopeCheckVerifier', () => {
         verdict: 'refuse',
         reason: "one task, but it touches roughly ten files — the same shape that exhausted card 0151's step budget nine times over.",
         division: [
-            { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration', dependsOn: [] },
+            {
+                title: 'nav-rendering links',
+                tasks: ['update every internal link'],
+                delivers: 'the nav-rendering half of the link migration',
+                dependsOn: [],
+            },
             { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration', dependsOn: [] },
         ],
     };
@@ -460,7 +465,14 @@ describe('ScopeCheckVerifier', () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
         await writeFile(join(worktree.path, 'README.md'), 'changed\n', 'utf8');
 
-        const outcome = await verifier.verify({ worktree, stage: {} as never, cardId: '0001', card: planlessCard(), scope: {} as never, result: card0079 });
+        const outcome = await verifier.verify({
+            worktree,
+            stage: {} as never,
+            cardId: '0001',
+            card: planlessCard(),
+            scope: {} as never,
+            result: card0079,
+        });
 
         expect(outcome.passed).toBe(false);
         expect(outcome.failures.some(f => f.includes('read-only judge must not do'))).toBe(true);
@@ -588,7 +600,12 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: `${DEPTH_THRESHOLD} distinct pieces collected into one card.`,
             division: [
-                { title: 'first half', tasks: card0120.groups.slice(0, half).flatMap(g => g.tasks), delivers: 'the first half, working alone', dependsOn: [] },
+                {
+                    title: 'first half',
+                    tasks: card0120.groups.slice(0, half).flatMap(g => g.tasks),
+                    delivers: 'the first half, working alone',
+                    dependsOn: [],
+                },
                 {
                     title: 'second half',
                     tasks: card0120.groups.slice(half, DEPTH_THRESHOLD).flatMap(g => g.tasks),
@@ -612,7 +629,12 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: `${DEPTH_THRESHOLD - 1} distinct pieces collected into one card.`,
             division: [
-                { title: 'first half', tasks: card0120.groups.slice(0, 2).flatMap(g => g.tasks), delivers: 'the first half, working alone', dependsOn: [] },
+                {
+                    title: 'first half',
+                    tasks: card0120.groups.slice(0, 2).flatMap(g => g.tasks),
+                    delivers: 'the first half, working alone',
+                    dependsOn: [],
+                },
                 {
                     title: 'second half',
                     tasks: card0120.groups.slice(2, DEPTH_THRESHOLD - 1).flatMap(g => g.tasks),

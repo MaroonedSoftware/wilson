@@ -57,7 +57,9 @@ const callsTo = (url: string) => fetchMock.mock.calls.filter(([called]) => calle
 function renderApp() {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/projects'] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))));
+    render(
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
+    );
     return { router };
 }
 
@@ -100,7 +102,7 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('the dashboard\'s New project control', () => {
+describe("the dashboard's New project control", () => {
     it('proposes per-project worktree and run roots beside the code root, until a field is edited by hand', async () => {
         renderApp();
         await openForm();
@@ -189,7 +191,7 @@ describe('the dashboard\'s New project control', () => {
         expect((init?.[1].headers as Record<string, string>)['X-Wilson-Project']).toBe('myapp');
     });
 
-    it('shows the API\'s refusal inline and keeps the form as typed when registering fails', async () => {
+    it("shows the API's refusal inline and keeps the form as typed when registering fails", async () => {
         fetchMock.mockImplementation(async (url: string) => {
             if (url === REGISTER_URL) return json(409, { message: 'Conflict', details: { reason: 'project "myapp" is already registered' } });
             throw new Error(`unexpected fetch to ${url}`);
@@ -240,7 +242,7 @@ describe('the dashboard\'s New project control', () => {
  * fake tree, rooted at `/home/me` the way the API confines itself to the home folder; anything not
  * in it is a 404, as the API answers for a missing path.
  */
-describe('the path fields\' folder picker', () => {
+describe("the path fields' folder picker", () => {
     const HOME = '/home/me';
     const tree: Record<string, string[]> = {
         [HOME]: ['.config', 'projects'],

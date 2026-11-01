@@ -42,9 +42,7 @@ describe('DevServerPortAllocator.acquire', () => {
 
     it('skips a port whose lease is already held by another card, and takes the next one granted', async () => {
         const acquire = vi.fn(async (resourceKey: string): Promise<AcquireResult> =>
-            resourceKey === 'port:41010'
-                ? { acquired: false, heldBy: { resourceKey, project: 'other', cardId: '0099' } }
-                : { acquired: true },
+            resourceKey === 'port:41010' ? { acquired: false, heldBy: { resourceKey, project: 'other', cardId: '0099' } } : { acquired: true },
         );
         const allocator = new DevServerPortAllocator(fakeLeases(acquire));
 

@@ -31,15 +31,12 @@ describe('useWilsonSdk / WilsonSdkProvider', () => {
         // "A missing provider is a mistake, not a fallback" (this card's Constraints) — a component
         // rendered outside a `WilsonSdkProvider` must fail loudly, never silently resolve to some
         // default client and talk to the wrong project.
-        expect(() => renderHook(() => useWilsonSdk())).toThrow(
-            'useWilsonSdk() called with no WilsonSdkProvider above it in the tree.',
-        );
+        expect(() => renderHook(() => useWilsonSdk())).toThrow('useWilsonSdk() called with no WilsonSdkProvider above it in the tree.');
     });
 
     it('returns exactly the client instance passed to the nearest surrounding provider', () => {
         const client = new WilsonSdk({ baseUrl: API_BASE });
-        const wrapper = ({ children }: { children: React.ReactNode }) =>
-            createElement(WilsonSdkProvider, { client, children });
+        const wrapper = ({ children }: { children: React.ReactNode }) => createElement(WilsonSdkProvider, { client, children });
 
         const { result } = renderHook(() => useWilsonSdk(), { wrapper });
 
@@ -160,7 +157,7 @@ describe('a component reached through a project-scoped route now merges and open
         vi.unstubAllGlobals();
     });
 
-    it('sends X-Wilson-Project naming the route\'s project on the merge request the button fires', async () => {
+    it("sends X-Wilson-Project naming the route's project on the merge request the button fires", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(cardDetail('0007', 'ready'));
         fetchMock.mockImplementation(async (url: string) => {
             if (url === `${API_BASE}/api/cards/0007/merge`) {
@@ -186,12 +183,18 @@ describe('a component reached through a project-scoped route now merges and open
         expect((init.headers as Record<string, string>)['X-Wilson-Project']).toBe('demo');
     });
 
-    it('sends X-Wilson-Project naming the route\'s project when opening the planning session on mount', async () => {
+    it("sends X-Wilson-Project naming the route's project when opening the planning session on mount", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(cardDetail('0007', 'planning'));
         fetchMock.mockImplementation(async (url: string) => {
             if (url === `${API_BASE}/api/cards/0007/plan/open`) {
                 return new Response(
-                    JSON.stringify({ sessionId: '0007', worktreePath: '/tmp/plan-0007', draftPath: '/tmp/plan-0007/PLAN.md', model: 'x', instructions: 'x' }),
+                    JSON.stringify({
+                        sessionId: '0007',
+                        worktreePath: '/tmp/plan-0007',
+                        draftPath: '/tmp/plan-0007/PLAN.md',
+                        model: 'x',
+                        instructions: 'x',
+                    }),
                     { status: 200, headers: { 'content-type': 'application/json' } },
                 );
             }

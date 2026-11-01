@@ -67,11 +67,7 @@ function CardBody({ card, pending }: { card: CardSummary; pending: boolean }) {
 
 function DragCard({ card, pending }: { card: CardSummary; pending: boolean }) {
     const { attributes, listeners, setNodeRef } = useDraggable({ id: card.id });
-    return e(
-        'a',
-        { ref: setNodeRef, href: '#', 'data-testid': `card-${card.id}`, ...attributes, ...listeners },
-        e(CardBody, { card, pending }),
-    );
+    return e('a', { ref: setNodeRef, href: '#', 'data-testid': `card-${card.id}`, ...attributes, ...listeners }, e(CardBody, { card, pending }));
 }
 
 function DragColumn({ stage, cards, pendingId }: { stage: string; cards: CardSummary[]; pendingId: string | null }) {

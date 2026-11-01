@@ -85,7 +85,7 @@ describe('card 0088 — the allowlist and ScopeGuard say what they actually guar
         const source = normalize(read('../../../src/modules/agent/scope.guard.ts'));
 
         expect(source).toContain(
-            "This is the single enforcement point for scope, for the write tools: `write`, `edit` and `delete` all call through here before touching disk, so a write outside scope fails at the tool and the diff can never contain one in the first place. It guards those tools, not the process.",
+            'This is the single enforcement point for scope, for the write tools: `write`, `edit` and `delete` all call through here before touching disk, so a write outside scope fails at the tool and the diff can never contain one in the first place. It guards those tools, not the process.',
         );
     });
 
@@ -109,7 +109,7 @@ describe('card 0088 — the allowlist and ScopeGuard say what they actually guar
         expect(source).toContain(
             'The sharpest cost of mistaking this list for a boundary is credentials, not files: whatever env an allowed command inherits is reachable by whatever project code it runs, allowlist or not',
         );
-        expect(source).toContain('Card 0045 scrubs the runner\'s git credentials and provider API keys out of that env for exactly this reason.');
+        expect(source).toContain("Card 0045 scrubs the runner's git credentials and provider API keys out of that env for exactly this reason.");
         expect(source).toContain('Restoring an inherited env because "the allowlist already covers what a command can reach" would undo that.');
     });
 
@@ -121,7 +121,9 @@ describe('card 0088 — the allowlist and ScopeGuard say what they actually guar
         expect(projectMd).toContain(
             "`.runner/**` and `**/stages.yaml` are enforced by `ScopeGuard`'s `ALWAYS_DENIED` list, which `request_scope` cannot widen (`scope.guard.ts`) — but only against the write tools",
         );
-        expect(projectMd).toContain('see the guardrail-vs-boundary note atop `command.allowlist.ts` for why that stops the write tool and not a command that runs project code');
+        expect(projectMd).toContain(
+            'see the guardrail-vs-boundary note atop `command.allowlist.ts` for why that stops the write tool and not a command that runs project code',
+        );
     });
 
     it('says in PROJECT.md that materializing the plan outside the worktree only discourages tampering, and why', () => {

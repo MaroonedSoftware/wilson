@@ -115,11 +115,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -157,7 +153,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         vi.unstubAllGlobals();
     });
 
-    it('shows that project\'s board at /projects/$project, the same screen / renders', async () => {
+    it("shows that project's board at /projects/$project, the same screen / renders", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([cardSummary('0001', 'planning')]);
 
@@ -167,7 +163,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(await screen.findByText('card 0001')).toBeTruthy();
     });
 
-    it('opens the shared board feed naming the route\'s project, unlike the top-level board\'s own feed', async () => {
+    it("opens the shared board feed naming the route's project, unlike the top-level board's own feed", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
 
@@ -183,7 +179,7 @@ describe('a project-scoped route, reading through a client built for its own pro
     // an unrelated remount or manual refresh would ever show a new card. Driving the real feed
     // connection and watching the new card land with no manual refresh proves the scoped key this
     // card added now actually matches what this screen reads.
-    it('refetches this project\'s board on its own feed\'s card event, with no manual refresh', async () => {
+    it("refetches this project's board on its own feed's card event, with no manual refresh", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         const listCards = vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
 
@@ -235,7 +231,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(screen.queryByText(/\d+ cards/)).toBeNull();
     });
 
-    it('shows only that project\'s flagged cards at /projects/$project/flagged, and its back link returns to that project\'s board', async () => {
+    it("shows only that project's flagged cards at /projects/$project/flagged, and its back link returns to that project's board", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([cardSummary('0001', 'planning'), cardSummary('0002', 'review', true)]);
 
@@ -266,7 +262,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect((await screen.findByText('← Back to projects')).getAttribute('href')).toBe('/projects');
     });
 
-    it('renders a card\'s own page at /projects/$project/cards/$cardId, reached through the project-scoped client', async () => {
+    it("renders a card's own page at /projects/$project/cards/$cardId, reached through the project-scoped client", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(cardDetail('0007', 'review'));
 
@@ -276,7 +272,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(screen.getByText('0007')).toBeTruthy();
     });
 
-    it('shows a project-aware back link when a project-scoped card fails to load, pointing at that project\'s board rather than the top-level one', async () => {
+    it("shows a project-aware back link when a project-scoped card fails to load, pointing at that project's board rather than the top-level one", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'getCard').mockRejectedValue(new SdkError(404, 'Not Found', { reason: 'no such card' }, new Headers()));
 
@@ -340,7 +336,7 @@ describe('a project-scoped route, sending its project over the wire', () => {
         vi.unstubAllGlobals();
     });
 
-    it('sends X-Wilson-Project naming the route\'s project on the board\'s own /api/cards request, unlike the header\'s own singleton-backed request for the same path', async () => {
+    it("sends X-Wilson-Project naming the route's project on the board's own /api/cards request, unlike the header's own singleton-backed request for the same path", async () => {
         renderApp('/projects/demo');
 
         await screen.findByText('card 0001');

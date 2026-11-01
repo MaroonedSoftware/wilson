@@ -120,7 +120,11 @@ describe('API keys', () => {
         const res = await createKey(accessToken, { name: 'short', scope: 'view', expiresInDays: 1 });
         const { key, token } = (await res.json()) as { key: { id: string }; token: string };
 
-        await server.db.updateTable('wilson.apiKeys').set({ expiresAt: DateTime.fromISO('2000-01-01T00:00:00Z') }).where('id', '=', key.id).execute();
+        await server.db
+            .updateTable('wilson.apiKeys')
+            .set({ expiresAt: DateTime.fromISO('2000-01-01T00:00:00Z') })
+            .where('id', '=', key.id)
+            .execute();
 
         expect((await request(server, 'GET', '/api/auth/session', { token })).status).toBe(401);
     });

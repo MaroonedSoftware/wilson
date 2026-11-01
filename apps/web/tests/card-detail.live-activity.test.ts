@@ -103,11 +103,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -147,7 +143,7 @@ afterEach(() => {
     notifications.clean();
 });
 
-describe('the card page\'s Live activity panel', () => {
+describe("the card page's Live activity panel", () => {
     it('renders a "Live activity" heading on the card page', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card());
         vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
@@ -157,7 +153,7 @@ describe('the card page\'s Live activity panel', () => {
         expect(await screen.findByRole('heading', { name: 'Live activity' })).toBeTruthy();
     });
 
-    it('seeds from the card\'s already-fetched events, so opening the page mid-run is not empty (AC6)', async () => {
+    it("seeds from the card's already-fetched events, so opening the page mid-run is not empty (AC6)", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card());
         vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([toolEvent({ payload: { tool: 'bash', command: 'pnpm build' } })]);
 

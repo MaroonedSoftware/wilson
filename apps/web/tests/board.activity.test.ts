@@ -88,11 +88,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -123,7 +119,7 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('the board tile\'s last event line', () => {
+describe("the board tile's last event line", () => {
     it('shows no last-event line before any feed event has arrived for the card', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'implementing')]);
@@ -154,7 +150,7 @@ describe('the board tile\'s last event line', () => {
         expect(tile.textContent).toMatch(/last event \d+s ago/);
     });
 
-    it('shows the line for a tool.* event in the card\'s own current stage too', async () => {
+    it("shows the line for a tool.* event in the card's own current stage too", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0002', 'testing')]);
 
@@ -173,7 +169,7 @@ describe('the board tile\'s last event line', () => {
         expect(tile.textContent).toMatch(/last event \d+s ago/);
     });
 
-    it('does not show the line when the event\'s own stage differs from the card\'s current stage (AC5)', async () => {
+    it("does not show the line when the event's own stage differs from the card's current stage (AC5)", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0003', 'testing')]);
 
@@ -221,12 +217,7 @@ describe('the board tile\'s last event line', () => {
         // Published ten minutes ago — past LAST_EVENT_STALE_MS (five minutes) — even though it is
         // only "received" right now, proving the age comes from `ts`, not `Date.now()` at receipt.
         const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
-        act(() =>
-            feedSource()!.emit(
-                'card',
-                wireEvent({ correlationId: '0005', message: 'stage.dispatched', stage: 'testing', ts: tenMinutesAgo }),
-            ),
-        );
+        act(() => feedSource()!.emit('card', wireEvent({ correlationId: '0005', message: 'stage.dispatched', stage: 'testing', ts: tenMinutesAgo })));
 
         const title = await screen.findByText('card 0005');
         const tile = title.closest('.mantine-Paper-root') as HTMLElement;

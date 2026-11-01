@@ -58,11 +58,7 @@ class FakeResizeObserver {
 function renderApp(path: string, queryClient: QueryClient) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }

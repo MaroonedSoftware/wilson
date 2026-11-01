@@ -170,7 +170,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         return { config, dispatcher, events };
     };
 
-    it('names another stage\'s extraScope, but not the dispatched stage\'s own', async () => {
+    it("names another stage's extraScope, but not the dispatched stage's own", async () => {
         const { config, dispatcher } = await setUp(stagesYaml, 'implementing');
 
         const result = await dispatcher.run('0001', 'implementing');
@@ -263,7 +263,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         expect(materialized).not.toContain('extraScope');
     });
 
-    it('records the dispatched stage\'s full writable scope, including its own extraScope, on stage.dispatched', async () => {
+    it("records the dispatched stage's full writable scope, including its own extraScope, on stage.dispatched", async () => {
         const { dispatcher, events } = await setUp(stagesYaml, 'testing');
 
         const result = await dispatcher.run('0001', 'testing');

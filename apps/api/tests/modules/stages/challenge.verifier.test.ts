@@ -118,11 +118,7 @@ describe('ChallengeVerifier', () => {
     });
 
     /** One `stage.passed` review event carrying both findings and criteria, as `EventLog.tail` would return it. */
-    const reviewPassedEventWithCriteria = (
-        findings: unknown[],
-        criteria: unknown[],
-        verdict: 'pass' | 'revise' = 'revise',
-    ): CardEventRow => ({
+    const reviewPassedEventWithCriteria = (findings: unknown[], criteria: unknown[], verdict: 'pass' | 'revise' = 'revise'): CardEventRow => ({
         id: '1',
         stage: 'review',
         type: 'stage.passed',
@@ -237,9 +233,7 @@ describe('ChallengeVerifier', () => {
         const outcome = await verifier.verify(verifyInput(worktree, result));
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures.some(f => f.includes('this was never raised by the review') && f.includes('not among the incoming'))).toBe(
-            true,
-        );
+        expect(outcome.failures.some(f => f.includes('this was never raised by the review') && f.includes('not among the incoming'))).toBe(true);
     });
 
     // AC5, no prior review event at all
@@ -506,9 +500,7 @@ describe('ChallengeVerifier', () => {
 
             expect(outcome.passed).toBe(false);
             expect(
-                outcome.failures.some(
-                    f => f.includes('AC1') && f.includes('src/nowhere.ts') && f.includes('does not exist in the worktree'),
-                ),
+                outcome.failures.some(f => f.includes('AC1') && f.includes('src/nowhere.ts') && f.includes('does not exist in the worktree')),
             ).toBe(true);
         });
 
@@ -571,7 +563,7 @@ describe('ChallengeVerifier', () => {
      * there is no report to fault, the routing itself is wrong — so it must not set `reportRejected`.
      */
     describe('reportRejected', () => {
-        it('is true when the only failure is this run\'s own accounting fault', async () => {
+        it("is true when the only failure is this run's own accounting fault", async () => {
             const worktree = await manager.create(cardId, 'card/0001-thing');
             await makeDiff(worktree);
             const verifier = buildVerifier([reviewPassedEvent([blocker('needs a real reason')])]);

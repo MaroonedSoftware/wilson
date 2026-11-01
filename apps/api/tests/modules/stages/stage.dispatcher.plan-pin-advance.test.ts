@@ -306,12 +306,7 @@ stages:
         return { config, board, events, worktrees, created };
     };
 
-    const buildDispatcher = (
-        config: StaticBoardConfig,
-        board: BoardRepository,
-        events: { append: ReturnType<typeof vi.fn> },
-        worktrees: unknown,
-    ) => {
+    const buildDispatcher = (config: StaticBoardConfig, board: BoardRepository, events: { append: ReturnType<typeof vi.fn> }, worktrees: unknown) => {
         const agents = new StageAgentMap();
         agents.set('api', {
             run: async (input: { stage: StageConfig }): Promise<AgentRunOutput> => {
@@ -320,9 +315,7 @@ stages:
                         result: {
                             verdict: 'revise',
                             summary: 'found a bug',
-                            findings: [
-                                { severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' },
-                            ],
+                            findings: [{ severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' }],
                         },
                         usage: { inputTokens: 10 },
                         truncated: false,

@@ -170,9 +170,9 @@ stages:
         expect(resultB.passed).toBe(true);
 
         const preparedEventFor = (cardId: string) =>
-            events.append.mock.calls.map(([event]) => event as { cardId: string; type: string; payload: Record<string, unknown> }).find(
-                event => event.cardId === cardId && event.type === 'worktree.prepared',
-            );
+            events.append.mock.calls
+                .map(([event]) => event as { cardId: string; type: string; payload: Record<string, unknown> })
+                .find(event => event.cardId === cardId && event.type === 'worktree.prepared');
 
         const preparedA = preparedEventFor('0001');
         const preparedB = preparedEventFor('0002');

@@ -123,9 +123,7 @@ describe('InboundCardWriter', () => {
         const cards = await board.list();
         expect(cards).toHaveLength(2);
         expect(cards.map(c => c.frontmatter.title).sort()).toEqual(['GitHub title', 'Linear title']);
-        expect(cards.map(c => c.frontmatter.external)).toEqual(
-            expect.arrayContaining([{ linear: 'SHARED-1' }, { github: 'SHARED-1' }]),
-        );
+        expect(cards.map(c => c.frontmatter.external)).toEqual(expect.arrayContaining([{ linear: 'SHARED-1' }, { github: 'SHARED-1' }]));
     });
 
     it('leaves other cards alone and creates a new one when a report names an external id not yet on the board', async () => {
@@ -278,7 +276,12 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         expect(card!.frontmatter.sourceClosed).toBe(true);
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
-        expect(body).toMatchObject({ moment: 'source-closed', project: config.project, stage: 'dropped', url: 'https://board.example/cards/' + card!.frontmatter.id });
+        expect(body).toMatchObject({
+            moment: 'source-closed',
+            project: config.project,
+            stage: 'dropped',
+            url: 'https://board.example/cards/' + card!.frontmatter.id,
+        });
     });
 
     it('moves a matching planning or backlog card to dropped too, the same as parking-lot', async () => {

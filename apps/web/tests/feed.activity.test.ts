@@ -77,21 +77,17 @@ afterEach(() => {
 const renderFeed = (project?: string) => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-    const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(QueryClientProvider, { client: queryClient }, children);
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
     const hook = renderHook(({ project: p }: { project?: string }) => useCardFeed(p), { wrapper, initialProps: { project } });
     return { ...hook, invalidateQueries };
 };
 
 describe('useCardFeed activity', () => {
-    it("records the latest feed event for a card under its own id", () => {
+    it('records the latest feed event for a card under its own id', () => {
         const { result } = renderFeed();
 
         act(() =>
-            latestSource().emit(
-                'card',
-                wireEvent({ correlationId: '0043', message: 'stage.dispatched', stage: 'testing', payload: { note: 'x' } }),
-            ),
+            latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'stage.dispatched', stage: 'testing', payload: { note: 'x' } })),
         );
 
         expect(result.current.activity['0043']).toEqual({
@@ -102,18 +98,16 @@ describe('useCardFeed activity', () => {
         });
     });
 
-    it('overwrites a card\'s activity with a newer event rather than keeping the first', () => {
+    it("overwrites a card's activity with a newer event rather than keeping the first", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'stage.dispatched', ts: '2026-01-10T12:00:00.000Z' })));
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' })));
 
-        expect(result.current.activity['0043']).toEqual(
-            expect.objectContaining({ type: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' }),
-        );
+        expect(result.current.activity['0043']).toEqual(expect.objectContaining({ type: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' }));
     });
 
-    it('keeps two different cards\' activity independent', () => {
+    it("keeps two different cards' activity independent", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0001', message: 'stage.dispatched' })));
@@ -192,7 +186,7 @@ describe('useCardFeed toolLog', () => {
         expect(result.current.toolLog['0043']).toBeUndefined();
     });
 
-    it('caps a card\'s tool history at MAX_LIVE_TOOL_EVENTS, dropping the oldest', () => {
+    it("caps a card's tool history at MAX_LIVE_TOOL_EVENTS, dropping the oldest", () => {
         const { result } = renderFeed();
 
         for (let i = 0; i < MAX_LIVE_TOOL_EVENTS + 5; i++) {
@@ -212,7 +206,7 @@ describe('useCardFeed toolLog', () => {
         expect(log.map(event => event.id)).not.toContain(0);
     });
 
-    it('keeps two different cards\' tool logs independent', () => {
+    it("keeps two different cards' tool logs independent", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0001', message: 'tool.executed' })));

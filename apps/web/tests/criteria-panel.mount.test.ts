@@ -55,11 +55,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -151,7 +147,7 @@ describe('acceptance criteria on the card page', () => {
         expect(screen.getByText('unmet')).toBeTruthy();
     });
 
-    it("mounts between the Files in scope block and the plan region, not the other way around", async () => {
+    it('mounts between the Files in scope block and the plan region, not the other way around', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
             card({
                 'files-in-scope': '- apps/web/**',

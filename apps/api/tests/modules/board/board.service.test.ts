@@ -151,7 +151,13 @@ describe('BoardService', () => {
             const enteredReview = DateTime.fromISO('2024-01-02T00:00:00.000Z');
             const eventLog = {
                 tail: async () => [
-                    { id: '1', stage: 'implementing', type: 'stage.dispatched', payload: {}, createdAt: DateTime.fromISO('2024-01-01T00:00:00.000Z') },
+                    {
+                        id: '1',
+                        stage: 'implementing',
+                        type: 'stage.dispatched',
+                        payload: {},
+                        createdAt: DateTime.fromISO('2024-01-01T00:00:00.000Z'),
+                    },
                     { id: '2', stage: 'review', type: 'transition.written', payload: {}, createdAt: enteredReview },
                 ],
             } as unknown as EventLog;

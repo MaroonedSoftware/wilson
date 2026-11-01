@@ -109,9 +109,7 @@ describe('useMoveCard', () => {
             result.current.mutate('implementing');
         });
 
-        await waitFor(() =>
-            expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: 'something broke' })),
-        );
+        await waitFor(() => expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: 'something broke' })));
     });
 });
 
@@ -149,7 +147,12 @@ describe('useRepositionCard', () => {
 
         const { result } = renderHook(() => useRepositionCard(), { wrapper: withClient(queryClient) });
         await act(async () => {
-            await result.current.mutateAsync({ id: '0001', beforeId: '0002', afterId: undefined, optimisticCards: [card('0002', 0), card('0001', 1)] });
+            await result.current.mutateAsync({
+                id: '0001',
+                beforeId: '0002',
+                afterId: undefined,
+                optimisticCards: [card('0002', 0), card('0001', 1)],
+            });
         });
 
         expect(repositionCard).toHaveBeenCalledWith('0001', { beforeId: '0002', afterId: undefined });
@@ -159,7 +162,12 @@ describe('useRepositionCard', () => {
         const original = [card('0001', 0), card('0002', 1)];
         const optimisticCards = [card('0002', 0), card('0001', 1)];
         vi.spyOn(wilson.board, 'repositionCard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'someone else moved this card first' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'someone else moved this card first' } },
+                new Headers(),
+            ),
         );
         const queryClient = new QueryClient();
         queryClient.setQueryData(['cards'], original);
@@ -177,7 +185,7 @@ describe('useRepositionCard', () => {
         );
     });
 
-    it('invalidates the cards list on success, to reconcile with the server\'s own order', async () => {
+    it("invalidates the cards list on success, to reconcile with the server's own order", async () => {
         vi.spyOn(wilson.board, 'repositionCard').mockResolvedValue({} as never);
         const queryClient = new QueryClient();
         // Card 0155: only a project-scoped board (`['project', project, 'cards']`) is reachable now
@@ -307,7 +315,12 @@ describe('useAckCard', () => {
 
     it("shows the API's own refusal reason as a notification", async () => {
         vi.spyOn(wilson.board, 'acknowledgeAFlaggedCard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is not flagged' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'card 0007 is not flagged' } },
+                new Headers(),
+            ),
         );
         const queryClient = new QueryClient();
 
@@ -351,7 +364,9 @@ describe('useReleaseCard', () => {
         expect(queryClient.getQueryState(['project', 'demo', 'card', '0007'])?.isInvalidated).toBe(true);
         expect(queryClient.getQueryState(['unrelated'])?.isInvalidated).toBeFalsy();
         expect(setQueryData).not.toHaveBeenCalled();
-        expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ color: 'green', title: 'Released', message: expect.stringContaining('queued') }));
+        expect(notifications.show).toHaveBeenCalledWith(
+            expect.objectContaining({ color: 'green', title: 'Released', message: expect.stringContaining('queued') }),
+        );
     });
 
     it("shows the API's own refusal reason as a notification when a job is genuinely mid-run", async () => {
@@ -443,7 +458,7 @@ describe('useSaveAPlanDraft', () => {
         expect(queryClient.getQueryData(['project', 'demo', 'card', '0007', 'versions'])).toEqual(versions);
     });
 
-    it("does not show a notification on refusal — DraftPane reads the error itself so the draft is never lost to a toast", async () => {
+    it('does not show a notification on refusal — DraftPane reads the error itself so the draft is never lost to a toast', async () => {
         vi.spyOn(wilson.board, 'saveAPlanDraft').mockRejectedValue(
             new SdkError(
                 400,
@@ -504,14 +519,18 @@ describe('useCreateCard', () => {
         const { result } = renderHook(() => useCreateCard(), { wrapper: withClient(queryClient) });
         let resolved: CardDetail | undefined;
         await act(async () => {
-            resolved = await result.current.mutateAsync({ title: 'A new thought', stage: 'parking-lot', body: '## Note\n\nsomething worth capturing' });
+            resolved = await result.current.mutateAsync({
+                title: 'A new thought',
+                stage: 'parking-lot',
+                body: '## Note\n\nsomething worth capturing',
+            });
         });
 
         expect(createCard).toHaveBeenCalledWith({ title: 'A new thought', stage: 'parking-lot', body: '## Note\n\nsomething worth capturing' });
         expect(resolved).toEqual(created);
     });
 
-    it('does not invalidate the cards list on success — the feed already covers that, per this hook\'s own doc comment', async () => {
+    it("does not invalidate the cards list on success — the feed already covers that, per this hook's own doc comment", async () => {
         vi.spyOn(wilson.board, 'createCard').mockResolvedValue(created);
         const queryClient = new QueryClient();
         const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
@@ -588,7 +607,7 @@ describe('useAddPlanComment', () => {
         expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['plan-comments', '0007'] });
     });
 
-    it("does not show a notification on refusal — CommentableDraft reads the error itself so what was typed is never lost to a toast", async () => {
+    it('does not show a notification on refusal — CommentableDraft reads the error itself so what was typed is never lost to a toast', async () => {
         vi.spyOn(wilson.board, 'addAPlanComment').mockRejectedValue(
             new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'quote is empty' } }, new Headers()),
         );
@@ -658,9 +677,14 @@ describe('useResolvePlanComment', () => {
         expect(setQueryData).not.toHaveBeenCalled();
     });
 
-    it("does not show a notification on refusal — the same server sentence renders inline next to the comment instead", async () => {
+    it('does not show a notification on refusal — the same server sentence renders inline next to the comment instead', async () => {
         vi.spyOn(wilson.board, 'resolveAPlanComment').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'comment already resolved' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'comment already resolved' } },
+                new Headers(),
+            ),
         );
         const queryClient = new QueryClient();
         vi.mocked(notifications.show).mockClear();
@@ -922,7 +946,12 @@ describe('useAttachContext', () => {
 
     it("shows the API's own refusal reason as a notification titled 'Could not attach context'", async () => {
         vi.spyOn(wilson.context, 'attachContextToACard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'refused to fetch a private address' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'refused to fetch a private address' } },
+                new Headers(),
+            ),
         );
         const queryClient = new QueryClient();
 
@@ -969,7 +998,12 @@ describe('useRemoveContext', () => {
 
     it("shows the API's own refusal reason as a notification titled 'Could not remove the snapshot'", async () => {
         vi.spyOn(wilson.context, 'removeAContextSnapshot').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'no such context snapshot' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'no such context snapshot' } },
+                new Headers(),
+            ),
         );
         const queryClient = new QueryClient();
 

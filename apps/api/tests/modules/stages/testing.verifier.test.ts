@@ -263,7 +263,7 @@ describe('checkCounts', () => {
             expect(failures[0]).toMatch(/this plan declares/);
         });
 
-        it('AC4: with no ceiling passed, a rise from 0 to 1 fails with exactly today\'s message', () => {
+        it("AC4: with no ceiling passed, a rise from 0 to 1 fails with exactly today's message", () => {
             const failures = checkCounts({ ...counts, skipped: 1 }, { total: 10, skipped: 0 });
             expect(failures).toEqual(['the skipped-test count rose from 0 to 1: tests were skipped rather than fixed']);
         });
@@ -336,11 +336,11 @@ describe('redSuiteFailure', () => {
         expect(firstLine).toBe("the suite is not green: 1 failing: broken.test.ts failed to load: Cannot find module './x.js'");
     });
 
-    it('AC4: falls back to today\'s plain message when there is no report at all', () => {
+    it("AC4: falls back to today's plain message when there is no report at all", () => {
         expect(redSuiteFailure(undefined, run)).toBe(`the suite is not green: ${run.reason}`);
     });
 
-    it('AC4: falls back to today\'s plain message when the report parsed but named no failures', () => {
+    it("AC4: falls back to today's plain message when the report parsed but named no failures", () => {
         expect(redSuiteFailure({ total: 0, passed: 0, failed: 0, skipped: 0 }, run)).toBe(`the suite is not green: ${run.reason}`);
     });
 });
@@ -878,7 +878,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
         );
     });
 
-    it('AC2: a red run whose rerun is also red fails with today\'s message, and appends no test.flaky event', async () => {
+    it("AC2: a red run whose rerun is also red fails with today's message, and appends no test.flaky event", async () => {
         const worktree = await manager.create('0002', 'card/0002-thing');
         await mkdir(join(worktree.path, 'tests'), { recursive: true });
         await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
@@ -932,7 +932,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
         expect(calls).toHaveLength(1);
     });
 
-    it('AC4: the rerun runs stage.testCommand with only the failing files\' paths appended, deduplicated', async () => {
+    it("AC4: the rerun runs stage.testCommand with only the failing files' paths appended, deduplicated", async () => {
         const worktree = await manager.create('0004', 'card/0004-thing');
         await mkdir(join(worktree.path, 'tests'), { recursive: true });
         await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');

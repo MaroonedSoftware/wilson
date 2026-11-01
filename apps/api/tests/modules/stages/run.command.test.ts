@@ -197,7 +197,12 @@ describe('pnpmStoreLock onWaited callback', () => {
             await new Promise(resolve => setTimeout(resolve, 5));
         }
 
-        const second = pnpmStoreLock.run('card-0081-second', () => {}, async () => 'second-done', secondOnWaited);
+        const second = pnpmStoreLock.run(
+            'card-0081-second',
+            () => {},
+            async () => 'second-done',
+            secondOnWaited,
+        );
 
         // Give `second` a moment to actually queue behind `first` before releasing it — otherwise
         // "never called yet" would just mean "hasn't run yet", not "was never contended".
@@ -219,7 +224,12 @@ describe('pnpmStoreLock onWaited callback', () => {
     it('never fires when nothing else is contending for the lock', async () => {
         const onWaited = vi.fn();
 
-        const result = await pnpmStoreLock.run('card-0081-solo', () => {}, async () => 'solo-done', onWaited);
+        const result = await pnpmStoreLock.run(
+            'card-0081-solo',
+            () => {},
+            async () => 'solo-done',
+            onWaited,
+        );
 
         expect(result).toBe('solo-done');
         expect(onWaited).not.toHaveBeenCalled();

@@ -25,7 +25,7 @@ import { Markdown } from '#src/components/Markdown.js';
  * asserted on without depending on exactly how many text/strong/emphasis nodes it split into. */
 function text(nodes: PhrasingContent[]): string {
     return nodes
-        .map((node) => {
+        .map(node => {
             if (node.type === 'text' || node.type === 'inlineCode') return node.value;
             if ('children' in node) return text(node.children);
             return '';
@@ -60,7 +60,7 @@ describe('parseMarkdown', () => {
 
     it('treats a blank line as a paragraph break', () => {
         const tree = parseMarkdown('First paragraph.\n\nSecond paragraph.');
-        expect(tree.children.map((node) => node.type)).toEqual(['paragraph', 'paragraph']);
+        expect(tree.children.map(node => node.type)).toEqual(['paragraph', 'paragraph']);
         expect(text(asParagraph(tree.children[0]).children)).toBe('First paragraph.');
         expect(text(asParagraph(tree.children[1]).children)).toBe('Second paragraph.');
     });
@@ -78,7 +78,7 @@ describe('parseMarkdown', () => {
     it('parses a numbered list as ordered', () => {
         const list = asList(parseMarkdown('1. one\n2. two\n3. three').children[0]);
         expect(list.ordered).toBe(true);
-        expect(list.children.map((item) => text(asParagraph(item.children[0]).children))).toEqual(['one', 'two', 'three']);
+        expect(list.children.map(item => text(asParagraph(item.children[0]).children))).toEqual(['one', 'two', 'three']);
     });
 
     it("keeps a fenced code block's language and body verbatim", () => {
@@ -116,7 +116,7 @@ describe('parseMarkdown', () => {
             '- `apps/web/**`',
         ].join('\n');
         const tree = parseMarkdown(body);
-        expect(tree.children.map((node) => node.type)).toEqual(['heading', 'paragraph', 'heading', 'list', 'heading', 'list']);
+        expect(tree.children.map(node => node.type)).toEqual(['heading', 'paragraph', 'heading', 'list', 'heading', 'list']);
     });
 
     it('parses a quote as its own block', () => {
@@ -129,17 +129,17 @@ describe('parseMarkdown', () => {
         const blockquote = asBlockquote(
             parseMarkdown('> **Note.** First paragraph\n> wrapped onto two lines.\n>\n> - a listed point\n> - another').children[0],
         );
-        expect(blockquote.children.map((child) => child.type)).toEqual(['paragraph', 'list']);
+        expect(blockquote.children.map(child => child.type)).toEqual(['paragraph', 'list']);
         const paragraph = asParagraph(blockquote.children[0]);
         const list = asList(blockquote.children[1]);
-        expect(paragraph.children.some((node) => node.type === 'strong')).toBe(true);
+        expect(paragraph.children.some(node => node.type === 'strong')).toBe(true);
         expect(text(paragraph.children).replace(/\s+/g, ' ')).toBe('Note. First paragraph wrapped onto two lines.');
-        expect(list.children.map((item) => text(asParagraph(item.children[0]).children))).toEqual(['a listed point', 'another']);
+        expect(list.children.map(item => text(asParagraph(item.children[0]).children))).toEqual(['a listed point', 'another']);
     });
 
     it('ends a quote at the first unquoted line', () => {
         const tree = parseMarkdown('> quoted\n\nnot quoted');
-        expect(tree.children.map((node) => node.type)).toEqual(['blockquote', 'paragraph']);
+        expect(tree.children.map(node => node.type)).toEqual(['blockquote', 'paragraph']);
         const blockquote = asBlockquote(tree.children[0]);
         expect(text(asParagraph(blockquote.children[0]).children)).toBe('quoted');
         expect(text(asParagraph(tree.children[1]).children)).toBe('not quoted');
@@ -147,7 +147,7 @@ describe('parseMarkdown', () => {
 
     it('does not swallow a following paragraph into a preceding quote', () => {
         const tree = parseMarkdown('a paragraph\n> a quote');
-        expect(tree.children.map((node) => node.type)).toEqual(['paragraph', 'blockquote']);
+        expect(tree.children.map(node => node.type)).toEqual(['paragraph', 'blockquote']);
         expect(text(asParagraph(tree.children[0]).children)).toBe('a paragraph');
     });
 
@@ -155,15 +155,15 @@ describe('parseMarkdown', () => {
         const list = asList(parseMarkdown('- top\n  - nested\n- top2').children[0]);
         expect(list.children).toHaveLength(2);
         const [topItem, secondItem] = list.children;
-        expect(topItem?.children.map((child) => child.type)).toEqual(['paragraph', 'list']);
+        expect(topItem?.children.map(child => child.type)).toEqual(['paragraph', 'list']);
         const nested = asList(topItem?.children[1]);
-        expect(nested.children.map((item) => text(asParagraph(item.children[0]).children))).toEqual(['nested']);
+        expect(nested.children.map(item => text(asParagraph(item.children[0]).children))).toEqual(['nested']);
         expect(text(asParagraph(secondItem?.children[0]).children)).toBe('top2');
     });
 
     it('rewrites a [[nnnn]] card reference into a link to that card, leaving the surrounding text intact', () => {
         const paragraph = asParagraph(parseMarkdown('See [[0122]] for details.').children[0]);
-        const link = paragraph.children.find((node) => node.type === 'link');
+        const link = paragraph.children.find(node => node.type === 'link');
         expect(link).toBeDefined();
         if (link?.type !== 'link') throw new Error('expected a link');
         expect(link.url).toBe('/cards/0122');
@@ -207,7 +207,7 @@ describe('parseMarkdown', () => {
         // count the newline it walks past rather than assuming the match is on the node's start line.
         const tree = parseMarkdown('See\n[[0122]] for details.');
         const paragraph = asParagraph(tree.children[0]);
-        const link = paragraph.children.find((node) => node.type === 'link');
+        const link = paragraph.children.find(node => node.type === 'link');
         expect(link?.type).toBe('link');
         if (link?.type !== 'link') throw new Error('expected a link');
         expect(link.position?.start.line).toBe(2);
@@ -271,13 +271,13 @@ describe('Markdown', () => {
         await screen.findByText('top2');
         const outerList = container.querySelector('ul');
         if (!outerList) throw new Error('expected a rendered list');
-        const topLevelItems = Array.from(outerList.children).filter((child) => child.tagName === 'LI');
+        const topLevelItems = Array.from(outerList.children).filter(child => child.tagName === 'LI');
         expect(topLevelItems).toHaveLength(2);
         const nestedList = outerList.querySelector('ul');
         expect(nestedList).not.toBeNull();
         expect(nestedList?.textContent).toContain('nested');
         // The nested item is not one of the outer list's own two <li>s.
-        expect(topLevelItems.some((item) => item.querySelector('ul'))).toBe(true);
+        expect(topLevelItems.some(item => item.querySelector('ul'))).toBe(true);
     });
 
     it('renders [[0122]] as a link to card 0122', async () => {
@@ -295,9 +295,7 @@ describe('Markdown', () => {
     });
 
     it('keeps the structure inside a rendered blockquote rather than flattening it', async () => {
-        const { container } = renderMarkdown(
-            '> **Note.** First paragraph\n> wrapped onto two lines.\n>\n> - a listed point\n> - another',
-        );
+        const { container } = renderMarkdown('> **Note.** First paragraph\n> wrapped onto two lines.\n>\n> - a listed point\n> - another');
         const note = await screen.findByText('Note.');
         expect(note.tagName).toBe('SPAN');
         const list = container.querySelector('ul');

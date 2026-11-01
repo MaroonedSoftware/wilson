@@ -24,11 +24,7 @@
                 var wilsonColorScheme =
                     _wilsonColorScheme === 'light' || _wilsonColorScheme === 'dark' || _wilsonColorScheme === 'auto' ? _wilsonColorScheme : 'auto';
                 var wilsonComputedColorScheme =
-                    wilsonColorScheme !== 'auto'
-                        ? wilsonColorScheme
-                        : window.matchMedia('(prefers-color-scheme: dark)').matches
-                          ? 'dark'
-                          : 'light';
+                    wilsonColorScheme !== 'auto' ? wilsonColorScheme : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 document.documentElement.setAttribute('data-mantine-color-scheme', wilsonComputedColorScheme);
             } catch (e) {}
         </script>

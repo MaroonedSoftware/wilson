@@ -98,7 +98,9 @@ describe('CliStageAgent prompt wiring', () => {
 
         // Every occurrence of "delete" in the prompt must be part of the qualified tool name;
         // none may stand alone the way board config's wrong paragraph used to write it.
-        const bareDeletes = promptFromCall().replace(new RegExp(qualifiedDeleteTool(), 'g'), '').match(/delete/gi);
+        const bareDeletes = promptFromCall()
+            .replace(new RegExp(qualifiedDeleteTool(), 'g'), '')
+            .match(/delete/gi);
         expect(bareDeletes).toBeNull();
     });
 

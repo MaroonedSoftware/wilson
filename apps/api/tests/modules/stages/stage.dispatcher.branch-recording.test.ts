@@ -108,12 +108,7 @@ describe("StageDispatcher records a card's branch on first dispatch and prefers 
         return { config, board, events, worktrees };
     };
 
-    const buildDispatcher = (
-        config: StaticBoardConfig,
-        board: BoardRepository,
-        events: { append: ReturnType<typeof vi.fn> },
-        worktrees: unknown,
-    ) => {
+    const buildDispatcher = (config: StaticBoardConfig, board: BoardRepository, events: { append: ReturnType<typeof vi.fn> }, worktrees: unknown) => {
         const agents = new StageAgentMap();
         agents.set('api', {
             run: async (): Promise<AgentRunOutput> => ({ result: { summary: 'did the thing' }, usage: { inputTokens: 10 }, truncated: false }),

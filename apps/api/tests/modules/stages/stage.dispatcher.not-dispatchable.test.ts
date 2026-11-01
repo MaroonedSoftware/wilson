@@ -171,7 +171,7 @@ describe('StageDispatcher assertDispatchable — NotDispatchableError discrimina
      * moment after `approve()` runs. This must not throw at all.
      */
     describe('the head/card split (card 0109)', () => {
-        it('dispatches normally when the pinned plan\'s stage differs from the live card\'s stage', () => {
+        it("dispatches normally when the pinned plan's stage differs from the live card's stage", () => {
             const head = card('0001', 'testing');
             const pinned = card('0001', 'backlog');
 

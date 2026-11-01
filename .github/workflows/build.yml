@@ -37,9 +37,8 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
-            # A warning, not a gate, until the tree has been formatted once.
             - name: Check formatting
-              run: pnpm format:check || echo "::warning title=Formatting::Prettier found unformatted files (listed in this step's log). Run pnpm format to fix them."
+              run: pnpm format:check
 
             # `lint:check`, never `lint`: that one is `eslint --fix`.
             - name: Lint

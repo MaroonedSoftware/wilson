@@ -69,7 +69,10 @@ const fakeLogger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug:
 
 /** A `CardSourceRegistry`-agnostic `CardSource` fake: records every cursor it was asked with, and
  * hands back a canned sequence of results (the last one repeats once exhausted). */
-const trackingSource = (name: string, results: Array<{ ok: true; items: never[]; cursor: string }>): { source: CardSource; receivedCursors: (string | undefined)[] } => {
+const trackingSource = (
+    name: string,
+    results: Array<{ ok: true; items: never[]; cursor: string }>,
+): { source: CardSource; receivedCursors: (string | undefined)[] } => {
     const receivedCursors: (string | undefined)[] = [];
     let call = 0;
     const source: CardSource = {
@@ -299,7 +302,11 @@ describe('SourcePoller start/stop', () => {
 
         poller.start();
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(SOURCE_POLL_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                SOURCE_POLL_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
         releaseTick();
 
@@ -357,11 +364,17 @@ describe('SourcePoller start/stop', () => {
 
         poller.start();
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(SOURCE_POLL_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                SOURCE_POLL_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
 
         releaseTick();
-        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
 
         await poller.stop();
     });
@@ -414,7 +427,11 @@ describe('SourcePoller start/stop', () => {
 
             poller.start();
             await vi.waitFor(() =>
-                expect(delayMock).toHaveBeenCalledWith(SOURCE_POLL_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+                expect(delayMock).toHaveBeenCalledWith(
+                    SOURCE_POLL_INTERVAL_MS_DEFAULT,
+                    undefined,
+                    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+                ),
             );
             expect(logger.error).toHaveBeenCalledWith(boom);
 
@@ -422,7 +439,11 @@ describe('SourcePoller start/stop', () => {
             // default again — rather than busy-looping or giving up after a single retry.
             releaseTick();
             await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
-            expect(delayMock).toHaveBeenLastCalledWith(SOURCE_POLL_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+            expect(delayMock).toHaveBeenLastCalledWith(
+                SOURCE_POLL_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
             expect(logger.error).toHaveBeenCalledTimes(2);
 
             await poller.stop();
@@ -456,7 +477,11 @@ describe('SourcePoller start/stop', () => {
             poller.start();
             // Never having read a good value yet, the first failure falls back to the default.
             await vi.waitFor(() =>
-                expect(delayMock).toHaveBeenCalledWith(SOURCE_POLL_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+                expect(delayMock).toHaveBeenCalledWith(
+                    SOURCE_POLL_INTERVAL_MS_DEFAULT,
+                    undefined,
+                    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+                ),
             );
 
             releaseTick();
@@ -536,7 +561,13 @@ describe('SourcePoller — end to end against a real board', () => {
             undefined as unknown as SettingsStore,
             new StaticStageConfigStore(),
         );
-        const writer = new InboundCardWriter(boardWriteService, board, new CacheIdempotencyStore(new PostgresCacheProvider(db)), config, fakeLogger());
+        const writer = new InboundCardWriter(
+            boardWriteService,
+            board,
+            new CacheIdempotencyStore(new PostgresCacheProvider(db)),
+            config,
+            fakeLogger(),
+        );
         const cursors = new SourceCursorRepository(config, db);
         const registry = new CardSourceRegistry([source]);
         return { board, config, cursors, project, registry, writer };
@@ -570,7 +601,11 @@ describe('SourcePoller — end to end against a real board', () => {
                 // A real source bumps `version` when the item genuinely changes (GitHubIssuesSource
                 // uses the issue's `updated_at`); holding it fixed here would make the second delivery a
                 // duplicate by card 0197's key, which is the dedup working, not an update being lost.
-                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}`, closed: false }], cursor: `cursor-${call}` };
+                return {
+                    ok: true,
+                    items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}`, closed: false }],
+                    cursor: `cursor-${call}`,
+                };
             },
         };
         const { board, config, cursors, registry, writer } = freshPoller(source);

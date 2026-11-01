@@ -64,7 +64,7 @@ describe('container wiring (card 0112)', () => {
         DevicesService,
     ]);
 
-    it('builds the app\'s own container and resolves every registration', async () => {
+    it("builds the app's own container and resolves every registration", async () => {
         const config = await buildTestServerConfig();
         const logger = new ConsoleLogger();
         const serverBuilder = new ServerKitServerBuilder();
@@ -100,7 +100,7 @@ describe('container wiring (card 0112)', () => {
         }
     });
 
-    it('uses the app\'s own modules and buildConfig, not a hand-assembled list', () => {
+    it("uses the app's own modules and buildConfig, not a hand-assembled list", () => {
         // A regression guard on the test itself: importing anything other than these two exports
         // from `cli-bootstrap.ts` would prove a hand-assembled list resolves, not the app's own —
         // exactly the gap this card closes. Asserting on their identity here means a future edit

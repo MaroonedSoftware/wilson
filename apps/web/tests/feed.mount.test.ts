@@ -52,8 +52,7 @@ afterEach(() => {
 const renderFeed = () => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-    const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(QueryClientProvider, { client: queryClient }, children);
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
     const hook = renderHook(() => useCardFeed(), { wrapper });
     return { ...hook, invalidateQueries };
 };

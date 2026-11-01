@@ -85,7 +85,9 @@ describe('classifyDispatchFailure', () => {
         });
 
         it('still poisons an invalid_request_error that is not an overflow', () => {
-            const error = new Error('{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}');
+            const error = new Error(
+                '{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}',
+            );
 
             expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison', error });
         });

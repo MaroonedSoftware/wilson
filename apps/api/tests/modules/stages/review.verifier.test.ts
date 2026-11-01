@@ -136,7 +136,7 @@ describe('ReviewVerifier', () => {
         expect(outcome.passed).toBe(false);
         expect(outcome.failures).toHaveLength(1);
         expect(outcome.failures[0]).toContain('src/missing.ts');
-        expect(outcome.failures[0]).toContain('not in this card\'s diff');
+        expect(outcome.failures[0]).toContain("not in this card's diff");
         expect(outcome.failures[0]).toContain('report it as kind "omission"');
         expect(warnCalls).toEqual([]);
     });
@@ -308,9 +308,7 @@ describe('ReviewVerifier', () => {
             const outcome = await verifier.verify(verifyInput(worktree, result, card));
 
             expect(outcome.passed).toBe(false);
-            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts:99') && f.includes('has only 3 lines'))).toBe(
-                true,
-            );
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/kept.ts:99') && f.includes('has only 3 lines'))).toBe(true);
         });
 
         it('fails a "met" criterion citing a line past the end of the file', async () => {
@@ -328,9 +326,7 @@ describe('ReviewVerifier', () => {
             const outcome = await verifier.verify(verifyInput(worktree, result, card));
 
             expect(outcome.passed).toBe(false);
-            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/changed.ts:99') && f.includes('has only 3 lines'))).toBe(
-                true,
-            );
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('src/changed.ts:99') && f.includes('has only 3 lines'))).toBe(true);
         });
 
         it('fails "pass" when any criterion is "unmet"', async () => {
@@ -427,7 +423,7 @@ describe('ReviewVerifier', () => {
      * the card's code, not the report — is among the failures.
      */
     describe('reportRejected', () => {
-        it('is true when every failure is a fault in the review\'s own report', async () => {
+        it("is true when every failure is a fault in the review's own report", async () => {
             const worktree = await manager.create('0001', 'card/0001-thing');
             await makeDiff(worktree);
             const card = cardWithCriteria('- AC1: does the thing');

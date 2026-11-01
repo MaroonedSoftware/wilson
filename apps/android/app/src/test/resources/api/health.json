@@ -1,8 +1,8 @@
 {
-  "ok": true,
-  "project": "wilson-test",
-  "head": "unknown",
-  "startedAt": "2026-10-31T18:53:20.561Z",
-  "codeRoot": "/tmp/wilson-container-test/code",
-  "worktreeRoot": "/tmp/wilson-container-test/.worktrees"
+    "ok": true,
+    "project": "wilson-test",
+    "head": "unknown",
+    "startedAt": "2026-10-31T18:53:20.561Z",
+    "codeRoot": "/tmp/wilson-container-test/code",
+    "worktreeRoot": "/tmp/wilson-container-test/.worktrees"
 }

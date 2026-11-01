@@ -51,7 +51,13 @@ function relativeLuminance(hex: string): number {
 
 function hexToRgb(hex: string): [number, number, number] {
     const normalized = hex.replace('#', '');
-    const expanded = normalized.length === 3 ? normalized.split('').map(c => c + c).join('') : normalized;
+    const expanded =
+        normalized.length === 3
+            ? normalized
+                  .split('')
+                  .map(c => c + c)
+                  .join('')
+            : normalized;
     const value = Number.parseInt(expanded, 16);
     return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }

@@ -87,11 +87,7 @@ const buildHome = async (withDecoyMcpServer: boolean): Promise<string> => {
     await mkdir(claudeDir, { recursive: true });
     const scriptPath = join(claudeDir, 'decoy-mcp-server.cjs');
     await writeFile(scriptPath, DECOY_SERVER_SCRIPT, 'utf8');
-    await writeFile(
-        join(claudeDir, 'settings.json'),
-        JSON.stringify({ outputStyle: 'Explanatory', permissions: { allow: ['Bash(*)'] } }),
-        'utf8',
-    );
+    await writeFile(join(claudeDir, 'settings.json'), JSON.stringify({ outputStyle: 'Explanatory', permissions: { allow: ['Bash(*)'] } }), 'utf8');
     // `Settings` (settings.json's own schema) carries no `mcpServers` key at all — a server an
     // operator adds via `claude mcp add --scope user` is recorded in `~/.claude.json` instead, which
     // is the file this repo's own leaked `codebase-memory-mcp` server actually lives in.
@@ -138,48 +134,42 @@ const initMessageFor = async (home: string, options: Record<string, unknown> = {
 };
 
 describe('the cli adapter’s real tool surface, from a live engine’s init message', () => {
-    it(
-        'is exactly this adapter’s three mcp tools plus the engine tools the guard names, with no other mcp__ tool, and does not vary with the operator’s settings files',
-        async () => {
-            const bareHome = await buildHome(false);
-            const decoyHome = await buildHome(true);
+    it('is exactly this adapter’s three mcp tools plus the engine tools the guard names, with no other mcp__ tool, and does not vary with the operator’s settings files', async () => {
+        const bareHome = await buildHome(false);
+        const decoyHome = await buildHome(true);
 
-            // The fix this card makes: pinned, the two homes — one with no settings file at all, one
-            // whose settings.json names a real, working MCP server — resolve identically.
-            const [withNoSettings, withADecoyServerConfigured] = await Promise.all([
-                initMessageFor(bareHome, { settingSources: [], strictMcpConfig: true }),
-                initMessageFor(decoyHome, { settingSources: [], strictMcpConfig: true }),
-            ]);
+        // The fix this card makes: pinned, the two homes — one with no settings file at all, one
+        // whose settings.json names a real, working MCP server — resolve identically.
+        const [withNoSettings, withADecoyServerConfigured] = await Promise.all([
+            initMessageFor(bareHome, { settingSources: [], strictMcpConfig: true }),
+            initMessageFor(decoyHome, { settingSources: [], strictMcpConfig: true }),
+        ]);
 
-            for (const init of [withNoSettings, withADecoyServerConfigured]) {
-                // Read/Glob/Grep/Write/Edit/Bash are the names `createToolGuard` gates by, but this
-                // installed CLI's `init` message only ever lists a `Read`/`Write`/`Edit`/`Bash`
-                // quartet as top-level tool names — so only those four are asserted; the guard staying
-                // ready for `Glob`/`Grep` if a future CLI reintroduces them by name is that guard's own
-                // suite's concern, not this one's.
-                expect(init.tools).toEqual(expect.arrayContaining(['Read', 'Write', 'Edit', 'Bash']));
-                expect(init.tools).toEqual(
-                    expect.arrayContaining(['mcp__wilson__report_result', 'mcp__wilson__request_scope', 'mcp__wilson__delete']),
-                );
+        for (const init of [withNoSettings, withADecoyServerConfigured]) {
+            // Read/Glob/Grep/Write/Edit/Bash are the names `createToolGuard` gates by, but this
+            // installed CLI's `init` message only ever lists a `Read`/`Write`/`Edit`/`Bash`
+            // quartet as top-level tool names — so only those four are asserted; the guard staying
+            // ready for `Glob`/`Grep` if a future CLI reintroduces them by name is that guard's own
+            // suite's concern, not this one's.
+            expect(init.tools).toEqual(expect.arrayContaining(['Read', 'Write', 'Edit', 'Bash']));
+            expect(init.tools).toEqual(expect.arrayContaining(['mcp__wilson__report_result', 'mcp__wilson__request_scope', 'mcp__wilson__delete']));
 
-                // The absence this card exists to prove: no `mcp__` tool from any server but this
-                // adapter's own — not "the guard would deny it if offered", which `mcp__elsewhere__…`
-                // in `cli.tool.guard.test.ts` already covers and doesn't need repeating here.
-                const mcpTools = init.tools.filter(name => name.startsWith('mcp__')).sort();
-                expect(mcpTools).toEqual(['mcp__wilson__delete', 'mcp__wilson__report_result', 'mcp__wilson__request_scope']);
-            }
+            // The absence this card exists to prove: no `mcp__` tool from any server but this
+            // adapter's own — not "the guard would deny it if offered", which `mcp__elsewhere__…`
+            // in `cli.tool.guard.test.ts` already covers and doesn't need repeating here.
+            const mcpTools = init.tools.filter(name => name.startsWith('mcp__')).sort();
+            expect(mcpTools).toEqual(['mcp__wilson__delete', 'mcp__wilson__report_result', 'mcp__wilson__request_scope']);
+        }
 
-            // Not merely "no leaked mcp__ tool" on each run individually — the whole resolved surface,
-            // tool-for-tool, is the same whether the settings file exists or not. That's what makes the
-            // stage reproducible rather than a function of whichever settings file happens to be there.
-            expect(withNoSettings.tools.slice().sort()).toEqual(withADecoyServerConfigured.tools.slice().sort());
+        // Not merely "no leaked mcp__ tool" on each run individually — the whole resolved surface,
+        // tool-for-tool, is the same whether the settings file exists or not. That's what makes the
+        // stage reproducible rather than a function of whichever settings file happens to be there.
+        expect(withNoSettings.tools.slice().sort()).toEqual(withADecoyServerConfigured.tools.slice().sort());
 
-            // And the decoy server itself is real, not inert: pointed at by the same settings.json but
-            // read *without* this card's fix, its tool does leak onto the list. Without this, a decoy
-            // that silently failed to connect would make every assertion above pass vacuously.
-            const unpinned = await initMessageFor(decoyHome, {});
-            expect(unpinned.tools).toContain('mcp__decoy__ping');
-        },
-        60000,
-    );
+        // And the decoy server itself is real, not inert: pointed at by the same settings.json but
+        // read *without* this card's fix, its tool does leak onto the list. Without this, a decoy
+        // that silently failed to connect would make every assertion above pass vacuously.
+        const unpinned = await initMessageFor(decoyHome, {});
+        expect(unpinned.tools).toContain('mcp__decoy__ping');
+    }, 60000);
 });

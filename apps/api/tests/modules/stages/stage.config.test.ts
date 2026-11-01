@@ -239,10 +239,7 @@ describe('findStage sandbox resolution (AC5)', () => {
     });
 
     it('falls back to the project-wide default, domains included, when the stage sets nothing', () => {
-        const stage = findStage(
-            projectStages({ sandbox: { enabled: true, allowedDomains: ['example.com'] } }),
-            'implementing',
-        );
+        const stage = findStage(projectStages({ sandbox: { enabled: true, allowedDomains: ['example.com'] } }), 'implementing');
         expect(stage.sandbox).toBe(true);
         expect(stage.sandboxAllowedDomains).toEqual(['example.com']);
     });

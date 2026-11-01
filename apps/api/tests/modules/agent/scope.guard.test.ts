@@ -156,7 +156,8 @@ describe('ScopeGuard', () => {
     });
 
     describe('collateral', () => {
-        const guardWithCollateral = (allow: string[], collateral: string[]) => new ScopeGuard({ worktreeRoot: root, allow, alwaysAllowed: [], collateral });
+        const guardWithCollateral = (allow: string[], collateral: string[]) =>
+            new ScopeGuard({ worktreeRoot: root, allow, alwaysAllowed: [], collateral });
 
         it('allows a write to a path outside scope when it is listed as collateral, and reports via collateral', async () => {
             const g = guardWithCollateral(['src/runner/**'], ['src/other/thing.ts']);

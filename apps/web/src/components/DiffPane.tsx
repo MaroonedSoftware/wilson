@@ -137,11 +137,7 @@ function HunkView({
 }) {
     return (
         <Stack gap={0}>
-            <Text
-                size="xs"
-                c="dimmed"
-                style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}
-            >
+            <Text size="xs" c="dimmed" style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}>
                 {hunk.header}
             </Text>
             {hunk.lines.map((line, index) => {
@@ -241,7 +237,13 @@ function FileEntry({
                         {file.path}
                     </Text>
                 </Group>
-                <FileDiff file={file} activeLine={activeLine} onSelectLine={onSelectLine} onAddComment={onAddComment} onCancelComment={onCancelComment} />
+                <FileDiff
+                    file={file}
+                    activeLine={activeLine}
+                    onSelectLine={onSelectLine}
+                    onAddComment={onAddComment}
+                    onCancelComment={onCancelComment}
+                />
             </Stack>
         </Paper>
     );
@@ -277,9 +279,7 @@ function PendingCommentsPanel({
     return (
         <Paper withBorder p="sm" radius="sm">
             <Stack gap={8}>
-                <Title order={5}>
-                    Pending comments ({pending.length})
-                </Title>
+                <Title order={5}>Pending comments ({pending.length})</Title>
                 {pending.map((comment, index) => (
                     <Group key={index} justify="space-between" wrap="nowrap" align="flex-start">
                         <Stack gap={2}>

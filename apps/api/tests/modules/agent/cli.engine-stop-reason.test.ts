@@ -118,7 +118,10 @@ describe('CliStageAgent — engineStopReason (card 0118)', () => {
     it('names the SDK subtype and stop_reason when a clean turn ends without ever calling report_result', async () => {
         const root = await makeWorktree();
         queryMock.mockReturnValue(
-            streamOf([proseOnlyMessage, { type: 'result', subtype: 'success', stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }]),
+            streamOf([
+                proseOnlyMessage,
+                { type: 'result', subtype: 'success', stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } },
+            ]),
         );
         const agent = new CliStageAgent(silentLogger as never);
 
@@ -160,7 +163,10 @@ describe('CliStageAgent — engineStopReason (card 0118)', () => {
     it('names a non-success subtype even without a stop_reason, on the truncated path', async () => {
         const root = await makeWorktree();
         queryMock.mockReturnValue(
-            streamOf([proseOnlyMessage, { type: 'result', subtype: 'error_max_turns', stop_reason: null, usage: { input_tokens: 10, output_tokens: 5 } }]),
+            streamOf([
+                proseOnlyMessage,
+                { type: 'result', subtype: 'error_max_turns', stop_reason: null, usage: { input_tokens: 10, output_tokens: 5 } },
+            ]),
         );
         const agent = new CliStageAgent(silentLogger as never);
 

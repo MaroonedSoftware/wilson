@@ -108,7 +108,10 @@ describe('ProjectsService', () => {
             const create = async () => {
                 throw new Error('create should not have been called');
             };
-            const repository = { find: async () => ({ name: 'wilson', codeRoot: '/x', worktreeRoot: '/x', runRoot: '/x' }), create } as unknown as ProjectRepository;
+            const repository = {
+                find: async () => ({ name: 'wilson', codeRoot: '/x', worktreeRoot: '/x', runRoot: '/x' }),
+                create,
+            } as unknown as ProjectRepository;
             const service = serviceOver(repository);
 
             await expect(service.create(request())).rejects.toMatchObject({

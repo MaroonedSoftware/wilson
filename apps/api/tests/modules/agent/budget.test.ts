@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { budgetedInputTokens, contextBudgetExceeded, overBudget, sumInputTokens, tokenBudgetExceeded, wallClockExceeded } from '#modules/agent/budget.js';
+import {
+    budgetedInputTokens,
+    contextBudgetExceeded,
+    overBudget,
+    sumInputTokens,
+    tokenBudgetExceeded,
+    wallClockExceeded,
+} from '#modules/agent/budget.js';
 
 /**
  * Card 0015: nothing bounded input tokens before this. One stage consumed 6.3M input tokens while
