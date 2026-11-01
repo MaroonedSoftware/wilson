@@ -1,0 +1,17 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:core="using:MaroonedSoftware.Wilson.Desktop.Core.Chat"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatActivityLine">
+    <DockPanel x:Name="Line">
+        <Viewbox DockPanel.Dock="Left" Width="13" Height="13" Margin="0,1,6,0" VerticalAlignment="Top"><Path Classes="stroke" Data="{StaticResource IconBolt}" /></Viewbox>
+        <ItemsControl x:Name="Ran">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="core:ChatActivity">
+                    <TextBlock Classes="quiet" Classes.error="{Binding Failed}" FontSize="12" Text="{Binding Label}" Margin="0,0,10,0" ToolTip.Tip="{Binding Arguments}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </DockPanel>
+</UserControl>

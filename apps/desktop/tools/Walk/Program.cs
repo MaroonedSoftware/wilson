@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -153,6 +154,20 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         }
 
         Console.WriteLine($"ok   {what} ({shell.Page?.GetType().Name})");
+    }
+
+    /// <summary>Text from the keyboard, into whatever has the focus, as a person's would arrive.</summary>
+    public void Type(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.KeyTextInput(text);
+    }
+
+    public void Press(Key key, PhysicalKey physical)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.KeyPressQwerty(physical, RawInputModifiers.None);
+        window.KeyReleaseQwerty(physical, RawInputModifiers.None);
     }
 
     public void Shot(string name)

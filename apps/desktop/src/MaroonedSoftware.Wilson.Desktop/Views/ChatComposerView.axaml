@@ -1,0 +1,18 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatComposerView"
+    x:DataType="vm:ChatViewModel">
+    <Border Classes="composer" PointerPressed="BoxPressed">
+        <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="send" Classes.ready="{Binding CanSend}" IsEnabled="{Binding CanSend}" Command="{Binding SendCommand}" VerticalAlignment="Bottom" Margin="8,0,0,0" ToolTip.Tip="Send (Enter). Shift+Enter for a new line">
+                <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconArrowUp}" /></Viewbox>
+            </Button>
+            <Border DockPanel.Dock="Right" Classes="key" VerticalAlignment="Bottom" Margin="0,0,0,8" IsVisible="{Binding Offered, Converter={x:Static ObjectConverters.IsNotNull}}" ToolTip.Tip="Press Tab to use the suggestion">
+                <TextBlock Classes="quiet" Text="Tab" FontSize="11" />
+            </Border>
+            <TextBox x:Name="Box" Classes="bare" Text="{Binding Composer}" PlaceholderText="{Binding Hint}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="190" />
+        </DockPanel>
+    </Border>
+</UserControl>

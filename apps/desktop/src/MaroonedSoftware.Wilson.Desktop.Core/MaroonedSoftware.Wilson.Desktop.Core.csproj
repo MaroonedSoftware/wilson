@@ -15,6 +15,7 @@
 
     <ItemGroup>
         <ProjectReference Include="../../../../packages/sdk-csharp/WilsonSdk.csproj" />
+        <PackageReference Include="Markdig" />
     </ItemGroup>
 
 </Project>
