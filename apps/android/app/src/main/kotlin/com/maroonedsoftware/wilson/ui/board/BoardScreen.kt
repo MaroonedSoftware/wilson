@@ -45,7 +45,7 @@ import com.maroonedsoftware.wilson.ui.StateIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit, onNewCard: (project: String) -> Unit, onChat: () -> Unit) {
+fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit, onNewCard: (project: String) -> Unit, onChat: () -> Unit, onActivity: (project: String) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(state.project) {
@@ -64,6 +64,7 @@ fun BoardScreen(model: BoardModel, onCard: (project: String, id: String) -> Unit
             TopAppBar(
                 title = { ProjectSwitcher(state, model::selectProject) },
                 actions = {
+                    state.project?.let { project -> TextButton(onClick = { onActivity(project) }) { Text("Activity") } }
                     TextButton(onClick = onChat) { Text("Chat") }
                     TextButton(onClick = model::signOut) { Text("Sign out") }
                 },
