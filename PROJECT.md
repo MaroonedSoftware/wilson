@@ -717,7 +717,7 @@ from `AUTH_SESSION_KEY_FILE`, default `../.wilson-secrets/session.pem` beside th
 generates its keys. Refusing to boot without one would be stricter, but the CLI builds the same
 container, so an unset key would stop every `wilson` command and the daemon's next restart.
 
-**Factors.** A password (Argon2id, rate-limited per account and per caller) is the first factor.
+**Factors.** A password (Argon2id, rate-limited per account) is the first factor.
 An authenticator app (TOTP) and passkeys are the second. With one enrolled, a correct password
 answers `mfa_required` with a five-minute challenge instead of a session, and the `authenticator`
 grant completes it with a code; each code works once. The TOTP seed is stored encrypted under a
