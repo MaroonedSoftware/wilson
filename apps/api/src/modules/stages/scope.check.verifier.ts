@@ -111,6 +111,17 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
 const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.sites > max.sites ? g : max));
 
 /**
+ * What identifies a Tasks-section item when a division cites it: its number when it has one, otherwise
+ * its text. `ScopeGroupSchema` invites a model to "quote or number" an item, so the same task can come
+ * back as `1. apps/api/data/migrations/x.sql (new)` in `groups` and `1. migration` in `division`. Card
+ * 0004 lost a supported refusal to exactly that, with all twenty of its citations judged invented.
+ */
+const taskKey = (task: string): string => {
+    const trimmed = task.trim();
+    return /^(\d+)(?:[.):]|$)/.exec(trimmed)?.[1] ?? trimmed;
+};
+
+/**
  * The scope-check stage's exit condition: does the plan fit in one pass.
  *
  * This lane judges, it does not split (card 0105's Goal) — merit (is the card actually too large) is
@@ -224,11 +235,11 @@ export class ScopeCheckVerifier implements StageVerifier {
             // A division is only real if it is built from work the model actually reported seeing.
             // Not full-coverage checked (a piece is free to leave shared plumbing ungrouped) — only
             // that nothing it names is invented.
-            const namedTasks = new Set(groups.flatMap(g => g.tasks));
+            const namedTasks = new Set(groups.flatMap(g => g.tasks).map(taskKey));
             const pieceTitles = new Set(division.map(p => p.title));
             for (const piece of division) {
                 for (const task of piece.tasks) {
-                    if (!namedTasks.has(task)) {
+                    if (!namedTasks.has(taskKey(task))) {
                         failures.push(`division piece "${piece.title}" cites task "${task}", which is not among the reported groups`);
                     }
                 }

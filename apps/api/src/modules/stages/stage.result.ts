@@ -165,7 +165,7 @@ export const ScopeGroupSchema = z.object({
  */
 export const ScopeDivisionPieceSchema = z.object({
     title: z.string().describe('A short name for this piece.'),
-    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry.'),
+    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry — cite them the way `groups` does.'),
     delivers: z.string().describe('What this piece would deliver on its own, if built alone.'),
     dependsOn: z
         .array(z.string())

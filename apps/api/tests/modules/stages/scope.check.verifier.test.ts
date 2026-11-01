@@ -200,8 +200,7 @@ describe('ScopeCheckVerifier', () => {
         summary: 'one link-migration task that touches every internal link in the app',
         groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: 10 }],
         verdict: 'refuse',
-        reason:
-            'one task, but it touches roughly ten files — the same shape that exhausted card 0151\'s step budget nine times over.',
+        reason: "one task, but it touches roughly ten files — the same shape that exhausted card 0151's step budget nine times over.",
         division: [
             { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration' },
             { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration' },
@@ -329,13 +328,67 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures.some(f => f.includes('a piece nobody proposed'))).toBe(true);
     });
 
+    describe('citing numbered tasks', () => {
+        const numbered: ScopeCheckResult = {
+            ...card0075,
+            groups: [
+                {
+                    title: 'add a write endpoint',
+                    tasks: [
+                        '1. create card endpoint in board.router.ts',
+                        '2) edit card endpoint',
+                        '3: move card endpoint',
+                        '4. depend card endpoint',
+                    ],
+                    sites: 4,
+                },
+            ],
+        };
+
+        // Card 0004: the groups quoted each task in full and the division abbreviated the same numbers.
+        it('accepts a division that abbreviates a numbered task', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['1. create', '2'], delivers: 'create and edit' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures).toEqual([`refusing: ${numbered.reason}`]);
+            expect(outcome.supportedRefusal?.division).toHaveLength(2);
+        });
+
+        it('still rejects a number no group reported', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['5. create'], delivers: 'create' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures.some(f => f.includes('"5. create"'))).toBe(true);
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('reads a leading number as a task number only when it is punctuated as one', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['1 endpoint'], delivers: 'create' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures.some(f => f.includes('"1 endpoint"'))).toBe(true);
+        });
+    });
+
     it('rejects a refusal whose division cites a task no group reported', async () => {
         const outcome = await verify({
             ...card0075,
-            division: [
-                ...card0075.division.slice(1),
-                { title: 'invented piece', tasks: ['a task nobody reported'], delivers: 'nothing real' },
-            ],
+            division: [...card0075.division.slice(1), { title: 'invented piece', tasks: ['a task nobody reported'], delivers: 'nothing real' }],
         });
 
         expect(outcome.passed).toBe(false);
@@ -374,7 +427,7 @@ describe('ScopeCheckVerifier', () => {
             ...card0079,
             groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c'], sites: 3 }],
             verdict: 'pass',
-            reason: 'three near-identical fields, one below this stage\'s repetition threshold.',
+            reason: "three near-identical fields, one below this stage's repetition threshold.",
         };
 
         const outcome = await verify(belowThreshold);
@@ -471,7 +524,7 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures[0]).toContain('repeats across');
     });
 
-    it('still passes card 0079\'s three-group shape now that depth is checked too', async () => {
+    it("still passes card 0079's three-group shape now that depth is checked too", async () => {
         const outcome = await verify(card0079);
 
         expect(outcome.passed).toBe(true);
@@ -602,7 +655,7 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([`refusing: ${card0153.reason}`]);
     });
 
-    it('still passes card 0079\'s three-group shape now that fan-out is checked too', async () => {
+    it("still passes card 0079's three-group shape now that fan-out is checked too", async () => {
         const outcome = await verify(card0079);
 
         expect(outcome.passed).toBe(true);
@@ -618,7 +671,7 @@ describe('ScopeCheckVerifier', () => {
             ...card0079,
             groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: FANOUT_THRESHOLD - 1 }],
             verdict: 'pass',
-            reason: 'one task touching several files, one below this stage\'s fan-out threshold.',
+            reason: "one task touching several files, one below this stage's fan-out threshold.",
         };
 
         const outcome = await verify(belowThreshold);
