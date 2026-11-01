@@ -15,6 +15,7 @@ import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 const exec = promisify(execFile);
 
@@ -102,6 +103,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
@@ -163,6 +165,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
 
     const daemonStaleEvents = (): unknown[] => events.append.mock.calls.map(c => c[0]).filter((e: { type: string }) => e.type === 'daemon.stale');

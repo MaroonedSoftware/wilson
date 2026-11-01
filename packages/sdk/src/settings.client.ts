@@ -3,6 +3,7 @@ import type {
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
+    DrainStatus,
     DryRunSetting,
     EngineTokenSetting,
     GitHubAppSetting,
@@ -13,6 +14,7 @@ import type {
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
+    SetDrainRequest,
     SetDryRunSettingRequest,
     SetEngineTokenSettingRequest,
     SetGitHubAppSettingRequest,
@@ -44,6 +46,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<PollerSetting>(result);
+    }
+
+    /** @name Get drain status */
+    async getDrainStatus(): Promise<DrainStatus> {
+        const result = await this.fetch(`/api/settings/drain`, { method: 'GET' });
+        return await parseJson<DrainStatus>(result);
+    }
+
+    /** @name Set drain */
+    async setDrain(body: SetDrainRequest): Promise<DrainStatus> {
+        const result = await this.fetch(`/api/settings/drain`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<DrainStatus>(result);
     }
 
     /** @name Get poller interval */

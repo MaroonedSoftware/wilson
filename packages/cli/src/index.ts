@@ -48,6 +48,9 @@ import hostSetCommand from './commands/host/set.command.js';
 import hostTokenCommand from './commands/host/token.command.js';
 import hostUnserveCommand from './commands/host/unserve.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
+import serverDrainCommand from './commands/server/drain.command.js';
+import serverResumeCommand from './commands/server/resume.command.js';
+import serverStatusCommand from './commands/server/status.command.js';
 import stagesShowCommand from './commands/stages/show.command.js';
 import stagesEditCommand from './commands/stages/edit.command.js';
 import stagesSetCommand from './commands/stages/set.command.js';
@@ -60,6 +63,7 @@ import learningsVersionsCommand from './commands/learnings/versions.command.js';
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
 import { daemonCurrent } from './checks/daemon.current.js';
+import { serverNotDraining } from './checks/server.not.draining.js';
 import { claudeBinaryCurrent } from './checks/claude.binary.current.js';
 import { codeRepoReady } from './checks/code.repo.js';
 import { postgresReachable } from './checks/postgres.reachable.js';
@@ -117,6 +121,9 @@ const app = await createCliApp({
         reg(['engine-token', 'set'], engineTokenSetCommand),
         reg(['engine-token', 'remove'], engineTokenRemoveCommand),
         reg(['host', 'probe'], hostProbeCommand),
+        reg(['server', 'drain'], serverDrainCommand),
+        reg(['server', 'resume'], serverResumeCommand),
+        reg(['server', 'status'], serverStatusCommand),
         reg(['stages', 'show'], stagesShowCommand),
         reg(['stages', 'edit'], stagesEditCommand),
         reg(['stages', 'set'], stagesSetCommand),
@@ -139,6 +146,7 @@ const app = await createCliApp({
         apiSignedIn,
         boardReady,
         daemonCurrent,
+        serverNotDraining,
         claudeBinaryCurrent,
     ],
 });

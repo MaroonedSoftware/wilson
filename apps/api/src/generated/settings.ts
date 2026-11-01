@@ -42,6 +42,24 @@ export const SetPollerSettingRequest = z.strictObject({
 export type SetPollerSettingRequest = z.infer<typeof SetPollerSettingRequest>;
 
 /**
+ * One card this process is running a stage for right now.
+ * generated from [DrainRunningCard](../../data/contracts/settings.ck)
+ */
+export const DrainRunningCard = z.strictObject({
+    project: z.string(),
+    cardId: z.string(),
+});
+export type DrainRunningCard = z.infer<typeof DrainRunningCard>;
+
+/**
+ * generated from [SetDrainRequest](../../data/contracts/settings.ck)
+ */
+export const SetDrainRequest = z.strictObject({
+    draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type SetDrainRequest = z.infer<typeof SetDrainRequest>;
+
+/**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
  * generated from [PollerInterval](../../data/contracts/settings.ck)
@@ -232,3 +250,20 @@ export const SetGitHubAppSettingRequest = z.strictObject({
     appId: z.string().nullable(),
 });
 export type SetGitHubAppSettingRequest = z.infer<typeof SetGitHubAppSettingRequest>;
+
+/**
+ * Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
+ * while draining with nothing running, since an idle moment without a drain lasts only until the next
+ * stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan
+ * drafts, which a drain does not hold but a restart would still kill. Neither this nor `running` sees
+ * a merge in progress, because a merge runs inside a request and not as a job.
+ * generated from [DrainStatus](../../data/contracts/settings.ck)
+ */
+export const DrainStatus = z.strictObject({
+    draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    running: z.array(DrainRunningCard),
+    held: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    planDrafts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    safeToRestart: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type DrainStatus = z.infer<typeof DrainStatus>;

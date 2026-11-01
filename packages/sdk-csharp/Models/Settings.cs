@@ -50,6 +50,22 @@ public sealed record SetPollerSettingRequest
     public required bool Enabled { get; init; }
 }
 
+/// <summary>One card this process is running a stage for right now.</summary>
+public sealed record DrainRunningCard
+{
+    [JsonPropertyName("project")]
+    public required string Project { get; init; }
+
+    [JsonPropertyName("cardId")]
+    public required string CardId { get; init; }
+}
+
+public sealed record SetDrainRequest
+{
+    [JsonPropertyName("draining")]
+    public required bool Draining { get; init; }
+}
+
 /// <summary>
 /// Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
 /// the numbers and the reasoning) — `curl` gets the same refusal the page does.
@@ -232,6 +248,31 @@ public sealed record SetGitHubAppSettingRequest
 {
     [JsonPropertyName("appId")]
     public required string? AppId { get; init; }
+}
+
+/// <summary>
+/// Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
+/// while draining with nothing running, since an idle moment without a drain lasts only until the next
+/// stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan
+/// drafts, which a drain does not hold but a restart would still kill. Neither this nor `running` sees
+/// a merge in progress, because a merge runs inside a request and not as a job.
+/// </summary>
+public sealed record DrainStatus
+{
+    [JsonPropertyName("draining")]
+    public required bool Draining { get; init; }
+
+    [JsonPropertyName("running")]
+    public required List<DrainRunningCard> Running { get; init; }
+
+    [JsonPropertyName("held")]
+    public required long Held { get; init; }
+
+    [JsonPropertyName("planDrafts")]
+    public required long PlanDrafts { get; init; }
+
+    [JsonPropertyName("safeToRestart")]
+    public required bool SafeToRestart { get; init; }
 }
 
 [JsonConverter(typeof(EngineTokenSettingSourceConverter))]

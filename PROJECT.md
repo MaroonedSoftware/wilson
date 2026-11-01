@@ -308,6 +308,21 @@ the worker kills every process the dropped connection started before it reconnec
 still abandons the stages running at the time, since the agent loop lives in the daemon. Moving the
 loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
 
+**Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
+across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage
+directly. The drain is enforced where every stage arrives, as a pre-dispatch check
+(`holdWhileDraining`): a job that would have dispatched is sent again for 30 seconds later and hands
+its claim to the new job. It spends no retry, and because the job waits in `created` rather than
+`active`, the boot sweep leaves it alone through a restart.
+
+A stage already running is waited for, up to its 50-minute cap, rather than suspended. `wilson server
+drain --wait` exits once `safeToRestart` is true, which also requires that no plan draft is running,
+since a drain does not hold those. Nothing watches for a merge in progress: a merge runs inside a
+request, so a deploy still has to avoid one by hand. The drain stays on through the restart so the
+new process starts nothing, and `wilson server resume` ends it. `wilson doctor` and a header badge in
+the web app both report a drain, because a forgotten one leaves a board that looks healthy and does
+nothing.
+
 ## Stage model
 
 Each stage declares: input, mode, adapter, provider, model, prompt, allowed tools,

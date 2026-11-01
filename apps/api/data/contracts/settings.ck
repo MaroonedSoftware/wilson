@@ -1,6 +1,7 @@
 options {
     services: {
         PollerSettingService: "#modules/settings/poller.setting.service.js"
+        DrainSettingService: "#modules/settings/drain.setting.service.js"
         PollerIntervalSettingService: "#modules/settings/poller.interval.setting.service.js"
         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
         LocalStageSlotsSettingService: "#modules/settings/local.stage.slots.setting.service.js"
@@ -48,6 +49,29 @@ contract PollerSetting: {
 
 contract SetPollerSettingRequest: {
     enabled: boolean
+}
+
+# One card this process is running a stage for right now.
+contract DrainRunningCard: {
+    project: string
+    cardId: string
+}
+
+# Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
+# while draining with nothing running, since an idle moment without a drain lasts only until the next
+# stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan
+# drafts, which a drain does not hold but a restart would still kill. Neither this nor `running` sees
+# a merge in progress, because a merge runs inside a request and not as a job.
+contract DrainStatus: {
+    draining: boolean
+    running: array(DrainRunningCard)
+    held: int
+    planDrafts: int
+    safeToRestart: boolean
+}
+
+contract SetDrainRequest: {
+    draining: boolean
 }
 
 # Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
@@ -99,6 +123,29 @@ operation /api/settings/poller-enabled: {
         }
         response: {
             200: { application/json: PollerSetting }
+        }
+    }
+}
+
+operation /api/settings/drain: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get drain status
+        service: DrainSettingService.get
+        response: {
+            200: { application/json: DrainStatus }
+        }
+    }
+    put: {
+        name: Set drain
+        service: DrainSettingService.set
+        request: {
+            application/json: SetDrainRequest
+        }
+        response: {
+            200: { application/json: DrainStatus }
         }
     }
 }

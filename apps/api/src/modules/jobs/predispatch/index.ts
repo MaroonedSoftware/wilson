@@ -1,4 +1,5 @@
 import { checkDaemonCurrent } from './daemon.current.js';
+import { holdWhileDraining } from './hold.while.draining.js';
 import { deferOnScopeConflict } from './scope.conflict.js';
 import type { PreDispatchCheck } from './predispatch.check.js';
 
@@ -13,8 +14,9 @@ import type { PreDispatchCheck } from './predispatch.check.js';
  * Order is deliberate and not alphabetical. `checkDaemonCurrent` only observes, so it must run
  * before anything that can stop the dispatch — a card deferred for a scope conflict on a stale
  * daemon should still leave the `daemon.stale` record behind, since that is a fact about this
- * process rather than about this card.
+ * process rather than about this card. `holdWhileDraining` goes ahead of the scope check, because a
+ * held card is not dispatching, so whether it conflicts with another is not yet a question.
  */
-export const PRE_DISPATCH_CHECKS: readonly PreDispatchCheck[] = [checkDaemonCurrent, deferOnScopeConflict];
+export const PRE_DISPATCH_CHECKS: readonly PreDispatchCheck[] = [checkDaemonCurrent, holdWhileDraining, deferOnScopeConflict];
 
 export type { PreDispatchCheck, PreDispatchDeps } from './predispatch.check.js';

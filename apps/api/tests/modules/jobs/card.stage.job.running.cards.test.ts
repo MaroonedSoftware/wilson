@@ -13,6 +13,7 @@ import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 const stagesYaml = `
 stages:
@@ -92,6 +93,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
             running,
         );
 

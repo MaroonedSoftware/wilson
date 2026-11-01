@@ -5,6 +5,7 @@ import com.maroonedsoftware.wilson.sdk.models.AutoSplitSetting
 import com.maroonedsoftware.wilson.sdk.models.CardStageConcurrency
 import com.maroonedsoftware.wilson.sdk.models.ChatEngineSetting
 import com.maroonedsoftware.wilson.sdk.models.ClaudeConfigDirSetting
+import com.maroonedsoftware.wilson.sdk.models.DrainStatus
 import com.maroonedsoftware.wilson.sdk.models.DryRunSetting
 import com.maroonedsoftware.wilson.sdk.models.EngineTokenSetting
 import com.maroonedsoftware.wilson.sdk.models.GitHubAppSetting
@@ -15,6 +16,7 @@ import com.maroonedsoftware.wilson.sdk.models.PollerSetting
 import com.maroonedsoftware.wilson.sdk.models.SetAutoSplitSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetCardStageConcurrencyRequest
 import com.maroonedsoftware.wilson.sdk.models.SetClaudeConfigDirSettingRequest
+import com.maroonedsoftware.wilson.sdk.models.SetDrainRequest
 import com.maroonedsoftware.wilson.sdk.models.SetDryRunSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetEngineTokenSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetGitHubAppSettingRequest
@@ -39,6 +41,23 @@ class SettingsClient(private val http: SdkHttp) {
     suspend fun setPollerSetting(body: SetPollerSettingRequest): PollerSetting {
         val response = http.execute(HttpMethod.Put) {
             path("api", "settings", "poller-enabled")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Get drain status */
+    suspend fun getDrainStatus(): DrainStatus {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "settings", "drain")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Set drain */
+    suspend fun setDrain(body: SetDrainRequest): DrainStatus {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "settings", "drain")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

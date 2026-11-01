@@ -23,6 +23,7 @@ import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequ
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+import { DrainControl } from '#src/components/DrainControl.js';
 import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
@@ -904,6 +905,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Auto-mode</Title>
                     <AutoModeToggle />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Drain</Title>
+                    <DrainControl />
                 </Stack>
             </Paper>
 

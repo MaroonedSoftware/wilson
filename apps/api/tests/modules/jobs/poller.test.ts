@@ -10,6 +10,7 @@ import type { ProjectRepository, ProjectRow } from '#modules/board/project.repos
 import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -890,6 +891,37 @@ describe('Poller tick — the daily output token ceiling (card 0264)', () => {
         await runOneTick(underPoller);
 
         expect(underBroker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
+    });
+});
+
+describe('Poller tick — while the server drains', () => {
+    const settingsWithDrain = (read: () => Promise<boolean>): SettingsStore =>
+        ({
+            get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+                definition.key === DRAIN_ENABLED.key ? read() : definition.defaultValue,
+            ),
+            set: vi.fn(async () => undefined),
+        }) as unknown as SettingsStore;
+
+    it('enqueues nothing', async () => {
+        const { poller, broker, cardJobs } = buildPoller([card('0001', 'implementing')], { settings: settingsWithDrain(async () => true) });
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(cardJobs.record).not.toHaveBeenCalled();
+    });
+
+    it('carries on when the drain setting cannot be read, since the pre-dispatch check still holds the job', async () => {
+        const failure = new Error('database down');
+        const { poller, broker, logger } = buildPoller([card('0001', 'implementing')], {
+            settings: settingsWithDrain(() => Promise.reject(failure)),
+        });
+
+        await runOneTick(poller);
+
+        expect(logger.error).toHaveBeenCalledWith(failure);
+        expect(broker.send).toHaveBeenCalledTimes(1);
     });
 });
 

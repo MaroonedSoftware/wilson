@@ -322,3 +322,31 @@ describe('CardJobs.claimForJob', () => {
         expect(await cardJobs.claimForJob(randomUUID())).toBeUndefined();
     });
 });
+
+describe('CardJobs.drainCounts', () => {
+    const cardJobs = () => new CardJobs(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, {} as unknown as JobBroker);
+
+    const insertJob = async (name: string, state: string): Promise<string> => {
+        const id = randomUUID();
+        await sql`insert into pgboss.job (id, state, name) values (${id}, ${state}, ${name})`.execute(db);
+        return id;
+    };
+
+    it('counts waiting card stages and running plan drafts, and nothing else', async () => {
+        const before = await cardJobs().drainCounts();
+        const ids = [
+            await insertJob('card.stage', 'created'),
+            await insertJob('card.stage', 'retry'),
+            await insertJob('card.stage', 'active'),
+            await insertJob('card.stage', 'completed'),
+            await insertJob('card.plan-draft', 'active'),
+            await insertJob('card.plan-draft', 'created'),
+        ];
+
+        try {
+            expect(await cardJobs().drainCounts()).toEqual({ held: before.held + 2, planDrafts: before.planDrafts + 1 });
+        } finally {
+            for (const id of ids) await sql`delete from pgboss.job where id = ${id}`.execute(db);
+        }
+    });
+});

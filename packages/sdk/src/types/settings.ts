@@ -38,6 +38,22 @@ export interface SetPollerSettingRequest {
 }
 
 /**
+ * One card this process is running a stage for right now.
+ * generated from [DrainRunningCard](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface DrainRunningCard {
+    project: string;
+    cardId: string;
+}
+
+/**
+ * generated from [SetDrainRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetDrainRequest {
+    draining: boolean;
+}
+
+/**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
  * generated from [PollerInterval](../../../../apps/api/data/contracts/settings.ck)
@@ -208,4 +224,20 @@ export interface GitHubAppSetting {
  */
 export interface SetGitHubAppSettingRequest {
     appId: string | null;
+}
+
+/**
+ * Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
+ * while draining with nothing running, since an idle moment without a drain lasts only until the next
+ * stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan
+ * drafts, which a drain does not hold but a restart would still kill. Neither this nor `running` sees
+ * a merge in progress, because a merge runs inside a request and not as a job.
+ * generated from [DrainStatus](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface DrainStatus {
+    draining: boolean;
+    running: DrainRunningCard[];
+    held: number;
+    planDrafts: number;
+    safeToRestart: boolean;
 }

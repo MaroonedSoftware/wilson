@@ -148,6 +148,22 @@ export class CardJobs {
     }
 
     /**
+     * What a drain reports: `held` is every `card.stage` job waiting to run, and `planDrafts` every
+     * running `card.plan-draft` job. Across every project, like `activeCardStageJobs`, since a
+     * restart is too.
+     */
+    async drainCounts(): Promise<{ held: number; planDrafts: number }> {
+        const { rows } = await sql<{ held: number; planDrafts: number }>`
+            select
+                count(*) filter (where name = 'card.stage' and state in ('created', 'retry'))::int as held,
+                count(*) filter (where name = 'card.plan-draft' and state = 'active')::int as plan_drafts
+            from pgboss.job
+        `.execute(this.db);
+
+        return rows[0] ?? { held: 0, planDrafts: 0 };
+    }
+
+    /**
      * The `wilson.cardJobs` claim row for a given job id, regardless of which project recorded it —
      * card 0272's fallback for an orphaned `card.stage` job whose own payload carries no `project`
      * (`CardStagePayload`'s own doc comment: `BoardWriteService.start` sends none). Unlike every

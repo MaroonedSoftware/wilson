@@ -6,6 +6,7 @@ import { IconActivity, IconLayoutKanban, IconLogout, IconMoon, IconRefresh, Icon
 import { AuthGate } from '#src/components/AuthGate.js';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { ChatDock, ChatDockToggle } from '#src/components/ChatDock.js';
+import { DrainIndicator } from '#src/components/DrainIndicator.js';
 import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
 import { ProjectSwitcher } from '#src/components/ProjectSwitcher.js';
 import { StepUpDialog } from '#src/components/StepUpDialog.js';
@@ -122,6 +123,7 @@ function Shell() {
                                 </Group>
                             </Link>
                             <Group gap="xs">
+                                <DrainIndicator />
                                 <FlaggedIndicator />
                                 <ProjectSwitcher />
                                 <Tooltip label={feed.status === 'live' ? 'Updates as cards move' : 'Not connected — see refresh'}>

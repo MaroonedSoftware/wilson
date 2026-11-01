@@ -3,6 +3,7 @@ import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.se
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
+import { DrainSettingService } from '#modules/settings/drain.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
@@ -15,6 +16,7 @@ import {
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
+    DrainStatus,
     DryRunSetting,
     EngineTokenSetting,
     GitHubAppSetting,
@@ -25,6 +27,7 @@ import {
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
+    SetDrainRequest,
     SetDryRunSettingRequest,
     SetEngineTokenSettingRequest,
     SetGitHubAppSettingRequest,
@@ -60,6 +63,32 @@ SettingsRouter.put('/api/settings/poller-enabled', requirePolicy({ policy: 'wils
 
     const service = ctx.container.get(PollerSettingService);
     const result: PollerSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/drain`
+ */
+SettingsRouter.get('/api/settings/drain', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(DrainSettingService);
+    const result: DrainStatus = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/drain`
+ */
+SettingsRouter.put('/api/settings/drain', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetDrainRequest);
+
+    const service = ctx.container.get(DrainSettingService);
+    const result: DrainStatus = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';
