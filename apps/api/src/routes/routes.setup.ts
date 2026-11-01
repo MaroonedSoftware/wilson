@@ -8,7 +8,9 @@ import {
     ServerKitRouter,
     type ServerKitContext,
     type SseContext,
+    type SseStream,
 } from '@maroonedsoftware/koa';
+import { onCredentialRevoked } from '#modules/authentication/credential.revocations.js';
 import { sessionOf } from '#modules/authentication/request.session.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { onChatEvent } from '#modules/chat/chat.feed.js';
@@ -145,6 +147,18 @@ const ProjectContextRouter = () => {
 };
 
 /**
+ * Open an SSE stream that ends when the credential it was opened with is revoked. A revoked token
+ * fails on its next request, and a stream never makes one, so without this an open stream would go
+ * on delivering after sign-out or a key's revocation. Each of the three stream routes opens through here.
+ */
+const openAuthenticatedStream = (ctx: unknown, signal: AbortSignal | undefined): SseStream => {
+    const stream = openSseStream(ctx as SseContext, { signal });
+    const session = sessionOf(ctx as ServerKitContext);
+    if (session) stream.onClose(onCredentialRevoked(session, () => stream.close()));
+    return stream;
+};
+
+/**
  * Builds the live card feed router: current stage and latest event per card, over SSE at
  * `/api/feed`.
  *
@@ -184,7 +198,7 @@ export const FeedRouter = (signal?: AbortSignal) => {
     router.get('/api/feed', requirePolicy({ policy: VIEW_POLICY }), async ctx => {
         const project = ctx.container.get(BoardConfig).project;
         const filter = { source: project };
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
 
         for (const event of cardFeed.snapshot(filter)) {
             stream.event({ event: 'card', data: event });
@@ -241,7 +255,7 @@ export const PlanStreamRouter = (signal?: AbortSignal) => {
 
         const board = ctx.container.get(BoardConfig);
         const planTurns = new PlanTurnRepository(board, ctx.container.get(Kysely<DB>));
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
 
         const missed = await planTurns.since(id, lastEventId);
         for (const turn of missed) {
@@ -278,7 +292,7 @@ export const ChatStreamRouter = (signal?: AbortSignal) => {
             throw httpError(404).withDetails({ reason: `chat thread ${id} not found` });
         }
 
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
         stream.onClose(onChatEvent(id, ({ event, data }) => stream.event({ event, data })));
     });
     return router;

@@ -11,6 +11,7 @@ import {
     AuthenticationHandlerChain,
     AuthenticationHandlerMap,
     AuthenticationSchemeHandler,
+    AuditRecorder,
     AuthenticationSessionService,
     AuthenticationSessionServiceOptions,
     AuthenticatorFactorRepository,
@@ -53,6 +54,7 @@ import { AccountPasswordRepository } from './password.factor.repository.js';
 import { WilsonJwtAuthenticationIssuer } from './session.issuer.js';
 import { resolveSessionKey } from './session.key.js';
 import { API_KEY_PREFIX, API_KEY_USE_WINDOW, SESSION_ISSUER, SESSION_LIFETIME } from './session.options.js';
+import { CredentialRevocationSink } from './credential.revocations.js';
 import { TokenService } from './token.service.js';
 import { WebOrigins, webOrigins } from './web.origins.js';
 
@@ -70,8 +72,9 @@ export { API_KEY_PREFIX, API_KEY_USE_WINDOW, SESSION_ISSUER, SESSION_LIFETIME } 
  * every ordering note there says, `setup` only registers tokens.
  *
  * `AuthenticationSessionService` and `PasswordFactorService` are factories, not `useClass`: each
- * takes an optional trailing `AuditRecorder` that wilson does not bind yet, and a factory says which
- * arguments it gets instead of leaving injectkit to resolve one nobody registered.
+ * takes an optional trailing `AuditRecorder`, and a factory says which arguments it gets instead of
+ * leaving injectkit to resolve one nobody registered. The session and API key services get one whose
+ * sink ends event streams when their credential is revoked (`CredentialRevocationSink`).
  */
 export const AuthenticationModule: ServerKitModule = {
     name: 'Authentication',
@@ -96,6 +99,7 @@ export const AuthenticationModule: ServerKitModule = {
                         container.get(AuthenticationSessionServiceOptions),
                         container.get(CacheProvider),
                         container.get(JwtProvider),
+                        new AuditRecorder(new CredentialRevocationSink()),
                     ),
             )
             .asTransient();
@@ -118,6 +122,7 @@ export const AuthenticationModule: ServerKitModule = {
                         container.get(CacheProvider),
                         container.get(PolicyService),
                         container.get(Logger),
+                        new AuditRecorder(new CredentialRevocationSink()),
                     ),
             )
             .asTransient();

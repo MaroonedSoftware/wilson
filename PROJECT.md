@@ -751,7 +751,8 @@ then sets two httpOnly, SameSite=Strict cookies instead of returning the refresh
   `/api/auth/logout` ever receive it. A reload signs back in by redeeming it.
 - `wilson_at`, the access token, which the two read-only event streams (`GET /api/feed`,
   `GET /api/cards/{id}/plan/stream`) accept in place of a header, because the browser's
-  `EventSource` cannot send one. Every other route ignores it.
+  `EventSource` cannot send one. Every other route ignores it. An open stream ends when the session
+  or key it was opened with is revoked, since it makes no later request that could be refused.
 
 That is why there is no CSRF token: no route that changes anything accepts a cookie as a
 credential. CORS admits only the exact origins in `WEB_ORIGINS` (default the dev web app,
