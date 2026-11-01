@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/sdk/">
+    <Project Path="../../packages/sdk-csharp/WilsonSdk.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MaroonedSoftware.Wilson.Desktop.Core/MaroonedSoftware.Wilson.Desktop.Core.csproj" />
+    <Project Path="src/MaroonedSoftware.Wilson.Desktop.Mac/MaroonedSoftware.Wilson.Desktop.Mac.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MaroonedSoftware.Wilson.Desktop.Core.Tests/MaroonedSoftware.Wilson.Desktop.Core.Tests.csproj" />
+  </Folder>
+</Solution>

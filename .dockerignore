@@ -4,6 +4,7 @@
 
 # The Android app is not part of any image.
 apps/android
+apps/desktop
 packages/sdk-kotlin
 packages/sdk-csharp
 

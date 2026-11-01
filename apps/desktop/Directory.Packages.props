@@ -1,0 +1,13 @@
+<!-- Every package version in this tree, in one place, so two projects cannot disagree about one. -->
+<Project>
+
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    </PropertyGroup>
+
+    <ItemGroup Label="Testing">
+        <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    </ItemGroup>
+
+</Project>

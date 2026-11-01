@@ -4,11 +4,15 @@ on:
     push:
         branches: [main]
         paths:
+            - apps/desktop/**
+            - apps/android/app/src/test/resources/api/**
             - apps/api/data/contracts/**
             - packages/sdk-csharp/**
             - .github/workflows/desktop.yml
     pull_request:
         paths:
+            - apps/desktop/**
+            - apps/android/app/src/test/resources/api/**
             - apps/api/data/contracts/**
             - packages/sdk-csharp/**
             - .github/workflows/desktop.yml
@@ -17,6 +21,22 @@ permissions:
     contents: read
 
 jobs:
+    # Ubuntu while nothing here needs a Mac: a macOS minute costs about ten of these.
+    build:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        defaults:
+            run:
+                working-directory: apps/desktop
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-dotnet@v4
+              with:
+                  global-json-file: apps/desktop/global.json
+            - run: dotnet restore Wilson.Desktop.slnx --locked-mode
+            - run: dotnet build Wilson.Desktop.slnx -warnaserror --no-restore
+            - run: dotnet test --solution Wilson.Desktop.slnx --no-build
+
     # The C# SDK is committed output of the contracts, so a contract change must carry it, and output
     # that does not compile is a generator bug to find here rather than in the app.
     # `git status` rather than `git diff`, which would miss a new contract's new, untracked client.
