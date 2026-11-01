@@ -675,8 +675,9 @@ a text editor.
 What it does not remove is the need to fix a wedged card by hand. `wilson card edit <id>`
 opens the plan body in `$EDITOR` and saves it as a new version; `wilson card move <id>
 <stage>` remains the operator override, recorded as a `transition.written` event with
-`by: human` and cancelling any in-flight job for that card — the same semantics the
-reconciler gave state-field edits, now explicit rather than inferred from a file change.
+`by: human`. A stage already running when the card moves is not interrupted: it finishes, sees the
+card has left its stage, records `stage.stale` and writes no transition, so the human's move stands.
+If the move was to a terminal stage, that run is what reclaims the worktree.
 
 Frontmatter is deliberately not editable through `card edit`: stage, branch and retries are
 runner state (decision 5), and `card move` is the recorded way to override one.

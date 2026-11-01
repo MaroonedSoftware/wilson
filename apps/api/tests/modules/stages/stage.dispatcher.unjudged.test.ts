@@ -112,8 +112,10 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
         );
     });
 
-    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
-        (
+    const writeTransition = async (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) => {
+        // A transition only lands on a card still in the stage it ran, so the row has to agree.
+        await board.write('0001', 'into review', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'review' } }));
+        return (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
@@ -125,6 +127,7 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
         ).writeTransition('0001', 'review', stage, head, card, result);
+    };
 
     it('routes a review that never reached a verdict back to review, not to onFail — card 0075’s shape', async () => {
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });

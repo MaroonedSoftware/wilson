@@ -27,6 +27,8 @@ import com.maroonedsoftware.wilson.auth.StoredSession
 import com.maroonedsoftware.wilson.push.EXTRA_CARD
 import com.maroonedsoftware.wilson.push.EXTRA_PROJECT
 import com.maroonedsoftware.wilson.ui.WilsonTheme
+import com.maroonedsoftware.wilson.ui.activity.ActivityModel
+import com.maroonedsoftware.wilson.ui.activity.ActivityScreen
 import com.maroonedsoftware.wilson.ui.board.BoardModel
 import com.maroonedsoftware.wilson.ui.board.BoardScreen
 import com.maroonedsoftware.wilson.ui.card.CardModel
@@ -120,6 +122,14 @@ private fun SignedIn(app: WilsonApp, opening: MutableStateFlow<Destination.Card?
                     onCard = { project, id -> backStack.add(Destination.Card(project, id)) },
                     onNewCard = { project -> backStack.add(Destination.NewCard(project)) },
                     onChat = { backStack.add(Destination.Threads) },
+                    onActivity = { project -> backStack.add(Destination.Activity(project)) },
+                )
+            }
+            entry<Destination.Activity> { key ->
+                ActivityScreen(
+                    viewModel(key = "activity:${key.project}", factory = viewModelFactory { initializer { ActivityModel(app, key.project) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                    onCard = { id -> backStack.add(Destination.Card(key.project, id)) },
                 )
             }
             entry<Destination.Threads> {

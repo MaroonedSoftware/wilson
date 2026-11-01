@@ -361,6 +361,27 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.needsHumanReason).toBeUndefined();
         });
 
+        it("drops the flagged stage's retry key, as `ack` does, so its next failure is not an instant re-flag", async () => {
+            const { board, service } = freshBoard();
+            await board.create(
+                card('0005', { stage: 'testing', needsHuman: true, needsHumanReason: 'stuck', retries: { testing: 3, implementing: 1 } }),
+                'seed',
+            );
+
+            await service.move('0005', { stage: 'implementing' });
+
+            expect((await board.read('0005')).frontmatter.retries).toEqual({ implementing: 1 });
+        });
+
+        it('leaves retries alone on a move that clears no flag', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0006', { stage: 'testing', retries: { testing: 2 } }), 'seed');
+
+            await service.move('0006', { stage: 'implementing' });
+
+            expect((await board.read('0006')).frontmatter.retries).toEqual({ testing: 2 });
+        });
+
         it('clears the flag even when the target is the stage the card is already in, instead of taking the no-op path', async () => {
             const { board, events, service } = freshBoard();
             await board.create(card('0004', { stage: 'implementing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');
@@ -399,6 +420,18 @@ describe('BoardWriteService', () => {
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({ cardId: '0010', type: 'worktree.reclaimed', payload: { cardId: '0010', target: 'merged' } }),
             );
+        });
+
+        it('leaves the worktree to the run when a stage is still using it', async () => {
+            const { board, config, events, runningCards, service, worktrees } = freshBoard();
+            await board.create(card('0012', { stage: 'testing' }), 'seed');
+            runningCards.add(config.project, '0012');
+
+            const detail = await service.move('0012', { stage: 'merged' });
+
+            expect(detail.stage).toBe('merged');
+            expect(worktrees.reclaim).not.toHaveBeenCalled();
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
         });
 
         it("never reclaims a flagged card's tree, even on a terminal move that itself clears the flag (card 0055)", async () => {
