@@ -214,7 +214,7 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
      * every assertion above already leans on. Nothing about advancing the pin for findings can be
      * allowed to make one write ever describe more than the version it produced.
      */
-    it('advances the pin by exactly one further version beyond the transition write, not two', async () => {
+    it('advances the pin in the transition write itself, adding no version of its own', async () => {
         await setUp();
         const created = await board.create(baseCard, 'initial');
         await board.write('0001', 'approve', c => ({ ...c, frontmatter: { ...c.frontmatter, planVersionId: created } }));
@@ -226,8 +226,21 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
         await writeTransition(makeStage(), head, revisionOutcome());
 
         const after = await board.versions('0001', 50);
-        // The transition write (findings folded in) plus the pin-advancing write — no more, no less.
-        expect(after).toHaveLength(4);
+        expect(after).toHaveLength(3);
+    });
+
+    it('leaves neither the move nor the pin behind when the transition cannot commit', async () => {
+        const { events } = await setUp();
+        const created = await board.create(baseCard, 'initial');
+        await board.write('0001', 'approve', c => ({ ...c, frontmatter: { ...c.frontmatter, planVersionId: created } }));
+        const head = await board.read('0001');
+        events.append.mockRejectedValueOnce(new Error('connection lost'));
+
+        await expect(writeTransition(makeStage(), head, revisionOutcome())).rejects.toThrow('connection lost');
+
+        const stored = await board.read('0001');
+        expect(stored.frontmatter.stage).toBe('review');
+        expect(stored.frontmatter.planVersionId).toBe(created);
     });
 });
 
@@ -304,12 +317,7 @@ stages:
         return { config, board, events, worktrees, created };
     };
 
-    const buildDispatcher = (
-        config: StaticBoardConfig,
-        board: BoardRepository,
-        events: { append: ReturnType<typeof vi.fn> },
-        worktrees: unknown,
-    ) => {
+    const buildDispatcher = (config: StaticBoardConfig, board: BoardRepository, events: { append: ReturnType<typeof vi.fn> }, worktrees: unknown) => {
         const agents = new StageAgentMap();
         agents.set('api', {
             run: async (input: { stage: StageConfig }): Promise<AgentRunOutput> => {
@@ -318,9 +326,7 @@ stages:
                         result: {
                             verdict: 'revise',
                             summary: 'found a bug',
-                            findings: [
-                                { severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' },
-                            ],
+                            findings: [{ severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' }],
                         },
                         usage: { inputTokens: 10 },
                         truncated: false,

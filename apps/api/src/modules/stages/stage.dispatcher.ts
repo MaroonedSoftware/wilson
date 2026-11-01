@@ -780,15 +780,16 @@ export class StageDispatcher {
               }
             : undefined;
 
-        // Tracked across the mutate below so the pin-advance check further down compares the body
-        // this transition actually wrote against the body it actually read, not against `head`'s
-        // snapshot from before the write — `writeIn` locks the row and reads `current` fresh inside
-        // the same transaction, so `current.body` is the one true "body it read".
-        let bodyChanged = false;
+        // A body this transition rewrote is the plan contract, not just runner state, and the runner
+        // rewriting its own contract is the one case where a pin moves. Left where it was, it would
+        // name a version from before the very findings or attempt bullet the next run has to read
+        // (card 0091: three implementing passes reading a plan with no findings section). Decided
+        // inside the mutate, from `current`: a card with no pin coming in gets none out, and a human
+        // editing the body between runs must not move it.
+        let advancesPin = false;
 
-        let writtenVersionId: string;
         try {
-            writtenVersionId = await this.board.writeWithEvent(
+            await this.board.writeWithEvent(
                 cardId,
                 `${cardId}: ${stageName} -> ${decision.target}`,
                 current => {
@@ -803,7 +804,7 @@ export class StageDispatcher {
                     // leaves the section exactly as it stands.
                     const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
                     const nextBody = findings ? withFindings(body, findings, criteria) : body;
-                    bodyChanged = nextBody !== current.body;
+                    advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
                     return {
                         ...current,
                         frontmatter: {
@@ -828,6 +829,7 @@ export class StageDispatcher {
                         ...(needsHuman ? { needsHuman: true } : {}),
                     },
                 },
+                { repinIf: () => advancesPin },
             );
         } catch (err) {
             if (!(err instanceof CardMovedDuringRunError)) throw err;
@@ -842,31 +844,6 @@ export class StageDispatcher {
             });
             this.logger.warn(`${cardId} moved to "${err.actualStage}" while ${stageName} ran; leaving it there`);
             return { needsHuman: false };
-        }
-
-        // The write above just rewrote the plan contract, not just runner state: `bodyChanged` means
-        // `withFindings`, `withAttempt` or `withoutAttempts` actually changed the body of the version
-        // `writtenVersionId` now names — findings folded in, an attempt bullet added, or the section
-        // shed on a pass. A pinned card's `planVersionId` otherwise holds still against everything
-        // that lands on the board — that is the whole point of pinning (see the "Two reads" comment
-        // at the top of `run`, above) — and a human editing the card body must keep not moving it. But
-        // the runner rewriting its own contract is the one case where the pin legitimately advances:
-        // left where it was, the pin would keep pointing at a version that predates the very findings
-        // this stage was kicked back to fix, which is card 0091's bug — three implementing passes
-        // reading a plan with no findings section because the pin still named the version from before
-        // the kickback wrote them. This card generalizes that same fix to the attempts section: a
-        // retried stage reading the pinned plan must see the bullet this failure just added, not a
-        // version from before it existed. Gated on `head.frontmatter.planVersionId`, not `current`'s:
-        // a card with no pin coming in gets none out (117 of 128 cards read live `head` today and must
-        // keep doing so), and the inner check against `current.frontmatter.planVersionId` mirrors the
-        // branch-recording guard above — `write`'s re-read inside its own transaction is what actually
-        // guards the race, this is only the common-case short-circuit.
-        if (bodyChanged && head.frontmatter.planVersionId) {
-            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName}`, current =>
-                current.frontmatter.planVersionId
-                    ? { ...current, frontmatter: { ...current.frontmatter, planVersionId: writtenVersionId } }
-                    : current,
-            );
         }
 
         // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the
