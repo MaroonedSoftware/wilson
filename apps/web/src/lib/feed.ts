@@ -65,6 +65,9 @@ export const MAX_LIVE_TOOL_EVENTS = 100;
  * tile") — see `useCardFeed`'s own ticking effect below. */
 const ACTIVITY_TICK_MS = 10_000;
 
+/** The cache key of one project's activity page, which the feed below keeps fresh. */
+export const activityQueryKey = (project: string): string[] => ['project', project, 'activity'];
+
 interface CardActivityValue {
     /** The latest feed event per card id, for a board tile's "last event" line. */
     activity: Record<string, CardActivity>;
