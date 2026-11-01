@@ -54,6 +54,12 @@ The diff step needs a card with a branch: that API's `code_root` is its own scra
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
 
+The walk is headless and has no menu bar. Ask macOS instead, with the app running:
+
+```bash
+osascript -e 'tell application "System Events" to tell process "wilson" to get name of every menu item of menu 1 of menu bar item 2 of menu bar 1'
+```
+
 ## Sign-in
 
 The screen is deadair's setup steps: a welcome on a first run, the address, then the sign-in and any
@@ -98,7 +104,9 @@ nothing either, so no release would run.
 
 The app checks GitHub at launch and every six hours, using its own `HttpClient` so the operator's
 token never reaches GitHub. It downloads a newer `desktop-v*` release in the background, and installs
-it only on "Restart to update", so a planning turn or a merge is never cut off.
+it only on "Restart to update", so a planning turn or a merge is never cut off. Check for Updates in
+the application menu runs the same check and also answers when there is nothing to offer, using
+`UpdateCheckResult.Answered` so a GitHub that did not answer never reads as up to date.
 
 - **Nothing vouches for an update but `UpdateSignature`.** The app is not notarised, and a file it
   downloads itself is not quarantined, so Gatekeeper never looks. The workflow signs

@@ -7,6 +7,14 @@
     Name="Wilson"
     RequestedThemeVariant="Default">
 
+    <!-- Without a menu here, Avalonia adds its own "About Avalonia" to the application menu. -->
+    <NativeMenu.Menu>
+        <NativeMenu>
+            <NativeMenuItem Header="About Wilson" Click="OnAbout" />
+            <NativeMenuItem Header="Check for Updates…" Click="OnCheckForUpdates" />
+        </NativeMenu>
+    </NativeMenu.Menu>
+
     <Application.DataTemplates>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
