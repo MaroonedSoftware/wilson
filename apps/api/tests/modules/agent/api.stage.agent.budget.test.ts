@@ -67,6 +67,7 @@ const runInput = (stage: StageConfig) => ({
     planPath: '/run/plan.md',
     title: 'a card',
     resultSchema,
+    baseSha: 'base-sha',
 });
 
 describe('ApiStageAgent budget wiring', () => {

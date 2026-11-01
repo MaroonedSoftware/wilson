@@ -718,7 +718,7 @@ from `AUTH_SESSION_KEY_FILE`, default `../.wilson-secrets/session.pem` beside th
 generates its keys. Refusing to boot without one would be stricter, but the CLI builds the same
 container, so an unset key would stop every `wilson` command and the daemon's next restart.
 
-**Factors.** A password (Argon2id, rate-limited per account and per caller) is the first factor.
+**Factors.** A password (Argon2id, rate-limited per account) is the first factor.
 An authenticator app (TOTP) and passkeys are the second. With one enrolled, a correct password
 answers `mfa_required` with a five-minute challenge instead of a session, and the `authenticator`
 grant completes it with a code; each code works once. The TOTP seed is stored encrypted under a
@@ -732,11 +732,13 @@ bound to the origin it was made at, and the API takes that origin from the reque
 one of `WEB_ORIGINS`, so a page anywhere else is never handed a challenge one of ours would answer.
 Passkeys work only in the web app, which has a browser: the CLI completes a sign-in with the
 authenticator app, and tells a passkey-only account to set one up as well. Step-up, meaning a strong factor proven within the last five
-minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
-because those are the two actions that hand out or rewrite authority. An API-key session never
-satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
+minutes, guards minting an API key, editing stage config (`wilson stages edit` / `set`), and
+saying which machine receives card work and engine tokens (`wilson host add`, `host set
+--ssh-target`, `host token`, `host engine-token`), because those are the actions that hand out or
+rewrite authority. An API-key session never satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
 answers that refusal by asking for the password and making that one call with a fresh session,
-signed out again straight after. A leaked key can read the stage config and cannot rewrite it.
+signed out again straight after. A leaked key can read the stage config and cannot rewrite it, and
+cannot register a worker to be sent repository contents and engine tokens.
 Until a second factor is enrolled, a password proved within the window is the step-up; after, only
 the second factor is, so a stolen password cannot remove the authenticator meant to stop it. Adding
 or removing a factor is itself behind step-up, and the web app asks for it in a "confirm it's you"
@@ -750,7 +752,8 @@ then sets two httpOnly, SameSite=Strict cookies instead of returning the refresh
   `/api/auth/logout` ever receive it. A reload signs back in by redeeming it.
 - `wilson_at`, the access token, which the two read-only event streams (`GET /api/feed`,
   `GET /api/cards/{id}/plan/stream`) accept in place of a header, because the browser's
-  `EventSource` cannot send one. Every other route ignores it.
+  `EventSource` cannot send one. Every other route ignores it. An open stream ends when the session
+  or key it was opened with is revoked, since it makes no later request that could be refused.
 
 That is why there is no CSRF token: no route that changes anything accepts a cookie as a
 credential. CORS admits only the exact origins in `WEB_ORIGINS` (default the dev web app,

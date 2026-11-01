@@ -19,7 +19,7 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('looking at the "ats" project');
     });
 
-    it('finds a new project\'s paths itself, and initialises the board it registers', () => {
+    it("finds a new project's paths itself, and initialises the board it registers", () => {
         const prompt = chatSystemPrompt({ projects: [] });
 
         expect(prompt).toContain('repositories the GitHub App can read');

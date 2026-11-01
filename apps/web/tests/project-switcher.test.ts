@@ -59,11 +59,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -150,7 +146,7 @@ describe('the project switcher in the header', () => {
     // `ProjectSwitcher.tsx`'s own doc comment: a route with no `project` param of its own (like the
     // deleted top-level board, now a 404 — card 0155) falls back to the daemon's own configured
     // project, `health.data.project`, the same fallback `FlaggedIndicator` already uses.
-    it('marks the daemon\'s own configured project as current on a route with no project param', async () => {
+    it("marks the daemon's own configured project as current on a route with no project param", async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
         renderApp('/projects');
@@ -164,7 +160,7 @@ describe('the project switcher in the header', () => {
         expect(other.querySelector('svg')).toBeNull();
     });
 
-    it('switches projects by navigating to the picked project\'s own URL', async () => {
+    it("switches projects by navigating to the picked project's own URL", async () => {
         stubProjectsEndpoint(['demo', 'other']);
 
         const { router } = renderApp('/projects/demo');

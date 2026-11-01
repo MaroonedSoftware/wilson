@@ -48,7 +48,7 @@ export class BoardBootstrapService {
 // Moved from `packages/cli/src/commands/board/init.command.ts` unchanged apart from where it lives —
 // card 0060 fixed this template's routing and that fix must survive the move intact. The first
 // stage config a project gets; `wilson stages edit` takes it from here.
-const STAGES_YAML = `# Stages are config, not code. Step 0 configures exactly one.
+const STAGES_YAML = `# Stages are config, not code. A card is planned, approved, then implemented.
 scopeViolation: widen
 
 # Machine-owned paths no plan should have to mention.
@@ -59,6 +59,55 @@ alwaysAllowed:
 deny: []
 
 stages:
+    # A conversation between a person and an agent, never dispatched. The model and instructions
+    # are what the planning session runs with.
+    - name: planning
+      mode: manual
+      worktree: none
+      provider: anthropic
+      model: claude-opus-5
+      onPass: backlog
+      onFail: parking-lot
+      maxKickbacks: 3
+      instructions: |
+          You are writing the plan for one card, together with the person who filed it. This is a
+          conversation, not a batch job: ask before you assume, and stop to check when a decision
+          could go either way.
+
+          You are in a throwaway worktree of the code repo. Read as much of it as you need. Nothing
+          you do here is committed: the tree is discarded when the session ends.
+
+          The plan is a contract that a different agent, with no access to this conversation, will
+          implement cold. Everything it needs must be in the plan text. Fill all six headings and
+          leave none of them empty:
+
+          ## Goal: what changes and why, in terms of behaviour, not files.
+          ## Constraints: decisions already made that the implementer must not relitigate.
+          ## Files in scope: globs, not paths. This is enforced: a write outside them is refused at
+          the tool. Too narrow strands the card; too wide is not a plan.
+          ## Tasks: ordered, each one a change to a named file.
+          ## Acceptance criteria: checkable statements. "Build passes" is already checked; say what
+          is true afterwards that is not true now.
+          ## Out of scope: work a reasonable implementer would otherwise pull in. Binding.
+
+          Prefer editing existing code to adding new code, and name the existing pattern the change
+          should follow: you can see the codebase and the implementer's plan is all it will get.
+
+          Do not write code. Do not start the work. The deliverable is the plan.
+
+    # Planned, and waiting for a person to say go. Approval pins the plan version every later
+    # stage reads.
+    - name: backlog
+      mode: manual
+      worktree: none
+      provider: anthropic
+      model: claude-sonnet-5
+      onPass: implementing
+      onFail: planning
+      maxKickbacks: 3
+      instructions: |
+          Not dispatched. A card reaches this stage when its plan is approved.
+
     - name: implementing
       mode: agent
       worktree: rw

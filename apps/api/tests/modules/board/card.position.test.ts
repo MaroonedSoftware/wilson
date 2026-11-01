@@ -58,8 +58,8 @@ describe('renormalizedPositions', () => {
         const spaced = renormalizedPositions(order);
 
         for (let i = 0; i < order.length - 1; i++) {
-            const before = spaced.get(order[i])!;
-            const after = spaced.get(order[i + 1])!;
+            const before = spaced.get(order[i]!)!;
+            const after = spaced.get(order[i + 1]!)!;
             expect(rankBetween(before, after)).toEqual({ ok: true, position: (before + after) / 2 });
         }
     });

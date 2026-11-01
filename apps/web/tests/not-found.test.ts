@@ -34,11 +34,7 @@ function renderApp(path: string) {
     });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -75,7 +71,7 @@ afterEach(() => {
 });
 
 describe('an unmatched URL', () => {
-    it('renders the not-found screen instead of TanStack Router\'s own built-in fallback', async () => {
+    it("renders the not-found screen instead of TanStack Router's own built-in fallback", async () => {
         renderApp('/this/path/does/not/exist');
 
         expect(await screen.findByText('Page not found')).toBeTruthy();

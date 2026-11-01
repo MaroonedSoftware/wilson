@@ -58,7 +58,7 @@ describe('CardStageDeadJob', () => {
             await job.run({ cardId: '0001', stageName: 'implementing' });
 
             expect(boardRepo.write).toHaveBeenCalledTimes(1);
-            const mutate = boardRepo.write.mock.calls[0][2];
+            const mutate = boardRepo.write.mock.calls[0]![2];
             const written = await mutate(card('implementing'));
             expect(written.frontmatter.stage).toBe('poisoned');
         });
@@ -144,7 +144,7 @@ describe('CardStageDeadJob', () => {
                 await job.run({ cardId: '0001', stageName: 'implementing' });
 
                 expect(boardRepo.write).toHaveBeenCalledTimes(1);
-                const mutate = boardRepo.write.mock.calls[0][2];
+                const mutate = boardRepo.write.mock.calls[0]![2];
                 const written = await mutate(card('implementing'));
                 expect(written.frontmatter.stage).toBe('poisoned');
                 expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
@@ -254,7 +254,7 @@ describe('CardStageDeadJob notifies on poisoning (card 0050)', () => {
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({ moment: 'poisoned', cardId: '0001', stage: 'implementing', reason: 'exhausted retries' });
     });
 

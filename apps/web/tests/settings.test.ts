@@ -60,11 +60,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -175,7 +171,7 @@ describe('the auto-mode toggle', () => {
         await waitFor(() => expect(toggle.checked).toBe(false));
     });
 
-    it('leaves the previous state visible and shows the server\'s own sentence when a write is refused', async () => {
+    it("leaves the previous state visible and shows the server's own sentence when a write is refused", async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'setPollerSetting').mockRejectedValue(
             new SdkError(409, 'Conflict', { statusCode: 409, message: 'poller is pinned off by POLLER_ENABLED=false' }, new Headers()),
@@ -217,9 +213,7 @@ describe('the poll interval control', () => {
         // The server can round-trip a different value than requested — same principle the
         // auto-mode toggle's own write test proves — so the UI must render what came back, not
         // what was typed.
-        const setInterval = vi
-            .spyOn(wilson.settings, 'setPollerInterval')
-            .mockResolvedValue({ intervalMs: 60_000 } satisfies PollerInterval);
+        const setInterval = vi.spyOn(wilson.settings, 'setPollerInterval').mockResolvedValue({ intervalMs: 60_000 } satisfies PollerInterval);
 
         renderApp('/settings');
 
@@ -237,7 +231,7 @@ describe('the poll interval control', () => {
         await waitFor(() => expect(input.value).toBe('60000'));
     });
 
-    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
+    it("reverts to the previous value and shows the server's own sentence when a write is refused", async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
@@ -274,7 +268,7 @@ describe('the card stage concurrency control', () => {
         await waitFor(() => expect(input.value).toBe('5'));
     });
 
-    it('reverts to the previous value and shows the server\'s own sentence when a write is refused', async () => {
+    it("reverts to the previous value and shows the server's own sentence when a write is refused", async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
@@ -388,7 +382,7 @@ describe('the notification webhook control', () => {
         await waitFor(() => expect(baseUrlInput.value).toBe('not-a-url-at-all'));
     });
 
-    it('renders the server\'s own refusal sentence from `details.reason`, not the generic status message', async () => {
+    it("renders the server's own refusal sentence from `details.reason`, not the generic status message", async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);
@@ -425,9 +419,7 @@ describe('the notification webhook control', () => {
             fireEvent.click(saveButtonFor(webhookInput));
         });
 
-        expect(
-            await screen.findByText('webhook URL resolves to 169.254.169.254, a link-local address, which is refused'),
-        ).toBeTruthy();
+        expect(await screen.findByText('webhook URL resolves to 169.254.169.254, a link-local address, which is refused')).toBeTruthy();
         expect(screen.queryByText('Unprocessable Entity')).toBeNull();
 
         // The plan's own constraint: a refused write keeps the previous value visible — but unlike
@@ -624,7 +616,7 @@ describe('the claude config directory control', () => {
         await waitFor(() => expect(input.value).toBe(''));
     });
 
-    it('shows the server\'s own refusal sentence and keeps the typed draft visible, unlike the numeric controls', async () => {
+    it("shows the server's own refusal sentence and keeps the typed draft visible, unlike the numeric controls", async () => {
         vi.spyOn(wilson.settings, 'getPollerSetting').mockResolvedValue({ enabled: false });
         vi.spyOn(wilson.settings, 'getPollerInterval').mockResolvedValue({ intervalMs: 30_000 } satisfies PollerInterval);
         vi.spyOn(wilson.settings, 'getCardStageConcurrency').mockResolvedValue({ concurrency: 3 } satisfies CardStageConcurrency);

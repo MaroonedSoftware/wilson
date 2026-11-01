@@ -135,7 +135,7 @@ describe('BoardModule (card 0148)', () => {
         expect(rows).toHaveLength(1);
     });
 
-    it("does not overwrite a value an operator changed by hand, even when the environment still matches the original", async () => {
+    it('does not overwrite a value an operator changed by hand, even when the environment still matches the original', async () => {
         const name = uniqueProject();
         const config = await projectConfig(name, await uniquePaths());
         await bootBoardConfig(config);

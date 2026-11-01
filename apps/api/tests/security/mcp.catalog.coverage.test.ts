@@ -50,6 +50,14 @@ describe('the operation catalog', () => {
         const stepUp = (await routes()).filter(({ policy }) => policy === 'wilson.step.up').map(({ route }) => route);
 
         expect(stepUp).toContain('PUT /api/stages/config');
+        expect(stepUp).toEqual(
+            expect.arrayContaining([
+                'POST /api/hosts',
+                'PUT /api/hosts/{name}/ssh-target',
+                'POST /api/hosts/{name}/worker-token',
+                'PUT /api/hosts/{name}/engine-token',
+            ]),
+        );
         expect(stepUp.filter(route => catalog.has(route))).toEqual([]);
     });
 

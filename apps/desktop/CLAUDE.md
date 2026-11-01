@@ -66,6 +66,26 @@ runtime. `.github/workflows/desktop-release.yml` is run by hand and cuts a `desk
 release from `Version` in `Directory.Build.props`. It is not notarised, so macOS refuses a first
 launch. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns` from `brand/`.
 
+## Updates
+
+The app checks GitHub at launch and every six hours, using its own `HttpClient` so the operator's
+token never reaches GitHub. It downloads a newer `desktop-v*` release in the background, and installs
+it only on "Restart to update", so a planning turn or a merge is never cut off.
+
+- **Nothing vouches for an update but `UpdateSignature`.** The app is not notarised, and a file it
+  downloads itself is not quarantined, so Gatekeeper never looks. The workflow signs
+  `wilson-update <version> <sha256>` with ECDSA P-256 (.NET has no Ed25519). The version is signed so
+  an old zip cannot pass as a newer release. `UpdateSignature.Message` and the workflow must agree.
+- **The key is one-way.** `tools/macos/make-update-key.sh` puts the private half in the
+  `UPDATE_SIGNING_KEY` secret and writes `Updates/update-key.pem`. A new key strands every installed
+  copy, which would refuse updates until installed by hand, so never replace it casually. A build
+  without the file only gives notice, and the release workflow refuses to run without it.
+- **A swap cannot leave no app.** `BundleSwap.Script` waits for the exit, restores the old bundle if
+  the swap fails, and relaunches either way. Staging sits beside the bundle because `mv` is atomic
+  only within a volume. An app the person cannot write beside falls back to the notice.
+- To change the swap, run it on real bundles: `make-app-bundle.sh <version>` takes a version, and
+  `tools/Walk -- update` installs a signed zip over a bundle. It relaunches that bundle.
+
 ## Sandbox
 
 - Run `dotnet build` outside it. Avalonia's build-time telemetry task fails there as an `MSB4018`
@@ -80,8 +100,8 @@ Here: sign-in, the board and its feed, card detail and every card action, creati
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
 dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and splitting a card. A
-card's plan shows as plain text, not rendered Markdown. There is no update check, menu-bar icon or
-notification, and closing the window quits.
+card's plan shows as plain text, not rendered Markdown. There is no menu-bar icon or notification,
+and closing the window quits.
 
 ## Verified
 
@@ -89,11 +109,17 @@ notification, and closing the window quits.
 the feed, creating and editing a card, moving one, a merge refused by the server, opening a planning
 session, saving a draft (refused by the server's own check), comments, a real planning turn, a real
 chat turn, and a diff of a real branch. The Keychain round trip passed on a real Keychain, and
-`Wilson.app` launched and opened its window.
+`Wilson.app` launched and opened its window. The first release built, signed and published from the
+workflow, and that download launched from `/Applications`.
+
+2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
+does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
+signature did not name were both refused.
 
 Not verified:
 
 - A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
+- An update through the running app's own button, or from a real release.
 - Typing into the real window, as opposed to driving the view models headless, and a session
   surviving a relaunch of the real app.
 - The app against Tower or the real board.

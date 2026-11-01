@@ -203,7 +203,7 @@ describe('approving a card and then dispatching it (card 0109)', () => {
         const head = await board.read('0001');
         expect(head.frontmatter.stage).toBe('testing');
         expect(head.frontmatter.planVersionId).toBe(approvedVersion);
-        const pinned = await board.readAt('0001', approvedVersion);
+        const pinned = await board.readAt('0001', approvedVersion!);
         expect(pinned.frontmatter.stage).toBe('planning');
 
         let scopedDecision: ScopeDecision | undefined;

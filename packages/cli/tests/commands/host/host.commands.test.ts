@@ -70,6 +70,30 @@ describe('wilson host set', () => {
         expect(sentBody()).toEqual({ enabled: false, draining: false });
     });
 
+    it('sends --ssh-target on its own call, not in the patch', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(host)).mockResolvedValueOnce(jsonResponse(host));
+        const { ctx } = buildCtx();
+
+        await (setCommand.run as unknown as Handler<object>)({ sshTarget: 'new-box', slots: 2 }, ctx, ['agent-3']);
+
+        const [targetUrl, targetInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(targetUrl).toContain('/api/hosts/agent-3/ssh-target');
+        expect(targetInit.method).toBe('PUT');
+        expect(sentBody()).toEqual({ sshTarget: 'new-box' });
+        const [, patchInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+        expect(patchInit.method).toBe('PATCH');
+        expect(JSON.parse(String(patchInit.body))).toEqual({ slots: 2 });
+    });
+
+    it('makes no PATCH for --ssh-target alone', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(host));
+        const { ctx } = buildCtx();
+
+        expect(await (setCommand.run as unknown as Handler<object>)({ sshTarget: 'new-box' }, ctx, ['agent-3'])).toBe(0);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('refuses contradictory or empty options without calling the API', async () => {
         const { ctx, logger } = buildCtx();
 
@@ -175,6 +199,28 @@ describe('wilson host token', () => {
         expect(String(url)).toContain('/api/hosts/unraid-vm/worker-token');
         expect(init.method).toBe('POST');
         expect(logger.info).toHaveBeenCalledWith('wilson_worker_abcd');
+    });
+
+    it('asks for the password when the API refuses the key, and mints with a fresh session', async () => {
+        const askSecret = vi.spyOn(terminalIo, 'askSecret').mockResolvedValue('pw');
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ details: { kind: 'step_up_unavailable', reason: 'an API key cannot do this' } }, 403))
+            .mockResolvedValueOnce(
+                jsonResponse({ accountId: 'a', email: 'operator@example.com', issuedAt: '2026-10-29T00:00:00Z', expiresAt: '2026-10-29T01:00:00Z' }),
+            )
+            .mockResolvedValueOnce(jsonResponse({ result: 'token', accessToken: 'fresh', refreshToken: 'r', expiresIn: 1, tokenType: 'Bearer' }))
+            .mockResolvedValueOnce(jsonResponse({ token: 'wilson_worker_abcd', host: { ...host, kind: 'worker' } }, 201))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const { ctx, logger } = buildCtx();
+
+        await (tokenCommand.run as unknown as Handler<object>)({}, ctx, ['unraid-vm']);
+
+        expect(askSecret).toHaveBeenCalledOnce();
+        const [url, init] = fetchMock.mock.calls[3] as [string, RequestInit];
+        expect(String(url)).toContain('/api/hosts/unraid-vm/worker-token');
+        expect(new Headers(init.headers).get('authorization')).toBe('Bearer fresh');
+        expect(logger.info).toHaveBeenCalledWith('wilson_worker_abcd');
+        askSecret.mockRestore();
     });
 
     it('revokes the token with --revoke', async () => {

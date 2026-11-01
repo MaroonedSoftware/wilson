@@ -131,7 +131,7 @@ describe('commitsBehind', () => {
             expect(await commitsBehind(codeRoot, daemonCommit)).toBe(0);
         });
 
-        it('is 0 when ref is an ancestor of the daemon\'s own commit — the daemon is ahead, not stale', async () => {
+        it("is 0 when ref is an ancestor of the daemon's own commit — the daemon is ahead, not stale", async () => {
             expect(await commitsBehind(codeRoot, firstSha)).toBe(0);
         });
 

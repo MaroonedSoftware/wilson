@@ -241,7 +241,10 @@ export function OnboardingForm() {
     };
 
     return (
-        <Panel title="Create your account" description="wilson has one account: yours. Choose the email address and password you will sign in with. wilson never sends mail to it.">
+        <Panel
+            title="Create your account"
+            description="wilson has one account: yours. Choose the email address and password you will sign in with. wilson never sends mail to it."
+        >
             <form onSubmit={submit}>
                 <Stack gap="sm">
                     <TextInput

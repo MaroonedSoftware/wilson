@@ -19,12 +19,14 @@ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { planlessCard, stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -261,7 +263,7 @@ describe('checkCounts', () => {
             expect(failures[0]).toMatch(/this plan declares/);
         });
 
-        it('AC4: with no ceiling passed, a rise from 0 to 1 fails with exactly today\'s message', () => {
+        it("AC4: with no ceiling passed, a rise from 0 to 1 fails with exactly today's message", () => {
             const failures = checkCounts({ ...counts, skipped: 1 }, { total: 10, skipped: 0 });
             expect(failures).toEqual(['the skipped-test count rose from 0 to 1: tests were skipped rather than fixed']);
         });
@@ -334,11 +336,11 @@ describe('redSuiteFailure', () => {
         expect(firstLine).toBe("the suite is not green: 1 failing: broken.test.ts failed to load: Cannot find module './x.js'");
     });
 
-    it('AC4: falls back to today\'s plain message when there is no report at all', () => {
+    it("AC4: falls back to today's plain message when there is no report at all", () => {
         expect(redSuiteFailure(undefined, run)).toBe(`the suite is not green: ${run.reason}`);
     });
 
-    it('AC4: falls back to today\'s plain message when the report parsed but named no failures', () => {
+    it("AC4: falls back to today's plain message when the report parsed but named no failures", () => {
         expect(redSuiteFailure({ total: 0, passed: 0, failed: 0, skipped: 0 }, run)).toBe(`the suite is not green: ${run.reason}`);
     });
 });
@@ -462,6 +464,7 @@ describe('TestingVerifier — scratch-named test files', () => {
         worktree,
         stage,
         cardId: '0001',
+        card: planlessCard(),
         scope: {} as ScopeGuard,
         result: undefined,
     });
@@ -482,7 +485,7 @@ describe('TestingVerifier — scratch-named test files', () => {
 
         const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         manager = new WorktreeManager(config, silentLogger as never);
-        verifier = new TestingVerifier(manager, silentLogger as never);
+        verifier = new TestingVerifier(manager, silentLogger as never, {} as EventLog, config);
     });
 
     it('fails on a scratch-named file the stage wrote but never staged, naming it and the reason', async () => {
@@ -558,7 +561,7 @@ describe('TestingVerifier — format check (card 0041)', () => {
 
         const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         manager = new WorktreeManager(config, silentLogger as never);
-        verifier = new TestingVerifier(manager, silentLogger as never);
+        verifier = new TestingVerifier(manager, silentLogger as never, {} as EventLog, config);
     });
 
     afterEach(async () => {
@@ -569,6 +572,7 @@ describe('TestingVerifier — format check (card 0041)', () => {
         worktree,
         stage,
         cardId: '0001',
+        card: planlessCard(),
         scope: {} as ScopeGuard,
         result: undefined,
     });
@@ -647,7 +651,7 @@ describe('TestingVerifier — red-suite failure names failing tests (card 0246)'
 
         const config = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         manager = new WorktreeManager(config, silentLogger as never);
-        verifier = new TestingVerifier(manager, silentLogger as never);
+        verifier = new TestingVerifier(manager, silentLogger as never, {} as EventLog, config);
     });
 
     afterEach(async () => {
@@ -658,6 +662,7 @@ describe('TestingVerifier — red-suite failure names failing tests (card 0246)'
         worktree,
         stage,
         cardId: '0001',
+        card: planlessCard(),
         scope: {} as ScopeGuard,
         result: undefined,
     });
@@ -759,11 +764,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
     let base: string;
     let manager: WorktreeManager;
     let config: StaticBoardConfig;
-    let events: {
-        rows: Array<{ project: string; cardId: string; stage?: string; type: string; payload: Record<string, unknown> }>;
-        append: ReturnType<typeof vi.fn>;
-        tail: ReturnType<typeof vi.fn>;
-    };
+    let events: ReturnType<typeof fakeEvents>;
     let verifier: TestingVerifier;
 
     const fakeEvents = () => {
@@ -846,6 +847,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
         worktree,
         stage,
         cardId: '0001',
+        card: planlessCard(),
         scope: {} as ScopeGuard,
         result: undefined,
     });
@@ -876,7 +878,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
         );
     });
 
-    it('AC2: a red run whose rerun is also red fails with today\'s message, and appends no test.flaky event', async () => {
+    it("AC2: a red run whose rerun is also red fails with today's message, and appends no test.flaky event", async () => {
         const worktree = await manager.create('0002', 'card/0002-thing');
         await mkdir(join(worktree.path, 'tests'), { recursive: true });
         await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
@@ -930,7 +932,7 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
         expect(calls).toHaveLength(1);
     });
 
-    it('AC4: the rerun runs stage.testCommand with only the failing files\' paths appended, deduplicated', async () => {
+    it("AC4: the rerun runs stage.testCommand with only the failing files' paths appended, deduplicated", async () => {
         const worktree = await manager.create('0004', 'card/0004-thing');
         await mkdir(join(worktree.path, 'tests'), { recursive: true });
         await writeFile(join(worktree.path, 'tests', 'thing.test.ts'), "it('x', () => {});\n", 'utf8');
@@ -950,8 +952,8 @@ describe('TestingVerifier — flaky rerun (card 0261)', () => {
 
         const calls = (await readFile(join(worktree.path, 'calls.log'), 'utf8')).trim().split('\n');
         expect(calls).toHaveLength(2);
-        expect(JSON.parse(calls[0])).toEqual([]);
-        expect(JSON.parse(calls[1])).toEqual(['tests/thing.test.ts', 'tests/other.test.ts']);
+        expect(JSON.parse(calls[0]!)).toEqual([]);
+        expect(JSON.parse(calls[1]!)).toEqual(['tests/thing.test.ts', 'tests/other.test.ts']);
     });
 
     it('AC5: fails with "flaky: <names>" when the card already carries a test.flaky event naming one of the same tests', async () => {

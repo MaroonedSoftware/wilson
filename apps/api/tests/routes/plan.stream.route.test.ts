@@ -169,7 +169,7 @@ describe('PlanStreamRouter', () => {
      * the raw parsed JSON rather than a typed subset, since a type ascription would hide an extra
      * field a real client would still receive.
      */
-    it('never leaks a stored turn\'s engineSessionId over the wire when replaying', async () => {
+    it("never leaks a stored turn's engineSessionId over the wire when replaying", async () => {
         const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
         const repo = new PlanTurnRepository(config, db);
         const id = randomUUID();

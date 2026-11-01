@@ -7,9 +7,9 @@
 // injects (`MantineCssVariables`, `@mantine/core`'s own mechanism for turning a theme into `:root`
 // custom properties) — proof the values in `theme.ts` actually reach the provider, not just that
 // `theme.ts` exports an object shaped the right way.
-import { createElement } from 'react';
+import { createElement, type ComponentType } from 'react';
 import { cleanup, render } from '@testing-library/react';
-import { Anchor, MantineProvider } from '@mantine/core';
+import { Anchor, MantineProvider, type AnchorProps } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { theme, cssVariablesResolver } from '#src/theme.js';
 
@@ -65,7 +65,7 @@ describe('theme.ts wired into MantineProvider', () => {
         expect(renderedCssVariables()).toMatch(/--mantine-primary-color-filled:\s*var\(--mantine-color-dark-filled\)/);
     });
 
-    it('gives headings a serif stack for the wordmark feel, not Mantine\'s default sans', () => {
+    it("gives headings a serif stack for the wordmark feel, not Mantine's default sans", () => {
         const match = renderedCssVariables().match(/--mantine-font-family-headings:\s*([^;]*);/);
         expect(match?.[1]).toMatch(/serif/);
     });
@@ -97,7 +97,7 @@ describe('cssVariablesResolver (card 0179 — links unreadable in dark mode)', (
     // resolver's own `light: {}` is what leaves Mantine's default (`var(--mantine-color-dark-6)`,
     // resolved from `primaryColor` for the light scheme) in place, identical with or without the
     // resolver wired in.
-    it('leaves the light scheme\'s anchor colour at Mantine\'s own default, resolver or not', () => {
+    it("leaves the light scheme's anchor colour at Mantine's own default, resolver or not", () => {
         const withoutResolver = schemeBlock(renderedCssVariables(), 'light');
         const withResolver = schemeBlock(renderedCssVariablesWithResolver(), 'light');
         expect(withResolver).toBe(withoutResolver);
@@ -112,7 +112,13 @@ describe('cssVariablesResolver (card 0179 — links unreadable in dark mode)', (
  * `'not-hover'`, or `'always'`). Reading the attribute is what proves which behaviour is actually
  * wired up, rather than trusting that passing `defaultProps` did something. */
 function renderedAnchorUnderline(providerTheme?: typeof theme): string | null {
-    const { container } = render(createElement(MantineProvider, { theme: providerTheme }, createElement(Anchor, { href: '#' }, 'a link')));
+    const { container } = render(
+        createElement(
+            MantineProvider,
+            { theme: providerTheme },
+            createElement(Anchor as ComponentType<AnchorProps & { href: string }>, { href: '#' }, 'a link'),
+        ),
+    );
     return container.querySelector('a')?.getAttribute('data-underline') ?? null;
 }
 

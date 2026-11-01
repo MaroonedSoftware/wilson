@@ -7,8 +7,8 @@ import { clearAccounts, holdAccounts } from '#tests/support/test.accounts.js';
 import { onboardAndSignIn, request, startTestServer, type TestServer } from '#tests/support/test.server.js';
 
 /**
- * `wilson.step.up` over real HTTP: minting or rotating a key and saving stage config need a factor
- * proved in the last five minutes, which no API key ever is (PROJECT.md, Authentication: Factors).
+ * `wilson.step.up` over real HTTP: minting or rotating a key, saving stage config, and saying which
+ * machine receives card work need a factor proved in the last five minutes, which no API key ever is (PROJECT.md, Authentication: Factors).
  */
 let server: TestServer;
 let release: () => Promise<void>;
@@ -81,6 +81,67 @@ describe('step-up', () => {
 
         // Past the gate: the invalid document is refused by the service itself, with 400.
         expect((await request(server, 'PUT', '/api/stages/config', { token: recent, body: STAGE_SAVE })).status).toBe(400);
+    });
+
+    describe('hosts', () => {
+        const registerWorker = async (name: string) => {
+            const res = await request(server, 'POST', '/api/hosts', { token: freshSession, body: { name, kind: 'worker' } });
+            expect(res.status).toBe(201);
+        };
+        const registerSsh = async (name: string) => {
+            const res = await request(server, 'POST', '/api/hosts', { token: freshSession, body: { name, sshTarget: 'real-box' } });
+            expect(res.status).toBe(201);
+        };
+        const unique = () => `step-up-${randomUUID().slice(0, 8)}`;
+
+        it.each<[string, string, string, unknown]>([
+            ['registering a host', 'POST', '/api/hosts', { name: 'rogue', kind: 'worker' }],
+            ['changing an SSH target', 'PUT', '/api/hosts/x/ssh-target', { sshTarget: 'attacker' }],
+            ['minting a worker token', 'POST', '/api/hosts/x/worker-token', undefined],
+            ['assigning an engine token', 'PUT', '/api/hosts/x/engine-token', { name: 'pool-a' }],
+        ])('refuses a manage key %s, as step_up_unavailable', async (_name, method, path, body) => {
+            const res = await request(server, method, path, { token: manageKey, ...(body ? { body } : {}) });
+
+            expect(res.status).toBe(403);
+            expect(await kindOf(res)).toBe('step_up_unavailable');
+        });
+
+        it('refuses a stale session minting a worker token, as step_up_required', async () => {
+            const name = unique();
+            await registerWorker(name);
+
+            const res = await request(server, 'POST', `/api/hosts/${name}/worker-token`, { token: await sessionProvedAgo(6) });
+
+            expect(res.status).toBe(403);
+            expect(await kindOf(res)).toBe('step_up_required');
+        });
+
+        it('lets a fresh session change an SSH target and mint a worker token', async () => {
+            const ssh = unique();
+            await registerSsh(ssh);
+            const retarget = await request(server, 'PUT', `/api/hosts/${ssh}/ssh-target`, { token: freshSession, body: { sshTarget: 'new-box' } });
+            expect(retarget.status).toBe(200);
+            expect(((await retarget.json()) as { sshTarget: string }).sshTarget).toBe('new-box');
+
+            const worker = unique();
+            await registerWorker(worker);
+            expect((await request(server, 'POST', `/api/hosts/${worker}/worker-token`, { token: freshSession })).status).toBe(201);
+        });
+
+        it('takes no sshTarget through PATCH, which a manage key can reach', async () => {
+            const name = unique();
+            await registerSsh(name);
+
+            expect((await request(server, 'PATCH', `/api/hosts/${name}`, { token: manageKey, body: { sshTarget: 'attacker' } })).status).toBe(400);
+            expect((await request(server, 'PATCH', `/api/hosts/${name}`, { token: manageKey, body: { draining: true } })).status).toBe(200);
+        });
+
+        it('still lets a manage key take authority away', async () => {
+            const name = unique();
+            await registerWorker(name);
+
+            expect((await request(server, 'DELETE', `/api/hosts/${name}/engine-token`, { token: manageKey })).status).toBe(200);
+        });
     });
 
     it('still lets a manage key read stage config', async () => {

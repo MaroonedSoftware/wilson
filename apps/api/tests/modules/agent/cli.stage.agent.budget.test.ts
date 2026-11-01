@@ -24,7 +24,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
 const { z } = await import('zod');
 
-const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} };
 
 const makeStage = (overrides = {}) => ({
     name: 'implementing',
@@ -97,9 +97,14 @@ describe('CliStageAgent budget wiring', () => {
         });
 
         it('reports what the run read and last said, however it ended', async () => {
-            const read = (id: string, input: unknown) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Read', input }] } });
+            const read = (id: string, input: unknown) => ({
+                type: 'assistant',
+                message: { content: [{ type: 'tool_use', id, name: 'Read', input }] },
+            });
             const said = { type: 'assistant', message: { content: [{ type: 'text', text: 'gave up here' }] } };
-            queryMock.mockReturnValue(streamOf([read('t1', { file_path: 'src/a.ts' }), read('t2', { file_path: 'src/a.ts' }), said, assistant('msg_1', 1500)]));
+            queryMock.mockReturnValue(
+                streamOf([read('t1', { file_path: 'src/a.ts' }), read('t2', { file_path: 'src/a.ts' }), said, assistant('msg_1', 1500)]),
+            );
 
             const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
 
@@ -124,7 +129,9 @@ describe('CliStageAgent budget wiring', () => {
         });
 
         it('charges an API message once, however many content blocks repeat its usage', async () => {
-            queryMock.mockReturnValue(streamOf([assistant('msg_1', 600), assistant('msg_1', 600), assistant('msg_1', 600), resultMessage('success', 600)]));
+            queryMock.mockReturnValue(
+                streamOf([assistant('msg_1', 600), assistant('msg_1', 600), assistant('msg_1', 600), resultMessage('success', 600)]),
+            );
 
             const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
 

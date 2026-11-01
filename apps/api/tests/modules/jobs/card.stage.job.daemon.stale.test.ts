@@ -79,15 +79,19 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
         await commit(codeRoot, 'one\n', 'first');
 
-
         const board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         const dispatcher = { run: vi.fn(async () => outcome()) };
         const broker = { send: vi.fn(async () => 'job-1') };
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
         // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and this test exercises `checkDaemonCurrent` exactly as before.
-        const boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        const boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => {
+                throw new Error('not stubbed');
+            }),
+        };
         const cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
 
         const job = new CardStageJob(
@@ -169,15 +173,20 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
-        events = { append: vi.fn(async () => {}) };
+        events = { append: vi.fn<EventLog['append']>(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
         // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and these tests exercise `checkDaemonCurrent` exactly as before.
-        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => {
+                throw new Error('not stubbed');
+            }),
+        };
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
     });
 
-    it('appends daemon.stale, with both commits and how far behind, when the daemon is behind the card\'s base — and dispatches anyway', async () => {
+    it("appends daemon.stale, with both commits and how far behind, when the daemon is behind the card's base — and dispatches anyway", async () => {
         await exec('git', ['reset', '-q', '--hard', fourthSha], { cwd: codeRoot });
 
         const job = buildJob();
@@ -195,7 +204,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
     });
 
-    it('appends nothing when the daemon is current with the card\'s base', async () => {
+    it("appends nothing when the daemon is current with the card's base", async () => {
         await exec('git', ['reset', '-q', '--hard', daemonCommit], { cwd: codeRoot });
 
         const job = buildJob();
@@ -204,7 +213,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         expect(daemonStaleEvents()).toEqual([]);
     });
 
-    it('appends nothing when the daemon is ahead of the card\'s base — an ahead daemon is not stale', async () => {
+    it("appends nothing when the daemon is ahead of the card's base — an ahead daemon is not stale", async () => {
         // The card's worktree would be cut from an older commit than the one this process is
         // running — a rebase target moved back under it, say. Compare like with like: the daemon
         // has not missed anything this base needs.
@@ -224,15 +233,10 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         const notGitCodeRoot = join(base, 'not-a-repo');
         await mkdir(notGitCodeRoot, { recursive: true });
 
-        const noGitBoard = new StaticBoardConfig(
-            'test',
-            notGitCodeRoot,
-            join(base, 'worktrees'),
-            join(base, 'run'),
-        );
+        const noGitBoard = new StaticBoardConfig('test', notGitCodeRoot, join(base, 'worktrees'), join(base, 'run'));
 
         dispatcher = { run: vi.fn(async () => outcome()) };
-        events = { append: vi.fn(async () => {}) };
+        events = { append: vi.fn<EventLog['append']>(async () => {}) };
         board = noGitBoard;
         const job = buildJob();
         await job.run({ cardId: '0001', stageName: 'implementing' });

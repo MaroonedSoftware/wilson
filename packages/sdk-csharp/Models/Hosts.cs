@@ -142,14 +142,11 @@ public sealed record CreateHostRequest
 /// A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
 /// No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
 /// moving a machine to the other kind is removing the host and registering it again.
+/// No `sshTarget`: where a host is reached decides who receives a card's repository, so it has an
+/// operation of its own (`PUT /api/hosts/{name}/ssh-target`), behind step-up and out of an agent's reach.
 /// </summary>
 public sealed record UpdateHostRequest
 {
-    /// <summary>Only for an `ssh` host.</summary>
-    [JsonPropertyName("sshTarget")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SshTarget { get; init; }
-
     [JsonPropertyName("slots")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Slots { get; init; }
@@ -176,6 +173,13 @@ public sealed record UpdateHostRequest
     [JsonPropertyName("projectsRoot")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ProjectsRoot { get; init; }
+}
+
+public sealed record PutHostSshTargetRequest
+{
+    /// <summary>What `ssh` connects to.</summary>
+    [JsonPropertyName("sshTarget")]
+    public required string SshTarget { get; init; }
 }
 
 public sealed record PutHostEngineTokenRequest

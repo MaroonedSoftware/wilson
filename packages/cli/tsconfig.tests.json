@@ -1,0 +1,13 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Covers tests/ as well as src/, which the build tsconfig leaves out. #src here is this package's
+        // source, as in vitest.config.ts, not the API's as in tsconfig.json.
+        "rootDir": ".",
+        "paths": {
+            "#src/*": ["./src/*"]
+        }
+    },
+    "include": ["./src/**/*", "./tests/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

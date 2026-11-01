@@ -39,6 +39,52 @@ describe('createToolGuard', () => {
 
     const opts = { signal: new AbortController().signal } as never;
 
+    describe('Glob and Grep', () => {
+        const buildDenying = () => {
+            const context = {
+                project: 'p',
+                cardId: '1',
+                stage: 's',
+                worktreeRoot: '/tmp',
+                scope: new ScopeGuard({ worktreeRoot: '/tmp', allow: [], alwaysAllowed: [], deny: ['secrets/**'] }),
+                commands: new CommandAllowlist([]),
+                scopeViolationPolicy: 'widen' as const,
+                events: { append: async () => {} },
+                logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+            } as unknown as ToolContext;
+            return createToolGuard(context, 'rw');
+        };
+
+        it.each([
+            ['Grep', { pattern: 'password', path: '/etc' }],
+            ['Grep', { pattern: 'password', path: '../outside' }],
+            ['Grep', { pattern: 'password', path: 'secrets' }],
+            ['Grep', { pattern: 'password', path: '.git' }],
+            ['Glob', { pattern: '*.pem', path: '/etc' }],
+            ['Glob', { pattern: '/etc/*.conf' }],
+            ['Glob', { pattern: '../outside/**' }],
+            ['Glob', { pattern: 'src/../../outside/*' }],
+            ['Glob', { pattern: '**/../../outside/*' }],
+            ['Glob', { pattern: 'secrets/*.pem' }],
+            ['Glob', { pattern: '.git/*' }],
+        ])('denies %s reaching outside the tree or into a denied path: %j', async (tool, input) => {
+            await expect(buildDenying()(tool, input, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it.each([
+            ['Grep', { pattern: 'x' }],
+            ['Grep', { pattern: 'x', path: '.' }],
+            ['Grep', { pattern: 'x', path: '/tmp' }],
+            ['Grep', { pattern: 'x', path: 'src', glob: '*.ts' }],
+            ['Glob', { pattern: '**/*.ts' }],
+            ['Glob', { pattern: 'src/**/*.ts' }],
+            ['Glob', { pattern: '*.ts', path: 'src' }],
+            ['Glob', { pattern: '/tmp/src/*.ts' }],
+        ])('allows %s within the tree: %j', async (tool, input) => {
+            await expect(buildDenying()(tool, input, opts)).resolves.toMatchObject({ behavior: 'allow' });
+        });
+    });
+
     describe('writes', () => {
         it('allows a write inside the plan’s files in scope', async () => {
             const { guard } = build('rw');

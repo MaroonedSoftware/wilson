@@ -8,7 +8,7 @@ import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { HostProber } from '#modules/host/host.prober.js';
 import { HostsService } from '#modules/host/hosts.service.js';
-import { CreateHostRequest, Host, PutHostProjectRequest, UpdateHostRequest } from '../../../generated/hosts.js';
+import { Host, PutHostProjectRequest, UpdateHostRequest } from '../../../generated/hosts.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -19,7 +19,6 @@ function requireMcpContainer(context: McpToolContext): Container {
 }
 
 const ListHostsArgs = z.object({});
-const RegisterHostArgs = z.object({ body: CreateHostRequest });
 const GetHostArgs = z.object({ name: z.string() });
 const UpdateHostArgs = z.object({ name: z.string(), body: UpdateHostRequest });
 const RemoveHostArgs = z.object({ name: z.string() });
@@ -46,30 +45,6 @@ export class ListHostsMcpTool implements McpToolHandler {
         const result = await container.get(HostsService).list();
         const resultJson = JSON.stringify({ items: result });
         return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
-    }
-}
-
-/**
- * from [hosts.ck](../../../../data/contracts/hosts.ck) `POST /api/hosts`
- */
-@Injectable()
-export class RegisterHostMcpTool implements McpToolHandler {
-    readonly definition: Tool = {
-        name: 'register_host',
-        description:
-            "Register a machine card stages can run on, reached over SSH or by a worker program that connects\nin. A worker host then needs its token minted with `wilson host token` or on the web app's Hosts\npage, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).",
-        inputSchema: z.toJSONSchema(RegisterHostArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
-        outputSchema: z.toJSONSchema(Host, { unrepresentable: 'any' }) as Tool['outputSchema'],
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
-    };
-
-    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
-        const container = requireMcpContainer(context);
-        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
-        const { body } = await parseAndValidate(args, RegisterHostArgs);
-        const result = await container.get(HostsService).create(body);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
 }
 
@@ -211,7 +186,6 @@ export class RemoveHostProjectMcpTool implements McpToolHandler {
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerHostsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('list_hosts', container.get(ListHostsMcpTool));
-    map.set('register_host', container.get(RegisterHostMcpTool));
     map.set('get_host', container.get(GetHostMcpTool));
     map.set('update_host', container.get(UpdateHostMcpTool));
     map.set('remove_host', container.get(RemoveHostMcpTool));
@@ -223,7 +197,6 @@ export function registerHostsMcpCatalog(map: McpToolHandlerMap, container: Conta
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
 export function registerHostsMcpToolClasses(registry: Registry): void {
     registry.register(ListHostsMcpTool).useClass(ListHostsMcpTool).asSingleton();
-    registry.register(RegisterHostMcpTool).useClass(RegisterHostMcpTool).asSingleton();
     registry.register(GetHostMcpTool).useClass(GetHostMcpTool).asSingleton();
     registry.register(UpdateHostMcpTool).useClass(UpdateHostMcpTool).asSingleton();
     registry.register(RemoveHostMcpTool).useClass(RemoveHostMcpTool).asSingleton();

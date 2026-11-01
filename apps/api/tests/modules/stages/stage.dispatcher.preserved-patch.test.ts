@@ -68,7 +68,7 @@ const cardFor = (id: string): Card => ({
  * `context.scope.checkRead`/`check` itself and hands the real decisions back out, so the assertions
  * are against the actual `ScopeGuard` the dispatcher built — not a re-implementation of its logic.
  */
-describe('StageDispatcher.run grants read access to every board card\'s preserved patch (card 0161)', () => {
+describe("StageDispatcher.run grants read access to every board card's preserved patch (card 0161)", () => {
     const setUp = async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-preserved-patch-'));
 

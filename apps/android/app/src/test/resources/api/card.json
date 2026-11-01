@@ -1,10 +1,10 @@
 {
-  "id": "0002",
-  "title": "A card from the capture",
-  "stage": "parking-lot",
-  "dependsOn": [],
-  "needsHuman": false,
-  "body": "Body",
-  "sections": {},
-  "resolvedBranch": "card/0002-a-card-from-the-capture"
+    "id": "0002",
+    "title": "A card from the capture",
+    "stage": "parking-lot",
+    "dependsOn": [],
+    "needsHuman": false,
+    "body": "Body",
+    "sections": {},
+    "resolvedBranch": "card/0002-a-card-from-the-capture"
 }

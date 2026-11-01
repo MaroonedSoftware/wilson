@@ -9,6 +9,7 @@ import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -27,6 +28,7 @@ const card = (id: string, stage: string, overrides: Partial<Card> = {}): Card =>
 });
 
 const stage: StageConfig = {
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -169,7 +171,7 @@ describe('StageDispatcher assertDispatchable — NotDispatchableError discrimina
      * moment after `approve()` runs. This must not throw at all.
      */
     describe('the head/card split (card 0109)', () => {
-        it('dispatches normally when the pinned plan\'s stage differs from the live card\'s stage', () => {
+        it("dispatches normally when the pinned plan's stage differs from the live card's stage", () => {
             const head = card('0001', 'testing');
             const pinned = card('0001', 'backlog');
 

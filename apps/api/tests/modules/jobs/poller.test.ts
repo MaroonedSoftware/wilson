@@ -216,7 +216,11 @@ const buildPoller = (
 ) => {
     const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
     const scopeConflict = deps.scopeConflict ?? noConflict;
-    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1'), scopeConflict };
+    const board = {
+        list: vi.fn(async () => cards),
+        writeWithEvent: vi.fn<BoardRepository['writeWithEvent']>(async () => 'card-version-1'),
+        scopeConflict,
+    };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
@@ -254,9 +258,9 @@ describe('Poller tick — what it will and will not enqueue', () => {
         // multi-project describe block below for the case where that field actually differs.
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
-        expect(broker.send.mock.invocationCallOrder[0]).toBeLessThan(cardJobs.record.mock.invocationCallOrder[0]);
+        expect(broker.send.mock.invocationCallOrder[0]!).toBeLessThan(cardJobs.record.mock.invocationCallOrder[0]!);
         expect(logger.info).toHaveBeenCalledTimes(1);
-        expect(logger.info.mock.calls[0][0]).toContain('0001');
+        expect(logger.info.mock.calls[0]![0]).toContain('0001');
     });
 
     /**
@@ -320,7 +324,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(broker.send).toHaveBeenCalledTimes(1);
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
-        expect(logger.info.mock.calls[0][0]).toContain('0002');
+        expect(logger.info.mock.calls[0]![0]).toContain('0002');
     });
 
     it('skips a command-stage card the same way as a manual one, and enqueues the dispatchable candidate behind it', async () => {
@@ -371,7 +375,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(broker.send).toHaveBeenCalledTimes(1);
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).not.toHaveBeenCalledWith('0001', expect.anything());
-        expect(logger.info.mock.calls[0][0]).toContain('0002');
+        expect(logger.info.mock.calls[0]![0]).toContain('0002');
     });
 
     /**
@@ -708,7 +712,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
 
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
-        expect(logger.info.mock.calls[0][0]).toContain('0001');
+        expect(logger.info.mock.calls[0]![0]).toContain('0001');
     });
 
     /**
@@ -850,7 +854,11 @@ describe('Poller tick — the daily output token ceiling (card 0264)', () => {
     // a second, independently-ticked project under its own ceiling still enqueues normally.
     it('AC3/AC7: spend at or over the ceiling enqueues nothing and logs once, without listing the board; a second project under its own ceiling still enqueues', async () => {
         const overEvents = eventsWithSpend(1000);
-        const overBoard = { list: vi.fn(async () => [card('0001', 'implementing')]), writeWithEvent: vi.fn(async () => 'v1'), scopeConflict: noConflict };
+        const overBoard = {
+            list: vi.fn(async () => [card('0001', 'implementing')]),
+            writeWithEvent: vi.fn(async () => 'v1'),
+            scopeConflict: noConflict,
+        };
         const overConfig = new StaticBoardConfig('over-budget-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const overBroker = fakeBroker();
         const overLogger = fakeLogger();
@@ -870,8 +878,8 @@ describe('Poller tick — the daily output token ceiling (card 0264)', () => {
         expect(overBoard.list).not.toHaveBeenCalled();
         expect(overBroker.send).not.toHaveBeenCalled();
         expect(overLogger.error).toHaveBeenCalledTimes(1);
-        expect(overLogger.error.mock.calls[0][0]).toContain('over-budget-project');
-        expect(overLogger.error.mock.calls[0][0]).toContain('1000');
+        expect(overLogger.error.mock.calls[0]![0]).toContain('over-budget-project');
+        expect(overLogger.error.mock.calls[0]![0]).toContain('1000');
 
         // A second project, ticked independently under its own ceiling, is untouched by the first's.
         const { poller: underPoller, broker: underBroker } = buildPoller([card('0002', 'implementing')], {
@@ -919,7 +927,11 @@ describe('Poller start/stop', () => {
         // Awaited rather than asserted immediately, for the same reason as the idempotency test
         // above: `loop()` awaits the settings read before its first `delay()` call.
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                POLLER_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
         releaseTick();
 
@@ -992,13 +1004,19 @@ describe('Poller start/stop', () => {
 
         poller.start();
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                POLLER_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
 
         // Let the first wait elapse and the tick after it run — loop() reads the setting again
         // before its *next* delay() call, with no stop()/start() anywhere in between.
         releaseTick();
-        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
 
         await poller.stop();
     });
@@ -1018,7 +1036,11 @@ describe('Poller start/stop', () => {
 
             poller.start();
             await vi.waitFor(() =>
-                expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+                expect(delayMock).toHaveBeenCalledWith(
+                    POLLER_INTERVAL_MS_DEFAULT,
+                    undefined,
+                    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+                ),
             );
             expect(logger.error).toHaveBeenCalledWith(boom);
 
@@ -1028,7 +1050,11 @@ describe('Poller start/stop', () => {
             // A second failing iteration behaves exactly like the first — logs again, waits the
             // default again — rather than busy-looping or giving up after a single retry.
             await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
-            expect(delayMock).toHaveBeenLastCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+            expect(delayMock).toHaveBeenLastCalledWith(
+                POLLER_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
             expect(logger.error).toHaveBeenCalledTimes(2);
 
             releaseTick();
@@ -1066,7 +1092,11 @@ describe('Poller start/stop', () => {
             poller.start();
             // Never having read a good value yet, the first failure falls back to the default.
             await vi.waitFor(() =>
-                expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+                expect(delayMock).toHaveBeenCalledWith(
+                    POLLER_INTERVAL_MS_DEFAULT,
+                    undefined,
+                    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+                ),
             );
 
             releaseTick();

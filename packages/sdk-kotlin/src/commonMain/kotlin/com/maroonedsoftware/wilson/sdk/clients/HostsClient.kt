@@ -6,6 +6,7 @@ import com.maroonedsoftware.wilson.sdk.models.Host
 import com.maroonedsoftware.wilson.sdk.models.IssuedWorkerToken
 import com.maroonedsoftware.wilson.sdk.models.PutHostEngineTokenRequest
 import com.maroonedsoftware.wilson.sdk.models.PutHostProjectRequest
+import com.maroonedsoftware.wilson.sdk.models.PutHostSshTargetRequest
 import com.maroonedsoftware.wilson.sdk.models.UpdateHostRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
@@ -69,6 +70,21 @@ class HostsClient(private val http: SdkHttp) {
     }
 
     /**
+     * Set host SSH target
+     * Where the daemon reaches an `ssh` host. An operation of its own, not a field on
+     * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
+     * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+     * @throws SdkError on 400, 404
+     */
+    suspend fun setHostSshTarget(name: String, body: PutHostSshTargetRequest): Host {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "hosts", segment(name), "ssh-target")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
      * Probe host
      * Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
      * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
@@ -110,9 +126,10 @@ class HostsClient(private val http: SdkHttp) {
     /**
      * Mint worker token
      * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-     * it, and only as this host, so it grants less than the `manage` key or session minting it already
-     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-     * `post` mints one, replacing any the host had, so rotating is posting again.
+     * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+     * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+     * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+     * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
      * @throws SdkError on 400, 404
      */
     suspend fun mintWorkerToken(name: String): IssuedWorkerToken {
@@ -125,9 +142,10 @@ class HostsClient(private val http: SdkHttp) {
     /**
      * Revoke worker token
      * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-     * it, and only as this host, so it grants less than the `manage` key or session minting it already
-     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-     * `post` mints one, replacing any the host had, so rotating is posting again.
+     * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+     * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+     * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+     * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
      * @throws SdkError on 400, 404
      */
     suspend fun revokeWorkerToken(name: String) {
@@ -139,8 +157,10 @@ class HostsClient(private val http: SdkHttp) {
     /**
      * Assign engine token
      * Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
-     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
-     * reaches the next engine started there, never one already running.
+     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach, and
+     * assigning one needs `wilson.step.up`, since it decides which machine receives that credential.
+     * Clearing it only takes authority away, so that stays `wilson.manage`. A change reaches the next
+     * engine started there, never one already running.
      * @throws SdkError on 400, 404
      */
     suspend fun assignEngineToken(name: String, body: PutHostEngineTokenRequest): Host {
