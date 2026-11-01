@@ -245,7 +245,7 @@ describe('BoardWriteService', () => {
 
             const versions = await board.versions(detail.id, 10);
             expect(versions).toHaveLength(1);
-            expect(versions[0].message).toBe(`Create ${detail.id}: Traceable card`);
+            expect(versions[0]!.message).toBe(`Create ${detail.id}: Traceable card`);
         });
 
         it('starts on the next id over the highest one already on the board, not just count + 1', async () => {
@@ -291,7 +291,7 @@ describe('BoardWriteService', () => {
 
             const versions = await board.versions(created.frontmatter.id, 10);
             expect(versions).toHaveLength(1);
-            expect(versions[0].message).toBe(`Create ${created.frontmatter.id} from linear ENG-9: Traceable`);
+            expect(versions[0]!.message).toBe(`Create ${created.frontmatter.id} from linear ENG-9: Traceable`);
         });
     });
 
@@ -361,6 +361,27 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.needsHumanReason).toBeUndefined();
         });
 
+        it("drops the flagged stage's retry key, as `ack` does, so its next failure is not an instant re-flag", async () => {
+            const { board, service } = freshBoard();
+            await board.create(
+                card('0005', { stage: 'testing', needsHuman: true, needsHumanReason: 'stuck', retries: { testing: 3, implementing: 1 } }),
+                'seed',
+            );
+
+            await service.move('0005', { stage: 'implementing' });
+
+            expect((await board.read('0005')).frontmatter.retries).toEqual({ implementing: 1 });
+        });
+
+        it('leaves retries alone on a move that clears no flag', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0006', { stage: 'testing', retries: { testing: 2 } }), 'seed');
+
+            await service.move('0006', { stage: 'implementing' });
+
+            expect((await board.read('0006')).frontmatter.retries).toEqual({ testing: 2 });
+        });
+
         it('clears the flag even when the target is the stage the card is already in, instead of taking the no-op path', async () => {
             const { board, events, service } = freshBoard();
             await board.create(card('0004', { stage: 'implementing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');
@@ -399,6 +420,18 @@ describe('BoardWriteService', () => {
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({ cardId: '0010', type: 'worktree.reclaimed', payload: { cardId: '0010', target: 'merged' } }),
             );
+        });
+
+        it('leaves the worktree to the run when a stage is still using it', async () => {
+            const { board, config, events, runningCards, service, worktrees } = freshBoard();
+            await board.create(card('0012', { stage: 'testing' }), 'seed');
+            runningCards.add(config.project, '0012');
+
+            const detail = await service.move('0012', { stage: 'merged' });
+
+            expect(detail.stage).toBe('merged');
+            expect(worktrees.reclaim).not.toHaveBeenCalled();
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
         });
 
         it("never reclaims a flagged card's tree, even on a terminal move that itself clears the flag (card 0055)", async () => {
@@ -446,7 +479,7 @@ describe('BoardWriteService', () => {
                 );
             });
 
-            it('pins the plan version on entering backlog from parking-lot too — most of this board\'s cards arrive this way', async () => {
+            it("pins the plan version on entering backlog from parking-lot too — most of this board's cards arrive this way", async () => {
                 const { board, service } = freshBoard();
                 const planVersion = await board.create(withScope('0091', 'parking-lot'), 'seed');
 
@@ -707,7 +740,7 @@ describe('BoardWriteService', () => {
     });
 
     describe('edit', () => {
-        it("edits a card's body and records the same version message the CLI records: \"Edit {id} plan body\"", async () => {
+        it('edits a card\'s body and records the same version message the CLI records: "Edit {id} plan body"', async () => {
             const { board, service } = freshBoard();
             await board.create(card('0020', { stage: 'implementing' }), 'seed');
 
@@ -717,7 +750,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0020');
             expect(stored.body).toBe('new plan text');
             const versions = await board.versions('0020', 10);
-            expect(versions[0].message).toBe('Edit 0020 plan body');
+            expect(versions[0]!.message).toBe('Edit 0020 plan body');
         });
 
         it('writes nothing when the body is unchanged, unlike an ordinary edit', async () => {
@@ -749,7 +782,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0080');
             expect(stored.frontmatter.title).toBe('New title');
             const versions = await board.versions('0080', 10);
-            expect(versions[0].message).toBe('Rename 0080: "Old title" → "New title"');
+            expect(versions[0]!.message).toBe('Rename 0080: "Old title" → "New title"');
         });
 
         it('touches only the title — stage, branch and retries are untouched, and no event is appended', async () => {
@@ -918,7 +951,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0033');
             expect(stored.frontmatter.dependsOn).toEqual(['0034']);
             const versions = await board.versions('0033', 10);
-            expect(versions[0].message).toBe('Add 0033 dependency on 0034');
+            expect(versions[0]!.message).toBe('Add 0033 dependency on 0034');
         });
 
         it('is a no-op — no write — when adding a dependency already present', async () => {
@@ -942,7 +975,7 @@ describe('BoardWriteService', () => {
 
             expect(detail.dependsOn).toEqual([]);
             const versions = await board.versions('0038', 10);
-            expect(versions[0].message).toBe('Drop 0038 dependency on 0037');
+            expect(versions[0]!.message).toBe('Drop 0038 dependency on 0037');
         });
 
         it('is a no-op — no write — when removing a dependency that is not present', async () => {
@@ -1017,8 +1050,7 @@ describe('BoardWriteService', () => {
     });
 
     describe('approve — card 0127: now a thin planning-only front door onto `move`', () => {
-        const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') =>
-            card(id, { stage }, body);
+        const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') => card(id, { stage }, body);
 
         it('refuses a card outside planning with a 400, writing nothing', async () => {
             const { board, service } = freshBoard();
@@ -1121,7 +1153,10 @@ describe('BoardWriteService', () => {
             await service.approve('0053');
             const pinnedVersion = (await board.read('0053')).frontmatter.planVersionId!;
 
-            await board.write('0053', 'edit after approval', c => ({ ...c, body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n' }));
+            await board.write('0053', 'edit after approval', c => ({
+                ...c,
+                body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n',
+            }));
 
             const pinned = await board.readAt('0053', pinnedVersion);
             expect(pinned.body).toBe(approvedBody);
@@ -1198,7 +1233,7 @@ describe('BoardWriteService', () => {
             // otherwise.
             const sendOrder = broker.send.mock.invocationCallOrder[0];
             const recordOrder = recordSpy.mock.invocationCallOrder[0];
-            expect(sendOrder).toBeLessThan(recordOrder);
+            expect(sendOrder).toBeLessThan(recordOrder!);
 
             expect(await cardJobs.inFlight('0063')).toBe('job-77');
         });
@@ -1363,7 +1398,7 @@ describe('BoardWriteService', () => {
 
             const cancelOrder = broker.cancel.mock.invocationCallOrder[0];
             const clearOrder = clearSpy.mock.invocationCallOrder[0];
-            expect(cancelOrder).toBeLessThan(clearOrder);
+            expect(cancelOrder).toBeLessThan(clearOrder!);
         });
 
         // Card 0087: a queued job — `created` or `retry` — is, by definition, one no worker has
@@ -1912,7 +1947,9 @@ describe('BoardWriteService', () => {
                     '',
                 ].join('\n'),
             );
-            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0197-merge-check', baseSha: 'merge-commit-sha' })) });
+            const worktrees = mergeWorktrees({
+                create: vi.fn(async () => ({ path: dir, branch: 'card/0197-merge-check', baseSha: 'merge-commit-sha' })),
+            });
             const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0197', { stage: 'ready' }), 'seed');
 
@@ -1955,7 +1992,9 @@ describe('BoardWriteService', () => {
                     '',
                 ].join('\n'),
             );
-            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0198-merge-check', baseSha: 'merge-commit-sha' })) });
+            const worktrees = mergeWorktrees({
+                create: vi.fn(async () => ({ path: dir, branch: 'card/0198-merge-check', baseSha: 'merge-commit-sha' })),
+            });
             const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0198', { stage: 'ready' }), 'seed');
 
@@ -2481,7 +2520,7 @@ describe('BoardWriteService', () => {
             );
         });
 
-        it("moves the card to \"ready\"'s own configured onFail, not a hard-coded \"implementing\" (AC3)", async () => {
+        it('moves the card to "ready"\'s own configured onFail, not a hard-coded "implementing" (AC3)', async () => {
             const { board, service } = freshFindingsBoard();
             await board.create(card('0203', { stage: 'ready' }), 'seed');
 

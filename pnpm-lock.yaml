@@ -135,6 +135,9 @@ importers:
       '@contractkit/cli':
         specifier: ^0.11.10
         version: 0.11.10(prettier@3.9.6)
+      '@contractkit/plugin-csharp':
+        specifier: ^0.4.0
+        version: 0.4.0
       '@contractkit/plugin-kotlin':
         specifier: ^0.3.0
         version: 0.3.0
@@ -619,6 +622,9 @@ packages:
 
   '@contractkit/openapi-to-ck@0.12.12':
     resolution: {integrity: sha512-BmMICFSlC206KWPaDFSrj7br5xjswxwQBnGYISYqtGbdKsswAxGX76kI2U04QnytXVH8QP7QhAQrutwoqbqrsw==}
+
+  '@contractkit/plugin-csharp@0.4.0':
+    resolution: {integrity: sha512-93hFrCJr1jfmncLH3IiQqEhVRZGNjTI2Habc0Zlwegx4RNMQwKvbN/dLhE5e6/tMJ5UWVz5J5EzfB7fc8mtAew==}
 
   '@contractkit/plugin-kotlin@0.3.0':
     resolution: {integrity: sha512-0UbDG1k/isdo6L6VZpzHgB+x+bVM+kaCFOgKy5qOWhPrRTwbeyGG5WMeUrbpzXn7DoP7rhWbqsHI5hboVujFcg==}
@@ -4420,6 +4426,10 @@ snapshots:
     dependencies:
       '@contractkit/core': 0.35.0
       yaml: 2.9.1
+
+  '@contractkit/plugin-csharp@0.4.0':
+    dependencies:
+      '@contractkit/core': 0.35.0
 
   '@contractkit/plugin-kotlin@0.3.0':
     dependencies:

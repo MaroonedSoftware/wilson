@@ -20,8 +20,7 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
 
 // A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
 // needs its own.
-const columns = () =>
-    jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
+const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
 // Card 0100: after `nextCard` runs, the command fetches each candidate card's (next/blocked/flagged)
 // recent events to check for a `daemon.stale` one — one more mocked response per candidate, queued
@@ -29,7 +28,15 @@ const columns = () =>
 // tail for every candidate they produce.
 const noEvents = () => jsonResponse([]);
 const staleEvent = () =>
-    jsonResponse([{ id: 'e1', type: 'daemon.stale', stage: 'implementing', payload: { daemonCommit: 'aaa', baseCommit: 'bbb', behindBy: 2 }, createdAt: '2026-01-01T00:00:00.000Z' }]);
+    jsonResponse([
+        {
+            id: 'e1',
+            type: 'daemon.stale',
+            stage: 'implementing',
+            payload: { daemonCommit: 'aaa', baseCommit: 'bbb', behindBy: 2 },
+            createdAt: '2026-01-01T00:00:00.000Z',
+        },
+    ]);
 
 describe('wilson card next', () => {
     it('fetches cards and stage columns in parallel, and reports the lowest-id workable card', async () => {

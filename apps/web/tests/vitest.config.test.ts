@@ -9,7 +9,7 @@
 // margin between them can't silently erode back to nothing.
 import { describe, expect, it } from 'vitest';
 import webConfig from '../vitest.config';
-import rootConfig from '../../../vitest.config.mts';
+import rootConfig from '../../../vitest.config.mjs';
 
 describe('apps/web/vitest.config.ts', () => {
     it('sets testTimeout comfortably above the 5000ms asyncUtilTimeout from tests/setup.ts', () => {

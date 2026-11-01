@@ -14,7 +14,16 @@ const run = (ctx: unknown, cardId: string) => (command.run as unknown as Handler
 
 describe('wilson card ack', () => {
     it('reads the card, then clears the flag, reporting the reason and the stage whose retry counter reset', async () => {
-        fetchMock.mockResolvedValueOnce(jsonResponse({ id: '0002', title: 'x', stage: 'implementing', dependsOn: [], needsHuman: true, needsHumanReason: 'kicked back too many times' }));
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({
+                id: '0002',
+                title: 'x',
+                stage: 'implementing',
+                dependsOn: [],
+                needsHuman: true,
+                needsHumanReason: 'kicked back too many times',
+            }),
+        );
         fetchMock.mockResolvedValueOnce(jsonResponse({ id: '0002', title: 'x', stage: 'implementing', dependsOn: [], needsHuman: false }));
         const { ctx, logger } = buildCtx();
 

@@ -66,7 +66,9 @@ describe('OnboardingService', () => {
     it('refuses a second account with 409', async () => {
         await onboarding().createAccount({ email: 'operator@example.com', password: STRONG_PASSWORD });
 
-        await expect(onboarding().createAccount({ email: 'someone-else@example.com', password: STRONG_PASSWORD })).rejects.toMatchObject({ statusCode: 409 });
+        await expect(onboarding().createAccount({ email: 'someone-else@example.com', password: STRONG_PASSWORD })).rejects.toMatchObject({
+            statusCode: 409,
+        });
     });
 
     /** The check before the transaction is only a fast path; the database is what holds the line. */

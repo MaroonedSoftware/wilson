@@ -12,13 +12,14 @@ import { AuthGate } from '#src/components/AuthGate.js';
 import { signOut } from '#src/lib/auth.js';
 import { API_BASE } from '#src/lib/sdk.js';
 import { currentAccessToken, sessionFetch, setAccessToken, setStepUpHandler } from '#src/lib/session.js';
+import type { FetchMock } from './support/fetchMock.js';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 /** `GET /api/onboarding` before the account exists, and after. */
 const NEEDS_ACCOUNT = { requirements: [{ key: 'account', title: 'Operator account', description: 'Create it', optional: false }] };
 const ONBOARDED = { requirements: [] };
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: FetchMock;
 
 beforeEach(() => {
     setAccessToken(undefined);
@@ -59,7 +60,7 @@ const renderGate = () => render(createElement(MantineProvider, null, createEleme
  * match "Confirm password". */
 const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`)), { target: { value } });
 
-const callsTo = (path: string) => fetchMock.mock.calls.filter(([url]: [string]) => url === `${API_BASE}${path}`) as [string, RequestInit][];
+const callsTo = (path: string) => fetchMock.mock.calls.filter(([url]) => url === `${API_BASE}${path}`);
 
 describe('AuthGate on load', () => {
     it('shows onboarding when there is no account yet', async () => {

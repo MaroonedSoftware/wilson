@@ -129,8 +129,22 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
                             summary: 'found a blocker and a concern',
                             verdict: 'revise',
                             findings: [
-                                { severity: 'blocker', kind: 'defect', file: 'src/changed.ts', line: 2, problem: BLOCKER_PROBLEM, suggestion: 'fix the bound' },
-                                { severity: 'concern', kind: 'defect', file: 'src/changed.ts', line: 3, problem: CONCERN_PROBLEM, suggestion: 'rename it' },
+                                {
+                                    severity: 'blocker',
+                                    kind: 'defect',
+                                    file: 'src/changed.ts',
+                                    line: 2,
+                                    problem: BLOCKER_PROBLEM,
+                                    suggestion: 'fix the bound',
+                                },
+                                {
+                                    severity: 'concern',
+                                    kind: 'defect',
+                                    file: 'src/changed.ts',
+                                    line: 3,
+                                    problem: CONCERN_PROBLEM,
+                                    suggestion: 'rename it',
+                                },
                             ],
                         },
                         usage: { inputTokens: 10 },
@@ -142,7 +156,16 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
                         result: {
                             summary: 'refuted the blocker, left the concern',
                             verdict: 'pass',
-                            findings: [{ severity: 'concern', kind: 'defect', file: 'src/changed.ts', line: 3, problem: CONCERN_PROBLEM, suggestion: 'rename it' }],
+                            findings: [
+                                {
+                                    severity: 'concern',
+                                    kind: 'defect',
+                                    file: 'src/changed.ts',
+                                    line: 3,
+                                    problem: CONCERN_PROBLEM,
+                                    suggestion: 'rename it',
+                                },
+                            ],
                             refuted: [{ problem: BLOCKER_PROBLEM, reason: 'the bound is inclusive on purpose, per the plan' }],
                         },
                         usage: { inputTokens: 5 },

@@ -4,6 +4,7 @@ import type { ReviewCriterion, ReviewFinding } from '#modules/stages/stage.resul
 
 const finding = (overrides: Partial<ReviewFinding> = {}): ReviewFinding => ({
     severity: 'blocker',
+    kind: 'defect',
     file: 'src/thing.ts',
     line: 12,
     problem: 'the thing is broken',
@@ -179,17 +180,7 @@ describe('withFindings', () => {
         });
 
         it('replaces a stale criteria sub-block rather than duplicating it, on a re-review', () => {
-            const body = [
-                '## Goal',
-                '',
-                'Do the thing.',
-                '',
-                '## Review findings',
-                '',
-                '### Criteria',
-                '',
-                '- AC1 unmet: stale note',
-            ].join('\n');
+            const body = ['## Goal', '', 'Do the thing.', '', '## Review findings', '', '### Criteria', '', '- AC1 unmet: stale note'].join('\n');
 
             const result = withFindings(body, [], [criterion({ id: 'AC1', status: 'met', note: 'fresh note' })]);
 
@@ -220,7 +211,9 @@ describe('withFindings', () => {
 
             const result = withFindings(body, [finding()]);
 
-            expect(result).toBe('## Goal\n\nDo the thing.\n\n## Review findings\n\n- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing');
+            expect(result).toBe(
+                '## Goal\n\nDo the thing.\n\n## Review findings\n\n- **blocker** `src/thing.ts:12`: the thing is broken — fix the thing',
+            );
             expect(result).not.toContain('A human left');
         });
 
@@ -244,7 +237,9 @@ describe('withFindings', () => {
         });
 
         it('drops the note along with the whole section when a caller passes one but no findings or criteria remain', () => {
-            const body = ['## Goal', '', 'Do the thing.', '', '## Review findings', 'stale note', '', '- **blocker** `old.ts:1`: stale — stale'].join('\n');
+            const body = ['## Goal', '', 'Do the thing.', '', '## Review findings', 'stale note', '', '- **blocker** `old.ts:1`: stale — stale'].join(
+                '\n',
+            );
 
             const result = withFindings(body, [], [], 'a note with nothing to attach it to');
 

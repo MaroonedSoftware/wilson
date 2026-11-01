@@ -131,9 +131,7 @@ describe('CliStageAgent wires stage.sandbox into query()', () => {
         queryMock.mockReturnValue(emptyStream());
         const agent = new CliStageAgent(silentLogger as never);
 
-        await agent.run(
-            runInput(makeStage({ sandbox: true, sandboxAllowedDomains: ['a.example.com', 'b.example.com'] })) as never,
-        );
+        await agent.run(runInput(makeStage({ sandbox: true, sandboxAllowedDomains: ['a.example.com', 'b.example.com'] })) as never);
 
         const sandbox = optionsFromCall().sandbox as { network: { allowedDomains: string[] } };
         expect(sandbox.network.allowedDomains).toEqual(['a.example.com', 'b.example.com']);

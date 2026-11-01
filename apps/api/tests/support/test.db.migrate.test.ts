@@ -79,71 +79,66 @@ const schemaMigrationsCount = async (databaseName: string): Promise<number> => {
 };
 
 describe('test.db.migrate.ts globalSetup', () => {
-    it(
-        'applies every migration to an empty database, and testDb() sees exactly the database it migrated',
-        async () => {
-            await withThrowawayDatabase(async databaseName => {
-                process.env.TEST_DATABASE_NAME = databaseName;
+    it('applies every migration to an empty database, and testDb() sees exactly the database it migrated', async () => {
+        await withThrowawayDatabase(async databaseName => {
+            process.env.TEST_DATABASE_NAME = databaseName;
+            await setup();
+
+            // testDb() resolves its connection the same way setup() did (both read
+            // testDbConnection()), so if it can query the freshly created wilson.stage_configs
+            // table on *this* throwaway database, the two were never pointed at different places.
+            const db = testDb();
+            try {
+                const rows = await db.selectFrom('wilson.stageConfigs').selectAll().execute();
+                expect(rows).toEqual([]);
+            } finally {
+                await db.destroy();
+            }
+
+            expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
+        });
+    }, 30000);
+
+    it('applies nothing, and logs 0 applied, the second time it runs against an already-current schema', async () => {
+        await withThrowawayDatabase(async databaseName => {
+            process.env.TEST_DATABASE_NAME = databaseName;
+            await setup();
+            expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
+
+            const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+            try {
                 await setup();
+                // Assert before mockRestore(): restoring a spy also clears its recorded calls,
+                // the same as mockReset() would.
+                expect(log).toHaveBeenCalledWith(expect.stringContaining('applied 0 migration'));
+            } finally {
+                log.mockRestore();
+            }
 
-                // testDb() resolves its connection the same way setup() did (both read
-                // testDbConnection()), so if it can query the freshly created wilson.stage_configs
-                // table on *this* throwaway database, the two were never pointed at different places.
-                const db = testDb();
-                try {
-                    const rows = await db.selectFrom('wilson.stageConfigs').selectAll().execute();
-                    expect(rows).toEqual([]);
-                } finally {
-                    await db.destroy();
-                }
+            expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
+        });
+    }, 30000);
 
-                expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
-            });
-        },
-        30000,
-    );
+    it('lets two suites starting at the same moment against an empty database both succeed', async () => {
+        await withThrowawayDatabase(async databaseName => {
+            process.env.TEST_DATABASE_NAME = databaseName;
 
-    it(
-        'applies nothing, and logs 0 applied, the second time it runs against an already-current schema',
-        async () => {
-            await withThrowawayDatabase(async databaseName => {
-                process.env.TEST_DATABASE_NAME = databaseName;
-                await setup();
-                expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
+            // Both calls resolve the connection from the same TEST_DATABASE_NAME, so both
+            // race for the same advisory lock; if it did not serialise them, two concurrent
+            // `dbmate up` runs against an empty database would race on the same DDL and at
+            // least one of these would reject. An unhandled rejection here fails the test.
+            await Promise.all([setup(), setup()]);
 
-                const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-                try {
-                    await setup();
-                    // Assert before mockRestore(): restoring a spy also clears its recorded calls,
-                    // the same as mockReset() would.
-                    expect(log).toHaveBeenCalledWith(expect.stringContaining('applied 0 migration'));
-                } finally {
-                    log.mockRestore();
-                }
+            expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
+        });
+    }, 30000);
 
-                expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
-            });
-        },
-        30000,
-    );
-
-    it(
-        'lets two suites starting at the same moment against an empty database both succeed',
-        async () => {
-            await withThrowawayDatabase(async databaseName => {
-                process.env.TEST_DATABASE_NAME = databaseName;
-
-                // Both calls resolve the connection from the same TEST_DATABASE_NAME, so both
-                // race for the same advisory lock; if it did not serialise them, two concurrent
-                // `dbmate up` runs against an empty database would race on the same DDL and at
-                // least one of these would reject. An unhandled rejection here fails the test.
-                await Promise.all([setup(), setup()]);
-
-                expect(await schemaMigrationsCount(databaseName)).toBe(migrationCount);
-            });
-        },
-        30000,
-    );
+    // The lock-connect budget in the test below is shortened to about 2 seconds
+    // (TEST_DATABASE_LOCK_WAIT_MS), and its unreachable host/port makes every retry within it fail
+    // immediately, so a timeout a few times that real wait leaves a wide margin without waiting
+    // anywhere near the unshortened 60-second default (AC3 is unaffected: that default only applies
+    // when the variable is unset, which is every other test in this file).
+    const UNREACHABLE_DATABASE_TIMEOUT_MS = 10000;
 
     it(
         "fails before any test starts when the database is unreachable, with dbmate's own output in the error",
@@ -186,12 +181,7 @@ describe('test.db.migrate.ts globalSetup', () => {
                 delete process.env.TEST_DATABASE_LOCK_WAIT_MS;
             }
         },
-        // The lock-connect budget above is shortened to about 2 seconds (TEST_DATABASE_LOCK_WAIT_MS),
-        // and this test's unreachable host/port makes every retry within it fail immediately, so a
-        // timeout a few times that real wait leaves a wide margin without waiting anywhere near the
-        // unshortened 60-second default (AC3 is unaffected: that default only applies when the
-        // variable is unset, which is every other test in this file).
-        10000,
+        UNREACHABLE_DATABASE_TIMEOUT_MS,
     );
 
     it('rejects with a message naming TEST_DATABASE_LOCK_WAIT_MS when it is not a positive integer', async () => {

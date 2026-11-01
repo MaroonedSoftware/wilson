@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <RootNamespace>MaroonedSoftware.Wilson.Desktop</RootNamespace>
+        <AssemblyName>wilson</AssemblyName>
+        <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" />
+        <PackageReference Include="Avalonia.Desktop" />
+        <PackageReference Include="Avalonia.Themes.Fluent" />
+        <PackageReference Include="CommunityToolkit.Mvvm" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../MaroonedSoftware.Wilson.Desktop.Core/MaroonedSoftware.Wilson.Desktop.Core.csproj" />
+        <ProjectReference Include="../MaroonedSoftware.Wilson.Desktop.Mac/MaroonedSoftware.Wilson.Desktop.Mac.csproj" />
+    </ItemGroup>
+
+</Project>

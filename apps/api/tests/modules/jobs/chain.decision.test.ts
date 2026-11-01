@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { decideChain } from '#modules/jobs/chain.decision.js';
 import type { ProjectStages, StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -25,6 +27,7 @@ const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
     scopeViolation: 'widen',
     alwaysAllowed: [],
     deny: [],
+    sandbox: { enabled: false, allowedDomains: [] },
     stages: overrides.length ? overrides.map(o => makeStage(o)) : [makeStage()],
 });
 

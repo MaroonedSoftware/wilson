@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { KeyringEntry } from '@maroonedsoftware/johnny5/keyring';
 import { apiClient, describeApiError } from '#src/api-client.js';
 import { keyAccount, keyStore, resolveToken, type KeyStore } from '#src/credentials.js';
@@ -45,7 +45,7 @@ const io = (answers: { email?: string; password?: string; stdin?: string; code?:
 
 const KEY = { id: 'key-1', name: 'wilson cli on host', hint: 'abcd1234', scope: 'manage', createdAt: '2026-10-29T00:00:00Z' };
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: Mock<(url: string, init: RequestInit) => Promise<Response>>;
 beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -56,7 +56,7 @@ afterEach(() => {
 
 /** The `[url, init]` of every fetch call, with headers flattened for asserting on. */
 const calls = () =>
-    fetchMock.mock.calls.map(([url, init]: [string, RequestInit]) => ({
+    fetchMock.mock.calls.map(([url, init]) => ({
         url,
         method: init.method,
         headers: init.headers as Record<string, string>,

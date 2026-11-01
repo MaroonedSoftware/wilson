@@ -1,0 +1,27 @@
+<!-- Every package version in this tree, in one place, so two projects cannot disagree about one. -->
+<Project>
+
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    </PropertyGroup>
+
+    <ItemGroup Label="Avalonia">
+        <!-- Built as a set: mixing versions in one build fails at run time rather than at compile time. -->
+        <PackageVersion Include="Avalonia" Version="12.1.2" />
+        <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />
+        <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+        <!-- Only for tools/Walk, which renders the app without a screen. -->
+        <PackageVersion Include="Avalonia.Headless" Version="12.1.2" />
+        <PackageVersion Include="Avalonia.Skia" Version="12.1.2" />
+    </ItemGroup>
+
+    <ItemGroup Label="Application">
+        <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    </ItemGroup>
+
+    <ItemGroup Label="Testing">
+        <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    </ItemGroup>
+
+</Project>

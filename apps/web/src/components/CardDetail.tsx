@@ -87,7 +87,15 @@ function StageBadge({ stage }: { stage: string }) {
  * not a transition rendered ahead of it (PROJECT.md, Architecture) — the runner is sole writer and
  * may refuse it, so the select only moves once the query that fed it has actually re-fetched.
  */
-function MoveControl({ card, columns, columnsError }: { card: CardDetail; columns: BoardColumns | undefined; columnsError: Error | null | undefined }) {
+function MoveControl({
+    card,
+    columns,
+    columnsError,
+}: {
+    card: CardDetail;
+    columns: BoardColumns | undefined;
+    columnsError: Error | null | undefined;
+}) {
     const moveCard = useMoveCard(card.id);
 
     if (columnsError) {

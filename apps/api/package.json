@@ -19,6 +19,7 @@
         "migrate:create": "dbmate -d ./data/migrations new",
         "lint": "eslint --fix",
         "lint:check": "eslint",
+        "typecheck": "tsc -p tsconfig.tests.json",
         "test": "vitest run",
         "test:engine": "vitest run --config vitest.engine.config.ts"
     },
@@ -58,6 +59,7 @@
     },
     "devDependencies": {
         "@contractkit/cli": "^0.11.10",
+        "@contractkit/plugin-csharp": "^0.4.0",
         "@contractkit/plugin-kotlin": "^0.3.0",
         "@contractkit/plugin-typescript": "^0.42.0",
         "@maroonedsoftware/johnny5": "^8.1.10",

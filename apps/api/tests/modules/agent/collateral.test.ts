@@ -94,9 +94,7 @@ describe('collateralPaths', () => {
     });
 
     it('resolves this project’s #modules/ subpath alias against apps/api/src/', async () => {
-        await expect(collateralPaths(root, ['apps/api/src/modules/agent/x.ts'])).resolves.toEqual([
-            'apps/api/src/modules/events/one.ts',
-        ]);
+        await expect(collateralPaths(root, ['apps/api/src/modules/agent/x.ts'])).resolves.toEqual(['apps/api/src/modules/events/one.ts']);
     });
 
     it('de-duplicates a collateral file shared by two scoped files and sorts the result', async () => {

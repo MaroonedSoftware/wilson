@@ -84,7 +84,14 @@ function CommentHighlight({
             <Popover opened={hovered} position="bottom-start" withArrow shadow="md" width={280}>
                 <Popover.Target>
                     <span
-                        style={{ position: 'absolute', top: first.top, left: first.left, width: first.width, height: first.height, pointerEvents: 'none' }}
+                        style={{
+                            position: 'absolute',
+                            top: first.top,
+                            left: first.left,
+                            width: first.width,
+                            height: first.height,
+                            pointerEvents: 'none',
+                        }}
                     />
                 </Popover.Target>
                 <Popover.Dropdown onMouseEnter={() => onHoverChange(true)} onMouseLeave={() => onHoverChange(false)}>
@@ -142,7 +149,9 @@ function ComposeComment({
     return (
         <Popover opened position="bottom-start" withArrow shadow="md" width={280} onClose={onCancel}>
             <Popover.Target>
-                <span style={{ position: 'absolute', top: rect.top, left: rect.left, width: rect.width, height: rect.height, pointerEvents: 'none' }} />
+                <span
+                    style={{ position: 'absolute', top: rect.top, left: rect.left, width: rect.width, height: rect.height, pointerEvents: 'none' }}
+                />
             </Popover.Target>
             <Popover.Dropdown>
                 <Stack gap={6}>
@@ -287,10 +296,7 @@ export function CommentableDraft({ cardId, text }: { cardId: string; text: strin
         // its own value is never used.
     }, [comments, renderedText, layoutVersion]);
 
-    const outdated = useMemo(
-        () => comments.filter(comment => locateAnchor(renderedText, comment).status === 'outdated'),
-        [comments, renderedText],
-    );
+    const outdated = useMemo(() => comments.filter(comment => locateAnchor(renderedText, comment).status === 'outdated'), [comments, renderedText]);
 
     const pendingRect = useMemo<HighlightRect | null>(() => {
         if (!pendingSelection) return null;

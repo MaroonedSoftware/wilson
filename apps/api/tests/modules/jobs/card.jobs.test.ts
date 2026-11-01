@@ -234,7 +234,7 @@ describe('CardJobs.activeCardStageJobs', () => {
         `.execute(db);
     };
 
-    it("reports an active card.stage job regardless of which project this instance is configured for", async () => {
+    it('reports an active card.stage job regardless of which project this instance is configured for', async () => {
         const jobId = randomUUID();
         await insertCardStageJob(jobId, 'active', { cardId: '0042', stageName: 'testing', project: 'some-other-project' });
 

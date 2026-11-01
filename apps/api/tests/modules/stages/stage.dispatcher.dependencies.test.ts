@@ -9,6 +9,7 @@ import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -26,6 +27,7 @@ const card = (id: string, stage: string, dependsOn: string[] = []): Card => ({
 });
 
 const stage: StageConfig = {
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -74,10 +76,11 @@ describe('StageDispatcher assertDispatchable dependency gate', () => {
             dispatcher as unknown as {
                 assertDispatchable(head: Card, card: Card, stage: StageConfig, cards: Card[]): void;
             }
+        )
             // `head` and `card` are the same object here: this suite is about `unsatisfiedDependencies`
             // agreeing with `nextCard`/`card list`, not about the head/card split itself — that split is
             // covered directly in stage.dispatcher.not-dispatchable.test.ts (card 0109).
-        ).assertDispatchable(target, target, stage, cards);
+            .assertDispatchable(target, target, stage, cards);
 
     it('dispatches a card with no dependencies', () => {
         const target = card('0001', 'testing');

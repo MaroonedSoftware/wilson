@@ -37,17 +37,16 @@ import { StageVerifierMap } from './stage.verifier.js';
  * Which of `assertDispatchable`'s conditions fired, carried on the error it throws.
  *
  * All of them are deterministic against a fixed card — retrying changes nothing — but they are not
- * all the same kind of "never". Wrong stage and empty scope require a human to change the card
- * before any attempt can succeed. `needs-human` is the same shape: the flag has to be acknowledged
+ * all the same kind of "never". Empty scope requires a human to change the card before any attempt
+ * can succeed. `needs-human` is the same shape: the flag has to be acknowledged
  * before the card moves. An unsatisfied dependency is "not now", not "never": the dependency landing
  * makes the card dispatchable again with no change to the card itself. `CardStageJob` branches on
  * this discriminant, not the message text, to route each case correctly — and a variant added here
  * without a branch there falls to its default, which is `poison()`. That is how card 0109's own
  * first pass turned a flagged card into a terminal one; add the route with the variant.
  *
- * `wrong-stage` carries `actualStage` so a caller can tell a card genuinely in the wrong place
- * (card 0044's bug) from a stale job arriving after the card already reached a terminal stage
- * (card 0084) — the same distinction `isTerminal` draws everywhere else.
+ * `wrong-stage` carries `actualStage` so the `stage.stale` event a stale job leaves can say where
+ * the card went (card 0084).
  *
  * `needs-human` exists for the same reason `wrong-stage` does: a card can be flagged between the
  * moment a job is enqueued and the moment it dispatches, and this is the defense against that race
@@ -63,6 +62,13 @@ export type NotDispatchableReason =
     | { readonly kind: 'no-host' }
     /** A stage that runs here found every `local-stage-slots` slot held. Deferred, not poisoned. */
     | { readonly kind: 'no-local-slot' };
+
+/** Aborts a transition's write, leaving the card as it is: it left the stage the run started in. */
+class CardMovedDuringRunError extends Error {
+    constructor(readonly actualStage: string) {
+        super(`card moved to "${actualStage}" during the run`);
+    }
+}
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
@@ -565,6 +571,7 @@ export class StageDispatcher {
             payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped },
         });
 
+        let outcome: StageOutcome;
         try {
             const ran = await this.runAgent({ card, stage, worktree, scope, planPath, learningsPath, stages, port });
 
@@ -581,7 +588,7 @@ export class StageDispatcher {
                     payload: { path },
                 });
             }
-            const outcome = withCollateralCaveats(ran, collateralHits);
+            outcome = withCollateralCaveats(ran, collateralHits);
 
             // A stage that failed on a host whose engine or tools lost their connection failed for
             // a reason that is not the card's. Checked before anything is committed or transitioned,
@@ -645,36 +652,6 @@ export class StageDispatcher {
                           }),
                 },
             });
-
-            if (stage.mode !== 'agent') {
-                return outcome;
-            }
-
-            // Outside the try below, and in its own: the stage's outcome is already recorded, and a
-            // transition that fails to write must not be reported as the stage having failed. Sharing
-            // the catch would append a `stage.failed` event after a `stage.passed` one for the same
-            // run, leaving the card's history contradicting itself about what the stage did.
-            let transitionedTo: string | undefined;
-            let needsHuman = false;
-            let splitInto: string[] | undefined;
-            try {
-                const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
-                transitionedTo = transition.target;
-                needsHuman = transition.needsHuman;
-                splitInto = transition.splitInto;
-            } catch (err) {
-                await this.events.append({
-                    project: this.config.project,
-                    cardId,
-                    stage: stageName,
-                    type: 'transition.failed',
-                    payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
-                });
-                // Still thrown: the card is now stranded in a stage whose work is done, and a
-                // silent failure here is how a card sits untouched forever.
-                throw err;
-            }
-            return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
@@ -690,6 +667,36 @@ export class StageDispatcher {
             });
             throw err;
         }
+
+        if (stage.mode !== 'agent') {
+            return outcome;
+        }
+
+        // Outside the try above, and in its own: the stage's outcome is already recorded, and a
+        // transition that fails to write must not be reported as the stage having failed. Sharing
+        // the catch would append a `stage.failed` event after a `stage.passed` one for the same
+        // run, leaving the card's history contradicting itself about what the stage did.
+        let transitionedTo: string | undefined;
+        let needsHuman = false;
+        let splitInto: string[] | undefined;
+        try {
+            const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
+            transitionedTo = transition.target;
+            needsHuman = transition.needsHuman;
+            splitInto = transition.splitInto;
+        } catch (err) {
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'transition.failed',
+                payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
+            });
+            // Still thrown: the card is now stranded in a stage whose work is done, and a
+            // silent failure here is how a card sits untouched forever.
+            throw err;
+        }
+        return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
     }
 
     /**
@@ -708,7 +715,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; needsHuman: boolean; splitInto?: string[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -772,72 +779,82 @@ export class StageDispatcher {
               }
             : undefined;
 
-        // Tracked across the mutate below so the pin-advance check further down compares the body
-        // this transition actually wrote against the body it actually read, not against `head`'s
-        // snapshot from before the write — `writeIn` locks the row and reads `current` fresh inside
-        // the same transaction, so `current.body` is the one true "body it read".
-        let bodyChanged = false;
+        // A body this transition rewrote is the plan contract, not just runner state, and the runner
+        // rewriting its own contract is the one case where a pin moves. Left where it was, it would
+        // name a version from before the very findings or attempt bullet the next run has to read
+        // (card 0091: three implementing passes reading a plan with no findings section). Decided
+        // inside the mutate, from `current`: a card with no pin coming in gets none out, and a human
+        // editing the body between runs must not move it.
+        let advancesPin = false;
 
-        const writtenVersionId = await this.board.writeWithEvent(
-            cardId,
-            `${cardId}: ${stageName} -> ${decision.target}`,
-            current => {
-                // On a pass, the section this stage may have accumulated while it kept failing is
-                // shed (the same "shed on pass" rule findings use); on a judged failure, one more
-                // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
-                // leaves the section exactly as it stands.
-                const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
-                const nextBody = findings ? withFindings(body, findings, criteria) : body;
-                bodyChanged = nextBody !== current.body;
-                return {
-                    ...current,
-                    frontmatter: {
-                        ...current.frontmatter,
-                        stage: decision.target,
+        try {
+            await this.board.writeWithEvent(
+                cardId,
+                `${cardId}: ${stageName} -> ${decision.target}`,
+                current => {
+                    // `current` is read under the row lock, so this is the check `head` cannot make: a
+                    // human who moved the card while this stage ran has the last word, and this
+                    // transition, decided from the stage the run started in, must not undo that.
+                    if (current.frontmatter.stage !== stageName) throw new CardMovedDuringRunError(current.frontmatter.stage);
+
+                    // On a pass, the section this stage may have accumulated while it kept failing is
+                    // shed (the same "shed on pass" rule findings use); on a judged failure, one more
+                    // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
+                    // leaves the section exactly as it stands.
+                    const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                    const nextBody = findings ? withFindings(body, findings, criteria) : body;
+                    advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
+                    return {
+                        ...current,
+                        frontmatter: {
+                            ...current.frontmatter,
+                            stage: decision.target,
+                            retries: decision.retries,
+                            ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                        },
+                        body: nextBody,
+                    };
+                },
+                {
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'transition.written',
+                    payload: {
+                        from: stageName,
+                        to: decision.target,
                         retries: decision.retries,
-                        ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                        by: 'runner',
+                        ...(needsHuman ? { needsHuman: true } : {}),
                     },
-                    body: nextBody,
-                };
-            },
-            {
+                },
+                { repinIf: () => advancesPin },
+            );
+        } catch (err) {
+            if (!(err instanceof CardMovedDuringRunError)) throw err;
+            // No target: the card is where the human put it, so there is nothing to chain from, and
+            // the worktree and the notification below belong to a transition that did not happen.
+            await this.events.append({
                 project: this.config.project,
                 cardId,
                 stage: stageName,
-                type: 'transition.written',
-                payload: {
-                    from: stageName,
-                    to: decision.target,
-                    retries: decision.retries,
-                    by: 'runner',
-                    ...(needsHuman ? { needsHuman: true } : {}),
-                },
-            },
-        );
-
-        // The write above just rewrote the plan contract, not just runner state: `bodyChanged` means
-        // `withFindings`, `withAttempt` or `withoutAttempts` actually changed the body of the version
-        // `writtenVersionId` now names — findings folded in, an attempt bullet added, or the section
-        // shed on a pass. A pinned card's `planVersionId` otherwise holds still against everything
-        // that lands on the board — that is the whole point of pinning (see the "Two reads" comment
-        // at the top of `run`, above) — and a human editing the card body must keep not moving it. But
-        // the runner rewriting its own contract is the one case where the pin legitimately advances:
-        // left where it was, the pin would keep pointing at a version that predates the very findings
-        // this stage was kicked back to fix, which is card 0091's bug — three implementing passes
-        // reading a plan with no findings section because the pin still named the version from before
-        // the kickback wrote them. This card generalizes that same fix to the attempts section: a
-        // retried stage reading the pinned plan must see the bullet this failure just added, not a
-        // version from before it existed. Gated on `head.frontmatter.planVersionId`, not `current`'s:
-        // a card with no pin coming in gets none out (117 of 128 cards read live `head` today and must
-        // keep doing so), and the inner check against `current.frontmatter.planVersionId` mirrors the
-        // branch-recording guard above — `write`'s re-read inside its own transaction is what actually
-        // guards the race, this is only the common-case short-circuit.
-        if (bodyChanged && head.frontmatter.planVersionId) {
-            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName}`, current =>
-                current.frontmatter.planVersionId
-                    ? { ...current, frontmatter: { ...current.frontmatter, planVersionId: writtenVersionId } }
-                    : current,
-            );
+                type: 'stage.stale',
+                payload: { wantedStage: stageName, actualStage: err.actualStage },
+            });
+            this.logger.warn(`${cardId} moved to "${err.actualStage}" while ${stageName} ran; leaving it there`);
+            // `move` leaves the tree alone while this run is using it, so a card moved to a terminal
+            // stage gets its worktree back here, now that the run is over.
+            const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                target: err.actualStage,
+                flagged: Boolean(head.frontmatter.needsHuman),
+            });
+            if (reclaimed.error) {
+                this.logger.warn(`could not reclaim worktree for ${cardId} after it moved to "${err.actualStage}": ${reclaimed.error}`);
+            }
+            return { needsHuman: false };
         }
 
         // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the

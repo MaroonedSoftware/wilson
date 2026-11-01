@@ -7,6 +7,8 @@ import { createSdkFetch, SdkError } from '../../../../packages/sdk/src/sdk-optio
 import { WilsonSdk } from '../../../../packages/sdk/src/wilson.sdk.js';
 import { apiClient, describeApiError, resolveApiBase, resolveProject, withApi } from '../../../../packages/cli/src/api-client.js';
 
+type CliContext = Parameters<typeof resolveApiBase>[0];
+
 // Card 0078 introduces `api-client.ts`: the one place every ported command gets its `WilsonSdk` from,
 // and the one place a failed API call becomes the message an operator should read. This file exercises
 // that module directly, rather than only indirectly through every command that uses it — `resolveApiBase`
@@ -19,7 +21,7 @@ import { apiClient, describeApiError, resolveApiBase, resolveProject, withApi } 
 // no `config` at all, so a reader that still reached for `ctx.config` would throw here.
 const buildCtx = (values: Record<string, string> = {}) => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    return { ctx: { env: values, logger }, logger };
+    return { ctx: { env: values, logger } as unknown as CliContext, logger };
 };
 
 describe('resolveApiBase', () => {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What the hardened runtime has to allow for .NET to start at all. Deadair measured each key by
+     launching its bundle without it (apps/desktop/tools/macos/deadair.entitlements there). -->
+<plist version="1.0">
+<dict>
+    <!-- CoreCLR compiles to executable memory. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- An ad hoc signature has no Team ID, so without this the apphost cannot open libhostfxr.dylib. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

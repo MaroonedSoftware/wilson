@@ -64,7 +64,7 @@ describe('CardSource', () => {
         let receivedCursor: string | undefined;
         const source: CardSource = {
             name: 'stub',
-            changedSince: async (cursor) => {
+            changedSince: async cursor => {
                 receivedCursor = cursor;
                 return { ok: true, items: [], cursor: 'next-cursor' };
             },

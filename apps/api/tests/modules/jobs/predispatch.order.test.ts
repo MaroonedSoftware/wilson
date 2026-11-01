@@ -72,7 +72,7 @@ describe('pre-dispatch checks run in a defined order', () => {
 
     it('records the daemon as stale even when a later check stops the dispatch', async () => {
         const dispatcher = { run: vi.fn() };
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         const cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
         const boardRepo = {
             write: vi.fn(async () => 'sha'),

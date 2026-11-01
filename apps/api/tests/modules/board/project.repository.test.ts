@@ -144,7 +144,7 @@ describe('ProjectRepository', () => {
             expect(await repo.find(name)).toBeUndefined();
         });
 
-        it('does not touch another project\'s row with the same patch', async () => {
+        it("does not touch another project's row with the same patch", async () => {
             const repo = new ProjectRepository(db);
             const base = uniqueProject();
             const target = `${base}-target`;

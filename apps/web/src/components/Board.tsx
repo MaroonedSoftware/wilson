@@ -538,7 +538,14 @@ export function Board({
                 </Box>
             </ScrollArea>
             <DragOverlay>
-                {activeCard ? <CardBody card={activeCard} blockedBy={unfinishedDeps(activeCard, boardCards)} pieces={splitProgress(activeCard, boardCards)} pending={false} /> : null}
+                {activeCard ? (
+                    <CardBody
+                        card={activeCard}
+                        blockedBy={unfinishedDeps(activeCard, boardCards)}
+                        pieces={splitProgress(activeCard, boardCards)}
+                        pending={false}
+                    />
+                ) : null}
             </DragOverlay>
         </DndContext>
     );

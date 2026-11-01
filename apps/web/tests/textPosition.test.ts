@@ -50,13 +50,13 @@ describe('rangeForOffsets', () => {
         expect(range?.toString()).toBe('llo wo');
     });
 
-    it('returns null once the end offset runs past the container\'s own text', () => {
+    it("returns null once the end offset runs past the container's own text", () => {
         const container = makeContainer('<p>short</p>');
 
         expect(rangeForOffsets(container, 0, 999)).toBeNull();
     });
 
-    it('returns null once the start offset runs past the container\'s own text', () => {
+    it("returns null once the start offset runs past the container's own text", () => {
         const container = makeContainer('<p>short</p>');
 
         expect(rangeForOffsets(container, 999, 1000)).toBeNull();

@@ -1,0 +1,26 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ThreadsView"
+    x:DataType="vm:ThreadsViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right" Content="New chat" Command="{Binding StartThreadCommand}" />
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="Chat" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Threads}" MaxWidth="700" HorizontalAlignment="Left">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="sdk:ChatThread">
+                        <Button Classes="tile" Content="{Binding Title}" Command="{Binding $parent[UserControl].((vm:ThreadsViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

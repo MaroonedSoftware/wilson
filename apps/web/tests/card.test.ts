@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
+import type { JsonValue } from '@wilson/sdk';
 import { lastStageHost, acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
 describe('filesInScope', () => {
@@ -187,7 +188,7 @@ describe('CARD_BODY_SKELETON', () => {
     // — a drift here is exactly the regression the plan's "seed the body" constraint forbids.
     const HEADINGS = ['Goal', 'Constraints', 'Files in scope', 'Tasks', 'Acceptance criteria', 'Out of scope'];
 
-    it('carries all six of a plan\'s headings, in the order a plan reads them', () => {
+    it("carries all six of a plan's headings, in the order a plan reads them", () => {
         const headingLines = CARD_BODY_SKELETON.split('\n').filter(line => line.startsWith('## '));
         expect(headingLines).toEqual(HEADINGS.map(h => `## ${h}`));
     });
@@ -199,7 +200,7 @@ describe('CARD_BODY_SKELETON', () => {
         expect(sections.slice(1).every(section => section.length === 0)).toBe(true);
     });
 
-    it('matches create.command.ts\'s own SKELETON exactly, character for character', () => {
+    it("matches create.command.ts's own SKELETON exactly, character for character", () => {
         const cliSkeleton = `
 ## Goal
 
@@ -218,14 +219,16 @@ describe('CARD_BODY_SKELETON', () => {
 });
 
 describe('lastStageHost', () => {
-    const event = (type: string, payload: unknown = {}) => ({ type, payload });
+    const event = (type: string, payload: JsonValue = {}) => ({ type, payload });
 
     it('names the host the most recent stage was placed on', () => {
         expect(lastStageHost([event('stage.placed', { host: 'agent-3', slot: 'host:agent-3:slot:1' }), event('stage.dispatched')])).toBe('agent-3');
     });
 
     it('says nothing when the most recent stage ran on this machine, even if an earlier one ran on a host', () => {
-        expect(lastStageHost([event('stage.placed', { host: 'agent-3' }), event('stage.dispatched'), event('stage.passed'), event('stage.dispatched')])).toBeUndefined();
+        expect(
+            lastStageHost([event('stage.placed', { host: 'agent-3' }), event('stage.dispatched'), event('stage.passed'), event('stage.dispatched')]),
+        ).toBeUndefined();
     });
 
     it('says nothing for a card that has not run, or a placement not yet dispatched', () => {

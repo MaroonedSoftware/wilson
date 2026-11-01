@@ -96,6 +96,6 @@ describe('ApiStageAgent prompt wiring', () => {
 
         await agent.run(runInput(makeStage()));
 
-        expect(promptFromCall()).toContain("this is what the\nverifier measures and what a finding must cite.");
+        expect(promptFromCall()).toContain('this is what the\nverifier measures and what a finding must cite.');
     });
 });

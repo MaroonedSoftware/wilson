@@ -1,0 +1,54 @@
+# Building the desktop app as something somebody can download. By hand and not on a push: a GitHub
+# release is a permanent entry with a version somebody may already have downloaded. The tag is
+# `desktop-v<version>`, and the version is `Version` in `apps/desktop/Directory.Build.props`.
+#
+# Signed only ad hoc and not notarised, as deadair's is. Notarising needs an Apple Developer ID; the
+# bundle script already signs every Mach-O under the hardened runtime, so adding it later is swapping
+# the identity, adding a secret and a notarytool step.
+
+name: Desktop release
+
+on:
+    workflow_dispatch:
+        inputs:
+            draft:
+                description: Create the release as a draft rather than publishing it
+                type: boolean
+                default: true
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        # macOS because a self-contained osx-arm64 bundle is signed with codesign.
+        runs-on: macos-latest
+        timeout-minutes: 30
+        defaults:
+            run:
+                working-directory: apps/desktop
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-dotnet@v4
+              with:
+                  global-json-file: apps/desktop/global.json
+            # The same gates as the ordinary build. A release that skipped them would be the one build nobody checked.
+            - run: dotnet restore Wilson.Desktop.slnx --locked-mode
+            - run: dotnet build Wilson.Desktop.slnx -c Release -warnaserror --no-restore
+            - run: dotnet test --solution Wilson.Desktop.slnx -c Release --no-build
+            - id: version
+              run: echo "value=$(dotnet msbuild Directory.Build.props -getProperty:Version | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+            - run: tools/macos/make-app-bundle.sh "${{ steps.version.outputs.value }}"
+            # `ditto` keeps what a plain zip drops, and macOS will not launch what a plain zip leaves.
+            - working-directory: apps/desktop/artifacts
+              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${{ steps.version.outputs.value }}-osx-arm64.zip"
+            - name: Publish the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "desktop-v${{ steps.version.outputs.value }}" \
+                      --title "Wilson desktop ${{ steps.version.outputs.value }}" \
+                      --generate-notes \
+                      --notes "Signed only ad hoc and not notarised, so macOS refuses the first launch. Open it once, let it refuse, then press Open Anyway in System Settings, Privacy & Security. Or run: xattr -dr com.apple.quarantine /Applications/Wilson.app" \
+                      ${{ inputs.draft && '--draft' || '' }} \
+                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip"

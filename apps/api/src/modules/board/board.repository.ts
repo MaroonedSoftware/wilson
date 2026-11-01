@@ -178,8 +178,19 @@ export abstract class BoardRepository {
      * folded in) has no other way to learn it, since `currentVersion` read from inside `mutate`
      * still answers with the version *before* this one — the off-by-one `board.write.service.ts:136`
      * explains and `BoardWriteService.approve` relies on deliberately.
+     *
+     * `repinIf` is asked once `mutate` has run, and a yes pins the card to this new version in the
+     * same transaction. A transition that rewrites the plan needs that: a pin advanced in a second
+     * write could fail after the card had already moved, leaving a job that can neither finish nor
+     * retry.
      */
-    abstract writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string>;
+    abstract writeWithEvent(
+        id: string,
+        message: string,
+        mutate: (card: Card) => Card | Promise<Card>,
+        event: AppendableCardEvent,
+        options?: { repinIf?: () => boolean },
+    ): Promise<string>;
 
     /** Create a card that does not exist yet. Fails if the id is taken. */
     abstract create(card: Card, message: string): Promise<string>;

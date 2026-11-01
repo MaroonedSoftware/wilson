@@ -14,6 +14,7 @@ import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -47,6 +48,7 @@ const baseCard: Card = {
 };
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -110,8 +112,10 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
         );
     });
 
-    const writeTransition = (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) =>
-        (
+    const writeTransition = async (stage: StageConfig, card: Card, result: StageOutcome, head: Card = card) => {
+        // A transition only lands on a card still in the stage it ran, so the row has to agree.
+        await board.write('0001', 'into review', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'review' } }));
+        return (
             dispatcher as unknown as {
                 writeTransition(
                     cardId: string,
@@ -123,6 +127,7 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
                 ): Promise<{ target: string; needsHuman: boolean }>;
             }
         ).writeTransition('0001', 'review', stage, head, card, result);
+    };
 
     it('routes a review that never reached a verdict back to review, not to onFail — card 0075’s shape', async () => {
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });

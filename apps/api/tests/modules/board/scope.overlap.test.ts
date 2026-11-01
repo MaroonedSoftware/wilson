@@ -39,9 +39,7 @@ describe('scopeOverlap', () => {
     it('overlaps two same-segment globs that agree on both prefix and suffix', () => {
         // `*.ts` (empty prefix, `.ts` suffix) and `jobs.*` (`jobs.` prefix, empty suffix) impose no
         // conflicting requirement, so a string satisfying both — `jobs.ts` — could exist.
-        expect(scopeOverlap(['apps/api/src/*.ts'], ['apps/api/src/jobs.*'])).toEqual([
-            { ours: 'apps/api/src/*.ts', theirs: 'apps/api/src/jobs.*' },
-        ]);
+        expect(scopeOverlap(['apps/api/src/*.ts'], ['apps/api/src/jobs.*'])).toEqual([{ ours: 'apps/api/src/*.ts', theirs: 'apps/api/src/jobs.*' }]);
     });
 
     it('treats two same-segment globs with conflicting suffixes as disjoint', () => {

@@ -41,7 +41,11 @@ const fakeEngine = (sessionId = 'sess-abc') => {
             const next = await promptIterator.next();
             if (next.done) return;
             history.push(next.value.message.content);
-            yield { type: 'assistant', message: { content: [{ type: 'text', text: `part1[${history.join('|')}]` }] }, session_id: sessionId } as never;
+            yield {
+                type: 'assistant',
+                message: { content: [{ type: 'text', text: `part1[${history.join('|')}]` }] },
+                session_id: sessionId,
+            } as never;
             yield { type: 'assistant', message: { content: [{ type: 'text', text: 'part2' }] }, session_id: sessionId } as never;
             yield { type: 'result', subtype: 'success', session_id: sessionId } as never;
         }
@@ -112,7 +116,7 @@ describe('PlanSessionAgent', () => {
 
     it('passes a resume option through to query() only when one was given', async () => {
         armQuery();
-         
+
         new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus', resume: 'engine-session-77' });
 
         const options = (queryMock.mock.calls[0]?.[0] as { options: { resume?: string } }).options;
@@ -121,7 +125,7 @@ describe('PlanSessionAgent', () => {
 
     it('never asks the engine to resume when no resume id was given', async () => {
         armQuery();
-         
+
         new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
 
         const options = (queryMock.mock.calls[0]?.[0] as { options: { resume?: string } }).options;
@@ -133,7 +137,7 @@ describe('PlanSessionAgent', () => {
         process.env.ANTHROPIC_API_KEY = 'sk-should-not-reach-the-engine';
         try {
             armQuery();
-             
+
             new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
 
             const options = (queryMock.mock.calls[0]?.[0] as { options: { env: NodeJS.ProcessEnv } }).options;
@@ -190,7 +194,7 @@ describe('PlanSessionAgent', () => {
 
     it('carries no report tool, no scope guard and no step, turn or wall-clock budget', async () => {
         armQuery();
-         
+
         new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
 
         const options = (

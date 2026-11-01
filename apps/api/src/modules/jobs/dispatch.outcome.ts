@@ -1,7 +1,6 @@
 import { CONTEXT_OVERFLOW_REASON, isContextOverflow, isPermanentFailure } from '#modules/stages/permanent.failure.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import { NotDispatchableError, RebaseConflictError } from '#modules/stages/stage.dispatcher.js';
-import { isTerminal } from '#modules/stages/terminal.js';
 
 /**
  * What a failed `StageDispatcher.run` means for the card.
@@ -50,11 +49,12 @@ export type DispatchOutcome =
      */
     | { readonly kind: 'defer-flagged'; readonly reason: string }
     /**
-     * A job arrived for a card that has already finished — not a bug, once the card's current stage
-     * is terminal. A card reaches `merged` (or `dropped`/`poisoned`) while a job for its last stage
-     * is still queued, `wilson card move` reclaims the worktree on the human's transition, and this
-     * job then dispatches into a card that is done. Poisoning it would be card 0066/0082's bug:
-     * undoing a human's completed merge because a stale job showed up after the fact.
+     * A job arrived for a stage the card has since left, which is what a queued job meets when a
+     * human moves its card. A card reaches `merged` (or `dropped`/`poisoned`) while a job for its last
+     * stage is still queued, or simply moves to another live stage, and this job then dispatches
+     * into a card that is somewhere else. Poisoning it would be card 0066/0082's bug: undoing a
+     * human's move because a stale job showed up after the fact. Dropping the job clears the claim,
+     * so the poller picks the card up from wherever it now is.
      */
     | { readonly kind: 'stale'; readonly actualStage: string }
     /**
@@ -117,7 +117,7 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
         if (error.reason.kind === 'no-host' || error.reason.kind === 'no-local-slot') {
             return { kind: 'defer', reason: error.message };
         }
-        if (error.reason.kind === 'wrong-stage' && isTerminal(error.reason.actualStage)) {
+        if (error.reason.kind === 'wrong-stage') {
             return { kind: 'stale', actualStage: error.reason.actualStage };
         }
         return { kind: 'poison', error };
@@ -129,7 +129,7 @@ export const classifyDispatchFailure = (error: unknown): DispatchOutcome => {
 
     if (error instanceof StageConfigError) {
         // `stage-not-found` is deterministic for this job — no action on this card changes it, so it
-        // poisons exactly as wrong-stage does. `config-invalid` means `stages.yaml` itself is missing
+        // poisons. `config-invalid` means `stages.yaml` itself is missing
         // or malformed, which is true for every card that would load it, not this one — that defers,
         // same "not now, not never" shape as an unsatisfied dependency.
         if (error.kind === 'stage-not-found') {

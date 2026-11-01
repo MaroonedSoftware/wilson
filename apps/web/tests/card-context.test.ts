@@ -64,11 +64,7 @@ class FakeResizeObserver {
 function renderApp(path: string, queryClient = new QueryClient()) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -169,7 +165,12 @@ describe('the context section', () => {
     it("shows the server's own refusal reason and leaves the typed URL in place, adding nothing to the list", async () => {
         vi.spyOn(ContextClient.prototype, 'listCardContext').mockResolvedValue([]);
         vi.spyOn(ContextClient.prototype, 'attachContextToACard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'refused to fetch a private address' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'refused to fetch a private address' } },
+                new Headers(),
+            ),
         );
 
         renderApp(CARD_PATH);
@@ -217,7 +218,7 @@ describe('the context section', () => {
 
         const removeButtons = screen.getAllByRole('button', { name: 'Remove' });
         expect(removeButtons).toHaveLength(2);
-        fireEvent.click(removeButtons[0]);
+        fireEvent.click(removeButtons[0]!);
 
         // The confirmation dialog itself — clicking it must not have removed anything yet. The
         // dialog names the same URL again (in its own confirmation copy), so the list's own copy

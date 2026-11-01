@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <!--
+            No Avalonia reference, and there must never be one. Everything decidable without a window
+            lives here so it can be tested as plain .NET.
+        -->
+        <RootNamespace>MaroonedSoftware.Wilson.Desktop.Core</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../../../packages/sdk-csharp/WilsonSdk.csproj" />
+    </ItemGroup>
+
+</Project>

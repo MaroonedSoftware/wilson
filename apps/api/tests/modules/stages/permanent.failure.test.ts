@@ -51,7 +51,7 @@ describe('isContextOverflow', () => {
     it.each([
         [
             '{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220000 tokens > 200000 maximum"}}',
-            'the provider\'s own overflow shape',
+            "the provider's own overflow shape",
         ],
         ['Claude Code process failed: invalid_request_error - prompt is too long', 'a differently-worded overflow'],
         ['INVALID_REQUEST_ERROR: Prompt Is Too Long', 'mixed case'],
@@ -60,7 +60,10 @@ describe('isContextOverflow', () => {
     });
 
     it.each([
-        ['{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}', 'an unrelated malformed request'],
+        [
+            '{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}',
+            'an unrelated malformed request',
+        ],
         ['prompt is too long, please shorten your message', "wording alone, without the provider's error class"],
         ['Your credit balance is too low to access the Anthropic API.', 'an unrelated permanent failure'],
         ['socket hang up', 'an ordinary transient failure'],

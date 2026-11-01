@@ -84,7 +84,7 @@ stages:
 `;
 
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
 
         const cardA = makeCard('0001');
@@ -96,8 +96,8 @@ stages:
             '0001': join(base, 'wt-0001'),
             '0002': join(base, 'wt-0002'),
         };
-        await mkdir(worktreeDirs['0001'], { recursive: true });
-        await mkdir(worktreeDirs['0002'], { recursive: true });
+        await mkdir(worktreeDirs['0001']!, { recursive: true });
+        await mkdir(worktreeDirs['0002']!, { recursive: true });
 
         const worktrees = {
             resolveBranch: vi.fn((card: Card) => `card/${card.frontmatter.id}-do-the-thing`),
@@ -170,9 +170,9 @@ stages:
         expect(resultB.passed).toBe(true);
 
         const preparedEventFor = (cardId: string) =>
-            events.append.mock.calls.map(([event]) => event as { cardId: string; type: string; payload: Record<string, unknown> }).find(
-                event => event.cardId === cardId && event.type === 'worktree.prepared',
-            );
+            events.append.mock.calls
+                .map(([event]) => event as { cardId: string; type: string; payload: Record<string, unknown> })
+                .find(event => event.cardId === cardId && event.type === 'worktree.prepared');
 
         const preparedA = preparedEventFor('0001');
         const preparedB = preparedEventFor('0002');

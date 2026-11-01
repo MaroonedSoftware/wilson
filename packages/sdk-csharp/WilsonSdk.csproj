@@ -1,0 +1,22 @@
+<!--
+    Created once by @contractkit/plugin-csharp and hand-owned from then on: it is emitted `ifAbsent`
+    and never regenerated, which is why `scaffold` is off in `apps/api/contractkit.config.json`. It
+    is the one file in this directory anybody may edit. Everything beside it is generated from the
+    `.ck` contracts.
+
+    `TreatWarningsAsErrors` is here rather than inherited: this project sits outside `apps/desktop`,
+    so that directory's `Directory.Build.props` does not reach it. C# that does not compile is a
+    generator bug, fixed in ContractKit and never here.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>MaroonedSoftware.Wilson.Sdk</RootNamespace>
+    <AssemblyName>WilsonSdk</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

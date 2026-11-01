@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { BoardRepository, type CardVersionSummary } from '#modules/board/board.repository.js';
+import { BoardRepository, type CardVersionSummary, type SplitWrite } from '#modules/board/board.repository.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { PlanLintService } from '#modules/board/plan.lint.service.js';
 import { sectionsOf, type Card } from '#modules/board/card.js';
@@ -55,6 +55,10 @@ class OneCardBoardRepository extends BoardRepository {
     }
 
     async setPosition(): Promise<void> {
+        throw new Error('not used in this test');
+    }
+
+    async applySplit(): Promise<SplitWrite | undefined> {
         throw new Error('not used in this test');
     }
 

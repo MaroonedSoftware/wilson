@@ -139,8 +139,8 @@ export function NewProjectControl() {
             <Modal opened={opened} onClose={handlers.close} title="Add a project" size="lg">
                 <Stack gap="sm">
                     <Text size="sm" c="dimmed">
-                        Registers the repo and gives its board the default stage config, same as <code>wilson project create</code>{' '}
-                        followed by <code>wilson board init</code>. All paths are on the machine the daemon runs on.
+                        Registers the repo and gives its board the default stage config, same as <code>wilson project create</code> followed by{' '}
+                        <code>wilson board init</code>. All paths are on the machine the daemon runs on.
                     </Text>
                     <TextInput
                         label="Name"
@@ -164,37 +164,54 @@ export function NewProjectControl() {
                     )}
                     {!repository && (
                         <>
-                        <TextInput
-                            label="Code root"
-                            description="Absolute path to the git repo agents work in."
-                            placeholder="/Users/you/projects/myapp"
-                            value={codeRoot}
-                            onChange={event => setCodeRoot(event.currentTarget.value)}
-                            disabled={create.isPending}
-                            rightSection={<DirectoryPicker label="Code root" value={codeRoot} onSelect={pickCodeRoot} disabled={create.isPending} />}
-                        />
-                        <TextInput
-                            label="Worktree root"
-                            description="Where each card's worktree is cut."
-                            value={worktreeRoot ?? defaults.worktreeRoot}
-                            onChange={event => setWorktreeRoot(event.currentTarget.value)}
-                            disabled={create.isPending}
-                            rightSection={
-                                <DirectoryPicker label="Worktree root" value={worktreeRoot ?? defaults.worktreeRoot} onSelect={setWorktreeRoot} disabled={create.isPending} />
-                            }
-                        />
-                        <TextInput
-                            label="Run root"
-                            description="Where per-card run state is kept."
-                            value={runRoot ?? defaults.runRoot}
-                            onChange={event => setRunRoot(event.currentTarget.value)}
-                            disabled={create.isPending}
-                            rightSection={<DirectoryPicker label="Run root" value={runRoot ?? defaults.runRoot} onSelect={setRunRoot} disabled={create.isPending} />}
-                        />
+                            <TextInput
+                                label="Code root"
+                                description="Absolute path to the git repo agents work in."
+                                placeholder="/Users/you/projects/myapp"
+                                value={codeRoot}
+                                onChange={event => setCodeRoot(event.currentTarget.value)}
+                                disabled={create.isPending}
+                                rightSection={
+                                    <DirectoryPicker label="Code root" value={codeRoot} onSelect={pickCodeRoot} disabled={create.isPending} />
+                                }
+                            />
+                            <TextInput
+                                label="Worktree root"
+                                description="Where each card's worktree is cut."
+                                value={worktreeRoot ?? defaults.worktreeRoot}
+                                onChange={event => setWorktreeRoot(event.currentTarget.value)}
+                                disabled={create.isPending}
+                                rightSection={
+                                    <DirectoryPicker
+                                        label="Worktree root"
+                                        value={worktreeRoot ?? defaults.worktreeRoot}
+                                        onSelect={setWorktreeRoot}
+                                        disabled={create.isPending}
+                                    />
+                                }
+                            />
+                            <TextInput
+                                label="Run root"
+                                description="Where per-card run state is kept."
+                                value={runRoot ?? defaults.runRoot}
+                                onChange={event => setRunRoot(event.currentTarget.value)}
+                                disabled={create.isPending}
+                                rightSection={
+                                    <DirectoryPicker
+                                        label="Run root"
+                                        value={runRoot ?? defaults.runRoot}
+                                        onSelect={setRunRoot}
+                                        disabled={create.isPending}
+                                    />
+                                }
+                            />
                         </>
                     )}
                     {failure && (
-                        <Alert color="red" title={failure.step === 'register' ? 'Could not register the project' : 'Registered, but could not initialise its board'}>
+                        <Alert
+                            color="red"
+                            title={failure.step === 'register' ? 'Could not register the project' : 'Registered, but could not initialise its board'}
+                        >
                             {failure.message}
                             {failure.step === 'initialise' && ' Submitting again only retries initialising the board.'}
                         </Alert>

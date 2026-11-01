@@ -143,7 +143,7 @@ describe('NotifyWebhookSettingService.applyCurrentValue', () => {
         expect(first).toEqual({ webhookUrl: null, baseUrl: 'https://board.example' });
         expect(second).toEqual({ webhookUrl: null, baseUrl: 'https://board.example' });
         expect(logger.warn).toHaveBeenCalledTimes(1);
-        expect(logger.warn.mock.calls[0][0]).toContain('link-local');
+        expect(logger.warn.mock.calls[0]![0]).toContain('link-local');
     });
 
     it('never runs the destination check against baseUrl, which is passed through untouched', async () => {

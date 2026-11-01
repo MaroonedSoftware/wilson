@@ -11,7 +11,7 @@ describe('TONE', () => {
         expect(TONE.backlog).not.toBe('gray');
     });
 
-    it('keeps planning and backlog apart from implementing\'s blue and from each other', () => {
+    it("keeps planning and backlog apart from implementing's blue and from each other", () => {
         expect(TONE.planning).not.toBe(TONE.implementing);
         expect(TONE.backlog).not.toBe(TONE.implementing);
         expect(TONE.planning).not.toBe(TONE.backlog);
@@ -21,7 +21,7 @@ describe('TONE', () => {
         expect(TONE['needs-human']).toBeUndefined();
     });
 
-    it('reserves red for poisoned alone, so a flagged card\'s red border reads as unique', () => {
+    it("reserves red for poisoned alone, so a flagged card's red border reads as unique", () => {
         expect(TONE.poisoned).toBe('red');
         expect(Object.values(TONE).filter(tone => tone === 'red')).toEqual(['red']);
     });
