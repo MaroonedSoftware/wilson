@@ -55,7 +55,7 @@ class SignInModel(private val app: WilsonApp) : ViewModel() {
 
     /** Asks the address to prove it is a Wilson before anything is typed at it. */
     fun checkServer() {
-        val server = server ?: return state.update { it.copy(error = "That is not an https address.") }
+        val server = server ?: return state.update { it.copy(error = "That address does not look right.") }
         busy {
             val answered = runCatching { HttpClients.sdkFor(server, Patience.SHORT) { emptyMap() }.health.getHealth() }.isSuccess
             if (answered) {

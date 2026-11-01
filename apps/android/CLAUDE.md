@@ -50,3 +50,6 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   only on its next reload. Moves arrive in about two seconds. The web app has the same gap.
 - 2026-10-31: the feed's response headers can wait for its first write, up to the 15 second heartbeat,
   so the board can read `reconnecting` that long on a quiet board with nothing wrong.
+- 2026-11-01: an address field needs `autoCorrectEnabled = false` as well as `KeyboardType.Uri`, or the
+  keyboard treats it as prose and adds a space after each dot. Check with `dumpsys input_method`: the
+  address field reads `inputType=0x11`, with no `0x8000` autocorrect flag.

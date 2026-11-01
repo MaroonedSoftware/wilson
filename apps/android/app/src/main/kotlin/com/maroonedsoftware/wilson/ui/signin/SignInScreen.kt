@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -34,19 +37,19 @@ fun SignInScreen(model: SignInModel) {
         Text("wilson", style = MaterialTheme.typography.headlineLarge)
         when (state.step) {
             SignInStep.SERVER -> {
-                Field("Server address", state.server, KeyboardType.Uri) { v -> model.edit { it.copy(server = v) } }
+                Field("Server address", state.server, KeyboardType.Uri, ImeAction.Go, model::checkServer) { v -> model.edit { it.copy(server = v) } }
                 Submit("Continue", state.busy, model::checkServer)
             }
             SignInStep.PASSWORD -> {
                 Text(state.server, style = MaterialTheme.typography.bodySmall)
-                Field("Email", state.email, KeyboardType.Email) { v -> model.edit { it.copy(email = v) } }
-                Field("Password", state.password, KeyboardType.Password, secret = true) { v -> model.edit { it.copy(password = v) } }
+                Field("Email", state.email, KeyboardType.Email, ImeAction.Next) { v -> model.edit { it.copy(email = v) } }
+                Field("Password", state.password, KeyboardType.Password, ImeAction.Go, model::signIn, secret = true) { v -> model.edit { it.copy(password = v) } }
                 Submit("Sign in", state.busy, model::signIn)
                 TextButton(onClick = model::back) { Text("Use a different server") }
             }
             SignInStep.CODE -> {
                 Text("Enter the code from your authenticator app.")
-                Field("Code", state.code, KeyboardType.Number) { v -> model.edit { it.copy(code = v) } }
+                Field("Code", state.code, KeyboardType.Number, ImeAction.Go, model::submitCode) { v -> model.edit { it.copy(code = v) } }
                 Submit("Confirm", state.busy, model::submitCode)
             }
         }
@@ -54,14 +57,29 @@ fun SignInScreen(model: SignInModel) {
     }
 }
 
+/** Autocorrect is off everywhere here: a keyboard that treats an address as prose puts a space after each dot. */
 @Composable
-private fun Field(label: String, value: String, keyboard: KeyboardType, secret: Boolean = false, onChange: (String) -> Unit) {
+private fun Field(
+    label: String,
+    value: String,
+    keyboard: KeyboardType,
+    action: ImeAction,
+    onGo: () -> Unit = {},
+    secret: Boolean = false,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboard),
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+            keyboardType = keyboard,
+            imeAction = action,
+        ),
+        keyboardActions = KeyboardActions(onGo = { onGo() }),
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth(),
     )
