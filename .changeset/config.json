@@ -1,0 +1,21 @@
+{
+    "$schema": "https://unpkg.com/@changesets/config@4.0.0/schema.json",
+    "changelog": "@changesets/cli/changelog",
+    "commit": false,
+    "fixed": [],
+    "linked": [],
+    "access": "restricted",
+    "baseBranch": "main",
+    "updateInternalDependencies": "patch",
+    "ignore": [
+        "@wilson/api",
+        "@wilson/web",
+        "@wilson/worker",
+        "@wilson/cli",
+        "@wilson/sdk",
+        "@wilson/worker-protocol",
+        "@repo/config-eslint",
+        "@repo/config-typescript"
+    ],
+    "privatePackages": { "version": true, "tag": false }
+}

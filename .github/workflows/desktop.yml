@@ -33,6 +33,13 @@ jobs:
             - uses: actions/setup-dotnet@v4
               with:
                   global-json-file: apps/desktop/global.json
+            # Two copies of one number: changesets bumps the first and the app is stamped from the second.
+            - name: The version agrees
+              run: |
+                  manifest="$(node -p "require('./package.json').version")"
+                  props="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' Directory.Build.props)"
+                  echo "package.json ${manifest}, Directory.Build.props ${props}"
+                  test "$manifest" = "$props"
             - run: dotnet restore Wilson.Desktop.slnx --locked-mode
             - run: dotnet build Wilson.Desktop.slnx -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx --no-build

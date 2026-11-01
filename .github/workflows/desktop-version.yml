@@ -1,0 +1,82 @@
+# The desktop app's version pull request. Each changeset reaching main opens it, or rewrites it from
+# main's tip, and merging it is the release: see `apps/desktop/CLAUDE.md`, under Releasing. Not
+# `changesets/action`, because all this needs of it is a branch, a commit and one `gh` call.
+
+name: Desktop version
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - .changeset/*.md
+    workflow_dispatch:
+
+permissions:
+    # The branch, the pull request, and starting `pr.yml` on it.
+    contents: write
+    pull-requests: write
+    actions: write
+
+concurrency: desktop-version
+
+env:
+    BRANCH: changeset-release/desktop
+
+jobs:
+    version:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 26
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+
+            - name: Apply the changesets
+              run: pnpm release:version
+
+            # A changeset made with --empty bumps nothing, and is consumed by the next real one.
+            - name: Is there a new version
+              id: bumped
+              run: |
+                  if git diff --quiet -- apps/desktop/package.json; then
+                      echo "::notice::No pending changeset bumps the desktop app."
+                      echo "value=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "value=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Open the pull request
+              if: steps.bumped.outputs.value == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  version="$(node -p "require('./apps/desktop/package.json').version")"
+                  title="Release Wilson desktop ${version}"
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git checkout -B "$BRANCH"
+                  git add -A .changeset apps/desktop
+                  git commit -m "$title"
+                  git push --force origin "$BRANCH"
+
+                  body="Merging this publishes Wilson desktop ${version}, and installed copies offer it within six hours. Nobody looks at it after that, and the tests do not cover the screens, so walk the app first. See apps/desktop/CHANGELOG.md in this diff."
+                  if [ -n "$(gh pr list --head "$BRANCH" --state open --json number -q '.[].number')" ]; then
+                      gh pr edit "$BRANCH" --title "$title" --body "$body"
+                  else
+                      gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
+                  fi
+
+                  # GitHub starts nothing for what this token does, and main requires `ci-ok`.
+                  gh workflow run pr.yml --ref "$BRANCH"
