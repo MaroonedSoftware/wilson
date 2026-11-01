@@ -104,7 +104,9 @@ nothing either, so no release would run.
 
 The app checks GitHub at launch and every six hours, using its own `HttpClient` so the operator's
 token never reaches GitHub. It downloads a newer `desktop-v*` release in the background, and installs
-it only on "Restart to update", so a planning turn or a merge is never cut off.
+it only on "Restart to update", so a planning turn or a merge is never cut off. Check for Updates in
+the application menu runs the same check and also answers when there is nothing to offer, using
+`UpdateCheckResult.Answered` so a GitHub that did not answer never reads as up to date.
 
 - **Nothing vouches for an update but `UpdateSignature`.** The app is not notarised, and a file it
   downloads itself is not quarantined, so Gatekeeper never looks. The workflow signs

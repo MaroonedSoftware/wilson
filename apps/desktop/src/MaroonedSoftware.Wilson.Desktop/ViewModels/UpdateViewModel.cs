@@ -12,10 +12,15 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloader? downloader, IUpdateInstaller? installer, string? bundle, Action quit) : ObservableObject
 {
     private static readonly TimeSpan Again = TimeSpan.FromHours(6);
+    private static readonly TimeSpan Linger = TimeSpan.FromSeconds(5);
 
-    private string? _page;
     private string? _zip;
     private Version? _version;
+    private bool _checking;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanView))]
+    private string? _page;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Visible))]
@@ -30,7 +35,7 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
 
     public bool Visible => Message is not null;
 
-    public bool CanView => !Ready;
+    public bool CanView => !Ready && Page is not null;
 
     /// <summary>Checks at launch and every six hours after, because this app is left open for days.</summary>
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -38,18 +43,18 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
         using var timer = new PeriodicTimer(Again);
         do
         {
-            if (await checker.CheckAsync(cancellationToken) is { } found && found.Version != _version)
-            {
-                await OfferAsync(found, cancellationToken);
-            }
+            await CheckAsync(asked: false, cancellationToken);
         }
         while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
+    /// <summary>The menu's check. It differs from the timer's by saying so when there is nothing to offer.</summary>
+    public Task CheckNowAsync() => CheckAsync(asked: true, CancellationToken.None);
+
     [RelayCommand]
     public void ViewRelease()
     {
-        if (_page is { } page && page.StartsWith("https://", StringComparison.Ordinal))
+        if (Page is { } page && page.StartsWith("https://", StringComparison.Ordinal))
         {
             using var opened = Process.Start(new ProcessStartInfo("open") { ArgumentList = { page } });
         }
@@ -76,9 +81,48 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
         Message = $"Wilson {_version} could not be installed here, so it will need installing by hand.";
     }
 
+    private async Task CheckAsync(bool asked, CancellationToken cancellationToken)
+    {
+        // A second check would download the same update twice.
+        if (_checking)
+        {
+            return;
+        }
+
+        _checking = true;
+        try
+        {
+            var result = await checker.CheckAsync(cancellationToken);
+            if (result.Found is { } found)
+            {
+                if (found.Version != _version)
+                {
+                    await OfferAsync(found, cancellationToken);
+                }
+            }
+            else if (asked)
+            {
+                await SayAsync(result.Answered ? $"Wilson {UpdateCheck.Current} is up to date." : "Could not check for updates.");
+            }
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    /// <summary>A brief answer in the strip, which then goes back to whatever it was saying.</summary>
+    private async Task SayAsync(string message)
+    {
+        var before = Message;
+        Message = message;
+        await Task.Delay(Linger);
+        Message = before;
+    }
+
     private async Task OfferAsync(UpdateAvailable found, CancellationToken cancellationToken)
     {
-        _page = found.Page;
+        Page = found.Page;
         Ready = false;
         Message = $"Wilson {found.Version} is available.";
 

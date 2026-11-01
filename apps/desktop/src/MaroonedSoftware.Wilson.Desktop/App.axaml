@@ -11,6 +11,7 @@
     <NativeMenu.Menu>
         <NativeMenu>
             <NativeMenuItem Header="About Wilson" Click="OnAbout" />
+            <NativeMenuItem Header="Check for Updates…" Click="OnCheckForUpdates" />
         </NativeMenu>
     </NativeMenu.Menu>
 

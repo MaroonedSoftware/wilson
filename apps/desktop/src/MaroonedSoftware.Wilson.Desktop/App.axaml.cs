@@ -13,6 +13,8 @@ namespace MaroonedSoftware.Wilson.Desktop;
 
 public partial class App : Application
 {
+    private UpdateViewModel? _updates;
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -24,6 +26,7 @@ public partial class App : Application
             var key = UpdateSignature.BuiltInKey();
             var downloader = key is null ? null : new UpdateDownloader(updateHttp, key, Path.Combine(Path.GetTempPath(), "wilson-updates"));
             var updates = new UpdateViewModel(new UpdateChecker(updateHttp, UpdateCheck.Current), downloader, new MacUpdateInstaller(), BundleSwap.BundleOf(Environment.ProcessPath), () => desktop.Shutdown());
+            _updates = updates;
             var shell = new ShellViewModel(new MacKeychainSecretStore(), DesktopSettings.DefaultPath()) { Updates = updates };
             var window = new MainWindow { DataContext = shell };
             desktop.MainWindow = window;
@@ -64,6 +67,17 @@ public partial class App : Application
     }
 
     private void OnAbout(object? sender, EventArgs e) => MacAboutPanel.Show();
+
+    private void OnCheckForUpdates(object? sender, EventArgs e)
+    {
+        // The answer is in the window's strip, and the menu is there while the window is hidden.
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
+        {
+            Reveal(window);
+        }
+
+        _ = _updates?.CheckNowAsync();
+    }
 
     private void ShowInMenuBar(Window window, IClassicDesktopStyleApplicationLifetime desktop)
     {
