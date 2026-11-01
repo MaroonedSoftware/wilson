@@ -8,6 +8,11 @@
         <RootNamespace>MaroonedSoftware.Wilson.Desktop.Core</RootNamespace>
     </PropertyGroup>
 
+    <!-- Written by tools/macos/make-update-key.sh. A build without it gives notice of updates and installs none. -->
+    <ItemGroup Condition="Exists('Updates/update-key.pem')">
+        <EmbeddedResource Include="Updates/update-key.pem" LogicalName="update-key.pem" />
+    </ItemGroup>
+
     <ItemGroup>
         <ProjectReference Include="../../../../packages/sdk-csharp/WilsonSdk.csproj" />
     </ItemGroup>

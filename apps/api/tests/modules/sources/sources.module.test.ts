@@ -80,7 +80,8 @@ describe('SourcesModule.setup', () => {
     // sneaking in because a generic "any key returns something" stub happened to satisfy both.
     const fakeConfig = (env: Record<string, string> = {}): AppConfig =>
         ({ get: (key: string) => env[key] ?? (key.startsWith('GITHUB_') ? '' : 'unused') }) as unknown as AppConfig;
-    const fakeContainerWithSettings = (): Container => ({ get: (id: unknown) => (id === SettingsStore ? ({} as SettingsStore) : undefined) }) as unknown as Container;
+    const fakeContainerWithSettings = (): Container =>
+        ({ get: (id: unknown) => (id === SettingsStore ? ({} as SettingsStore) : undefined) }) as unknown as Container;
 
     it('imports through the GitHub App when no token is set but a key file is named', async () => {
         const { registry, registrations } = recordingRegistry();
@@ -296,7 +297,7 @@ describe('SourcesModule start/shutdown', () => {
         const sourcePoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
         const statusMirrorPoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
 
-        await SourcesModule.start!(fakeContainer(sourcePoller, statusMirrorPoller));
+        await SourcesModule.start!(fakeContainer(sourcePoller, statusMirrorPoller), new AbortController().signal);
 
         expect(sourcePoller.start).toHaveBeenCalledTimes(1);
         expect(statusMirrorPoller.start).toHaveBeenCalledTimes(1);

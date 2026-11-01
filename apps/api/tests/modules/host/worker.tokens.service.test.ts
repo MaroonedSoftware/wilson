@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { HostRepository } from '#modules/host/host.repository.js';
@@ -89,7 +90,7 @@ describe('WorkerTokensService', () => {
         await expect(
             db
                 .updateTable('wilson.hosts')
-                .set({ workerTokenHash: 'x', workerTokenHint: 'x', workerTokenIssuedAt: new Date().toISOString() })
+                .set({ workerTokenHash: 'x', workerTokenHint: 'x', workerTokenIssuedAt: DateTime.now() })
                 .where('name', '=', ssh)
                 .execute(),
         ).rejects.toThrow();

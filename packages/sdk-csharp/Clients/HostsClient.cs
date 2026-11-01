@@ -81,6 +81,23 @@ public sealed class HostsClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Set host SSH target
+    /// Where the daemon reaches an `ssh` host. An operation of its own, not a field on
+    /// `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
+    /// engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<Host> SetHostSshTargetAsync(string name, PutHostSshTargetRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "hosts", http.Segment(name), "ssh-target"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<Host>(response);
+    }
+
+    /// <summary>
     /// Probe host
     /// Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
     /// project's clone is a git repository and its roots can be written, and, given a lifetime, when it
@@ -128,9 +145,10 @@ public sealed class HostsClient(SdkHttp http)
     /// <summary>
     /// Mint worker token
     /// The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-    /// it, and only as this host, so it grants less than the `manage` key or session minting it already
-    /// holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-    /// `post` mints one, replacing any the host had, so rotating is posting again.
+    /// it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+    /// minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+    /// CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+    /// `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
     /// </summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
     public async Task<IssuedWorkerToken> MintWorkerTokenAsync(string name, CancellationToken cancellationToken = default)
@@ -145,9 +163,10 @@ public sealed class HostsClient(SdkHttp http)
     /// <summary>
     /// Revoke worker token
     /// The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-    /// it, and only as this host, so it grants less than the `manage` key or session minting it already
-    /// holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-    /// `post` mints one, replacing any the host had, so rotating is posting again.
+    /// it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+    /// minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+    /// CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+    /// `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
     /// </summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
     public async Task RevokeWorkerTokenAsync(string name, CancellationToken cancellationToken = default)
@@ -161,8 +180,10 @@ public sealed class HostsClient(SdkHttp http)
     /// <summary>
     /// Assign engine token
     /// Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
-    /// on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
-    /// reaches the next engine started there, never one already running.
+    /// on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach, and
+    /// assigning one needs `wilson.step.up`, since it decides which machine receives that credential.
+    /// Clearing it only takes authority away, so that stays `wilson.manage`. A change reaches the next
+    /// engine started there, never one already running.
     /// </summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
     public async Task<Host> AssignEngineTokenAsync(string name, PutHostEngineTokenRequest body, CancellationToken cancellationToken = default)

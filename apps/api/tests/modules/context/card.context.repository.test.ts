@@ -63,14 +63,14 @@ describe('CardContextRepository', () => {
     });
 
     it('stores a missing title as SQL NULL and reads it back as undefined, never an empty string', async () => {
-        const snapshot = await repo.attach('0001', 'https://example.com/doc', fetchedAt, 'url-provider', null, 'content', 'hash-1');
+        const snapshot = await repo.attach('0001', 'https://example.com/doc', fetchedAt, 'url-provider', undefined, 'content', 'hash-1');
 
         expect(snapshot.title).toBeUndefined();
         const got = await repo.get(snapshot.id);
         expect(got?.title).toBeUndefined();
     });
 
-    it('list returns a card\'s snapshots oldest first', async () => {
+    it("list returns a card's snapshots oldest first", async () => {
         const first = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
         const second = await repo.attach('0001', 'https://example.com/b', fetchedAt, 'url-provider', 'b', 'content b', 'hash-b');
 
@@ -83,7 +83,7 @@ describe('CardContextRepository', () => {
         await expect(repo.get('999999999')).resolves.toBeUndefined();
     });
 
-    it('remove deletes one snapshot, reports it was deleted, and leaves the card\'s others intact', async () => {
+    it("remove deletes one snapshot, reports it was deleted, and leaves the card's others intact", async () => {
         const first = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
         const second = await repo.attach('0001', 'https://example.com/b', fetchedAt, 'url-provider', 'b', 'content b', 'hash-b');
 
@@ -107,7 +107,7 @@ describe('CardContextRepository', () => {
         expect(await repo.get(snapshot.id)).toEqual(snapshot);
     });
 
-    it('rejects attach for a card id with no matching card row, the composite FK\'s other half', async () => {
+    it("rejects attach for a card id with no matching card row, the composite FK's other half", async () => {
         // The FK is `(project, card_id) REFERENCES wilson.cards (project, id)` — cascade-on-delete
         // is only half of what that buys; a snapshot must never land for a card that never existed
         // in the first place.
@@ -127,7 +127,7 @@ describe('CardContextRepository', () => {
         expect(await repo.list('0001')).toEqual([]);
     });
 
-    it('scopes list and get by project, never returning another project\'s snapshot', async () => {
+    it("scopes list and get by project, never returning another project's snapshot", async () => {
         const snapshot = await repo.attach('0001', 'https://example.com/a', fetchedAt, 'url-provider', 'a', 'content a', 'hash-a');
 
         const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -142,7 +142,7 @@ describe('CardContextRepository', () => {
         expect(await repo.list('0001')).toHaveLength(1);
     });
 
-    it('scopes list by card id within the same project, never returning another card\'s snapshot', async () => {
+    it("scopes list by card id within the same project, never returning another card's snapshot", async () => {
         await board.create(card('0002'), 'seed');
         await repo.attach('0001', 'https://example.com/one', fetchedAt, 'url-provider', 'one', 'content one', 'hash-1');
         await repo.attach('0002', 'https://example.com/two', fetchedAt, 'url-provider', 'two', 'content two', 'hash-2');

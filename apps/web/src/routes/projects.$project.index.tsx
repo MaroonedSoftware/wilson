@@ -82,7 +82,12 @@ function ProjectBoardRoute() {
                     <BoardFilter value={filterText} onChange={setFilterText} />
                     <NewCardControl />
                     <Tooltip label="Refresh">
-                        <ActionIcon variant="subtle" onClick={refresh} loading={cards.isFetching || columns.isFetching} aria-label="Refresh the board">
+                        <ActionIcon
+                            variant="subtle"
+                            onClick={refresh}
+                            loading={cards.isFetching || columns.isFetching}
+                            aria-label="Refresh the board"
+                        >
                             <IconRefresh size={16} />
                         </ActionIcon>
                     </Tooltip>

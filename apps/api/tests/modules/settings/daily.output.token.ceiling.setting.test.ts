@@ -36,7 +36,9 @@ describe('DAILY_OUTPUT_TOKEN_CEILING', () => {
     it.each([['not-a-number'], ['3.5'], ['NaN'], ['Infinity'], ['-1'], ['-10000']])(
         'throws rather than silently falling back when the environment value %j is not a non-negative integer',
         raw => {
-            expect(() => DAILY_OUTPUT_TOKEN_CEILING.parseEnv(raw)).toThrow(`Invalid DAILY_OUTPUT_TOKEN_CEILING: "${raw}" is not a non-negative integer`);
+            expect(() => DAILY_OUTPUT_TOKEN_CEILING.parseEnv(raw)).toThrow(
+                `Invalid DAILY_OUTPUT_TOKEN_CEILING: "${raw}" is not a non-negative integer`,
+            );
         },
     );
 });

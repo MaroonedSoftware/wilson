@@ -62,13 +62,15 @@ export const STEP_UP_POLICY = 'wilson.step.up';
 export const STEP_UP_WINDOW = Duration.fromObject({ minutes: 5 });
 
 /**
- * `wilson.step.up`: the gate on the two things that hand out or rewrite authority, minting or
- * rotating an API key and saving stage config (PROJECT.md, Authentication: Factors). Everything
+ * `wilson.step.up`: the gate on what hands out or rewrites authority: minting or rotating an API
+ * key, saving stage config, and deciding which machine receives card work and engine tokens
+ * (registering a host, its SSH target, its worker token, its engine token; PROJECT.md,
+ * Authentication: Factors). Everything
  * `wilson.manage` requires, and then a factor the operator proved within {@link STEP_UP_WINDOW}.
  *
  * An API key never satisfies it, whatever its scope: a key is a standing credential, and the point
- * is that a leaked one cannot mint more keys or rewrite the exit conditions stages are judged by
- * (decision 8). The refusal says so (`step_up_unavailable`), and a client answers it by signing in
+ * is that a leaked one cannot mint more keys, rewrite the exit conditions stages are judged by
+ * (decision 8), or register a worker of its own. The refusal says so (`step_up_unavailable`), and a client answers it by signing in
  * fresh for that one call, as `wilson stages edit` does. A signed-in session that is merely old gets
  * `step_up_required` with the window, and proving a factor again satisfies it. Until a strong
  * factor (an authenticator app, a passkey) is enrolled the password counts; after, only that does.

@@ -241,7 +241,7 @@ describe('PlanService', () => {
     });
 
     describe('open', () => {
-        it('returns a real worktree path, the planning stage\'s model and instructions, and seeds the draft with the card body when it has sections', async () => {
+        it("returns a real worktree path, the planning stage's model and instructions, and seeds the draft with the card body when it has sections", async () => {
             const { board, service } = await freshEnv();
             await board.create(card('0001', { stage: 'planning', title: 'Port allocator' }, FULL_BODY), 'seed');
 
@@ -257,7 +257,7 @@ describe('PlanService', () => {
             expect(await readFile(session.draftPath, 'utf8')).toBe(FULL_BODY);
         });
 
-        it('seeds the card\'s own prose plus the full six-heading skeleton when the card has no sections, discarding nothing', async () => {
+        it("seeds the card's own prose plus the full six-heading skeleton when the card has no sections, discarding nothing", async () => {
             const { board, service } = await freshEnv();
             const body = '## Note\n\njust some notes, no headings\n';
             await board.create(card('0002', { stage: 'planning', title: 'Blank card' }, body), 'seed');
@@ -279,7 +279,7 @@ describe('PlanService', () => {
             }
         });
 
-        it('seeds the card\'s own headings where they are and appends only the ones it lacks, in PLAN_SECTIONS order, when it has some but not all', async () => {
+        it("seeds the card's own headings where they are and appends only the ones it lacks, in PLAN_SECTIONS order, when it has some but not all", async () => {
             const { board, service } = await freshEnv();
             const body = ['## Out of scope', 'Nothing outside the API.', '', '## Goal', 'Ship the seed fix.', ''].join('\n');
             await board.create(card('0013', { stage: 'planning', title: 'Partial card' }, body), 'seed');
@@ -318,7 +318,7 @@ describe('PlanService', () => {
             expect(session.instructions).not.toContain('empty six-heading skeleton');
         });
 
-        it('tells the agent the draft holds the card\'s own notes plus the headings it was missing, not that it is an empty skeleton, when sections are incomplete', async () => {
+        it("tells the agent the draft holds the card's own notes plus the headings it was missing, not that it is an empty skeleton, when sections are incomplete", async () => {
             const { board, service } = await freshEnv();
             const body = '## Note\n\ncaptured mid-review\n';
             await board.create(card('0015', { stage: 'planning', title: 'Note card' }, body), 'seed');
@@ -396,7 +396,7 @@ describe('PlanService', () => {
             expect(existsSync(join(runRoot, 'cards', '0012', 'draft.md'))).toBe(false);
         });
 
-        it('cuts a worktree path and branch that are never the card\'s own', async () => {
+        it("cuts a worktree path and branch that are never the card's own", async () => {
             const { board, service, worktrees, config } = await freshEnv();
             const title = 'Port allocator';
             await board.create(card('0005', { stage: 'planning', title }), 'seed');
@@ -632,7 +632,7 @@ describe('PlanService', () => {
                 await env.board.create(card(id, { stage: 'planning', title: 'Rejoined' }, FULL_BODY), 'seed');
                 const session = await env.service.open(id);
                 await env.service.turn(id, { text: 'hello' });
-                await writeFile(session.draftPath, 'the agent\'s draft', 'utf8');
+                await writeFile(session.draftPath, "the agent's draft", 'utf8');
                 await writeFile(join(session.worktreePath, 'scratch.txt'), 'in progress', 'utf8');
                 return { ...env, session };
             };
@@ -642,7 +642,7 @@ describe('PlanService', () => {
 
                 const rejoined = await service.open('0060');
 
-                expect(await readFile(session.draftPath, 'utf8')).toBe('the agent\'s draft');
+                expect(await readFile(session.draftPath, 'utf8')).toBe("the agent's draft");
                 expect(rejoined.worktreePath).toBe(session.worktreePath);
                 expect(existsSync(join(session.worktreePath, 'scratch.txt'))).toBe(true);
                 expect(rejoined.instructions).toContain('the draft so far');
@@ -655,7 +655,7 @@ describe('PlanService', () => {
                 await service.open('0061');
 
                 expect(existsSync(session.worktreePath)).toBe(true);
-                expect(await readFile(session.draftPath, 'utf8')).toBe('the agent\'s draft');
+                expect(await readFile(session.draftPath, 'utf8')).toBe("the agent's draft");
             });
 
             it('seeds the draft again when the file is gone', async () => {
@@ -774,12 +774,17 @@ describe('PlanService', () => {
             disposeSpy.mockClear();
         });
 
-        it('prepends a card\'s open comments, quoted alongside their text, to the first turn\'s prompt — after the stage instructions, before the operator\'s own text', async () => {
+        it("prepends a card's open comments, quoted alongside their text, to the first turn's prompt — after the stage instructions, before the operator's own text", async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();
             try {
                 await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
-                await service.addComment(id, { quote: 'Ship the thing.', prefix: '## Goal\n', suffix: '\n\n## Constraints', text: 'please clarify this' });
+                await service.addComment(id, {
+                    quote: 'Ship the thing.',
+                    prefix: '## Goal\n',
+                    suffix: '\n\n## Constraints',
+                    text: 'please clarify this',
+                });
 
                 const result = await service.turn(id, { text: 'hello there' });
 
@@ -815,7 +820,7 @@ describe('PlanService', () => {
             }
         });
 
-        it('a resolved comment does not reach a later turn\'s prompt', async () => {
+        it("a resolved comment does not reach a later turn's prompt", async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();
             try {
@@ -853,12 +858,17 @@ describe('PlanService', () => {
          * the context and comments preambles, before the operator's own text — so this mirrors the
          * comments-preamble ordering test above, but for `mode: 'cuts'` instead of an open comment.
          */
-        it('cuts mode prepends the cuts preamble to the prompt, after the comments preamble and before the operator\'s own text', async () => {
+        it("cuts mode prepends the cuts preamble to the prompt, after the comments preamble and before the operator's own text", async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();
             try {
                 await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
-                await service.addComment(id, { quote: 'Ship the thing.', prefix: '## Goal\n', suffix: '\n\n## Constraints', text: 'please clarify this' });
+                await service.addComment(id, {
+                    quote: 'Ship the thing.',
+                    prefix: '## Goal\n',
+                    suffix: '\n\n## Constraints',
+                    text: 'please clarify this',
+                });
 
                 const result = await service.turn(id, { text: 'hello there', mode: 'cuts' });
 
@@ -876,7 +886,7 @@ describe('PlanService', () => {
             }
         });
 
-        it('a chat turn\'s prompt, and a turn sent with no mode at all, never carry the cuts preamble', async () => {
+        it("a chat turn's prompt, and a turn sent with no mode at all, never carry the cuts preamble", async () => {
             const { board, service } = await freshEnv();
             const chatId = randomUUID();
             const noModeId = randomUUID();
@@ -960,7 +970,7 @@ describe('PlanService', () => {
             }
         });
 
-        it('holds one conversation across two turns: the first prompt carries the planning stage\'s own instructions, the second carries only the raw text, and only one engine session is ever constructed', async () => {
+        it("holds one conversation across two turns: the first prompt carries the planning stage's own instructions, the second carries only the raw text, and only one engine session is ever constructed", async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();
             try {
@@ -1039,7 +1049,7 @@ describe('PlanService', () => {
             }
         });
 
-        it('returns only the generated PlanTurn shape — never the stored row\'s engine session id', async () => {
+        it("returns only the generated PlanTurn shape — never the stored row's engine session id", async () => {
             const { board, service } = await freshEnv();
             const id = randomUUID();
             try {
@@ -1220,7 +1230,7 @@ describe('PlanService', () => {
             disposeSpy.mockClear();
         });
 
-        it('a first turn on a card with an attached snapshot carries its manifest and quoted content, after the instructions and before the operator\'s own text', async () => {
+        it("a first turn on a card with an attached snapshot carries its manifest and quoted content, after the instructions and before the operator's own text", async () => {
             const { board, service, config } = await freshEnv();
             const id = randomUUID();
             try {

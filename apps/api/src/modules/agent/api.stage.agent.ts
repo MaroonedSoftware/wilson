@@ -110,7 +110,8 @@ const READ_TOOLS = ['read', 'grep', 'glob'];
 
 /** One entry per read tool call across a run's steps, for its trace. */
 const readCalls = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): (string | undefined)[] =>
-    steps.flatMap(step => step.toolCalls ?? [])
+    steps
+        .flatMap(step => step.toolCalls ?? [])
         .filter(call => READ_TOOLS.includes(call.toolName))
         .map(call => (call.input as { path?: string } | undefined)?.path);
 

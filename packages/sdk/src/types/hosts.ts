@@ -115,11 +115,11 @@ export interface CreateHostRequest {
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
  * moving a machine to the other kind is removing the host and registering it again.
+ * No `sshTarget`: where a host is reached decides who receives a card's repository, so it has an
+ * operation of its own (`PUT /api/hosts/{name}/ssh-target`), behind step-up and out of an agent's reach.
  * generated from [UpdateHostRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface UpdateHostRequest {
-    /** Only for an `ssh` host. */
-    sshTarget?: string;
     slots?: number;
     enabled?: boolean;
     draining?: boolean;
@@ -129,6 +129,14 @@ export interface UpdateHostRequest {
     commandEnv?: string[];
     /** An empty string clears it. */
     projectsRoot?: string;
+}
+
+/**
+ * generated from [PutHostSshTargetRequest](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface PutHostSshTargetRequest {
+    /** What `ssh` connects to. */
+    sshTarget: string;
 }
 
 /**

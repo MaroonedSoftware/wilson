@@ -47,7 +47,7 @@ describe('withStubbedRects', () => {
         });
     });
 
-    it("toJSON returns the rect itself, matching the DOMRect contract", async () => {
+    it('toJSON returns the rect itself, matching the DOMRect contract', async () => {
         const el = document.createElement('div');
         el.className = 'jsontest';
 

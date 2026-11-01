@@ -24,7 +24,7 @@ import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository, type ProjectRow } from '#modules/board/project.repository.js';
 import { ProjectsService } from '#modules/board/projects.service.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
-import { authorize } from '#tests/support/test.authorized.js';
+import { authorize, SIGNED_IN } from '#tests/support/test.authorized.js';
 import { uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -77,9 +77,9 @@ describe('routers', () => {
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[16]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -106,9 +106,9 @@ describe('routers', () => {
         expect(mounted[13]).toBe(ApiKeysRouter);
         expect(mounted[14]).toBe(FactorsRouter);
         expect(mounted[15]).toBe(DevicesRouter);
-        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[16]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
@@ -343,6 +343,9 @@ describe('routers', () => {
     });
 });
 
+/** A fake Koa context with the one member `authorize` needs spelled out. */
+type RouteContext = Record<string, unknown> & { container: { get: (token: unknown) => unknown } };
+
 /**
  * Card 0162. `ProjectsRouter`'s handler, driven through `@koa/router`'s own public `routes()`
  * dispatch — the same pattern `plan.stream.route.test.ts` uses for `PlanStreamRouter` and this
@@ -352,7 +355,7 @@ describe('routers', () => {
  */
 describe('ProjectsRouter', () => {
     const dispatchProjects = (service: { list: () => Promise<Array<{ name: string }>> }): Promise<Record<string, unknown>> => {
-        const ctx: Record<string, unknown> = {
+        const ctx: RouteContext = {
             method: 'GET',
             path: '/api/projects',
             request: {},
@@ -455,12 +458,14 @@ describe('ProjectsRouter writes (card 0168)', () => {
     it('rejects a create body carrying an unrecognised field with a 400, since CreateProjectRequest is a strict object', async () => {
         const create = vi.fn(async () => ({ name: 'wilson' }));
 
-        await expect(dispatchWrite('POST', '/api/projects', { ...createBody, extra: 'nope' }, {}, { create })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(dispatchWrite('POST', '/api/projects', { ...createBody, extra: 'nope' }, {}, { create })).rejects.toMatchObject({
+            statusCode: 400,
+        });
 
         expect(create).not.toHaveBeenCalled();
     });
 
-    it('lets ProjectsService.create()\'s own refusal (e.g. a 409 for a taken name) propagate through the handler unchanged', async () => {
+    it("lets ProjectsService.create()'s own refusal (e.g. a 409 for a taken name) propagate through the handler unchanged", async () => {
         const create = vi.fn(async () => {
             throw Object.assign(new Error('taken'), { statusCode: 409, details: { reason: 'project "wilson" is already registered' } });
         });
@@ -498,7 +503,7 @@ describe('ProjectsRouter writes (card 0168)', () => {
         expect(update).not.toHaveBeenCalled();
     });
 
-    it('lets ProjectsService.update()\'s own refusal (e.g. a 404 for an unregistered name) propagate through the handler unchanged', async () => {
+    it("lets ProjectsService.update()'s own refusal (e.g. a 404 for an unregistered name) propagate through the handler unchanged", async () => {
         const update = vi.fn(async () => {
             throw Object.assign(new Error('missing'), { statusCode: 404, details: { reason: 'project "ghost" is not registered' } });
         });
@@ -518,11 +523,11 @@ describe('ProjectsRouter writes (card 0168)', () => {
  * without booting a real HTTP server, following this file's own established dispatch-not-boot style.
  */
 describe('GET /api/projects end to end through ProjectContextRouter', () => {
-    it('runs inside the daemon\'s own configured project and answers with the registered projects, given no project header at all', async () => {
+    it("runs inside the daemon's own configured project and answers with the registered projects, given no project header at all", async () => {
         const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         const list = vi.fn(async () => [{ name: 'configured-project' }]);
-        const ctx: Record<string, unknown> = {
+        const ctx: RouteContext = {
             method: 'GET',
             path: '/api/projects',
             request: {},
@@ -584,11 +589,12 @@ describe('ProjectContextRouter', () => {
             query,
             get: (name: string) => (headerValue && name.toLowerCase() === 'x-wilson-project' ? headerValue : ''),
             container: containerFor(board, find),
+            authenticationSession: SIGNED_IN,
         };
         return router.routes()(ctx as never, next);
     };
 
-    it('runs the request inside the board\'s own configured project, and never queries ProjectRepository, when no project header is given', async () => {
+    it("runs the request inside the board's own configured project, and never queries ProjectRepository, when no project header is given", async () => {
         const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         let observed: string | undefined;
@@ -604,7 +610,7 @@ describe('ProjectContextRouter', () => {
         expect(currentProject()).toBeUndefined();
     });
 
-    it('registers the named project\'s row on the board and runs the request inside its context, when the header names a registered project', async () => {
+    it("registers the named project's row on the board and runs the request inside its context, when the header names a registered project", async () => {
         const board = new ProjectScopedBoardConfig('configured-project');
         const row: ProjectRow = {
             name: 'other-project',
@@ -648,7 +654,7 @@ describe('ProjectContextRouter', () => {
      * on this dispatch, so this exercises the query-only path directly, not the header path the
      * tests above already cover.
      */
-    it('registers the query-named project\'s row on the board and runs the request inside its context, when no header is given but a ?project= query value is', async () => {
+    it("registers the query-named project's row on the board and runs the request inside its context, when no header is given but a ?project= query value is", async () => {
         const board = new ProjectScopedBoardConfig('configured-project');
         const row: ProjectRow = {
             name: 'other-project',
@@ -717,7 +723,7 @@ describe('ProjectContextRouter', () => {
         expect(currentProject()).toBeUndefined();
     });
 
-    it('falls back to the board\'s own configured project when a ?project= query value is present but blank, the same as no query at all', async () => {
+    it("falls back to the board's own configured project when a ?project= query value is present but blank, the same as no query at all", async () => {
         const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         let observed: string | undefined;
@@ -779,7 +785,7 @@ describe('FeedRouter project scoping', () => {
                 return (JSON.parse(dataLine.slice('data: '.length)) as { correlationId: string }).correlationId;
             });
 
-    it('only delivers the board\'s own project\'s cards over /api/feed, never another registered project\'s', async () => {
+    it("only delivers the board's own project's cards over /api/feed, never another registered project's", async () => {
         const project = uniqueProject();
         const otherProject = uniqueProject();
         const board = new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run');

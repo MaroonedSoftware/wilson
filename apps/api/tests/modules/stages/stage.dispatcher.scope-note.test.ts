@@ -118,7 +118,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(cardFor(dispatchStage), 'initial');
 
@@ -170,7 +170,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         return { config, dispatcher, events };
     };
 
-    it('names another stage\'s extraScope, but not the dispatched stage\'s own', async () => {
+    it("names another stage's extraScope, but not the dispatched stage's own", async () => {
         const { config, dispatcher } = await setUp(stagesYaml, 'implementing');
 
         const result = await dispatcher.run('0001', 'implementing');
@@ -263,19 +263,19 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         expect(materialized).not.toContain('extraScope');
     });
 
-    it('records the dispatched stage\'s full writable scope, including its own extraScope, on stage.dispatched', async () => {
+    it("records the dispatched stage's full writable scope, including its own extraScope, on stage.dispatched", async () => {
         const { dispatcher, events } = await setUp(stagesYaml, 'testing');
 
         const result = await dispatcher.run('0001', 'testing');
         expect(result.passed).toBe(true);
 
         const dispatched = events.append.mock.calls
-            .map(([event]: [{ type: string; payload?: { scope?: string[] } }]) => event)
+            .map(([event]) => event as { type: string; payload?: { scope?: string[] } })
             .find((event: { type: string }) => event.type === 'stage.dispatched');
         expect(dispatched).toBeDefined();
         // Before card 0163, this payload carried only `filesInScope(card)` (`src/x.ts`), understating
         // what ScopeGuard actually allowed — `testing`'s own `apps/api/tests/**` was enforced but
         // never recorded here.
-        expect(dispatched.payload.scope).toEqual(expect.arrayContaining(['src/x.ts', 'apps/api/tests/**']));
+        expect(dispatched!.payload!.scope).toEqual(expect.arrayContaining(['src/x.ts', 'apps/api/tests/**']));
     });
 });

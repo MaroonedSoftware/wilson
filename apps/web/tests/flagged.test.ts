@@ -103,11 +103,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -188,7 +184,7 @@ describe('the flagged count in the header', () => {
         expect(screen.queryByText(/needs human/)).toBeNull();
 
         listCards.mockResolvedValue([card('0001', 'review', true)]);
-        const source = FakeEventSource.instances[0];
+        const source = FakeEventSource.instances[0]!;
         await act(async () => {
             source.emit('card');
         });
@@ -203,7 +199,7 @@ describe('the flagged count in the header', () => {
         expect(await screen.findByText('1 needs human')).toBeTruthy();
 
         listCards.mockResolvedValue([card('0001', 'review', false)]);
-        const source = FakeEventSource.instances[0];
+        const source = FakeEventSource.instances[0]!;
         await act(async () => {
             source.emit('card');
         });
@@ -254,10 +250,7 @@ describe('the /flagged route', () => {
         // lookup (`stageById`, built by `lib/board.ts`'s `stagesById`) has to be built from the full
         // card list — passed separately as `allCards` — or a merged-but-unflagged dependency reads
         // as missing from the board, and `unfinishedDeps` treats "missing" the same as "unfinished".
-        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
-            card('0001', 'merged', false),
-            card('0002', 'review', true, ['0001']),
-        ]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'merged', false), card('0002', 'review', true, ['0001'])]);
 
         renderApp(FLAGGED_PATH);
 
@@ -266,10 +259,7 @@ describe('the /flagged route', () => {
     });
 
     it('still flags a dependency that is genuinely unfinished, on the flagged card it belongs to', async () => {
-        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
-            card('0001', 'implementing', false),
-            card('0002', 'review', true, ['0001']),
-        ]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'implementing', false), card('0002', 'review', true, ['0001'])]);
 
         renderApp(FLAGGED_PATH);
 

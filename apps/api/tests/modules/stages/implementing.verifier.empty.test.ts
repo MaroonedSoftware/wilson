@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ImplementingVerifier } from '#modules/stages/implementing.verifier.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { Worktree } from '#modules/worktree/worktree.manager.js';
 
@@ -19,6 +20,7 @@ import type { Worktree } from '#modules/worktree/worktree.manager.js';
  * manager's own tests cover that.
  */
 const stage = (): StageConfig => ({
+    ...stageDefaults,
     name: 'implementing',
     mode: 'agent',
     worktree: 'rw',

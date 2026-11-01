@@ -71,7 +71,7 @@ describe('StageDispatcher.run names the failed-attempt patch on a failing stage 
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(card, 'initial');
 
@@ -202,7 +202,7 @@ describe('StageDispatcher.run names the failed-attempt patch on a failing stage 
         expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.passed' }));
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
         const passedEvent = events.append.mock.calls
-            .map(([event]: [{ type: string; payload?: Record<string, unknown> }]) => event)
+            .map(([event]) => event as { type: string; payload?: Record<string, unknown> })
             .find((event: { type: string }) => event.type === 'stage.passed');
         expect(passedEvent?.payload).not.toHaveProperty('patchPath');
     });

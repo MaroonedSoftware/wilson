@@ -104,7 +104,7 @@ describe('PlanCommentRepository', () => {
         await expect(repo.resolve('0001', '999999999')).resolves.toBeUndefined();
     });
 
-    it('scopes list and open by project as well as card id, never returning another project\'s comment', async () => {
+    it("scopes list and open by project as well as card id, never returning another project's comment", async () => {
         await repo.append('0001', 'q', 'p', 's', 't');
 
         const otherConfig = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -119,7 +119,7 @@ describe('PlanCommentRepository', () => {
         expect(await repo.list('0001')).toHaveLength(1);
     });
 
-    it('scopes list and open by card id within the same project, never returning another card\'s comment', async () => {
+    it("scopes list and open by card id within the same project, never returning another card's comment", async () => {
         await board.create(card('0002'), 'seed');
         await repo.append('0001', 'card one', 'p', 's', 't');
         await repo.append('0002', 'card two', 'p', 's', 't');

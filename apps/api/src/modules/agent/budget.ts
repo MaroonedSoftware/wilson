@@ -30,7 +30,9 @@ export const tokenBudgetExceeded =
  * reported at all, which `overBudget` treats as nothing to judge.
  */
 export const budgetedInputTokens = (usage: { inputTokens?: number; cachedInputTokens?: number } | undefined): number | undefined =>
-    usage?.inputTokens === undefined && usage?.cachedInputTokens === undefined ? undefined : (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
+    usage?.inputTokens === undefined && usage?.cachedInputTokens === undefined
+        ? undefined
+        : (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
 
 /**
  * A failure string naming both the cap and what was actually spent, or `undefined` when `used` is

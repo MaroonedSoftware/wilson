@@ -39,12 +39,7 @@ if (!root) throw new Error('#root is missing from index.html');
 
 ReactDOM.createRoot(root).render(
     <StrictMode>
-        <MantineProvider
-            theme={theme}
-            cssVariablesResolver={cssVariablesResolver}
-            defaultColorScheme="auto"
-            colorSchemeManager={colorSchemeManager}
-        >
+        <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="auto" colorSchemeManager={colorSchemeManager}>
             <QueryClientProvider client={queryClient}>
                 <RouterProvider router={router} />
             </QueryClientProvider>

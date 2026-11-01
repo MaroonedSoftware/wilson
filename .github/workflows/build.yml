@@ -1,7 +1,8 @@
 name: Build
 
-# The whole check, called by `pr.yml`. Two jobs side by side: `build` compiles and lints, `test` runs
-# the suites against a throwaway Postgres.
+# The whole check, called by `pr.yml`. Three jobs side by side: `build` compiles and lints,
+# `generated` checks committed output against its sources, `test` runs the suites against a throwaway
+# Postgres.
 on:
     workflow_call:
 
@@ -36,16 +37,61 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
-            # A warning, not a gate, until the tree has been formatted once.
             - name: Check formatting
-              run: pnpm format:check || echo "::warning title=Formatting::Prettier found unformatted files (listed in this step's log). Run pnpm format to fix them."
+              run: pnpm format:check
 
             # `lint:check`, never `lint`: that one is `eslint --fix`.
             - name: Lint
               run: pnpm lint:check
 
+            # The tests are outside every build tsconfig, so this is the only thing that compiles them.
+            - name: Type-check, tests included
+              run: pnpm typecheck
+
             - name: Build
               run: pnpm build
+
+    # Generated output is committed and never hand-edited. Regenerate it from its sources and fail if
+    # the commit does not match: a stale copy compiles, and fails at runtime or in the next card.
+    generated:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+            - name: Setup Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version: 26
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            # The contracts' routes, types, SDKs and MCP tools.
+            - name: Regenerate from the contracts
+              run: pnpm codegen
+
+            # The router plugin writes routeTree.gen.ts as part of a build. It has no command of its own.
+            - name: Regenerate the route tree
+              run: pnpm --filter @wilson/web exec vite build
+
+            # status rather than diff: a new contract's output is an untracked file.
+            - name: Generated output matches the commit
+              run: |
+                  if [ -n "$(git status --porcelain)" ]; then
+                      git status --short
+                      git diff
+                      echo "::error::Generated output is stale. Run pnpm codegen and pnpm --filter @wilson/web exec vite build, then commit the result."
+                      exit 1
+                  fi
 
     test:
         runs-on: ubuntu-latest

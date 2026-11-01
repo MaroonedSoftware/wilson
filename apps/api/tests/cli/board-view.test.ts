@@ -124,11 +124,7 @@ describe('deadDependencies', () => {
     });
 
     it('picks only the dead ones out of a mix, preserving dependsOn order', () => {
-        const cards = [
-            card({ id: '0002', stage: 'merged' }),
-            card({ id: '0003', stage: 'dropped' }),
-            card({ id: '0004', stage: 'implementing' }),
-        ];
+        const cards = [card({ id: '0002', stage: 'merged' }), card({ id: '0003', stage: 'dropped' }), card({ id: '0004', stage: 'implementing' })];
         expect(deadDependencies(card({ dependsOn: ['0004', '0003', '0002'] }), cards, nonStages)).toEqual(['0003']);
     });
 });
@@ -163,13 +159,7 @@ describe('nextCard', () => {
     });
 
     it('sorts blocked cards by id and reports each one’s unfinished dependencies', () => {
-        const result = nextCard(
-            [
-                card({ id: '0002', dependsOn: ['0010'] }),
-                card({ id: '0001', dependsOn: ['0011'] }),
-            ],
-            nonStages,
-        );
+        const result = nextCard([card({ id: '0002', dependsOn: ['0010'] }), card({ id: '0001', dependsOn: ['0011'] })], nonStages);
 
         expect(result.blocked.map(b => b.card.id)).toEqual(['0001', '0002']);
         expect(result.blocked[0]!.blockedBy).toEqual(['0011']);
@@ -190,17 +180,20 @@ describe('nextCard', () => {
     });
 
     it('never picks a flagged or blocked card as next', () => {
-        const result = nextCard(
-            [card({ id: '0001', needsHuman: true }), card({ id: '0002', dependsOn: ['0099'] })],
-            nonStages,
-        );
+        const result = nextCard([card({ id: '0001', needsHuman: true }), card({ id: '0002', dependsOn: ['0099'] })], nonStages);
 
         expect(result.next).toBeUndefined();
     });
 });
 
 describe('staleDaemonCards', () => {
-    const event = (type: string): CardEvent => ({ id: 'e1', type, stage: null, payload: {}, createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z') });
+    const event = (type: string): CardEvent => ({
+        id: 'e1',
+        type,
+        stage: null,
+        payload: {},
+        createdAt: DateTime.fromISO('2026-01-01T00:00:00.000Z'),
+    });
 
     it('reports a card whose events include daemon.stale', () => {
         const a = card({ id: '0001' });

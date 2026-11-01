@@ -6,6 +6,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using MaroonedSoftware.Wilson.Desktop;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Updates;
 using MaroonedSoftware.Wilson.Desktop.Mac;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 using MaroonedSoftware.Wilson.Desktop.Views;
@@ -20,6 +21,7 @@ namespace Walk;
 //
 //     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark]
 //     dotnet run --project tools/Walk -- keychain
+//     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
 {
     private const int Width = 1180;
@@ -31,6 +33,12 @@ internal static class Program
         if (args is ["keychain"])
         {
             Keychain();
+            return;
+        }
+
+        if (args is ["update", var bundle, var zip, var signature, var publicKey, var version])
+        {
+            Environment.ExitCode = Update(bundle, zip, signature, publicKey, Version.Parse(version)).GetAwaiter().GetResult();
             return;
         }
 
@@ -56,6 +64,33 @@ internal static class Program
         var gone = store.ReadAsync(Origin).GetAwaiter().GetResult();
 
         Console.WriteLine($"read {read == session}, replaced {replaced?.RefreshToken == "r2"}, deleted {gone is null}");
+    }
+
+    /// <summary>Installs a release over a bundle the way the app would: verify, unpack, then swap as this process exits.</summary>
+    private static async Task<int> Update(string bundle, string zip, string signature, string publicKey, Version version)
+    {
+        string hash;
+        await using (var file = File.OpenRead(zip))
+        {
+            hash = UpdateSignature.Hash(file);
+        }
+
+        var valid = UpdateSignature.IsValid(await File.ReadAllTextAsync(publicKey), version, hash, await File.ReadAllBytesAsync(signature));
+        Console.WriteLine($"signature valid: {valid}");
+        if (!valid)
+        {
+            return 1;
+        }
+
+        var installer = new MacUpdateInstaller();
+        if (await installer.PrepareAsync(zip, bundle) is not { } staging)
+        {
+            Console.WriteLine("could not unpack");
+            return 1;
+        }
+
+        installer.SwapAfterExit(staging, bundle);
+        return 0;
     }
 
     private static void Run(string[] args)

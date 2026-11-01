@@ -38,9 +38,7 @@ describe('wilson card edit', () => {
     it('reads the card, opens $EDITOR on its body, and PATCHes the changed text back', async () => {
         // Appends to whatever `editBody` wrote to the file — i.e. to the card's fetched body —
         // simulating an operator who actually changed something.
-        await useFakeEditor(
-            "const fs = require('fs'); const p = process.argv[2]; fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\\nedited');",
-        );
+        await useFakeEditor("const fs = require('fs'); const p = process.argv[2]; fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\\nedited');");
         fetchMock.mockResolvedValueOnce(jsonResponse(detail('## Goal\n\noriginal\n')));
         fetchMock.mockResolvedValueOnce(jsonResponse(detail('## Goal\n\noriginal\n\nedited')));
         const { ctx, logger } = buildCtx();

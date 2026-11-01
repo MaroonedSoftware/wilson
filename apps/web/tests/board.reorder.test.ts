@@ -27,7 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -58,11 +58,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -164,11 +160,15 @@ function renderedOrder(): string[] {
 describe('reordering the parking lot (the real Board.tsx)', () => {
     it('reorders immediately on drop — before the reposition request even settles — and sends the new neighbours', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
+            card('0001', 'parking-lot', 0),
+            card('0002', 'parking-lot', 1),
+            card('0003', 'parking-lot', 2),
+        ]);
         // A deliberately unsettled request, the same shape board.dnd.test.ts's own in-flight test
         // uses: proves the reorder is visible immediately (`onMutate`'s cache write), not merely
         // after a fast-resolving mock happens to settle before this test gets around to asserting.
-        let resolveReposition!: (value: unknown) => void;
+        let resolveReposition!: (value: CardDetail) => void;
         const repositionCard = vi
             .spyOn(BoardClient.prototype, 'repositionCard')
             .mockImplementation(() => new Promise(resolve => (resolveReposition = resolve)));
@@ -189,17 +189,28 @@ describe('reordering the parking lot (the real Board.tsx)', () => {
         expect(renderedOrder()).toEqual(['0002', '0001', '0003']);
 
         await act(async () => {
-            resolveReposition({});
+            resolveReposition({} as CardDetail);
             await new Promise(resolve => setTimeout(resolve, 0));
         });
     });
 
     it("restores the previous order and shows the API's refusal reason when the reposition fails", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
-        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0001', 'parking-lot', 0), card('0002', 'parking-lot', 1), card('0003', 'parking-lot', 2)]);
-        const repositionCard = vi.spyOn(BoardClient.prototype, 'repositionCard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'the parking lot changed underneath you' } }, new Headers()),
-        );
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
+            card('0001', 'parking-lot', 0),
+            card('0002', 'parking-lot', 1),
+            card('0003', 'parking-lot', 2),
+        ]);
+        const repositionCard = vi
+            .spyOn(BoardClient.prototype, 'repositionCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: 'the parking lot changed underneath you' } },
+                    new Headers(),
+                ),
+            );
 
         renderApp(BOARD_PATH);
         await screen.findByText('card 0001');

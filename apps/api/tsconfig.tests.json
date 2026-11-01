@@ -1,0 +1,19 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Type-check only: covers tests/ as well as src/, which the build tsconfig leaves out. The root is
+        // the repo's, because tests/cli reaches into packages/cli's source.
+        "noEmit": true,
+        "rootDir": "../..",
+        "paths": {
+            "#src/*": ["./src/*"],
+            "#modules/*": ["./src/modules/*"],
+            "#shared/*": ["./src/shared/*"],
+            "#tests/*": ["./tests/*"],
+            // Not one of this package's dependencies: tests/cli imports packages/cli by relative path.
+            "@wilson/sdk": ["../../packages/sdk/src/index.ts"]
+        }
+    },
+    "include": ["./src/**/*", "./tests/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

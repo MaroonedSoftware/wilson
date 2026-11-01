@@ -47,7 +47,9 @@ const cardDetail = (overrides: Partial<{ title: string; body: string; stage: str
     ...overrides,
 });
 
-const planSession = (overrides: Partial<{ sessionId: string; worktreePath: string; draftPath: string; model: string; instructions: string }> = {}) => ({
+const planSession = (
+    overrides: Partial<{ sessionId: string; worktreePath: string; draftPath: string; model: string; instructions: string }> = {},
+) => ({
     sessionId: '0099',
     worktreePath: '/tmp/does-not-matter',
     draftPath: '/tmp/does-not-matter/draft.md',

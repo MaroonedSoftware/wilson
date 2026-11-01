@@ -71,7 +71,7 @@ describe('ContextService', () => {
         expect(stored).toMatchObject({ sourceUrl: 'https://example.com/doc', contentHash: 'hash-1' });
     });
 
-    it('records fetchedBy as \'human\', never the provider\'s own identity', async () => {
+    it("records fetchedBy as 'human', never the provider's own identity", async () => {
         const svc = service({ ok: true, content: 'content', contentHash: 'hash-1', fetchedAt: FETCHED_AT });
 
         const snapshot = await svc.attach('0001', { sourceUrl: 'https://example.com/doc' });
@@ -79,7 +79,7 @@ describe('ContextService', () => {
         expect(snapshot.fetchedBy).toBe('human');
     });
 
-    it('answers 400 with the registry\'s own reason when no provider handles the URL', async () => {
+    it("answers 400 with the registry's own reason when no provider handles the URL", async () => {
         const svc = new ContextService(board, contextRepository, new ContextProviderRegistry([]));
 
         await expect(svc.attach('0001', { sourceUrl: 'https://example.com/doc' })).rejects.toMatchObject({
@@ -95,7 +95,7 @@ describe('ContextService', () => {
         'timed out after 15000ms',
         'exceeds the 2000000-byte limit',
         '"https://example.com/doc" returned 404',
-    ])('answers 400 with the provider\'s own reason for a refusal: %s', async reason => {
+    ])("answers 400 with the provider's own reason for a refusal: %s", async reason => {
         const svc = service({ ok: false, reason });
 
         await expect(svc.attach('0001', { sourceUrl: 'https://example.com/doc' })).rejects.toMatchObject({
@@ -113,7 +113,7 @@ describe('ContextService', () => {
         await expect(svc.remove('no-such-card', '1')).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('lists a card\'s snapshots oldest first', async () => {
+    it("lists a card's snapshots oldest first", async () => {
         const svc = service({ ok: true, content: 'content', contentHash: 'hash-1', fetchedAt: FETCHED_AT });
 
         const first = await svc.attach('0001', { sourceUrl: 'https://example.com/a' });

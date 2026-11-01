@@ -21,6 +21,7 @@ import { BoardClient, ChatClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { API_BASE } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+import type { FetchMock } from './support/fetchMock.js';
 
 const columns: BoardColumns = {
     stages: ['planning', 'implementing', 'review'],
@@ -82,7 +83,7 @@ class FakeEventSource {
 
 const feedSource = () => FakeEventSource.instances.find(s => s.url.includes('/api/feed'));
 const planStreamSources = () => FakeEventSource.instances.filter(s => s.url.includes('/plan/stream'));
-const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1];
+const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1]!;
 
 /** `Board` renders inside Mantine's `ScrollArea`, which measures itself with `ResizeObserver` on
  * mount — jsdom does not implement it. Same stand-in flagged.test.ts uses. */
@@ -114,11 +115,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -156,7 +153,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         vi.unstubAllGlobals();
     });
 
-    it('shows that project\'s board at /projects/$project, the same screen / renders', async () => {
+    it("shows that project's board at /projects/$project, the same screen / renders", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([cardSummary('0001', 'planning')]);
 
@@ -166,7 +163,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(await screen.findByText('card 0001')).toBeTruthy();
     });
 
-    it('opens the shared board feed naming the route\'s project, unlike the top-level board\'s own feed', async () => {
+    it("opens the shared board feed naming the route's project, unlike the top-level board's own feed", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
 
@@ -182,7 +179,7 @@ describe('a project-scoped route, reading through a client built for its own pro
     // an unrelated remount or manual refresh would ever show a new card. Driving the real feed
     // connection and watching the new card land with no manual refresh proves the scoped key this
     // card added now actually matches what this screen reads.
-    it('refetches this project\'s board on its own feed\'s card event, with no manual refresh', async () => {
+    it("refetches this project's board on its own feed's card event, with no manual refresh", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         const listCards = vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
 
@@ -234,7 +231,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(screen.queryByText(/\d+ cards/)).toBeNull();
     });
 
-    it('shows only that project\'s flagged cards at /projects/$project/flagged, and its back link returns to that project\'s board', async () => {
+    it("shows only that project's flagged cards at /projects/$project/flagged, and its back link returns to that project's board", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([cardSummary('0001', 'planning'), cardSummary('0002', 'review', true)]);
 
@@ -265,7 +262,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect((await screen.findByText('← Back to projects')).getAttribute('href')).toBe('/projects');
     });
 
-    it('renders a card\'s own page at /projects/$project/cards/$cardId, reached through the project-scoped client', async () => {
+    it("renders a card's own page at /projects/$project/cards/$cardId, reached through the project-scoped client", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(cardDetail('0007', 'review'));
 
@@ -275,7 +272,7 @@ describe('a project-scoped route, reading through a client built for its own pro
         expect(screen.getByText('0007')).toBeTruthy();
     });
 
-    it('shows a project-aware back link when a project-scoped card fails to load, pointing at that project\'s board rather than the top-level one', async () => {
+    it("shows a project-aware back link when a project-scoped card fails to load, pointing at that project's board rather than the top-level one", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
         vi.spyOn(BoardClient.prototype, 'getCard').mockRejectedValue(new SdkError(404, 'Not Found', { reason: 'no such card' }, new Headers()));
 
@@ -310,7 +307,7 @@ describe('a project-scoped route, reading through a client built for its own pro
  * `BoardClient` mock standing in between.
  */
 describe('a project-scoped route, sending its project over the wire', () => {
-    let fetchMock: ReturnType<typeof vi.fn>;
+    let fetchMock: FetchMock;
 
     beforeEach(() => {
         FakeEventSource.instances = [];
@@ -339,17 +336,17 @@ describe('a project-scoped route, sending its project over the wire', () => {
         vi.unstubAllGlobals();
     });
 
-    it('sends X-Wilson-Project naming the route\'s project on the board\'s own /api/cards request, unlike the header\'s own singleton-backed request for the same path', async () => {
+    it("sends X-Wilson-Project naming the route's project on the board's own /api/cards request, unlike the header's own singleton-backed request for the same path", async () => {
         renderApp('/projects/demo');
 
         await screen.findByText('card 0001');
 
-        const cardsCalls = fetchMock.mock.calls.filter(([url]: [string]) => url === `${API_BASE}/api/cards`);
+        const cardsCalls = fetchMock.mock.calls.filter(([url]) => url === `${API_BASE}/api/cards`);
         // Two calls hit the same path: the project-scoped board itself, and `FlaggedIndicator` in
         // the shared header, which still reads through the app-wide singleton (this card's plan
         // defers that propagation to [[0155]]) — so exactly one of the two carries the header.
         expect(cardsCalls).toHaveLength(2);
-        const projectHeaders = cardsCalls.map(([, init]: [string, RequestInit]) => (init.headers as Record<string, string>)['X-Wilson-Project']);
+        const projectHeaders = cardsCalls.map(([, init]) => (init.headers as Record<string, string>)['X-Wilson-Project']);
         expect(projectHeaders).toContain('demo');
         expect(projectHeaders).toContain(undefined);
     });

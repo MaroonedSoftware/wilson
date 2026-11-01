@@ -1,4 +1,4 @@
-import { InjectKitRegistry, type Container } from 'injectkit';
+import { InjectKitRegistry, type Container, type ScopedContainer } from 'injectkit';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { requireMcpAuthenticationSession, type McpToolHandler } from '@maroonedsoftware/mcp';
 import type { AuthenticationSession } from '@maroonedsoftware/authentication';
@@ -93,7 +93,7 @@ export const fakeProposals = (): { stored: PendingAction[]; repository: ChatPend
  * A container with what `ChatCatalog.run` and the tools resolve: a board fixed to `default-project`,
  * a project repository that knows only `wilson` and `other`, and the given pending-action repository.
  */
-export const fakeContainer = (proposals: ChatPendingActionRepository = fakeProposals().repository): Container => {
+export const fakeContainer = (proposals: ChatPendingActionRepository = fakeProposals().repository): ScopedContainer => {
     const registry = new InjectKitRegistry();
     registry.register(BoardConfig).useValue(new StaticBoardConfig('default-project', '/tmp/code', '/tmp/wt', '/tmp/run'));
     registry.register(ProjectRepository).useValue({

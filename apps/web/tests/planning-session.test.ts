@@ -97,7 +97,7 @@ class FakeEventSource {
 }
 
 const planStreamSources = () => FakeEventSource.instances.filter(source => source.url.includes('/plan/stream'));
-const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1];
+const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1]!;
 
 /** `AppShell.Main` renders inside Mantine's `ScrollArea`, which measures itself with
  * `ResizeObserver` on mount — jsdom does not implement it. Same stand-in flagged.test.ts uses. */
@@ -112,11 +112,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -340,7 +336,12 @@ describe('a card in planning', () => {
     it("shows the server's own refusal sentence inline next to the composer, not a generic message", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
         vi.spyOn(wilson.board, 'sendAPlanTurn').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'this card has no open planning session' } }, new Headers()),
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: 'this card has no open planning session' } },
+                new Headers(),
+            ),
         );
 
         renderApp(CARD_PATH);

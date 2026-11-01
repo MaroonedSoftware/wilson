@@ -44,7 +44,7 @@ class FakeEventSource {
     }
 }
 
-const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1];
+const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
 
 /** Builds the JSON text a `card` SSE event actually carries (`card.feed.listener.ts`'s own shape:
  * `{ id, ts, message, correlationId, data: { stage, payload } }`) — see `feed.ts`'s `WireCardEvent`. */
@@ -77,21 +77,17 @@ afterEach(() => {
 const renderFeed = (project?: string) => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-    const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(QueryClientProvider, { client: queryClient }, children);
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
     const hook = renderHook(({ project: p }: { project?: string }) => useCardFeed(p), { wrapper, initialProps: { project } });
     return { ...hook, invalidateQueries };
 };
 
 describe('useCardFeed activity', () => {
-    it("records the latest feed event for a card under its own id", () => {
+    it('records the latest feed event for a card under its own id', () => {
         const { result } = renderFeed();
 
         act(() =>
-            latestSource().emit(
-                'card',
-                wireEvent({ correlationId: '0043', message: 'stage.dispatched', stage: 'testing', payload: { note: 'x' } }),
-            ),
+            latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'stage.dispatched', stage: 'testing', payload: { note: 'x' } })),
         );
 
         expect(result.current.activity['0043']).toEqual({
@@ -102,25 +98,23 @@ describe('useCardFeed activity', () => {
         });
     });
 
-    it('overwrites a card\'s activity with a newer event rather than keeping the first', () => {
+    it("overwrites a card's activity with a newer event rather than keeping the first", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'stage.dispatched', ts: '2026-01-10T12:00:00.000Z' })));
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' })));
 
-        expect(result.current.activity['0043']).toEqual(
-            expect.objectContaining({ type: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' }),
-        );
+        expect(result.current.activity['0043']).toEqual(expect.objectContaining({ type: 'tool.executed', ts: '2026-01-10T12:01:00.000Z' }));
     });
 
-    it('keeps two different cards\' activity independent', () => {
+    it("keeps two different cards' activity independent", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0001', message: 'stage.dispatched' })));
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0002', message: 'tool.executed' })));
 
-        expect(result.current.activity['0001'].type).toBe('stage.dispatched');
-        expect(result.current.activity['0002'].type).toBe('tool.executed');
+        expect(result.current.activity['0001']!.type).toBe('stage.dispatched');
+        expect(result.current.activity['0002']!.type).toBe('tool.executed');
     });
 
     it('records nothing for a card event with no correlationId, rather than crashing', () => {
@@ -170,7 +164,7 @@ describe('useCardFeed invalidation exclusion (AC1)', () => {
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'tool.denied' })));
 
-        expect(result.current.activity['0043'].type).toBe('tool.denied');
+        expect(result.current.activity['0043']!.type).toBe('tool.denied');
     });
 });
 
@@ -181,7 +175,7 @@ describe('useCardFeed toolLog', () => {
         act(() => latestSource().emit('card', wireEvent({ id: 1, correlationId: '0043', message: 'tool.executed', ts: '2026-01-10T12:00:00.000Z' })));
         act(() => latestSource().emit('card', wireEvent({ id: 2, correlationId: '0043', message: 'tool.denied', ts: '2026-01-10T12:01:00.000Z' })));
 
-        expect(result.current.toolLog['0043'].map(event => event.type)).toEqual(['tool.denied', 'tool.executed']);
+        expect(result.current.toolLog['0043']!.map(event => event.type)).toEqual(['tool.denied', 'tool.executed']);
     });
 
     it('does not add a non-tool event to the tool log', () => {
@@ -192,7 +186,7 @@ describe('useCardFeed toolLog', () => {
         expect(result.current.toolLog['0043']).toBeUndefined();
     });
 
-    it('caps a card\'s tool history at MAX_LIVE_TOOL_EVENTS, dropping the oldest', () => {
+    it("caps a card's tool history at MAX_LIVE_TOOL_EVENTS, dropping the oldest", () => {
         const { result } = renderFeed();
 
         for (let i = 0; i < MAX_LIVE_TOOL_EVENTS + 5; i++) {
@@ -204,15 +198,15 @@ describe('useCardFeed toolLog', () => {
             );
         }
 
-        const log = result.current.toolLog['0043'];
+        const log = result.current.toolLog['0043']!;
         expect(log).toHaveLength(MAX_LIVE_TOOL_EVENTS);
         // Newest first: the very last event emitted (id MAX_LIVE_TOOL_EVENTS + 4) is still present at
         // the front; the oldest ones (id 0..4) were dropped off the end.
-        expect(log[0].id).toBe(MAX_LIVE_TOOL_EVENTS + 4);
+        expect(log[0]!.id).toBe(MAX_LIVE_TOOL_EVENTS + 4);
         expect(log.map(event => event.id)).not.toContain(0);
     });
 
-    it('keeps two different cards\' tool logs independent', () => {
+    it("keeps two different cards' tool logs independent", () => {
         const { result } = renderFeed();
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0001', message: 'tool.executed' })));
@@ -220,7 +214,7 @@ describe('useCardFeed toolLog', () => {
 
         expect(result.current.toolLog['0001']).toHaveLength(1);
         expect(result.current.toolLog['0002']).toHaveLength(1);
-        expect(result.current.toolLog['0001'][0].type).toBe('tool.executed');
+        expect(result.current.toolLog['0001']![0]!.type).toBe('tool.executed');
     });
 });
 

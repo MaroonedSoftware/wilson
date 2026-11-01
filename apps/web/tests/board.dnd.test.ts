@@ -27,7 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -52,11 +52,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -170,7 +166,7 @@ async function drop(anchor: Element) {
 }
 
 describe('dragging a card between columns (the real Board.tsx)', () => {
-    it('resolves a keyboard drag onto a specific column, and calls moveCard with the dragged card\'s own id', async () => {
+    it("resolves a keyboard drag onto a specific column, and calls moveCard with the dragged card's own id", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
         const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockResolvedValue(
@@ -233,7 +229,7 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     it('keeps the card in its starting column, reading as pending, while the move request is in flight', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        let resolveMove!: (value: unknown) => void;
+        let resolveMove!: (value: CardDetail) => void;
         vi.spyOn(BoardClient.prototype, 'moveCard').mockImplementation(() => new Promise(resolve => (resolveMove = resolve)));
 
         renderApp(BOARD_PATH);
@@ -267,14 +263,16 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     it("surfaces the API's refusal reason as a notification and leaves the card in its starting column", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        const moveCard = vi.spyOn(BoardClient.prototype, 'moveCard').mockRejectedValue(
-            new SdkError(
-                400,
-                'Bad Request',
-                { statusCode: 400, message: 'Bad Request', details: { reason: '"testing" is not a valid target for this card' } },
-                new Headers(),
-            ),
-        );
+        const moveCard = vi
+            .spyOn(BoardClient.prototype, 'moveCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: '"testing" is not a valid target for this card' } },
+                    new Headers(),
+                ),
+            );
 
         renderApp(BOARD_PATH);
         await screen.findByText('card 0007');
@@ -327,7 +325,7 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
 });
 
 describe('clicking a card that is also draggable', () => {
-    it('still opens the card\'s own project-scoped page', async () => {
+    it("still opens the card's own project-scoped page", async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
         // The click navigates before the destination route's own queries matter to this test —

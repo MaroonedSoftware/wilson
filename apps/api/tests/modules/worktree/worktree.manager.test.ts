@@ -965,10 +965,10 @@ describe('WorktreeManager', () => {
             if (!result.ok) throw new Error('expected ok');
             expect(result.base).toBe(base);
             expect(result.files).toHaveLength(1);
-            expect(result.files[0].path).toBe('src/index.ts');
-            expect(result.files[0].status).toBe('modified');
-            expect(result.files[0].patch).toContain('-export const x = 1;');
-            expect(result.files[0].patch).toContain('+export const x = 2;');
+            expect(result.files[0]!.path).toBe('src/index.ts');
+            expect(result.files[0]!.status).toBe('modified');
+            expect(result.files[0]!.patch).toContain('-export const x = 1;');
+            expect(result.files[0]!.patch).toContain('+export const x = 2;');
             expect(result.files.some(f => f.path === 'src/landed.ts')).toBe(false);
             expect(result.truncated).toBe(false);
         });

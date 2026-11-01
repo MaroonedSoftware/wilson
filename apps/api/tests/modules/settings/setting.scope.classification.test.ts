@@ -34,15 +34,15 @@ describe('SettingDefinition.scope classification', () => {
         expect(POLLER_INTERVAL_MS.scope).toBe('deployment');
     });
 
-    it('dry-run-enabled is project-scoped — trust in one project\'s pipeline, not the machine', () => {
+    it("dry-run-enabled is project-scoped — trust in one project's pipeline, not the machine", () => {
         expect(DRY_RUN_ENABLED.scope).toBe('project');
     });
 
-    it('notify-webhook-url is project-scoped — where this project\'s notifications go', () => {
+    it("notify-webhook-url is project-scoped — where this project's notifications go", () => {
         expect(NOTIFY_WEBHOOK_URL.scope).toBe('project');
     });
 
-    it('notify-base-url is project-scoped — decorates this project\'s own notifications', () => {
+    it("notify-base-url is project-scoped — decorates this project's own notifications", () => {
         expect(NOTIFY_BASE_URL.scope).toBe('project');
     });
 

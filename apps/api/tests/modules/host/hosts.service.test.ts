@@ -67,14 +67,19 @@ describe('HostsService', () => {
 
         await expect(service.create({ name, kind: 'worker', sshTarget: 'box' })).rejects.toMatchObject({ statusCode: 400 });
         await service.create({ name, kind: 'worker' });
-        await expect(service.update(name, { sshTarget: 'box' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.setSshTarget(name, { sshTarget: 'box' })).rejects.toMatchObject({ statusCode: 400 });
         expect(await service.update(name, { draining: true })).toMatchObject({ kind: 'worker', draining: true });
     });
 
     it('keeps the kind and the SSH target in step in the table itself', async () => {
         await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'worker', sshTarget: 'box' }).execute()).rejects.toThrow();
         await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'ssh', sshTarget: null }).execute()).rejects.toThrow();
-        await expect(db.insertInto('wilson.hosts').values({ name: uniqueProject(), kind: 'pigeon', sshTarget: 'box' }).execute()).rejects.toThrow();
+        await expect(
+            db
+                .insertInto('wilson.hosts')
+                .values({ name: uniqueProject(), kind: 'pigeon' as never, sshTarget: 'box' })
+                .execute(),
+        ).rejects.toThrow();
     });
 
     it('refuses a taken name with 409, and a bad target or slot count with 400', async () => {
@@ -94,11 +99,20 @@ describe('HostsService', () => {
         const drained = await service.update(name, { draining: true });
         expect(drained).toMatchObject({ sshTarget: 'agent-1', slots: 2, enabled: true, draining: true });
 
-        const moved = await service.update(name, { sshTarget: 'agent-2', enabled: false });
-        expect(moved).toMatchObject({ sshTarget: 'agent-2', slots: 2, enabled: false, draining: true });
+        const moved = await service.update(name, { enabled: false });
+        expect(moved).toMatchObject({ sshTarget: 'agent-1', slots: 2, enabled: false, draining: true });
 
         expect(await service.update(name, {})).toEqual(moved);
         await expect(service.update(uniqueProject(), { slots: 1 })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('changes an SSH target on its own, refusing an empty one and an unknown host', async () => {
+        const name = uniqueProject();
+        await service.create({ name, sshTarget: 'agent-1', slots: 2 });
+
+        expect(await service.setSshTarget(name, { sshTarget: 'agent-2' })).toMatchObject({ sshTarget: 'agent-2', slots: 2 });
+        await expect(service.setSshTarget(name, { sshTarget: '  ' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.setSshTarget(uniqueProject(), { sshTarget: 'x' })).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('records a lifetime, clears it with 0, and refuses a negative one', async () => {

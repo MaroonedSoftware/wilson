@@ -1,6 +1,17 @@
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
-import { firstQueryValue, openSseStream, requirePolicy, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
+import {
+    firstQueryValue,
+    openSseStream,
+    requirePolicy,
+    resolveLastEventId,
+    ServerKitRouter,
+    type ServerKitContext,
+    type SseContext,
+    type SseStream,
+} from '@maroonedsoftware/koa';
+import { onCredentialRevoked } from '#modules/authentication/credential.revocations.js';
+import { sessionOf } from '#modules/authentication/request.session.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { onChatEvent } from '#modules/chat/chat.feed.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
@@ -90,6 +101,12 @@ const ANY_PATH = /.*/;
  * into that map regardless, the same idempotent call `Poller.tick` makes every tick, so a later
  * request (or a job) sees it without a DB round trip.
  *
+ * Only a request with a live session gets that check. It answers differently for a name that exists
+ * and one that does not, so asked of anyone it would tell a caller with no credential which projects
+ * are registered, one guess at a time. A request with no session runs as the daemon's own project
+ * instead, with the name unread: a gated route then answers 401 either way, and the public routes
+ * (health, onboarding, signing in) are not scoped to a project.
+ *
  * Card 0153: a `?project=` query value is read the same way `resolveLastEventId` already reads
  * `?lastEventId=` — `firstQueryValue` (`@maroonedsoftware/koa`) — and used only when the header is
  * absent, for the two SSE routes below (`FeedRouter`, `PlanStreamRouter`), whose `EventSource`
@@ -113,6 +130,11 @@ const ProjectContextRouter = () => {
         const named = header || queryProject;
         const project = named || board.project;
 
+        if (named && !sessionOf(ctx as unknown as ServerKitContext)) {
+            await runAsProject(board.project, next);
+            return;
+        }
+
         if (named) {
             const row = await ctx.container.get(ProjectRepository).find(named);
             if (!row) throw httpError(400).withDetails({ reason: `project "${named}" is not registered` });
@@ -122,6 +144,18 @@ const ProjectContextRouter = () => {
         await runAsProject(project, next);
     });
     return router;
+};
+
+/**
+ * Open an SSE stream that ends when the credential it was opened with is revoked. A revoked token
+ * fails on its next request, and a stream never makes one, so without this an open stream would go
+ * on delivering after sign-out or a key's revocation. Each of the three stream routes opens through here.
+ */
+const openAuthenticatedStream = (ctx: unknown, signal: AbortSignal | undefined): SseStream => {
+    const stream = openSseStream(ctx as SseContext, { signal });
+    const session = sessionOf(ctx as ServerKitContext);
+    if (session) stream.onClose(onCredentialRevoked(session, () => stream.close()));
+    return stream;
 };
 
 /**
@@ -164,7 +198,7 @@ export const FeedRouter = (signal?: AbortSignal) => {
     router.get('/api/feed', requirePolicy({ policy: VIEW_POLICY }), async ctx => {
         const project = ctx.container.get(BoardConfig).project;
         const filter = { source: project };
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
 
         for (const event of cardFeed.snapshot(filter)) {
             stream.event({ event: 'card', data: event });
@@ -221,7 +255,7 @@ export const PlanStreamRouter = (signal?: AbortSignal) => {
 
         const board = ctx.container.get(BoardConfig);
         const planTurns = new PlanTurnRepository(board, ctx.container.get(Kysely<DB>));
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
 
         const missed = await planTurns.since(id, lastEventId);
         for (const turn of missed) {
@@ -258,7 +292,7 @@ export const ChatStreamRouter = (signal?: AbortSignal) => {
             throw httpError(404).withDetails({ reason: `chat thread ${id} not found` });
         }
 
-        const stream = openSseStream(ctx as unknown as SseContext, { signal });
+        const stream = openAuthenticatedStream(ctx, signal);
         stream.onClose(onChatEvent(id, ({ event, data }) => stream.event({ event, data })));
     });
     return router;

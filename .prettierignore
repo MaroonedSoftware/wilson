@@ -1,4 +1,7 @@
 pnpm-lock.yaml
+# Written by `dotnet restore`, which is what keeps them in step, not by hand.
+**/packages.lock.json
+.claude/
 **/node_modules/
 **/dist/
 
@@ -16,3 +19,9 @@ pnpm-workspace.yaml
 
 # kysely-codegen's output: `pnpm build:datatypes` overwrites it, so it stays as generated.
 apps/api/src/modules/data/db.ts
+
+# The router plugin's output: every Vite build rewrites it in its own style.
+apps/web/src/routeTree.gen.ts
+
+# NuGet's lock files: `dotnet restore` writes them, and CI restores them in locked mode.
+apps/desktop/**/packages.lock.json

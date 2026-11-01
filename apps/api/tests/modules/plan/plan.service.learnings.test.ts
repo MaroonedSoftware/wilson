@@ -131,7 +131,7 @@ describe('PlanService first-turn learnings preamble (card 0244)', () => {
         vi.clearAllMocks();
     });
 
-    it('AC4: the first turn carries the learnings preamble, after the stage instructions and before the operator\'s own text', async () => {
+    it("AC4: the first turn carries the learnings preamble, after the stage instructions and before the operator's own text", async () => {
         const learnings = new StaticLearningsStore('# Lessons\n\nAlways run the build before reporting.\n');
         const { board, service } = await freshEnv(learnings);
         const id = randomUUID();
@@ -170,7 +170,7 @@ describe('PlanService first-turn learnings preamble (card 0244)', () => {
         }
     });
 
-    it('AC5: an empty document adds no preamble — the first turn\'s prompt is byte-identical to what it would be with no learnings store at all', async () => {
+    it("AC5: an empty document adds no preamble — the first turn's prompt is byte-identical to what it would be with no learnings store at all", async () => {
         const emptyLearnings = new StaticLearningsStore('');
         const { board, service } = await freshEnv(emptyLearnings);
         const id = randomUUID();

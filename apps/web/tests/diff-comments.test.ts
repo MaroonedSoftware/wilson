@@ -71,11 +71,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -169,7 +165,9 @@ describe('recording line comments on the Diff tab (card 0266)', () => {
     });
 
     it('submits every pending comment in one request, carrying file/line/severity/problem/suggestion, and clears them on success (AC6, AC7)', async () => {
-        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValueOnce(card()).mockResolvedValue(card({ stage: 'implementing' }));
+        vi.spyOn(BoardClient.prototype, 'getCard')
+            .mockResolvedValueOnce(card())
+            .mockResolvedValue(card({ stage: 'implementing' }));
         vi.spyOn(BoardClient.prototype, 'getCardDiff').mockResolvedValue(diffWithOneAddedLine());
         const recordFindings = vi.spyOn(BoardClient.prototype, 'recordFindings').mockResolvedValue(card({ stage: 'implementing' }));
 
