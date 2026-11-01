@@ -54,6 +54,12 @@ The diff step needs a card with a branch: that API's `code_root` is its own scra
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
 
+The walk is headless and has no menu bar. Ask macOS instead, with the app running:
+
+```bash
+osascript -e 'tell application "System Events" to tell process "wilson" to get name of every menu item of menu 1 of menu bar item 2 of menu bar 1'
+```
+
 ## Sign-in
 
 The screen is deadair's setup steps: a welcome on a first run, the address, then the sign-in and any

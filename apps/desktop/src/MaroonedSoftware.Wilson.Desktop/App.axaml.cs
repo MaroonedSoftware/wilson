@@ -35,4 +35,6 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+    private void OnAbout(object? sender, EventArgs e) => MacAboutPanel.Show();
 }
