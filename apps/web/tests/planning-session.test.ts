@@ -233,8 +233,9 @@ describe('a card in planning', () => {
         });
 
         expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: 'Please plan the thing' });
-        // Echoed the moment it's sent — the literal text just submitted, before any round trip.
-        expect(await screen.findByText('Please plan the thing')).toBeTruthy();
+        // Echoed the moment it's sent — the literal text just submitted, before any round trip. By
+        // selector, because the composer keeps the same text until the turn succeeds.
+        expect(await screen.findByText('Please plan the thing', { selector: 'p' })).toBeTruthy();
         expect((send as HTMLButtonElement).disabled).toBe(true);
 
         await act(async () => {
