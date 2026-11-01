@@ -4,7 +4,9 @@
 
 # The Android app is not part of any image.
 apps/android
-apps/desktop
+# Its package.json stays: the lockfile names it as a workspace member, so an install needs it.
+apps/desktop/*
+!apps/desktop/package.json
 packages/sdk-kotlin
 packages/sdk-csharp
 

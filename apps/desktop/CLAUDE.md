@@ -63,12 +63,29 @@ kept, and an address that answers moves straight on, because a server has no nam
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
-runtime. `.github/workflows/desktop-release.yml` publishes a `desktop-v<version>` release when a push
-to main changes `Version` in `Directory.Build.props`, so **bumping the version is the decision to
-ship**: nobody looks at it after that, and installed copies offer it within six hours. The tests cover
-Core and not the screens, so walk the app before bumping, and a bad release can only be replaced by
-a higher version. Run by hand, the workflow makes a draft. It skips a version that already has a
-release, draft or not. It is not notarised, so macOS refuses a first launch. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns` from `brand/`.
+runtime. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
+macOS refuses a first launch.
+
+## Releasing
+
+**Never edit the version by hand.** Run `pnpm changeset` and name `@wilson/desktop`, or the required
+`changeset` job in `pr.yml` fails any PR that changes `src/` or `tools/macos/`. For a change that
+should not ship, `pnpm changeset --empty` satisfies it. The paragraph becomes a line in `CHANGELOG.md`.
+
+1. A changeset reaching main runs `desktop-version.yml`, which opens or rewrites one version pull
+   request on `changeset-release/desktop`: the bump, `CHANGELOG.md` and the mirrored
+   `Directory.Build.props`.
+2. **Merging that pull request is the decision to ship.** Nobody looks at the release after that, and
+   installed copies offer it within six hours. The tests cover Core and not the screens, so walk the
+   app first. A bad release can only be replaced by a higher version.
+3. The merge changes `Directory.Build.props`, which runs `desktop-release.yml`. It publishes
+   `desktop-v<version>`, and skips a version that already has a release, draft or not. Run by hand,
+   it makes a draft.
+
+The version pull request is opened with the workflow token, so GitHub starts no workflow for it, and
+`ci-ok` is required on main. `desktop-version.yml` therefore starts `pr.yml` on the branch itself. Merge
+it with the app's own button and not from a workflow: a merge by the workflow token would start
+nothing either, so no release would run.
 
 ## Updates
 

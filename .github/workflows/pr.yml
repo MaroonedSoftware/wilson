@@ -1,14 +1,17 @@
 name: Pull Request
 
+# `workflow_dispatch` for `desktop-version.yml`: GitHub starts no workflow for a pull request the
+# workflow token opened, so that workflow asks for this run itself, and `ci-ok` lands on its commit.
 on:
     pull_request:
+    workflow_dispatch:
 
 permissions:
     contents: read
 
 # A new push to the branch makes the run for the old one worthless.
 concurrency:
-    group: pr-${{ github.event.pull_request.number }}
+    group: pr-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -48,6 +51,26 @@ jobs:
             - name: It boots and serves
               run: deploy/smoke.image.sh wilson:ci
 
+    # A change to what the desktop app ships needs a changeset, or it never reaches a release and
+    # nothing says so. Skipped on the version pull request's own run, which has no base to compare.
+    changeset:
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: A desktop change names a changeset
+              env:
+                  BASE: ${{ github.event.pull_request.base.sha }}
+                  HEAD: ${{ github.event.pull_request.head.sha }}
+                  BRANCH: ${{ github.head_ref }}
+              run: .github/scripts/changeset.check.sh
+
     # The one check a ruleset on main should require. Job names inside a called workflow come out as
     # `build / build` and `build / test`, and that list will grow; requiring this instead means the
     # ruleset never goes stale.
@@ -55,7 +78,7 @@ jobs:
     # `always()`, because a job whose need failed is skipped rather than failed, and a skipped
     # required check reads as a pass.
     ci-ok:
-        needs: [build, image]
+        needs: [build, image, changeset]
         if: always()
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -64,13 +87,18 @@ jobs:
               env:
                   BUILD: ${{ needs.build.result }}
                   IMAGE: ${{ needs.image.result }}
+                  CHANGESET: ${{ needs.changeset.result }}
               run: |
-                  echo "build=$BUILD image=$IMAGE"
+                  echo "build=$BUILD image=$IMAGE changeset=$CHANGESET"
                   if [ "$BUILD" != success ]; then
                       echo "::error::The build ended $BUILD."
                       exit 1
                   fi
                   if [ "$IMAGE" != success ]; then
                       echo "::error::The image build ended $IMAGE."
+                      exit 1
+                  fi
+                  if [ "$CHANGESET" = failure ] || [ "$CHANGESET" = cancelled ]; then
+                      echo "::error::The changeset check ended $CHANGESET."
                       exit 1
                   fi

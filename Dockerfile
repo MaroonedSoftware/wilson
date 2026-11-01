@@ -40,6 +40,7 @@ WORKDIR /opt/wilson
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/
+COPY apps/desktop/package.json apps/desktop/
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/cli/package.json packages/cli/
