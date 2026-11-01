@@ -36,7 +36,7 @@ describe('BoardBootstrapService', () => {
 
             const result = await service.init();
 
-            expect(result.stages).toEqual(['implementing']);
+            expect(result.stages).toEqual(['planning', 'backlog', 'implementing']);
             expect(result.nonStages).toEqual([...NON_STAGE_STATES]);
 
             // The acceptance bar itself: `parseStages` must accept the exact document `init` just
