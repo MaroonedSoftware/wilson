@@ -18,6 +18,7 @@
 
     <ItemGroup Label="Application">
         <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+        <PackageVersion Include="Markdig" Version="0.40.0" />
     </ItemGroup>
 
     <ItemGroup Label="Testing">

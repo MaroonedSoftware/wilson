@@ -198,13 +198,14 @@
       "maroonedsoftware.wilson.desktop.core": {
         "type": "Project",
         "dependencies": {
+          "Markdig": "[0.40.0, )",
           "WilsonSdk": "[1.0.0, )"
         }
       },
       "maroonedsoftware.wilson.desktop.mac": {
         "type": "Project",
         "dependencies": {
-          "MaroonedSoftware.Wilson.Desktop.Core": "[0.1.0, )"
+          "MaroonedSoftware.Wilson.Desktop.Core": "[0.2.1, )"
         }
       },
       "wilson": {
@@ -214,8 +215,8 @@
           "Avalonia.Desktop": "[12.1.2, )",
           "Avalonia.Themes.Fluent": "[12.1.2, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",
-          "MaroonedSoftware.Wilson.Desktop.Core": "[0.1.0, )",
-          "MaroonedSoftware.Wilson.Desktop.Mac": "[0.1.0, )"
+          "MaroonedSoftware.Wilson.Desktop.Core": "[0.2.1, )",
+          "MaroonedSoftware.Wilson.Desktop.Mac": "[0.2.1, )"
         }
       },
       "wilsonsdk": {
@@ -240,6 +241,12 @@
         "requested": "[8.4.2, )",
         "resolved": "8.4.2",
         "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg=="
+      },
+      "Markdig": {
+        "type": "CentralTransitive",
+        "requested": "[0.40.0, )",
+        "resolved": "0.40.0",
+        "contentHash": "4ve14zs+gt1irldTQE3y5FLAHuzmhW7T99lAAvVipe/q2LWT/nUCO0iICb9TXGvMX6n7Z1OZroFXkdSy91rO8w=="
       }
     },
     "net10.0/osx-arm64": {

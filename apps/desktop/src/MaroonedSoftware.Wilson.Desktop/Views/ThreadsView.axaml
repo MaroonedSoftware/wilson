@@ -4,31 +4,68 @@
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ThreadsView"
     x:DataType="vm:ThreadsViewModel">
-    <DockPanel Margin="16">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12" LastChildFill="False">
-            <TextBlock Classes="title" Text="Wilson" Margin="0,0,16,0" VerticalAlignment="Center" />
-            <Button Content="Board" Command="{Binding OpenBoardCommand}" VerticalAlignment="Center" />
-            <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" VerticalAlignment="Center" />
+    <Grid>
+        <DockPanel>
+            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,10">
+                <DockPanel LastChildFill="False">
+                    <TextBlock Classes="title" Text="Wilson" Margin="0,0,16,0" VerticalAlignment="Center" />
+                    <Button Content="Board" Command="{Binding OpenBoardCommand}" VerticalAlignment="Center" />
+                    <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="16,8,16,0" />
+            <Grid ColumnDefinitions="260,*">
+                <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0" Padding="10">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Top" Command="{Binding NewChatCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconPlus}" /></Viewbox>
+                                <TextBlock Text="New chat" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock DockPanel.Dock="Top" Classes="quiet" FontSize="13" Margin="10,6" Text="Your chats will show here." IsVisible="{Binding NoChats}" />
+                        <ScrollViewer>
+                            <ItemsControl ItemsSource="{Binding Threads}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ThreadRow">
+                                        <Grid>
+                                            <Button Classes="nav" Classes.current="{Binding Current}" Command="{Binding Home.OpenCommand}" CommandParameter="{Binding}">
+                                                <StackPanel Spacing="1">
+                                                    <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Classes="quiet" Text="{Binding When}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Classes="icon" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Padding="4" ToolTip.Tip="Options">
+                                                <Viewbox Width="14" Height="14"><Path Classes="stroke" Data="{StaticResource IconDots}" /></Viewbox>
+                                                <Button.Flyout>
+                                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                        <MenuItem Header="Rename" Command="{Binding Home.AskRenameCommand}" CommandParameter="{Binding}" />
+                                                        <MenuItem Header="Archive" Command="{Binding Home.ArchiveCommand}" CommandParameter="{Binding}" />
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+                <ContentControl Grid.Column="1" Content="{Binding Chat}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+            </Grid>
         </DockPanel>
-        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
-        <Grid ColumnDefinitions="240,*">
-            <DockPanel>
-                <Button DockPanel.Dock="Top" Content="New chat" Command="{Binding StartThreadCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,0,8" />
-                <ScrollViewer>
-                    <ItemsControl ItemsSource="{Binding Threads}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ThreadRow">
-                                <Button Classes="tile" Classes.current="{Binding Current}" Command="{Binding $parent[UserControl].((vm:ThreadsViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}">
-                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-            </DockPanel>
-            <TextBlock Grid.Column="1" Classes="quiet" Text="No chats yet. Start one with New chat." Margin="16,0,0,0" IsVisible="{Binding NoChats}" />
-            <ContentControl Grid.Column="1" Content="{Binding Chat}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
-        </Grid>
-    </DockPanel>
+
+        <Border IsVisible="{Binding IsRenaming}" Background="#80000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="340" Padding="18" CornerRadius="6" Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="title" FontSize="18" Text="Rename chat" />
+                    <TextBox Text="{Binding NewTitle}" MaxLength="120" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                        <Button Classes="ghost" Content="Cancel" Command="{Binding CancelRenameCommand}" />
+                        <Button Classes="primary" Content="Save" Command="{Binding SaveRenameCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+    </Grid>
 </UserControl>

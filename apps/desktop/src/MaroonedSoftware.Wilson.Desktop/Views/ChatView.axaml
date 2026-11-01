@@ -2,47 +2,93 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatView"
     x:DataType="vm:ChatViewModel">
-    <DockPanel Margin="16,0,0,0">
-        <TextBlock DockPanel.Dock="Top" Classes="title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" Margin="0,0,0,10" />
-        <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0" IsEnabled="{Binding Idle}">
-            <ItemsControl ItemsSource="{Binding Suggestions}">
-                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+    <UserControl.DataTemplates>
+        <DataTemplate DataType="vm:UserEntry">
+            <Border HorizontalAlignment="Right" MaxWidth="640" Background="{DynamicResource Panel}" CornerRadius="16" Padding="14,8">
+                <SelectableTextBlock Text="{Binding Text}" FontSize="14" TextWrapping="Wrap" />
+            </Border>
+        </DataTemplate>
+        <DataTemplate DataType="vm:AnswerEntry">
+            <StackPanel Spacing="8">
+                <views:ChatActivityLine Items="{Binding Activity}" IsVisible="{Binding Ran}" />
+                <views:MarkdownView Text="{Binding Text}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:ActionRow">
+            <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6" Padding="14,12">
+                <StackPanel Spacing="10">
+                    <DockPanel>
+                        <Viewbox DockPanel.Dock="Left" Classes="icon" Margin="0,2,8,0" VerticalAlignment="Top" IsVisible="{Binding Awaiting}"><Path Classes="stroke" Data="{StaticResource IconAlert}" Stroke="{DynamicResource Caution}" /></Viewbox>
+                        <Border DockPanel.Dock="Right" Classes="badge" Margin="8,0,0,0" VerticalAlignment="Top" IsVisible="{Binding !Awaiting}">
+                            <TextBlock Classes="quiet" Classes.error="{Binding Failed}" Text="{Binding Status}" FontSize="11" />
+                        </Border>
+                        <StackPanel Spacing="2">
+                            <SelectableTextBlock Text="{Binding Summary}" FontSize="14" FontWeight="Medium" TextWrapping="Wrap" />
+                            <TextBlock Classes="quiet" Text="{Binding Detail}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DockPanel>
+                    <Border Classes="codeblock"><SelectableTextBlock Classes="mono" Text="{Binding Arguments}" /></Border>
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" IsVisible="{Binding Awaiting}">
+                        <Button Classes="ghost" Content="Decline" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).DeclineCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="primary" Content="Confirm" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).ConfirmCommand}" CommandParameter="{Binding}" />
+                    </StackPanel>
+                    <SelectableTextBlock Classes="error" FontSize="12" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.DataTemplates>
+
+    <Grid>
+        <!-- A new chat: the greeting and the composer, in the middle of the page. -->
+        <StackPanel IsVisible="{Binding Empty}" VerticalAlignment="Center" MaxWidth="760" Margin="16" Spacing="20">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="title" Text="What should we do?" HorizontalAlignment="Center" />
+                <TextBlock Classes="quiet" Text="{Binding Promise}" FontSize="13" TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+            <views:ChatComposerView IsVisible="{Binding Empty}" />
+            <ItemsControl ItemsSource="{Binding Starters}" HorizontalAlignment="Center">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel HorizontalAlignment="Center" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="x:String">
-                        <Button Content="{Binding}" Margin="0,0,6,6" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SuggestCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="chip" Content="{Binding}" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SuggestCommand}" CommandParameter="{Binding}" />
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <DockPanel>
-                <Button DockPanel.Dock="Right" Content="Send" Command="{Binding SendCommand}" IsDefault="True" Margin="6,0,0,0" />
-                <TextBox PlaceholderText="Ask Wilson" Text="{Binding Composer}" />
-            </DockPanel>
+            <SelectableTextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
         </StackPanel>
-        <SelectableTextBlock DockPanel.Dock="Bottom" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <ScrollViewer>
-            <StackPanel MaxWidth="760" HorizontalAlignment="Left">
-                <ItemsControl ItemsSource="{Binding Lines}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:TranscriptLine"><StackPanel Margin="0,0,0,10" Spacing="2"><TextBlock Classes="quiet" Text="{Binding Who}" /><SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-                <SelectableTextBlock Classes="quiet" Text="{Binding Sent}" TextWrapping="Wrap" IsVisible="{Binding Sending}" Margin="0,0,0,8" />
-                <SelectableTextBlock Text="{Binding Draft}" TextWrapping="Wrap" />
-                <ItemsControl ItemsSource="{Binding Actions}">
+
+        <!-- The conversation: the column scrolls, and the composer stays at its foot. -->
+        <DockPanel IsVisible="{Binding Talking}">
+            <StackPanel DockPanel.Dock="Bottom" MaxWidth="760" Margin="16,4,16,16" Spacing="8">
+                <SelectableTextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <ItemsControl ItemsSource="{Binding Suggestions}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ActionRow">
-                            <Border Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,4">
-                                <StackPanel Spacing="6">
-                                    <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-                                    <TextBlock Classes="quiet" Text="{Binding Status}" />
-                                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding Awaiting}">
-                                        <Button Content="Confirm" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).ConfirmCommand}" CommandParameter="{Binding}" />
-                                        <Button Content="Decline" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).DeclineCommand}" CommandParameter="{Binding}" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
+                        <DataTemplate x:DataType="x:String">
+                            <Button Classes="chip" Content="{Binding}" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SuggestCommand}" CommandParameter="{Binding}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <views:ChatComposerView IsVisible="{Binding Talking}" />
             </StackPanel>
-        </ScrollViewer>
-    </DockPanel>
+            <ScrollViewer x:Name="Scroller">
+                <StackPanel MaxWidth="760" Margin="16,20" Spacing="16">
+                    <ItemsControl ItemsSource="{Binding Entries}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="16" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <Border HorizontalAlignment="Right" MaxWidth="640" Background="{DynamicResource Panel}" CornerRadius="16" Padding="14,8" IsVisible="{Binding Sent, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <SelectableTextBlock Text="{Binding Sent}" FontSize="14" TextWrapping="Wrap" />
+                    </Border>
+                    <StackPanel Spacing="8" IsVisible="{Binding Answering}">
+                        <views:ChatActivityLine Items="{Binding Working}" />
+                        <views:MarkdownView Text="{Binding Draft}" />
+                        <TextBlock Classes="quiet" FontSize="13" Text="Working on it…" IsVisible="{Binding Thinking}" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
 </UserControl>

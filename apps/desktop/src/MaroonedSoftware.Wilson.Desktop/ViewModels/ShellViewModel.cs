@@ -54,7 +54,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
         Connection = new ServerConnection(origin, store);
         Connection.Session.SessionEnded += (_, _) => Dispatcher.UIThread.Post(ShowSignIn);
-        Remember(_settings with { Origin = origin, Project = _settings.Origin == origin ? _settings.Project : null });
+        Remember(_settings.Origin == origin ? _settings with { Origin = origin } : new DesktopSettings { Origin = origin });
         return Connection;
     }
 
@@ -95,6 +95,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     }
 
     public void RememberProject(string project) => Remember(_settings with { Project = project });
+
+    public void RememberThread(string? thread) => Remember(_settings with { Thread = thread });
 
     public void Dispose()
     {

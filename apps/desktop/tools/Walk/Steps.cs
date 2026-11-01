@@ -1,4 +1,6 @@
+using Avalonia.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 namespace Walk;
@@ -51,8 +53,9 @@ internal static class Steps
         await walk.UntilAsync("chat", () => walk.Shell.Page is ThreadsViewModel);
 
         var home = walk.Page<ThreadsViewModel>();
-        await walk.UntilAsync("the latest chat open, or none to open", () => home.Chat is not null || home.NoChats);
-        Console.WriteLine($"     home: {home.Threads.Count} chats, open: {home.Chat?.Title}");
+        await walk.UntilAsync("a chat open", () => home.Chat is not null);
+        await walk.UntilAsync("the chats listed", () => home.Threads.Count > 0 || home.NoChats);
+        Console.WriteLine($"     home: {home.Threads.Count} chats");
         walk.Shot("03-chat-home");
         home.OpenBoard();
 
@@ -179,20 +182,55 @@ internal static class Steps
 
     private static async Task ChatAsync(Walker walk, ThreadsViewModel home)
     {
-        await home.StartThreadCommand.ExecuteAsync(null);
+        home.NewChat();
         var chat = home.Chat!;
-        await walk.UntilAsync("the new chat listed and current", () => home.Threads.Any(thread => thread.Current));
-        chat.Composer = "Reply with the single word: ok";
-        await chat.SendCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the greeting", () => chat.Empty);
+        walk.Shot("12-new-chat");
+
+        walk.Press(Key.Tab, PhysicalKey.Tab);
+        await walk.UntilAsync("Tab taking the suggestion", () => chat.Composer == chat.Starters[0]);
+        chat.Composer = null;
+
+        walk.Type("Reply with the single word: ok");
+        await walk.UntilAsync("typing in the box", () => chat.CanSend);
+        walk.Press(Key.Enter, PhysicalKey.Enter);
+        await walk.UntilAsync("Enter sending it", () => chat.Sending);
+        walk.Shot("13a-chat-working");
         await walk.UntilAsync("the chat answered, or the refusal said", () => chat.Idle, 120);
-        Console.WriteLine($"     chat: lines {chat.Lines.Count}, error: {chat.Error}");
-        await walk.UntilAsync("the chat named in the list", () => home.Threads.Any(thread => thread.Current && thread.Title != "New chat"));
-        walk.Shot("12-chat");
+        Console.WriteLine($"     chat: entries {chat.Entries.Count}, error: {chat.Error}");
+        await walk.UntilAsync("the chat named in the rail", () => home.Threads.Any(thread => thread.Current && thread.Title != "New chat"));
+        walk.Shot("13-chat");
+
+        walk.Type("Reply with a level two heading, a sentence with bold, italic and inline code, a link to https://example.com, a two item list, a short code block and a blockquote. Mention no tools.");
+        walk.Press(Key.Enter, PhysicalKey.Enter);
+        await walk.UntilAsync("that sending", () => chat.Sending);
+        await walk.UntilAsync("the answer arriving, or the turn over", () => chat.Draft.Length > 0 || chat.Idle, 120);
+        Console.WriteLine($"     streamed before the turn ended: {chat.Sending}, {chat.Draft.Length} characters");
+        walk.Shot("14a-chat-streaming");
+        await walk.UntilAsync("that answered, or the refusal said", () => chat.Idle, 120);
+        Console.WriteLine($"     chat: entries {chat.Entries.Count}, error: {chat.Error}");
+        walk.Shot("14-chat-markdown");
+
+        // Posed: nothing in a walk can make the agent propose a change on cue.
+        chat.Entries.Add(new AnswerEntry("Moving it now needs your say-so.", [new ChatActivity("get card in wilson", false, "{}"), new ChatActivity("list stages", true, "{}")]));
+        chat.Entries.Add(new ActionRow("posed", "Move 0003 to review", "Runs move_card in wilson as you. Expires in 10 minutes.", """{"id":"0003","stage":"review"}""", "pending", true, false, null));
+        chat.Entries.Add(new ActionRow("posed-2", "Merge 0002", "Runs merge_card in wilson as you.", """{"id":"0002"}""", "failed", false, true, "cannot merge 0002: it is in \"planning\", not \"ready\""));
+        walk.Shot("14b-chat-actions");
 
         home.OpenBoard();
         walk.Page<BoardViewModel>();
         walk.Shell.Back();
-        await walk.UntilAsync("back on the same chat", () => walk.Shell.Page == home && home.Chat == chat && chat.Lines.Count > 0);
-        walk.Shot("13-chat-after-board");
+        await walk.UntilAsync("back on the same chat", () => walk.Shell.Page == home && home.Chat == chat && chat.Entries.Count > 0);
+
+        var current = home.Threads.First(thread => thread.Current);
+        home.AskRename(current);
+        home.NewTitle = "Walked chat";
+        walk.Shot("15-rename");
+        await home.SaveRenameCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the new name in the rail", () => home.Threads.Any(thread => thread.Current && thread.Title == "Walked chat"));
+
+        await home.ArchiveCommand.ExecuteAsync(home.Threads.First(thread => thread.Current));
+        await walk.UntilAsync("archiving it opening a new chat", () => home.Chat is { Empty: true } && home.Threads.All(thread => thread.Title != "Walked chat"));
+        walk.Shot("16-after-archive");
     }
 }

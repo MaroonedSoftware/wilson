@@ -2,12 +2,15 @@ using System.Text.Json;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Settings;
 
-/// <summary>What is remembered between launches that is not a secret: which server, and which project on it.</summary>
+/// <summary>What is remembered between launches that is not a secret: which server, and which project and chat on it.</summary>
 public sealed record DesktopSettings
 {
     public string? Origin { get; init; }
 
     public string? Project { get; init; }
+
+    /// <summary>The chat left open, so a launch reopens the conversation. None is a new chat.</summary>
+    public string? Thread { get; init; }
 
     /// <summary>`~/Library/Application Support/Wilson/settings.json`.</summary>
     public static string DefaultPath() =>

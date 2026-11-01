@@ -128,7 +128,15 @@ Here: sign-in, the board and its feed, card detail and every card action, creati
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
 dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and splitting a card. A
-card's plan shows as plain text, not rendered Markdown. There are no notifications.
+card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
+notifications.
+
+## Chat follows the web app
+
+`Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
+carries the same rules: change one and look at the other. A new chat has no thread until its first
+message. `MarkdownView` builds controls from `ChatMarkdown`'s records, the subset `Markdown.tsx` draws,
+and `[[nnnn]]` card references stay as text. The open chat is `DesktopSettings.Thread`.
 
 ## Verified
 
@@ -139,6 +147,10 @@ chat turn, chat as the home page opening the latest thread and surviving a trip 
 diff of a real branch (that diff step was not repeated after chat became the home page). The Keychain
 round trip passed on a real Keychain, and `Wilson.app` launched and opened its window. The first
 release built, signed and published from the workflow, and that download launched from `/Applications`.
+
+2026-11-01, chat: with `tools/Walk`, the greeting, Tab, typing and Enter by headless keyboard, a real
+streamed turn, Markdown, the working state, rename and archive, in both appearances. A proposed
+change was posed, as nothing makes the agent propose one on cue.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
@@ -153,10 +165,11 @@ Not verified:
 - How the menu-bar icon looks, which was only checked as a PNG.
 - A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
 - An update through the running app's own button, or from a real release.
-- Typing into the real window, as opposed to driving the view models headless, and a session
-  surviving a relaunch of the real app.
+- A session, and the open chat, surviving a relaunch of the real app. Keystrokes reach the views in
+  the walk through Avalonia's headless input, not a real keyboard.
 - The app against Tower or the real board.
 - A confirmed chat action, an acknowledged flag, a successful merge, and a token refresh or reconnect
   against a real server: the seeded board offers none, and the last two are proved against `FakeServer`.
-- Whether streamed text appears as it arrives: the walk saw the finished turns, not the deltas.
+- Pressing a link in an answer, or the options menu on a chat in the rail, in a real window: the walk
+  calls the rename and archive commands directly.
 - Either GitHub workflow.
