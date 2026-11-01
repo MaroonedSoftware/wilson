@@ -16,6 +16,7 @@ import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 const exec = promisify(execFile);
 
@@ -88,6 +89,7 @@ describe('pre-dispatch checks run in a defined order', () => {
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
         await job.run({ cardId: '0001', stageName: 'implementing' });
 

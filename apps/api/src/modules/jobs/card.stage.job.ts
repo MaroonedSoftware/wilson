@@ -5,6 +5,7 @@ import { BoardRepository } from '#modules/board/board.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { decideChain } from './chain.decision.js';
@@ -52,6 +53,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         private readonly events: EventLog,
         private readonly cardJobs: CardJobs,
         private readonly stageConfigs: StageConfigStore,
+        private readonly settings: SettingsStore,
         // Defaulted, not just typed optional: DI (jobs.module.ts) always supplies the shared
         // singleton, so this only matters for a test constructing a job by hand with the six
         // dependencies it cares about — it still gets a valid (if unshared) tracker rather than a
@@ -275,7 +277,15 @@ export class CardStageJob extends Job<CardStagePayload> {
      * the same five things would be one more thing to keep in step with the constructor.
      */
     private deps() {
-        return { board: this.board, boardRepo: this.boardRepo, events: this.events, cardJobs: this.cardJobs, stageConfigs: this.stageConfigs };
+        return {
+            board: this.board,
+            boardRepo: this.boardRepo,
+            events: this.events,
+            cardJobs: this.cardJobs,
+            stageConfigs: this.stageConfigs,
+            broker: this.broker,
+            settings: this.settings,
+        };
     }
 
     /**

@@ -17,6 +17,7 @@ import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { DB } from '#modules/data/db.js';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 /**
  * Card 0104. Every other test of `deferOnScopeConflict` (card.stage.job.test.ts) mocks
@@ -110,6 +111,7 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
             events,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
 
         return { job, project, events, boardRepo, dispatcher };

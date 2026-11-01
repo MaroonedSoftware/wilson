@@ -17,6 +17,7 @@ import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { DB } from '#modules/data/db.js';
 import type { Kysely } from 'kysely';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 const stagesYaml = `
 stages:
@@ -88,6 +89,7 @@ describe('CardStageJob', () => {
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
     });
 
@@ -671,6 +673,7 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             new PostgresStageConfigStore(board, db),
+            defaultSettings,
         );
     });
 
@@ -735,6 +738,7 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
     };
 
@@ -880,6 +884,7 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
 
     it('defers, naming the other card and the overlapping paths, without ever calling the dispatcher', async () => {

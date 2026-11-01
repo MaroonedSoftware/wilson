@@ -17,6 +17,7 @@ import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
+import { defaultSettings } from '#tests/support/fake.settings.js';
 
 // A real board in the test database, the same way stage.dispatcher.test.ts and
 // stage.dispatcher.budget.test.ts exercise `writeWithEvent`: `flagRebaseConflict` (flag.rebase.conflict.ts)
@@ -99,6 +100,7 @@ stages:
             events as unknown as EventLog,
             cardJobs as unknown as CardJobs,
             stageConfigs,
+            defaultSettings,
         );
 
         return { job, board, config };
