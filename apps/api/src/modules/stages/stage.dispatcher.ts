@@ -64,6 +64,13 @@ export type NotDispatchableReason =
     /** A stage that runs here found every `local-stage-slots` slot held. Deferred, not poisoned. */
     | { readonly kind: 'no-local-slot' };
 
+/** Aborts a transition's write, leaving the card as it is: it left the stage the run started in. */
+class CardMovedDuringRunError extends Error {
+    constructor(readonly actualStage: string) {
+        super(`card moved to "${actualStage}" during the run`);
+    }
+}
+
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
  *
@@ -565,6 +572,7 @@ export class StageDispatcher {
             payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped },
         });
 
+        let outcome: StageOutcome;
         try {
             const ran = await this.runAgent({ card, stage, worktree, scope, planPath, learningsPath, stages, port });
 
@@ -581,7 +589,7 @@ export class StageDispatcher {
                     payload: { path },
                 });
             }
-            const outcome = withCollateralCaveats(ran, collateralHits);
+            outcome = withCollateralCaveats(ran, collateralHits);
 
             // A stage that failed on a host whose engine or tools lost their connection failed for
             // a reason that is not the card's. Checked before anything is committed or transitioned,
@@ -645,36 +653,6 @@ export class StageDispatcher {
                           }),
                 },
             });
-
-            if (stage.mode !== 'agent') {
-                return outcome;
-            }
-
-            // Outside the try below, and in its own: the stage's outcome is already recorded, and a
-            // transition that fails to write must not be reported as the stage having failed. Sharing
-            // the catch would append a `stage.failed` event after a `stage.passed` one for the same
-            // run, leaving the card's history contradicting itself about what the stage did.
-            let transitionedTo: string | undefined;
-            let needsHuman = false;
-            let splitInto: string[] | undefined;
-            try {
-                const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
-                transitionedTo = transition.target;
-                needsHuman = transition.needsHuman;
-                splitInto = transition.splitInto;
-            } catch (err) {
-                await this.events.append({
-                    project: this.config.project,
-                    cardId,
-                    stage: stageName,
-                    type: 'transition.failed',
-                    payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
-                });
-                // Still thrown: the card is now stranded in a stage whose work is done, and a
-                // silent failure here is how a card sits untouched forever.
-                throw err;
-            }
-            return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
@@ -690,6 +668,36 @@ export class StageDispatcher {
             });
             throw err;
         }
+
+        if (stage.mode !== 'agent') {
+            return outcome;
+        }
+
+        // Outside the try above, and in its own: the stage's outcome is already recorded, and a
+        // transition that fails to write must not be reported as the stage having failed. Sharing
+        // the catch would append a `stage.failed` event after a `stage.passed` one for the same
+        // run, leaving the card's history contradicting itself about what the stage did.
+        let transitionedTo: string | undefined;
+        let needsHuman = false;
+        let splitInto: string[] | undefined;
+        try {
+            const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
+            transitionedTo = transition.target;
+            needsHuman = transition.needsHuman;
+            splitInto = transition.splitInto;
+        } catch (err) {
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'transition.failed',
+                payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
+            });
+            // Still thrown: the card is now stranded in a stage whose work is done, and a
+            // silent failure here is how a card sits untouched forever.
+            throw err;
+        }
+        return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
     }
 
     /**
@@ -708,7 +716,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; needsHuman: boolean; splitInto?: string[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -778,42 +786,63 @@ export class StageDispatcher {
         // the same transaction, so `current.body` is the one true "body it read".
         let bodyChanged = false;
 
-        const writtenVersionId = await this.board.writeWithEvent(
-            cardId,
-            `${cardId}: ${stageName} -> ${decision.target}`,
-            current => {
-                // On a pass, the section this stage may have accumulated while it kept failing is
-                // shed (the same "shed on pass" rule findings use); on a judged failure, one more
-                // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
-                // leaves the section exactly as it stands.
-                const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
-                const nextBody = findings ? withFindings(body, findings, criteria) : body;
-                bodyChanged = nextBody !== current.body;
-                return {
-                    ...current,
-                    frontmatter: {
-                        ...current.frontmatter,
-                        stage: decision.target,
+        let writtenVersionId: string;
+        try {
+            writtenVersionId = await this.board.writeWithEvent(
+                cardId,
+                `${cardId}: ${stageName} -> ${decision.target}`,
+                current => {
+                    // `current` is read under the row lock, so this is the check `head` cannot make: a
+                    // human who moved the card while this stage ran has the last word, and this
+                    // transition, decided from the stage the run started in, must not undo that.
+                    if (current.frontmatter.stage !== stageName) throw new CardMovedDuringRunError(current.frontmatter.stage);
+
+                    // On a pass, the section this stage may have accumulated while it kept failing is
+                    // shed (the same "shed on pass" rule findings use); on a judged failure, one more
+                    // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
+                    // leaves the section exactly as it stands.
+                    const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                    const nextBody = findings ? withFindings(body, findings, criteria) : body;
+                    bodyChanged = nextBody !== current.body;
+                    return {
+                        ...current,
+                        frontmatter: {
+                            ...current.frontmatter,
+                            stage: decision.target,
+                            retries: decision.retries,
+                            ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                        },
+                        body: nextBody,
+                    };
+                },
+                {
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'transition.written',
+                    payload: {
+                        from: stageName,
+                        to: decision.target,
                         retries: decision.retries,
-                        ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
+                        by: 'runner',
+                        ...(needsHuman ? { needsHuman: true } : {}),
                     },
-                    body: nextBody,
-                };
-            },
-            {
+                },
+            );
+        } catch (err) {
+            if (!(err instanceof CardMovedDuringRunError)) throw err;
+            // No target: the card is where the human put it, so there is nothing to chain from, and
+            // the worktree and the notification below belong to a transition that did not happen.
+            await this.events.append({
                 project: this.config.project,
                 cardId,
                 stage: stageName,
-                type: 'transition.written',
-                payload: {
-                    from: stageName,
-                    to: decision.target,
-                    retries: decision.retries,
-                    by: 'runner',
-                    ...(needsHuman ? { needsHuman: true } : {}),
-                },
-            },
-        );
+                type: 'stage.stale',
+                payload: { wantedStage: stageName, actualStage: err.actualStage },
+            });
+            this.logger.warn(`${cardId} moved to "${err.actualStage}" while ${stageName} ran; leaving it there`);
+            return { needsHuman: false };
+        }
 
         // The write above just rewrote the plan contract, not just runner state: `bodyChanged` means
         // `withFindings`, `withAttempt` or `withoutAttempts` actually changed the body of the version
