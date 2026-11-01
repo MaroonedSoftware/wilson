@@ -1,6 +1,7 @@
 # The desktop app
 
-The operator's board as a macOS application, in .NET 10 and Avalonia. It follows deadair's
+Chat with Wilson and the operator's board as a macOS application, in .NET 10 and Avalonia. Chat is the
+home page and the board opens from it. It follows deadair's
 `apps/desktop`, and that app's `CLAUDE.md` records the measured reason behind most of what is here:
 look there first for anything not covered below. Wilson has no audio, so the player and its native
 shim have no equivalent. The first release targets Apple Silicon and nothing else.
@@ -105,9 +106,10 @@ and closing the window quits.
 2026-11-01, against the throwaway API with `tools/Walk`: sign-in and its refusals, the board live from
 the feed, creating and editing a card, moving one, a merge refused by the server, opening a planning
 session, saving a draft (refused by the server's own check), comments, a real planning turn, a real
-chat turn, and a diff of a real branch. The Keychain round trip passed on a real Keychain, and
-`Wilson.app` launched and opened its window. The first release built, signed and published from the
-workflow, and that download launched from `/Applications`.
+chat turn, chat as the home page opening the latest thread and surviving a trip to the board, and a
+diff of a real branch (that diff step was not repeated after chat became the home page). The Keychain
+round trip passed on a real Keychain, and `Wilson.app` launched and opened its window. The first
+release built, signed and published from the workflow, and that download launched from `/Applications`.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

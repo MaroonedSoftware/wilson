@@ -13,7 +13,7 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 public sealed record ActionRow(string Id, string Summary, string Status, bool Awaiting);
 
 /// <summary>One chat. The stored thread is the record, and the stream is only what is still arriving.</summary>
-public sealed partial class ChatViewModel(ShellViewModel shell, string id) : PageViewModel
+public sealed partial class ChatViewModel(ShellViewModel shell, string id, Func<Task> answered) : PageViewModel
 {
     private string _rawDraft = string.Empty;
 
@@ -22,8 +22,6 @@ public sealed partial class ChatViewModel(ShellViewModel shell, string id) : Pag
     public ObservableCollection<ActionRow> Actions { get; } = [];
 
     public ObservableCollection<string> Suggestions { get; } = [];
-
-    public ShellViewModel Shell => shell;
 
     [ObservableProperty]
     private string _title = "Chat";
@@ -155,6 +153,7 @@ public sealed partial class ChatViewModel(ShellViewModel shell, string id) : Pag
         ClearDraft();
         Sent = null;
         Sending = false;
+        await answered();
     }
 
     private async Task DecideAsync(ActionRow action, DecideChatActionRequestDecision decision)

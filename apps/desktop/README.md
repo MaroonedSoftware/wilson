@@ -1,7 +1,8 @@
 # Wilson for macOS
 
-The operator's board as a native app for Apple Silicon Macs, in .NET 10 and Avalonia. `CLAUDE.md` has
-what you need to change it safely.
+Chat with Wilson and the operator's board as a native app for Apple Silicon Macs, in .NET 10 and
+Avalonia. It opens on chat, with the board a click away. `CLAUDE.md` has what you need to change it
+safely.
 
 ```bash
 cd apps/desktop

@@ -41,7 +41,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
             var result = await SignInAsync();
             if (result is SignInResult.SignedIn)
             {
-                shell.ShowBoard();
+                shell.ShowChat();
             }
             else if (result is SignInResult.CodeNeeded pending)
             {

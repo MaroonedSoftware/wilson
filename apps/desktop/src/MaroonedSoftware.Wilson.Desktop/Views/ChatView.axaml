@@ -4,11 +4,8 @@
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatView"
     x:DataType="vm:ChatViewModel">
-    <DockPanel Margin="16">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
-            <TextBlock Classes="title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-        </DockPanel>
+    <DockPanel Margin="16,0,0,0">
+        <TextBlock DockPanel.Dock="Top" Classes="title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" Margin="0,0,0,10" />
         <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0" IsEnabled="{Binding Idle}">
             <ItemsControl ItemsSource="{Binding Suggestions}">
                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
