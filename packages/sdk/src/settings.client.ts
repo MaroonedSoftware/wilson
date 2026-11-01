@@ -1,4 +1,5 @@
 import type {
+    AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
@@ -9,6 +10,7 @@ import type {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
@@ -138,6 +140,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<DryRunSetting>(result);
+    }
+
+    /** @name Get auto split setting */
+    async getAutoSplitSetting(): Promise<AutoSplitSetting> {
+        const result = await this.fetch(`/api/settings/auto-split`, { method: 'GET' });
+        return await parseJson<AutoSplitSetting>(result);
+    }
+
+    /** @name Set auto split setting */
+    async setAutoSplitSetting(body: SetAutoSplitSettingRequest): Promise<AutoSplitSetting> {
+        const result = await this.fetch(`/api/settings/auto-split`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<AutoSplitSetting>(result);
     }
 
     /** @name Get chat engine setting */

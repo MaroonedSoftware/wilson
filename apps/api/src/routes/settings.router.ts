@@ -1,4 +1,5 @@
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
+import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.service.js';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
@@ -10,6 +11,7 @@ import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.se
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
+    AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
@@ -20,6 +22,7 @@ import {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
@@ -213,6 +216,32 @@ SettingsRouter.put('/api/settings/dry-run', requirePolicy({ policy: 'wilson.mana
 
     const service = ctx.container.get(DryRunSettingService);
     const result: DryRunSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/auto-split`
+ */
+SettingsRouter.get('/api/settings/auto-split', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(AutoSplitSettingService);
+    const result: AutoSplitSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/auto-split`
+ */
+SettingsRouter.put('/api/settings/auto-split', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetAutoSplitSettingRequest);
+
+    const service = ctx.container.get(AutoSplitSettingService);
+    const result: AutoSplitSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

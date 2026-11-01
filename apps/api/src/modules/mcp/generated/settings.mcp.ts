@@ -6,6 +6,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type McpToolContext } from '@maroonedsoftware/mcp';
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
+import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.service.js';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
@@ -16,6 +17,7 @@ import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.se
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import {
+    AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
@@ -25,6 +27,7 @@ import {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
     SetDryRunSettingRequest,
@@ -55,6 +58,8 @@ const GetClaudeConfigDirSettingArgs = z.object({});
 const SetClaudeConfigDirSettingArgs = z.object({ body: SetClaudeConfigDirSettingRequest });
 const GetDryRunSettingArgs = z.object({});
 const SetDryRunSettingArgs = z.object({ body: SetDryRunSettingRequest });
+const GetAutoSplitSettingArgs = z.object({});
+const SetAutoSplitSettingArgs = z.object({ body: SetAutoSplitSettingRequest });
 const GetChatEngineSettingArgs = z.object({});
 const SetChatEngineSettingArgs = z.object({ body: ChatEngineSetting });
 const GetLocalStageSlotsArgs = z.object({});
@@ -321,6 +326,49 @@ export class SetDryRunSettingMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/auto-split`
+ */
+@Injectable()
+export class GetAutoSplitSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_auto_split_setting',
+        inputSchema: z.toJSONSchema(GetAutoSplitSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(AutoSplitSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(AutoSplitSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `PUT /api/settings/auto-split`
+ */
+@Injectable()
+export class SetAutoSplitSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'set_auto_split_setting',
+        inputSchema: z.toJSONSchema(SetAutoSplitSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(AutoSplitSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { body } = await parseAndValidate(args, SetAutoSplitSettingArgs);
+        const result = await container.get(AutoSplitSettingService).set(body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/chat-engine`
  */
 @Injectable()
@@ -465,6 +513,8 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_claude_config_dir_setting', container.get(SetClaudeConfigDirSettingMcpTool));
     map.set('get_dry_run_setting', container.get(GetDryRunSettingMcpTool));
     map.set('set_dry_run_setting', container.get(SetDryRunSettingMcpTool));
+    map.set('get_auto_split_setting', container.get(GetAutoSplitSettingMcpTool));
+    map.set('set_auto_split_setting', container.get(SetAutoSplitSettingMcpTool));
     map.set('get_chat_engine_setting', container.get(GetChatEngineSettingMcpTool));
     map.set('set_chat_engine_setting', container.get(SetChatEngineSettingMcpTool));
     map.set('get_local_stage_slots', container.get(GetLocalStageSlotsMcpTool));
@@ -487,6 +537,8 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetClaudeConfigDirSettingMcpTool).useClass(SetClaudeConfigDirSettingMcpTool).asSingleton();
     registry.register(GetDryRunSettingMcpTool).useClass(GetDryRunSettingMcpTool).asSingleton();
     registry.register(SetDryRunSettingMcpTool).useClass(SetDryRunSettingMcpTool).asSingleton();
+    registry.register(GetAutoSplitSettingMcpTool).useClass(GetAutoSplitSettingMcpTool).asSingleton();
+    registry.register(SetAutoSplitSettingMcpTool).useClass(SetAutoSplitSettingMcpTool).asSingleton();
     registry.register(GetChatEngineSettingMcpTool).useClass(GetChatEngineSettingMcpTool).asSingleton();
     registry.register(SetChatEngineSettingMcpTool).useClass(SetChatEngineSettingMcpTool).asSingleton();
     registry.register(GetLocalStageSlotsMcpTool).useClass(GetLocalStageSlotsMcpTool).asSingleton();

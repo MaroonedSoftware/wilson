@@ -1678,6 +1678,17 @@ describe('BoardWriteService', () => {
 
             await expect(service.split('missing', { pieces: twoPieces() })).rejects.toMatchObject({ statusCode: 404 });
         });
+
+        it('refuses an origin already in `split`: its pieces exist, and this would create them again', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0116', { stage: 'split' }), 'seed');
+
+            await expect(service.split('0116', { pieces: twoPieces() })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: '0116 has already been split' },
+            });
+            expect(await board.list()).toHaveLength(1);
+        });
     });
 
     /**

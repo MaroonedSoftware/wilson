@@ -178,6 +178,68 @@ const freshEnv = async () => {
 };
 
 describe('PlanService', () => {
+    describe('autoDraft', () => {
+        const SEED = 'Split from 0001 (big), one piece.\n\n## Tasks\n\n- task 1\n';
+        const withDraftTurn = (service: PlanService, write: () => Promise<void>) =>
+            vi.spyOn(service as unknown as { appendTurn(): Promise<unknown> }, 'appendTurn').mockImplementation(async () => write());
+
+        it('saves what a draft turn leaves as a new version, closes the session, and leaves the card in planning', async () => {
+            const { board, service, config, worktreeRoot } = await freshEnv();
+            await board.create(card('0002', { stage: 'planning' }, SEED), 'seed');
+            await service.open('0002');
+            withDraftTurn(service, () => writeFile(join(config.runRoot, 'cards', '0002', 'draft.md'), FULL_BODY, 'utf8'));
+
+            await expect(service.autoDraft('0002')).resolves.toBeUndefined();
+
+            const stored = await board.read('0002');
+            expect(stored.body).toBe(FULL_BODY);
+            expect(stored.frontmatter.stage).toBe('planning');
+            expect(existsSync(join(worktreeRoot, 'plan-0002'))).toBe(false);
+        });
+
+        it('throws on a draft save refuses, leaving the body alone and the session closed', async () => {
+            const { board, service, worktreeRoot } = await freshEnv();
+            await board.create(card('0002', { stage: 'planning' }, SEED), 'seed');
+
+            await expect(service.autoDraft('0002')).rejects.toMatchObject({ statusCode: 400 });
+
+            expect((await board.read('0002')).body).toBe(SEED);
+            expect(existsSync(join(worktreeRoot, 'plan-0002'))).toBe(false);
+        });
+
+        it('does nothing for a card a person is already planning', async () => {
+            const { board, service, config } = await freshEnv();
+            await board.create(card('0002', { stage: 'planning' }, SEED), 'seed');
+            await new PlanTurnRepository(config, db).append('0002', 'user', 'let us talk');
+            const turn = withDraftTurn(service, async () => {});
+
+            await expect(service.autoDraft('0002')).resolves.toContain('already has a planning conversation');
+
+            expect(turn).not.toHaveBeenCalled();
+        });
+
+        it('does nothing outside planning', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0002', { stage: 'backlog' }, SEED), 'seed');
+
+            await expect(service.autoDraft('0002')).resolves.toContain('not "planning"');
+        });
+
+        it('does not save over a card that moved during the turn', async () => {
+            const { board, service, config } = await freshEnv();
+            await board.create(card('0002', { stage: 'planning' }, SEED), 'seed');
+            await service.open('0002');
+            withDraftTurn(service, async () => {
+                await writeFile(join(config.runRoot, 'cards', '0002', 'draft.md'), FULL_BODY, 'utf8');
+                await board.write('0002', 'approved', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'backlog' } }));
+            });
+
+            await expect(service.autoDraft('0002')).resolves.toContain('moved to "backlog"');
+
+            expect((await board.read('0002')).body).toBe(SEED);
+        });
+    });
+
     describe('open', () => {
         it('returns a real worktree path, the planning stage\'s model and instructions, and seeds the draft with the card body when it has sections', async () => {
             const { board, service } = await freshEnv();

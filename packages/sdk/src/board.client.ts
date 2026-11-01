@@ -216,7 +216,8 @@ export class BoardClient {
      * drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
      * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
      * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
-     * already confirmed.
+     * already confirmed. A project with `auto-split-enabled` on gets none of that confirmation:
+     * `AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.
      */
     async splitCard(id: string, body: SplitCardsRequest): Promise<SplitResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/split`, {

@@ -148,6 +148,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         }
 
         await this.cardJobs.clear(cardId);
+        await this.enqueuePlanDrafts(cardId, stageName, outcome.splitInto ?? []);
 
         // Recorded rather than silently dropped: an operator watching the card's history needs to
         // know the chain stopped here, and why, without having to reconstruct it from stage config.
@@ -168,6 +169,28 @@ export class CardStageJob extends Job<CardStagePayload> {
             const landedOn = stages.stages.find(s => s.name === outcome.transitionedTo);
             if (landedOn?.mode === 'manual') {
                 await this.notifyManualGate(cardId, outcome.transitionedTo);
+            }
+        }
+    }
+
+    /**
+     * One `card.plan-draft` per piece an automatic split just created. Here rather than in the
+     * dispatcher, which stays queue-agnostic, so `wilson card run` splits without drafting. A failed
+     * send costs that piece its draft and nothing else: the split stands and the piece waits in
+     * `planning`, so it is recorded, never thrown back into a stage that already finished.
+     */
+    private async enqueuePlanDrafts(originId: string, stageName: string, pieceIds: string[]): Promise<void> {
+        for (const cardId of pieceIds) {
+            try {
+                await this.broker.send('card.plan-draft', { cardId, project: this.board.project });
+            } catch (error) {
+                await this.events.append({
+                    project: this.board.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'card.plan-draft-skipped',
+                    payload: { reason: `${originId}'s split could not enqueue it: ${error instanceof Error ? error.message : String(error)}` },
+                });
             }
         }
     }

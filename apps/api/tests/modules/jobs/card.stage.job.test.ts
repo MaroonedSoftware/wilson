@@ -95,6 +95,27 @@ describe('CardStageJob', () => {
         expect(events.append).not.toHaveBeenCalled();
     });
 
+    it('enqueues a plan draft for each piece of an automatic split, and no further stage', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'split', splitInto: ['0002', '0003'] }));
+
+        await job.run({ cardId: '0001', stageName: 'scope-check' });
+
+        expect(broker.send.mock.calls).toEqual([
+            ['card.plan-draft', { cardId: '0002', project: 'test' }],
+            ['card.plan-draft', { cardId: '0003', project: 'test' }],
+        ]);
+        expect(cardJobs.clear).toHaveBeenCalledWith('0001');
+    });
+
+    it('records a draft it could not enqueue and finishes the job, leaving the split standing', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'split', splitInto: ['0002'] }));
+        broker.send.mockRejectedValue(new Error('pg-boss closed'));
+
+        await expect(job.run({ cardId: '0001', stageName: 'scope-check' })).resolves.toBeUndefined();
+
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ cardId: '0002', type: 'card.plan-draft-skipped' }));
+    });
+
     it('enqueues the next stage when the card lands on another agent stage', async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'testing' }));
 

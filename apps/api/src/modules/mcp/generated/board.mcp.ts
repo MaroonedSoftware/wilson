@@ -403,7 +403,7 @@ export class SplitCardMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'split_card',
         description:
-            "Card 0113. Creates one card per confirmed piece, in `planning`, records the dependencies named in\neach piece's `dependsOn`, and annotates the origin card with the ids it produced. Never moves or\ndrops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the\npieces themselves are what would strand — and never re-runs `scope-check` on what it creates:\ndeciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator\nalready confirmed.",
+            "Card 0113. Creates one card per confirmed piece, in `planning`, records the dependencies named in\neach piece's `dependsOn`, and annotates the origin card with the ids it produced. Never moves or\ndrops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the\npieces themselves are what would strand — and never re-runs `scope-check` on what it creates:\ndeciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator\nalready confirmed. A project with `auto-split-enabled` on gets none of that confirmation:\n`AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.",
         inputSchema: z.toJSONSchema(SplitCardArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(SplitResult, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

@@ -59,6 +59,7 @@ export const TONE: Record<string, string> = {
     merged: 'green',
     poisoned: 'red',
     dropped: 'gray',
+    split: 'gray',
 };
 
 /**
