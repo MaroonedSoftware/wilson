@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import {
@@ -138,6 +138,25 @@ export const qualifiedDeleteTool = (): string => `mcp__${REPORT_SERVER}__${DELET
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
+
+/**
+ * The paths a Glob or Grep call searches from: its `path`, and for Glob whatever fixed prefix its
+ * `pattern` has before the first wildcard. A pattern is taken relative to `path`, and the engine
+ * accepts one starting `../` or an absolute one, either of which reaches outside the tree with no
+ * `path` at all. A pattern that starts with a wildcard stays under `path`, so adds nothing.
+ */
+const searchRoots = (toolName: string, input: Record<string, unknown>): string[] => {
+    const path = typeof input.path === 'string' && input.path ? input.path : undefined;
+    const roots = path ? [path] : [];
+    if (toolName !== 'Glob' || typeof input.pattern !== 'string') return roots;
+
+    const fixed = input.pattern.split(/[*?[{(!]/, 1)[0] ?? '';
+    const prefix = fixed.slice(0, fixed.lastIndexOf('/') + 1);
+    if (prefix) roots.push(isAbsolute(prefix) ? prefix : join(path ?? '', prefix));
+    // A `..` segment after a wildcard climbs where no prefix shows it. Judged as the climb it is.
+    if (input.pattern.slice(prefix.length).split('/').includes('..')) roots.push('..');
+    return roots;
+};
 const WRITE_TOOLS = ['Write', 'Edit'];
 const EXEC_TOOLS = ['Bash'];
 
@@ -1163,11 +1182,19 @@ export const createToolGuard = (
         }
 
         if (READ_TOOLS.includes(toolName)) {
-            const path = String(input.file_path ?? input.path ?? input.pattern ?? '');
-            // Glob and Grep carry patterns rather than paths; only check when it looks like one.
-            if (!path || !input.file_path) return { behavior: 'allow' };
-            const decision = await context.scope.checkRead(path);
-            return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
+            if (input.file_path) {
+                const path = String(input.file_path);
+                const decision = await context.scope.checkRead(path);
+                return decision.allowed ? { behavior: 'allow' } : deny(decision.reason, { path });
+            }
+            // Glob and Grep: where the search starts is a path like any other, and a Glob pattern
+            // may carry one too. The check is on those roots, so a filter inside the tree (Grep's
+            // `glob`, a pattern such as `**/*.ts`) is not one and needs none.
+            for (const path of searchRoots(toolName, input)) {
+                const decision = await context.scope.checkSearch(path);
+                if (!decision.allowed) return deny(decision.reason, { path });
+            }
+            return { behavior: 'allow' };
         }
 
         if (EXEC_TOOLS.includes(toolName)) {
