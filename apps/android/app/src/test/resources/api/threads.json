@@ -1,0 +1,37 @@
+[
+  {
+    "id": "3214",
+    "title": "New chat",
+    "engine": "cli",
+    "createdAt": "2026-10-31T18:53:21.064Z",
+    "updatedAt": "2026-10-31T18:53:21.064Z"
+  },
+  {
+    "id": "3213",
+    "title": "New chat",
+    "engine": "cli",
+    "createdAt": "2026-10-31T18:52:52.448Z",
+    "updatedAt": "2026-10-31T18:52:52.448Z"
+  },
+  {
+    "id": "3212",
+    "title": "a thread",
+    "engine": "api",
+    "createdAt": "2026-10-31T18:52:20.479Z",
+    "updatedAt": "2026-10-31T18:52:20.479Z"
+  },
+  {
+    "id": "3211",
+    "title": "a thread",
+    "engine": "api",
+    "createdAt": "2026-10-31T18:52:20.473Z",
+    "updatedAt": "2026-10-31T18:52:20.473Z"
+  },
+  {
+    "id": "3210",
+    "title": "a thread",
+    "engine": "api",
+    "createdAt": "2026-10-31T18:52:20.466Z",
+    "updatedAt": "2026-10-31T18:52:20.466Z"
+  }
+]

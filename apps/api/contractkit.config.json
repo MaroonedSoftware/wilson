@@ -4,6 +4,11 @@
     "prettier": true,
     "patterns": ["apps/api/data/contracts/**/*.ck"],
     "plugins": {
+        "@contractkit/plugin-kotlin": {
+            "baseDir": "packages/sdk-kotlin/",
+            "packageName": "com.maroonedsoftware.wilson.sdk",
+            "sdkName": "WilsonSdk"
+        },
         "@contractkit/plugin-typescript": {
             "server": {
                 "baseDir": "apps/api/",

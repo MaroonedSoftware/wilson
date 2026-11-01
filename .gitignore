@@ -38,6 +38,8 @@ logs/
 # Claude
 .claude/*
 !.claude/settings.json
+!.claude/launch.json
+!.claude/skills/
 CLAUDE.local.md
 
 # dbmate schema dump (migrations are the source of truth)

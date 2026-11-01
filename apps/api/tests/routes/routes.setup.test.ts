@@ -8,6 +8,7 @@ import { ApiKeysRouter } from '#src/routes/api.keys.router.js';
 import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
+import { DevicesRouter } from '#src/routes/devices.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
@@ -57,7 +58,7 @@ describe('routers', () => {
     it('mounts the project-context router first, then the generated health, board, context, settings, projects, hosts, stages, learnings, chat, onboarding, auth, API-key and factor routers plus the three hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(18);
+        expect(mounted).toHaveLength(19);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -72,12 +73,13 @@ describe('routers', () => {
         expect(mounted[12]).toBe(AuthRouter);
         expect(mounted[13]).toBe(ApiKeysRouter);
         expect(mounted[14]).toBe(FactorsRouter);
+        expect(mounted[15]).toBe(DevicesRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[15].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[16].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -89,7 +91,7 @@ describe('routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(18);
+        expect(mounted).toHaveLength(19);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -103,9 +105,10 @@ describe('routers', () => {
         expect(mounted[12]).toBe(AuthRouter);
         expect(mounted[13]).toBe(ApiKeysRouter);
         expect(mounted[14]).toBe(FactorsRouter);
-        expect(mounted[15].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[16].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[15]).toBe(DevicesRouter);
+        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {

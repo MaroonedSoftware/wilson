@@ -758,7 +758,9 @@ there redeem the refresh cookie and read the access token it returns. The CLI an
 opt into cookies and get the refresh token in the body. The CLI keeps an API key in the OS keyring
 (`@maroonedsoftware/johnny5/keyring`): `wilson auth login` signs in with the password, mints a key
 named for the host, and signs the password session out again; `logout` / `status` / `token`
-manage it, and `WILSON_API_KEY` overrides it for scripts.
+manage it, and `WILSON_API_KEY` overrides it for scripts. The Android app does the same as the CLI at
+the token endpoint, keeping the refresh token in app-private storage. It signs in with a password
+and an authenticator code; passkeys work only in the web app for now.
 
 **Enforcement.** Every `.ck` operation is gated by default. An operation with no `security`
 block requires an authenticated session. Public routes, which are health, onboarding and the
@@ -841,6 +843,13 @@ Four triggers only — anything more and the operator learns to ignore them:
 - a dry-run pass completes end to end
 
 Each message deep-links to the card in the web app.
+
+Push to the Android app is a second channel beside the webhook, registered with `Notifier` at boot
+and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. Delivery is
+at-most-once, like the webhook, and a failure can never reach a stage. Phones sign up through
+`POST /api/devices`, and FCM reporting a token `UNREGISTERED` removes it from `wilson.push_devices`.
+A message carries only the moment, the project and the card id, so card titles and failure reasons
+never pass through Google; the app fetches the title over its own session when the message lands.
 
 ## Card granularity
 
@@ -1004,6 +1013,30 @@ Two ways to run it. On a development machine, `docker-compose.yml` runs Postgres
 database and the backup) and the API runs from the checkout (`pnpm --filter @wilson/api start`).
 On a server, `docker-compose.unraid.yml` runs the whole orchestrator in containers, and the stages
 that touch a worktree run on workers.
+
+### Reaching it from a public host
+
+The Android app talks to the API directly and push does not need it reachable, but a phone away from
+home does, so the stack can sit behind a public HTTPS host. Decision 10 is what makes that safe:
+every API request is authenticated. What the host must do:
+
+- **HTTPS only.** Terminate TLS at the proxy or tunnel, in front of the published web port. Release
+  builds of the app refuse plain http.
+- **Create the account first.** Onboarding is unauthenticated until an account exists, so finish it
+  before the host goes public, or anyone can claim the board.
+- **Add the address to `WEB_ORIGINS`**, and use it for `NOTIFY_BASE_URL`, so passkeys and links keep
+  working there. The app itself is not a browser and is not held to `WEB_ORIGINS`.
+- **Leave streams and merges alone.** Turn off response buffering on `/api/`, and keep idle and read
+  timeouts well over 20 seconds for streams and over 20 minutes for a merge, or a planning turn or a
+  chat turn. `deploy/web.nginx.conf` already does this; a proxy in front of it has to as well, and a
+  heartbeat crosses the stream every 15 seconds. Longer calls can outlast a tunnel's own limit, in
+  which case the app reports a lost merge as unknown and re-reads the card.
+- **Expose `/` and `/api/` only if you want workers to connect from outside.** Workers hold a
+  WebSocket at `/api/workers/connect`, so a proxy that serves them must allow upgrades there. A proxy
+  that does not need them can refuse that path.
+- **Push is outbound.** `FCM_SERVICE_ACCOUNT_FILE` needs the container to reach `oauth2.googleapis.com`
+  and `fcm.googleapis.com`, and nothing inbound. Keep the file with the other secrets, under
+  `/data/secrets`.
 
 ### The server stack
 

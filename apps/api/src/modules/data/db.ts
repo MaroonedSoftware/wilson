@@ -297,6 +297,14 @@ export interface WilsonStageConfigs {
   yaml: string;
 }
 
+export interface WilsonPushDevices {
+  accountId: string;
+  createdAt: Generated<DateTime>;
+  label: string | null;
+  lastSeenAt: Generated<DateTime>;
+  token: string;
+}
+
 export interface DB {
   "wilson.accountAuthenticators": WilsonAccountAuthenticators;
   "wilson.accountPasskeys": WilsonAccountPasskeys;
@@ -322,6 +330,7 @@ export interface DB {
   "wilson.planComments": WilsonPlanComments;
   "wilson.planTurns": WilsonPlanTurns;
   "wilson.projects": WilsonProjects;
+  "wilson.pushDevices": WilsonPushDevices;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.stageConfigs": WilsonStageConfigs;

@@ -2,6 +2,29 @@ import { ConsoleLogger, type Logger } from '@maroonedsoftware/logger';
 import type { CardNotification } from './notification.js';
 import { checkWebhookDestination, warnOnceInvalidWebhook } from './webhook.destination.js';
 
+/**
+ * Somewhere else a notification can go besides the webhook. `send` may throw: `Notifier` catches it,
+ * so a channel need not repeat the rule that a notification never fails a stage.
+ */
+export interface NotificationChannel {
+    readonly name: string;
+    send(notification: CardNotification): Promise<void>;
+}
+
+/**
+ * The extra channels, registered once at boot. Module-level for the reason `cardFeed` is, and because
+ * six call sites construct `Notifier` by hand: this way none of them has to learn about any channel.
+ */
+const channels: NotificationChannel[] = [];
+
+/** Adds a channel, and hands back how to take it off again. */
+export const registerNotificationChannel = (channel: NotificationChannel): (() => void) => {
+    channels.push(channel);
+    return () => {
+        channels.splice(channels.indexOf(channel), 1);
+    };
+};
+
 /** How long the notifier waits for the webhook before giving up on it. */
 const NOTIFY_TIMEOUT_MS = 5_000;
 
@@ -36,9 +59,21 @@ export class Notifier {
      * Never throws. A webhook that times out, 500s, or points at nothing is logged and swallowed —
      * the transition this reports on has already committed, and a notification able to unwind it is
      * worse than no notification at all (Constraints: "Never fail a stage because a notification
-     * failed").
+     * failed"). The same goes for every registered channel, and one failing never stops another.
      */
     async notify(notification: CardNotification): Promise<void> {
+        await Promise.all([this.postWebhook(notification), ...channels.map(channel => this.sendTo(channel, notification))]);
+    }
+
+    private async sendTo(channel: NotificationChannel, notification: CardNotification): Promise<void> {
+        try {
+            await channel.send(notification);
+        } catch (error) {
+            this.logger.warn(`notify ${channel.name} for ${notification.cardId} (${notification.moment}) failed: ${(error as Error).message}`);
+        }
+    }
+
+    private async postWebhook(notification: CardNotification): Promise<void> {
         if (!this.webhookUrl) return;
 
         // Card 0107: re-checked on every call, not trusted from whatever validated it at write

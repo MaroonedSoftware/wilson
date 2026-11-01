@@ -1,0 +1,8 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+*.apk
+*.aab
+# Holds the Firebase project's identifiers; supplied per deployment.
+app/google-services.json

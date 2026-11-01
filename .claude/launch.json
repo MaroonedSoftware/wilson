@@ -1,0 +1,10 @@
+{
+    "version": "0.0.1",
+    "configurations": [
+        {
+            "name": "android-api",
+            "runtimeExecutable": "apps/android/tools/api.sh",
+            "port": 13150
+        }
+    ]
+}

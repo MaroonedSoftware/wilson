@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand/states/poisoned.svg. A vector drawable has no mask, so the face is drawn in the surface's colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <group android:rotation="-11.0" android:pivotX="28.0" android:pivotY="37.0">
+        <path android:fillColor="@color/mark" android:pathData="M28.0,22.0 a6.0,6.0 0 0 1 6.0,6.0 v18.0 a6.0,6.0 0 0 1 -12.0,0 v-18.0 a6.0,6.0 0 0 1 6.0,-6.0 z" />
+    </group>
+    <group android:rotation="-4.0" android:pivotX="42.5" android:pivotY="33.0">
+        <path android:fillColor="@color/mark" android:pathData="M42.5,15.0 a6.0,6.0 0 0 1 6.0,6.0 v25.0 a6.0,6.0 0 0 1 -12.0,0 v-25.0 a6.0,6.0 0 0 1 6.0,-6.0 z" />
+    </group>
+    <group android:rotation="4.0" android:pivotX="57.0" android:pivotY="34.0">
+        <path android:fillColor="@color/mark" android:pathData="M57.0,17.0 a6.0,6.0 0 0 1 6.0,6.0 v23.0 a6.0,6.0 0 0 1 -12.0,0 v-23.0 a6.0,6.0 0 0 1 6.0,-6.0 z" />
+    </group>
+    <group android:rotation="11.0" android:pivotX="71.5" android:pivotY="38.0">
+        <path android:fillColor="@color/mark" android:pathData="M71.5,24.0 a6.0,6.0 0 0 1 6.0,6.0 v16.0 a6.0,6.0 0 0 1 -12.0,0 v-16.0 a6.0,6.0 0 0 1 6.0,-6.0 z" />
+    </group>
+    <path android:fillColor="@color/mark" android:pathData="M16 40 h68 a10 10 0 0 1 10 10 v9 a34 34 0 0 1 -34 34 h-20 a34 34 0 0 1 -34 -34 v-9 a10 10 0 0 1 10 -10 z" />
+    <path android:pathData="M29 58 l10 10" android:strokeColor="@color/mark_face" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M39 58 l-10 10" android:strokeColor="@color/mark_face" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M61 58 l10 10" android:strokeColor="@color/mark_face" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M71 58 l-10 10" android:strokeColor="@color/mark_face" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M36 80 h28" android:strokeColor="@color/mark_face" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

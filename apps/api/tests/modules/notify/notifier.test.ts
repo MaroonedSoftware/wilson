@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Notifier } from '#modules/notify/notifier.js';
+import { Notifier, registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import type { Logger } from '@maroonedsoftware/logger';
 
@@ -36,6 +36,49 @@ describe('Notifier', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         vi.useRealTimers();
+    });
+
+    describe('registered channels', () => {
+        it('sends to a channel with no webhook configured', async () => {
+            const send = vi.fn(async () => undefined);
+            const remove = registerNotificationChannel({ name: 'test', send });
+
+            await new Notifier(undefined, undefined, fakeLogger()).notify(notification());
+            remove();
+
+            expect(send).toHaveBeenCalledWith(notification());
+        });
+
+        it('keeps a failing channel from reaching the caller, the webhook or the next channel', async () => {
+            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            vi.stubGlobal('fetch', fetchMock);
+            const logger = fakeLogger();
+            const next = vi.fn(async () => undefined);
+            const removeBroken = registerNotificationChannel({
+                name: 'broken',
+                send: async () => {
+                    throw new Error('no route');
+                },
+            });
+            const removeNext = registerNotificationChannel({ name: 'next', send: next });
+
+            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification())).resolves.toBeUndefined();
+            removeBroken();
+            removeNext();
+
+            expect(next).toHaveBeenCalledOnce();
+            expect(fetchMock).toHaveBeenCalledOnce();
+            expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('notify broken for 0050 (manual) failed: no route'));
+        });
+
+        it('stops sending once a channel is removed', async () => {
+            const send = vi.fn(async () => undefined);
+            registerNotificationChannel({ name: 'test', send })();
+
+            await new Notifier(undefined, undefined, fakeLogger()).notify(notification());
+
+            expect(send).not.toHaveBeenCalled();
+        });
     });
 
     describe('off by default', () => {
@@ -125,7 +168,9 @@ describe('Notifier', () => {
             vi.stubGlobal('fetch', fetchMock);
             const logger = fakeLogger();
 
-            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' }))).resolves.toBeUndefined();
+            await expect(
+                new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' })),
+            ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
             expect(logger.warn.mock.calls[0][0]).toContain('0072');
@@ -137,7 +182,9 @@ describe('Notifier', () => {
             vi.stubGlobal('fetch', fetchMock);
             const logger = fakeLogger();
 
-            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' }))).resolves.toBeUndefined();
+            await expect(
+                new Notifier('https://hooks.example/notify', undefined, logger).notify(notification({ cardId: '0072' })),
+            ).resolves.toBeUndefined();
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
             expect(logger.warn.mock.calls[0][0]).toContain('0072');
