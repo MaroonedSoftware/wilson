@@ -48,7 +48,13 @@ internal static class Steps
 
         signIn.Password = password;
         await signIn.SubmitAsync();
-        await walk.UntilAsync("the board", () => walk.Shell.Page is BoardViewModel);
+        await walk.UntilAsync("chat", () => walk.Shell.Page is ThreadsViewModel);
+
+        var home = walk.Page<ThreadsViewModel>();
+        await walk.UntilAsync("the latest chat open, or none to open", () => home.Chat is not null || home.NoChats);
+        Console.WriteLine($"     home: {home.Threads.Count} chats, open: {home.Chat?.Title}");
+        walk.Shot("03-chat-home");
+        home.OpenBoard();
 
         var board = walk.Page<BoardViewModel>();
         await walk.UntilAsync("columns", () => board.Columns.Count > 0);
@@ -57,6 +63,9 @@ internal static class Steps
 
         await DiffAsync(walk, board);
         await CardsAsync(walk, board);
+        walk.Shell.Back();
+        await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
+        await ChatAsync(walk, home);
     }
 
     /// <summary>Only if the throwaway board has a card with a branch: a fresh one has none, and it takes a hand to give it one.</summary>
@@ -126,7 +135,7 @@ internal static class Steps
         await walk.UntilAsync("the edit on the card", () => walk.Shell.Page == card && card.Card?.Title.EndsWith("edited", StringComparison.Ordinal) == true);
         await PlanningAsync(walk, card);
         walk.Shell.Back();
-        await ChatAsync(walk, board);
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
     }
 
     private static async Task PlanningAsync(Walker walk, CardViewModel card)
@@ -168,20 +177,22 @@ internal static class Steps
         await walk.UntilAsync("back on the card", () => walk.Shell.Page == card);
     }
 
-    private static async Task ChatAsync(Walker walk, BoardViewModel board)
+    private static async Task ChatAsync(Walker walk, ThreadsViewModel home)
     {
-        board.OpenChat();
-        var threads = walk.Page<ThreadsViewModel>();
-        await threads.StartThreadCommand.ExecuteAsync(null);
-        var chat = walk.Page<ChatViewModel>();
+        await home.StartThreadCommand.ExecuteAsync(null);
+        var chat = home.Chat!;
+        await walk.UntilAsync("the new chat listed and current", () => home.Threads.Any(thread => thread.Current));
         chat.Composer = "Reply with the single word: ok";
         await chat.SendCommand.ExecuteAsync(null);
         await walk.UntilAsync("the chat answered, or the refusal said", () => chat.Idle, 120);
         Console.WriteLine($"     chat: lines {chat.Lines.Count}, error: {chat.Error}");
+        await walk.UntilAsync("the chat named in the list", () => home.Threads.Any(thread => thread.Current && thread.Title != "New chat"));
         walk.Shot("12-chat");
+
+        home.OpenBoard();
+        walk.Page<BoardViewModel>();
         walk.Shell.Back();
-        await walk.UntilAsync("the thread listed", () => threads.Threads.Count > 0);
-        walk.Shot("13-threads");
-        walk.Shell.Back();
+        await walk.UntilAsync("back on the same chat", () => walk.Shell.Page == home && home.Chat == chat && chat.Lines.Count > 0);
+        walk.Shot("13-chat-after-board");
     }
 }

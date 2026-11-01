@@ -118,7 +118,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
             if (result is SignInResult.SignedIn)
             {
                 Password = null;
-                shell.ShowBoard();
+                shell.ShowChat();
             }
             else if (result is SignInResult.CodeNeeded pending)
             {

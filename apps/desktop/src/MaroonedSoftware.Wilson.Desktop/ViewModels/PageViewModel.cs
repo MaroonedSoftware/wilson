@@ -21,6 +21,7 @@ public abstract class PageViewModel : ObservableObject, IDisposable
         _shown?.Cancel();
         _shown?.Dispose();
         _shown = null;
+        OnHidden();
     }
 
     public void Dispose()
@@ -31,6 +32,11 @@ public abstract class PageViewModel : ObservableObject, IDisposable
 
     /// <summary>Reads what the page shows and follows it, for as long as the token stands.</summary>
     protected abstract Task OnShownAsync(CancellationToken cancellationToken);
+
+    /// <summary>For a page that holds another: what it shows has to stop with it.</summary>
+    protected virtual void OnHidden()
+    {
+    }
 
     private async Task RunAsync(CancellationToken cancellationToken)
     {

@@ -120,6 +120,10 @@
         <Style Selector="Button.icon:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.icon:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.icon:checked /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Panel}" />
         </Style>
+        <Style Selector="Button.tile.current">
+            <Setter Property="BorderBrush" Value="{DynamicResource Quiet}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
         <Style Selector="TextBlock.error, SelectableTextBlock.error">
             <Setter Property="Foreground" Value="{DynamicResource Flag}" />
             <Setter Property="TextWrapping" Value="Wrap" />
