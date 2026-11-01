@@ -361,6 +361,27 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.needsHumanReason).toBeUndefined();
         });
 
+        it("drops the flagged stage's retry key, as `ack` does, so its next failure is not an instant re-flag", async () => {
+            const { board, service } = freshBoard();
+            await board.create(
+                card('0005', { stage: 'testing', needsHuman: true, needsHumanReason: 'stuck', retries: { testing: 3, implementing: 1 } }),
+                'seed',
+            );
+
+            await service.move('0005', { stage: 'implementing' });
+
+            expect((await board.read('0005')).frontmatter.retries).toEqual({ implementing: 1 });
+        });
+
+        it('leaves retries alone on a move that clears no flag', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0006', { stage: 'testing', retries: { testing: 2 } }), 'seed');
+
+            await service.move('0006', { stage: 'implementing' });
+
+            expect((await board.read('0006')).frontmatter.retries).toEqual({ testing: 2 });
+        });
+
         it('clears the flag even when the target is the stage the card is already in, instead of taking the no-op path', async () => {
             const { board, events, service } = freshBoard();
             await board.create(card('0004', { stage: 'implementing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');
@@ -399,6 +420,18 @@ describe('BoardWriteService', () => {
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({ cardId: '0010', type: 'worktree.reclaimed', payload: { cardId: '0010', target: 'merged' } }),
             );
+        });
+
+        it('leaves the worktree to the run when a stage is still using it', async () => {
+            const { board, config, events, runningCards, service, worktrees } = freshBoard();
+            await board.create(card('0012', { stage: 'testing' }), 'seed');
+            runningCards.add(config.project, '0012');
+
+            const detail = await service.move('0012', { stage: 'merged' });
+
+            expect(detail.stage).toBe('merged');
+            expect(worktrees.reclaim).not.toHaveBeenCalled();
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
         });
 
         it("never reclaims a flagged card's tree, even on a terminal move that itself clears the flag (card 0055)", async () => {
@@ -446,7 +479,7 @@ describe('BoardWriteService', () => {
                 );
             });
 
-            it('pins the plan version on entering backlog from parking-lot too — most of this board\'s cards arrive this way', async () => {
+            it("pins the plan version on entering backlog from parking-lot too — most of this board's cards arrive this way", async () => {
                 const { board, service } = freshBoard();
                 const planVersion = await board.create(withScope('0091', 'parking-lot'), 'seed');
 
@@ -707,7 +740,7 @@ describe('BoardWriteService', () => {
     });
 
     describe('edit', () => {
-        it("edits a card's body and records the same version message the CLI records: \"Edit {id} plan body\"", async () => {
+        it('edits a card\'s body and records the same version message the CLI records: "Edit {id} plan body"', async () => {
             const { board, service } = freshBoard();
             await board.create(card('0020', { stage: 'implementing' }), 'seed');
 
@@ -1017,8 +1050,7 @@ describe('BoardWriteService', () => {
     });
 
     describe('approve — card 0127: now a thin planning-only front door onto `move`', () => {
-        const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') =>
-            card(id, { stage }, body);
+        const withScope = (id: string, stage: string, body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n') => card(id, { stage }, body);
 
         it('refuses a card outside planning with a 400, writing nothing', async () => {
             const { board, service } = freshBoard();
@@ -1121,7 +1153,10 @@ describe('BoardWriteService', () => {
             await service.approve('0053');
             const pinnedVersion = (await board.read('0053')).frontmatter.planVersionId!;
 
-            await board.write('0053', 'edit after approval', c => ({ ...c, body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n' }));
+            await board.write('0053', 'edit after approval', c => ({
+                ...c,
+                body: '## Goal\n\nSomething else.\n\n## Files in scope\n\n- src/b.ts\n',
+            }));
 
             const pinned = await board.readAt('0053', pinnedVersion);
             expect(pinned.body).toBe(approvedBody);
@@ -1912,7 +1947,9 @@ describe('BoardWriteService', () => {
                     '',
                 ].join('\n'),
             );
-            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0197-merge-check', baseSha: 'merge-commit-sha' })) });
+            const worktrees = mergeWorktrees({
+                create: vi.fn(async () => ({ path: dir, branch: 'card/0197-merge-check', baseSha: 'merge-commit-sha' })),
+            });
             const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0197', { stage: 'ready' }), 'seed');
 
@@ -1955,7 +1992,9 @@ describe('BoardWriteService', () => {
                     '',
                 ].join('\n'),
             );
-            const worktrees = mergeWorktrees({ create: vi.fn(async () => ({ path: dir, branch: 'card/0198-merge-check', baseSha: 'merge-commit-sha' })) });
+            const worktrees = mergeWorktrees({
+                create: vi.fn(async () => ({ path: dir, branch: 'card/0198-merge-check', baseSha: 'merge-commit-sha' })),
+            });
             const { board, events, service } = freshMergeBoard(worktrees, mergeStages);
             await board.create(card('0198', { stage: 'ready' }), 'seed');
 
@@ -2481,7 +2520,7 @@ describe('BoardWriteService', () => {
             );
         });
 
-        it("moves the card to \"ready\"'s own configured onFail, not a hard-coded \"implementing\" (AC3)", async () => {
+        it('moves the card to "ready"\'s own configured onFail, not a hard-coded "implementing" (AC3)', async () => {
             const { board, service } = freshFindingsBoard();
             await board.create(card('0203', { stage: 'ready' }), 'seed');
 

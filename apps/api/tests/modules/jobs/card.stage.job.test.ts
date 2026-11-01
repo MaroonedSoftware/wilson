@@ -70,7 +70,12 @@ describe('CardStageJob', () => {
         // read is treated the same as "nothing to defer" (see the method's own doc comment), so a
         // test double that never cares about scope conflicts can leave this unstubbed further and
         // the new check falls straight through to the behaviour these tests were written against.
-        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => {
+                throw new Error('not stubbed');
+            }),
+        };
         // Card 0030: the job now hands its claim to the next job in a chain, and releases it when the
         // chain stops, so a card is never briefly un-carried in a way a poller could enqueue into.
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
@@ -347,15 +352,12 @@ describe('CardStageJob', () => {
      * the routing fails loudly here instead of quietly falling back to message matching.
      */
     describe('NotDispatchableError routing', () => {
-        const notDispatchable = (kind: 'wrong-stage' | 'empty-scope', message: string) =>
-            new NotDispatchableError({ kind }, message);
+        const emptyScope = () =>
+            new NotDispatchableError({ kind: 'empty-scope' }, 'card 0001 has an empty "Files in scope"; nothing would be writable');
 
-        it.each([
-            ['wrong-stage' as const, 'card 0001 is in stage "implementing", not "testing"'],
-            ['empty-scope' as const, 'card 0001 has an empty "Files in scope"; nothing would be writable'],
-        ])('poisons the card for a "%s" refusal, the same as a permanent failure', async (kind, message) => {
+        it('poisons the card for an "empty-scope" refusal, the same as a permanent failure', async () => {
             dispatcher.run = vi.fn(async () => {
-                throw notDispatchable(kind, message);
+                throw emptyScope();
             });
 
             await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
@@ -367,9 +369,9 @@ describe('CardStageJob', () => {
             expect(broker.send).not.toHaveBeenCalled();
         });
 
-        it('does not throw for a wrong-stage or empty-scope refusal, so the queue does not retry it', async () => {
+        it('does not throw for an empty-scope refusal, so the queue does not retry it', async () => {
             dispatcher.run = vi.fn(async () => {
-                throw notDispatchable('wrong-stage', 'card 0001 is in stage "implementing", not "testing"');
+                throw emptyScope();
             });
 
             await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
@@ -377,7 +379,10 @@ describe('CardStageJob', () => {
 
         it('defers rather than poisons an unsatisfied-dependency refusal, naming the outstanding cards', async () => {
             dispatcher.run = vi.fn(async () => {
-                throw new NotDispatchableError({ kind: 'unsatisfied-dependency', outstanding: ['0030', '0031'] }, 'card 0001 is waiting on 0030, 0031');
+                throw new NotDispatchableError(
+                    { kind: 'unsatisfied-dependency', outstanding: ['0030', '0031'] },
+                    'card 0001 is waiting on 0030, 0031',
+                );
             });
 
             await expect(job.run({ cardId: '0001', stageName: 'implementing' })).resolves.toBeUndefined();
@@ -543,13 +548,13 @@ describe('CardStageJob', () => {
      * Card 0084. Card 0066 was merged by a human while its `review` job was still queued; the job
      * dispatched five seconds later, `assertDispatchable` threw `wrong-stage`, and card 0044's
      * handler poisoned an already-finished card. It happened again on card 0082. The fix: a
-     * `wrong-stage` refusal whose `actualStage` is terminal is a stale job, not a bug, and must
-     * change nothing about the card.
+     * `wrong-stage` refusal is a stale job, not a bug, and must change nothing about the card,
+     * wherever a human moved it.
      */
-    describe('stale dispatch for a card that already finished (card 0084)', () => {
+    describe('stale dispatch for a card that left the stage (card 0084)', () => {
         const wrongStage = (actualStage: string, message: string) => new NotDispatchableError({ kind: 'wrong-stage', actualStage }, message);
 
-        it.each([['merged'], ['dropped'], ['poisoned']])(
+        it.each([['merged'], ['dropped'], ['poisoned'], ['implementing'], ['parking-lot']])(
             'records stage.stale, does not poison, and does not transition when the card is already "%s"',
             async actualStage => {
                 dispatcher.run = vi.fn(async () => {
@@ -599,36 +604,6 @@ describe('CardStageJob', () => {
             });
 
             await expect(job.run({ cardId: '0001', stageName: 'review' })).resolves.toBeUndefined();
-        });
-
-        // A card genuinely in the wrong (non-terminal) stage is card 0044's bug, untouched by this
-        // card — it must still poison exactly as before, even though the refusal now carries
-        // `actualStage`.
-        it('still poisons a "wrong-stage" refusal whose actual stage is an ordinary, non-terminal stage', async () => {
-            dispatcher.run = vi.fn(async () => {
-                throw wrongStage('implementing', 'card 0001 is in stage "implementing", not "testing"');
-            });
-
-            await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
-
-            expect(boardRepo.write).toHaveBeenCalledTimes(1);
-            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
-            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.stale');
-            expect(cardJobs.clear).toHaveBeenCalledWith('0001');
-        });
-
-        // `isTerminal` deliberately excludes `parking-lot`: a parked card is waiting to be promoted,
-        // not finished, so a stale-looking job that lands on one is still card 0044's bug.
-        it('still poisons a "wrong-stage" refusal when the card is in "parking-lot", which is not terminal', async () => {
-            dispatcher.run = vi.fn(async () => {
-                throw wrongStage('parking-lot', 'card 0001 is in stage "parking-lot", not "testing"');
-            });
-
-            await expect(job.run({ cardId: '0001', stageName: 'testing' })).resolves.toBeUndefined();
-
-            expect(boardRepo.write).toHaveBeenCalledTimes(1);
-            expect(events.append.mock.calls.map(c => c[0].type)).toContain('stage.poisoned');
-            expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('stage.stale');
         });
     });
 });
@@ -680,7 +655,12 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
         dispatcher = { run: vi.fn(async () => outcome({ transitionedTo: 'testing' })) };
         broker = { send: vi.fn(async () => 'job-1') };
         events = { append: vi.fn(async () => {}) };
-        boardRepo = { write: vi.fn(async () => 'sha'), read: vi.fn(async () => { throw new Error('not stubbed'); }) };
+        boardRepo = {
+            write: vi.fn(async () => 'sha'),
+            read: vi.fn(async () => {
+                throw new Error('not stubbed');
+            }),
+        };
         cardJobs = { record: vi.fn(async () => {}), clear: vi.fn(async () => {}), inFlight: vi.fn(async () => undefined) };
 
         job = new CardStageJob(
@@ -694,20 +674,20 @@ describe('CardStageJob resolves its project from the payload (card 0149)', () =>
         );
     });
 
-    it('falls back to the daemon\'s own configured project when the payload carries no project', async () => {
+    it("falls back to the daemon's own configured project when the payload carries no project", async () => {
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: alpha });
     });
 
-    it('uses the project named in the payload instead of the daemon\'s configured default', async () => {
+    it("uses the project named in the payload instead of the daemon's configured default", async () => {
         await job.run({ cardId: '0001', stageName: 'implementing', project: beta });
 
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'testing', project: beta });
         expect(broker.send).not.toHaveBeenCalledWith('card.stage', expect.objectContaining({ project: alpha }));
     });
 
-    it('records a chain-stop event under the payload\'s named project, not the daemon\'s default', async () => {
+    it("records a chain-stop event under the payload's named project, not the daemon's default", async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'review' })); // review is a manual stage — chain stops here
 
         await job.run({ cardId: '0001', stageName: 'testing', project: beta });
@@ -745,14 +725,7 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
     const buildJob = async (notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
         const base = await mkdtemp(join(tmpdir(), 'card-stage-job-notify-'));
 
-        const board = new StaticBoardConfig(
-            'test',
-            join(base, 'code'),
-            join(base, 'worktrees'),
-            join(base, 'run'),
-            notifyWebhookUrl,
-            notifyBaseUrl,
-        );
+        const board = new StaticBoardConfig('test', join(base, 'code'), join(base, 'worktrees'), join(base, 'run'), notifyWebhookUrl, notifyBaseUrl);
 
         return new CardStageJob(
             dispatcher as unknown as StageDispatcher,

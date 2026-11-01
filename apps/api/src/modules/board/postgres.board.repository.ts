@@ -107,11 +107,25 @@ export class PostgresBoardRepository extends BoardRepository {
         return this.db.transaction().execute(trx => this.writeIn(trx, id, message, mutate));
     }
 
-    async writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string> {
+    async writeWithEvent(
+        id: string,
+        message: string,
+        mutate: (card: Card) => Card | Promise<Card>,
+        event: AppendableCardEvent,
+        options?: { repinIf?: () => boolean },
+    ): Promise<string> {
         return this.db.transaction().execute(async trx => {
             // `version` is this write's new version id — see `BoardRepository.writeWithEvent`'s doc
             // comment for why a caller (card 0129) needs it back.
             const version = await this.writeIn(trx, id, message, mutate);
+            if (options?.repinIf?.()) {
+                await trx
+                    .updateTable('wilson.cards')
+                    .set({ pinnedVersionId: BigInt(version) })
+                    .where('project', '=', this.config.project)
+                    .where('id', '=', id)
+                    .execute();
+            }
             await this.events.append(event, trx);
             return version;
         });

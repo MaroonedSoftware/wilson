@@ -3,7 +3,18 @@ import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { ActivityEvent, ActivityQuery, CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery, SplitPieceSummary } from '../../generated/board.js';
+import type {
+    ActivityEvent,
+    ActivityQuery,
+    CardDiff,
+    CardEvent,
+    CardDetail,
+    CardSummary,
+    CardUsage,
+    CardVersion,
+    ListQuery,
+    SplitPieceSummary,
+} from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
