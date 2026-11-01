@@ -23,7 +23,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     public DesktopSettings Settings => _settings;
 
-    /// <summary>Goes to the board if a session was kept for the remembered server, and to sign-in otherwise.</summary>
+    /// <summary>Goes to chat if a session was kept for the remembered server, and to sign-in otherwise.</summary>
     public async Task StartAsync()
     {
         if (_settings.Origin is { } origin)
@@ -32,7 +32,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
             await connection.Session.RestoreAsync();
             if (connection.Session.IsSignedIn)
             {
-                ShowBoard();
+                ShowChat();
                 return;
             }
         }
@@ -55,7 +55,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         return Connection;
     }
 
-    public void ShowBoard() => Replace(new BoardViewModel(this));
+    public void ShowChat() => Replace(new ThreadsViewModel(this));
 
     public void Push(PageViewModel page)
     {
