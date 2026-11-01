@@ -10,6 +10,7 @@
             <TextBlock Classes="title" Text="Wilson" Margin="0,0,16,0" VerticalAlignment="Center" />
             <ComboBox ItemsSource="{Binding Projects}" SelectedItem="{Binding Project}" MinWidth="160" VerticalAlignment="Center" />
             <ToggleButton Content="Flagged" IsChecked="{Binding FlaggedOnly}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <Button Content="New card" Command="{Binding NewCardCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" IsVisible="{Binding Live}" VerticalAlignment="Center" />
@@ -36,13 +37,13 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="sdk:CardSummary">
-                                                <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,6">
+                                                <Button Classes="tile" Command="{Binding $parent[UserControl].((vm:BoardViewModel)DataContext).OpenCardCommand}" CommandParameter="{Binding}">
                                                     <StackPanel Spacing="2">
                                                         <TextBlock Classes="quiet" Text="{Binding Id}" />
                                                         <TextBlock Text="{Binding Title}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
                                                         <TextBlock Text="Needs you" Foreground="{DynamicResource Flag}" FontSize="12" IsVisible="{Binding NeedsHuman}" />
                                                     </StackPanel>
-                                                </Border>
+                                                </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>

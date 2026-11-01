@@ -10,6 +10,8 @@
     <Application.DataTemplates>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
+        <DataTemplate DataType="vm:CardViewModel"><views:CardView /></DataTemplate>
+        <DataTemplate DataType="vm:CardFormViewModel"><views:CardFormView /></DataTemplate>
     </Application.DataTemplates>
 
     <Application.Resources>
@@ -54,6 +56,19 @@
         <Style Selector="TextBlock.quiet, SelectableTextBlock.quiet">
             <Setter Property="Foreground" Value="{DynamicResource Quiet}" />
             <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TabItem">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="MinHeight" Value="30" />
+        </Style>
+        <Style Selector="Button.tile">
+            <Setter Property="Background" Value="{DynamicResource Tile}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Line}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
         </Style>
         <Style Selector="TextBlock.error, SelectableTextBlock.error">
             <Setter Property="Foreground" Value="{DynamicResource Flag}" />

@@ -46,6 +46,26 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     public string Server => shell.Connection?.Origin ?? string.Empty;
 
     [RelayCommand]
+    public void OpenCard(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        if (Project is { } project)
+        {
+            shell.Push(new CardViewModel(shell, project, card.Id));
+        }
+    }
+
+    [RelayCommand]
+    public void NewCard()
+    {
+        if (Project is { } project)
+        {
+            shell.Push(new CardFormViewModel(shell, project, null));
+        }
+    }
+
+    [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
 
     protected override async Task OnShownAsync(CancellationToken cancellationToken)

@@ -1,0 +1,64 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.CardView"
+    x:DataType="vm:CardViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Button DockPanel.Dock="Right" Content="Edit" Command="{Binding EditCommand}" />
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="quiet" Text="{Binding Id}" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="title" Text="{Binding Card.Title}" TextWrapping="Wrap" />
+        <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Margin="0,2,0,0" Text="{Binding Card.Stage}" />
+        <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Card.Branch}" IsVisible="{Binding Card.Branch, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Classes="error" Margin="0,4,0,0" Text="{Binding FlagReason}" IsVisible="{Binding FlagReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <WrapPanel DockPanel.Dock="Top" Margin="0,10,0,4" IsEnabled="{Binding Idle}">
+            <WrapPanel.Styles>
+                <Style Selector="Button, ComboBox"><Setter Property="Margin" Value="0,0,6,6" /></Style>
+            </WrapPanel.Styles>
+            <Button Content="Acknowledge" Command="{Binding AcknowledgeCommand}" IsVisible="{Binding Card.NeedsHuman, FallbackValue=False}" />
+            <Button Content="Start" Command="{Binding StartCommand}" />
+            <Button Content="Approve plan" Command="{Binding ApproveCommand}" />
+            <Button Content="Merge" Command="{Binding AskMergeCommand}" />
+            <Button Content="Release" Command="{Binding AskReleaseCommand}" />
+            <ComboBox ItemsSource="{Binding Stages}" SelectedItem="{Binding MoveTo}" PlaceholderText="Move to" MinWidth="140" />
+            <Button Content="Move" Command="{Binding MoveCommand}" />
+        </WrapPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,0,0,6" IsVisible="{Binding Confirming, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelConfirmCommand}" Margin="6,0,0,0" />
+                <Button DockPanel.Dock="Right" Content="Yes" Command="{Binding ConfirmCommand}" Margin="6,0,0,0" />
+                <TextBlock Text="{Binding Confirming}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Acting}" IsVisible="{Binding Acting, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <SelectableTextBlock DockPanel.Dock="Top" Text="{Binding Notice}" TextWrapping="Wrap" Margin="0,0,0,4" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TabControl>
+            <TabItem Header="Plan">
+                <ScrollViewer>
+                    <SelectableTextBlock Text="{Binding Card.Body}" TextWrapping="Wrap" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,8,8" />
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Activity">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Usage}" Margin="0,8" IsVisible="{Binding Usage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding Events}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EventLine">
+                                    <DockPanel Margin="0,2">
+                                        <TextBlock DockPanel.Dock="Left" Classes="quiet" Text="{Binding When}" Width="110" />
+                                        <SelectableTextBlock Text="{Binding What}" TextWrapping="Wrap" />
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</UserControl>
