@@ -10,6 +10,7 @@ file is a single shape filled with `currentColor` and works on any background.
 |---|---|
 | `wilson-mark.svg` | Primary mark. Inherits `color`. |
 | `wilson-mark-16.svg` | Hinted variant for 16–20px: three fatter spikes, wider head, heavier strokes. Do not scale the primary mark below 24px — use this instead. |
+| `wilson-app-icon.svg` | App icon: the white mark on a `#242424` tile, for surfaces Wilson does not control and whose background may be light or dark. Source of `unraid/icon.png`, and the same colours as the Android launcher icon. |
 | `states/*.svg` | The mark reporting a stage state. Same head, different face. |
 
 ## States
