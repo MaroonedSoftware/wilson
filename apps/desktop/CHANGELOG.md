@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.3.0
+
+### Minor Changes
+
+- 555ff1b: Add a menu-bar icon. Closing the window now hides it and leaves Wilson running: reopen it from the icon or the Dock, and quit from the icon or with Cmd+Q.
+
 ## 0.2.1
 
 ### Patch Changes
