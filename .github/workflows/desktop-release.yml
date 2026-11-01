@@ -33,6 +33,8 @@ jobs:
               with:
                   global-json-file: apps/desktop/global.json
             # The same gates as the ordinary build. A release that skipped them would be the one build nobody checked.
+            # Without the public key the app can never install an update, which only shows once it is too late.
+            - run: test -s src/MaroonedSoftware.Wilson.Desktop.Core/Updates/update-key.pem
             - run: dotnet restore Wilson.Desktop.slnx --locked-mode
             - run: dotnet build Wilson.Desktop.slnx -c Release -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx -c Release --no-build
