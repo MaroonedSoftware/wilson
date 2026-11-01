@@ -77,7 +77,7 @@ const makeWorktree = async (): Promise<string> => {
     return root;
 };
 
-const runInput = (stage: ReturnType<typeof makeStage>, worktreeRoot: string, events: { append: (event: unknown) => Promise<void> }) => ({
+const runInput = (stage: ReturnType<typeof makeStage>, worktreeRoot: string, events: { append: (event: RecordedEvent) => Promise<void> }) => ({
     stage,
     context: {
         project: 'p',

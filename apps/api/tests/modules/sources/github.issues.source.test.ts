@@ -7,7 +7,9 @@ import { GitHubIssuesSource } from '#modules/sources/github.issues.source.js';
  * uses, simplified to one project since `GitHubIssuesSource` never reads `BoardConfig` itself. */
 const fakeSettings = (values: Record<string, unknown> = {}): SettingsStore =>
     ({
-        get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => (definition.key in values ? values[definition.key] : definition.defaultValue)),
+        get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+            definition.key in values ? values[definition.key] : definition.defaultValue,
+        ),
     }) as unknown as SettingsStore;
 
 const withRepo = (repo = 'octocat/hello-world', label?: string): SettingsStore =>
@@ -168,7 +170,7 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
      * Card 0200's whole reason to fetch `state=all`: `InboundCardWriter` decides what a closed ticket
      * means for a card, but only if this source actually reports the closure.
      */
-    it("reports closed: true for a closed issue and closed: false for an open one", async () => {
+    it('reports closed: true for a closed issue and closed: false for an open one', async () => {
         const { fetchImpl } = scriptedFetch([jsonResponse([issue({ number: 1, state: 'open' }), issue({ number: 2, state: 'closed' })])]);
         const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
 
@@ -212,7 +214,11 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
 describe('GitHubIssuesSource.changedSince — cursor', () => {
     it('returns the maximum updated_at among reported issues as the next cursor', async () => {
         const { fetchImpl } = scriptedFetch([
-            jsonResponse([issue({ number: 1, updated_at: '2026-01-01T00:00:00Z' }), issue({ number: 2, updated_at: '2026-01-03T00:00:00Z' }), issue({ number: 3, updated_at: '2026-01-02T00:00:00Z' })]),
+            jsonResponse([
+                issue({ number: 1, updated_at: '2026-01-01T00:00:00Z' }),
+                issue({ number: 2, updated_at: '2026-01-03T00:00:00Z' }),
+                issue({ number: 3, updated_at: '2026-01-02T00:00:00Z' }),
+            ]),
         ]);
         const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
 
@@ -341,8 +347,8 @@ describe('GitHubIssuesSource.changedSince — pagination', () => {
         // A fresh `Response` per call, unlike `scriptedFetch`'s repeat-the-last-one semantics: a
         // `Response`'s body stream can only be read once, and this test's whole point is that
         // `fetchImpl` gets called many times over.
-        const fetchImpl = vi.fn(
-            async () => jsonResponse([issue()], { link: '<https://api.github.com/repos/octocat/hello-world/issues?page=next>; rel="next"' }),
+        const fetchImpl = vi.fn(async () =>
+            jsonResponse([issue()], { link: '<https://api.github.com/repos/octocat/hello-world/issues?page=next>; rel="next"' }),
         ) as unknown as typeof fetch;
         const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
 

@@ -14,12 +14,7 @@ import { useWilsonSdk } from '#src/lib/sdk-context.js';
  * one markdown renderer (`Markdown.tsx`) rather than a second one grown for this pane. */
 function TurnBubble({ turn }: { turn: PlanTurn }) {
     return (
-        <Paper
-            withBorder
-            p="sm"
-            radius="sm"
-            style={turn.role === 'user' ? { backgroundColor: 'var(--mantine-color-blue-light)' } : undefined}
-        >
+        <Paper withBorder p="sm" radius="sm" style={turn.role === 'user' ? { backgroundColor: 'var(--mantine-color-blue-light)' } : undefined}>
             <Stack gap={4}>
                 <Group gap={6} justify="space-between">
                     <Badge size="xs" color={turn.role === 'user' ? 'blue' : 'gray'} variant="light">

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { kickback, shouldAdvance } from '#modules/stages/kickback.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -24,7 +26,7 @@ const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
 describe('kickback', () => {
     it('increments the counter for the failing stage from an absent count', () => {
         const stage = makeStage();
-        const decision = kickback(stage, {});
+        const decision = kickback(stage, {}, false, false);
 
         expect(decision.retries).toEqual({ testing: 1 });
     });
@@ -32,11 +34,11 @@ describe('kickback', () => {
     it('routes to onFail while the stage has failed fewer than maxKickbacks times', () => {
         const stage = makeStage({ maxKickbacks: 3, onFail: 'implementing' });
 
-        const first = kickback(stage, {});
+        const first = kickback(stage, {}, false, false);
         expect(first.target).toBe('implementing');
         expect(first.retries.testing).toBe(1);
 
-        const second = kickback(stage, first.retries);
+        const second = kickback(stage, first.retries, false, false);
         expect(second.target).toBe('implementing');
         expect(second.retries.testing).toBe(2);
     });
@@ -44,7 +46,7 @@ describe('kickback', () => {
     it('stays on the stage’s own name and flags needsHuman on the maxKickbacks-th failure, not one beyond it', () => {
         const stage = makeStage({ maxKickbacks: 3, onFail: 'implementing' });
 
-        const third = kickback(stage, { testing: 2 });
+        const third = kickback(stage, { testing: 2 }, false, false);
 
         expect(third.retries.testing).toBe(3);
         expect(third.target).toBe('testing');
@@ -55,7 +57,7 @@ describe('kickback', () => {
     it('does not route to needs-human before maxKickbacks failures', () => {
         const stage = makeStage({ maxKickbacks: 3, onFail: 'implementing' });
 
-        const second = kickback(stage, { testing: 1 });
+        const second = kickback(stage, { testing: 1 }, false, false);
 
         expect(second.retries.testing).toBe(2);
         expect(second.target).toBe('implementing');
@@ -65,7 +67,7 @@ describe('kickback', () => {
         const stage = makeStage({ name: 'testing', maxKickbacks: 5 });
         const existing = { review: 2, testing: 1 };
 
-        const decision = kickback(stage, existing);
+        const decision = kickback(stage, existing, false, false);
 
         expect(decision.retries).toEqual({ review: 2, testing: 2 });
     });
@@ -75,7 +77,7 @@ describe('kickback', () => {
         const original = { testing: 1 };
         const originalCopy = { ...original };
 
-        kickback(stage, original);
+        kickback(stage, original, false, false);
 
         expect(original).toEqual(originalCopy);
     });
@@ -84,7 +86,7 @@ describe('kickback', () => {
         const stage = makeStage();
         const original = { testing: 1 };
 
-        const decision = kickback(stage, original);
+        const decision = kickback(stage, original, false, false);
 
         expect(decision.retries).not.toBe(original);
     });
@@ -92,7 +94,7 @@ describe('kickback', () => {
     it('gives up on the first failure when maxKickbacks is 1', () => {
         const stage = makeStage({ maxKickbacks: 1, onFail: 'implementing' });
 
-        const decision = kickback(stage, {});
+        const decision = kickback(stage, {}, false, false);
 
         expect(decision.retries.testing).toBe(1);
         expect(decision.target).toBe('testing');
@@ -108,7 +110,7 @@ describe('kickback — unjudged overrides onFail', () => {
     it('routes to the stage itself when unjudged is true, even though onFail points elsewhere', () => {
         const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 3 });
 
-        const decision = kickback(stage, {}, true);
+        const decision = kickback(stage, {}, true, false);
 
         expect(decision.target).toBe('review');
         expect(decision.retries.review).toBe(1);
@@ -118,7 +120,7 @@ describe('kickback — unjudged overrides onFail', () => {
     it('still routes to onFail when unjudged is false, exactly as before this card', () => {
         const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 3 });
 
-        const decision = kickback(stage, {}, false);
+        const decision = kickback(stage, {}, false, false);
 
         expect(decision.target).toBe('implementing');
     });
@@ -126,11 +128,11 @@ describe('kickback — unjudged overrides onFail', () => {
     it('keeps counting and flags needsHuman at maxKickbacks for a self-routed unjudged failure, same as any other kickback', () => {
         const stage = makeStage({ name: 'review', onFail: 'implementing', maxKickbacks: 2 });
 
-        const first = kickback(stage, {}, true);
+        const first = kickback(stage, {}, true, false);
         expect(first.target).toBe('review');
         expect(first.needsHuman).toBeUndefined();
 
-        const second = kickback(stage, first.retries, true);
+        const second = kickback(stage, first.retries, true, false);
         expect(second.target).toBe('review');
         expect(second.retries.review).toBe(2);
         expect(second.needsHuman?.reason).toContain('review');
@@ -140,8 +142,8 @@ describe('kickback — unjudged overrides onFail', () => {
     it('makes no difference for a stage whose onFail already targets itself', () => {
         const stage = makeStage({ name: 'testing', onFail: 'testing', maxKickbacks: 3 });
 
-        const judged = kickback(stage, {}, false);
-        const unjudged = kickback(stage, {}, true);
+        const judged = kickback(stage, {}, false, false);
+        const unjudged = kickback(stage, {}, true, false);
 
         expect(judged.target).toBe('testing');
         expect(unjudged.target).toBe('testing');

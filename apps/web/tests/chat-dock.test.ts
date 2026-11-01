@@ -388,10 +388,15 @@ describe('the chat dock', () => {
         vi.spyOn(ChatClient.prototype, 'startAChatThread').mockResolvedValue(thread);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'hello?')]));
         vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockRejectedValue(
-            new SdkError(502, 'Bad Gateway', {
-                message: 'Bad Gateway',
-                details: { reason: 'the chat could not answer: ANTHROPIC_API_KEY is not set' },
-            }),
+            new SdkError(
+                502,
+                'Bad Gateway',
+                {
+                    message: 'Bad Gateway',
+                    details: { reason: 'the chat could not answer: ANTHROPIC_API_KEY is not set' },
+                },
+                new Headers(),
+            ),
         );
         renderApp();
 

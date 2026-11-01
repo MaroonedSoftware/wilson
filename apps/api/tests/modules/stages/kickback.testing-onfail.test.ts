@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kickback } from '#modules/stages/kickback.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 
 /**
  * Card 0062. Card 0060's actual sequence, reproduced with the config that caused it:
@@ -19,6 +20,7 @@ import type { StageConfig } from '#modules/stages/stage.config.js';
  * `review.onFail: implementing`.
  */
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',
@@ -48,19 +50,19 @@ describe('kickback — reproducing card 0060 with the config that caused it', ()
         // because implementing.onFail is itself — kicks back to itself against its *own* counter
         // until that exhausts too.
         const testingStage = makeStage({ name: 'testing', onFail: 'implementing', maxKickbacks: 3 });
-        const testingKickback = kickback(testingStage, {});
+        const testingKickback = kickback(testingStage, {}, false, false);
         expect(testingKickback.target).toBe('implementing');
         expect(testingKickback.needsHuman).toBeUndefined();
 
         const implementingStage = makeStage({ name: 'implementing', onPass: 'testing', onFail: 'implementing', maxKickbacks: 2 });
-        const firstEmptyDiff = kickback(implementingStage, {});
+        const firstEmptyDiff = kickback(implementingStage, {}, false, false);
         expect(firstEmptyDiff.target).toBe('implementing');
         expect(firstEmptyDiff.needsHuman).toBeUndefined();
 
         // Second consecutive empty-diff failure on implementing's own counter reaches maxKickbacks:
         // the card is flagged for a human, stranded on implementing, having never had anything to
         // fix — card 0060's actual ending.
-        const secondEmptyDiff = kickback(implementingStage, firstEmptyDiff.retries);
+        const secondEmptyDiff = kickback(implementingStage, firstEmptyDiff.retries, false, false);
         expect(secondEmptyDiff.target).toBe('implementing');
         expect(secondEmptyDiff.needsHuman).toBeDefined();
     });
@@ -68,11 +70,11 @@ describe('kickback — reproducing card 0060 with the config that caused it', ()
     it('with the recommended testing.onFail: testing, a testing failure never reaches implementing at all', () => {
         const testingStage = makeStage({ name: 'testing', onFail: 'testing', maxKickbacks: 3 });
 
-        const first = kickback(testingStage, {});
+        const first = kickback(testingStage, {}, false, false);
         expect(first.target).toBe('testing');
         expect(first.target).not.toBe('implementing');
 
-        const second = kickback(testingStage, first.retries);
+        const second = kickback(testingStage, first.retries, false, false);
         expect(second.target).toBe('testing');
         expect(second.target).not.toBe('implementing');
 
@@ -80,7 +82,7 @@ describe('kickback — reproducing card 0060 with the config that caused it', ()
         // than ever having been routed to implementing — the exact waste card 0060 spent all its
         // retries on. implementing's own counter is never touched, because kickback is never even
         // called against it.
-        const third = kickback(testingStage, second.retries);
+        const third = kickback(testingStage, second.retries, false, false);
         expect(third.target).toBe('testing');
         expect(third.target).not.toBe('implementing');
         expect(third.needsHuman?.reason).toContain('testing');
@@ -92,10 +94,10 @@ describe('kickback — reproducing card 0060 with the config that caused it', ()
         // statement about the code, so implementing is still the right target when review fails.
         const reviewStage = makeStage({ name: 'review', onPass: 'ready', onFail: 'implementing', maxKickbacks: 3 });
 
-        const first = kickback(reviewStage, {});
+        const first = kickback(reviewStage, {}, false, false);
         expect(first.target).toBe('implementing');
 
-        const second = kickback(reviewStage, first.retries);
+        const second = kickback(reviewStage, first.retries, false, false);
         expect(second.target).toBe('implementing');
     });
 });

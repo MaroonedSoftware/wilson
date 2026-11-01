@@ -59,11 +59,7 @@ function renderApp(path: string) {
     // three retries — the same fix `project-routes.test.ts` applies for its own rejected-query test.
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }

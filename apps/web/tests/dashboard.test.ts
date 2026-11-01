@@ -56,11 +56,7 @@ function renderApp(path: string) {
     // which would make the "Cannot reach the API" test below wait through real backoff delays.
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }
@@ -112,7 +108,7 @@ describe('the dashboard at /projects', () => {
         expect(other.getAttribute('href')).toBe('/projects/other');
     });
 
-    it('navigates to a project\'s own board on click, rendering that project\'s board rather than a link that merely looks right', async () => {
+    it("navigates to a project's own board on click, rendering that project's board rather than a link that merely looks right", async () => {
         stubProjectsEndpoint(['demo']);
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(emptyColumns);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
@@ -161,7 +157,7 @@ describe('the dashboard at /projects', () => {
     // firing their own independent requests. With two projects registered, both the dashboard's list
     // and the header's switcher are on screen at once at `/` — proving there's still only one call is
     // the only way to tell a shared cache entry from two that merely happen to agree.
-    it('shares the registered-projects cache with the header\'s ProjectSwitcher instead of fetching twice', async () => {
+    it("shares the registered-projects cache with the header's ProjectSwitcher instead of fetching twice", async () => {
         const listProjects = stubProjectsEndpoint(['demo', 'other']);
 
         renderApp('/projects');

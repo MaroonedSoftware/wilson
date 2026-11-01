@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Health } from '@wilson/sdk';
 import { API_BASE, wilson, wilsonForProject } from '#src/lib/sdk.js';
 
-const health: Health = {
+/** The body as it crosses the wire, before the SDK parses `startedAt` into a `DateTime`. */
+const health: Omit<Health, 'startedAt'> & { startedAt: string } = {
     ok: true,
     project: 'wilson',
     head: 'abc1234',

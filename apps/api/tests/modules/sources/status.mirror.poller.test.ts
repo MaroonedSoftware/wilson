@@ -248,7 +248,7 @@ describe('StatusMirrorPoller — source resolution', () => {
         await expect(runTick(poller)).resolves.toBeUndefined();
     });
 
-    it('only calls mirrorStatus on the source named by the external ref\'s own key, not every registered source', async () => {
+    it("only calls mirrorStatus on the source named by the external ref's own key, not every registered source", async () => {
         const { source: githubSource, calls: githubCalls } = trackingSource('github');
         const { source: otherSource, calls: otherCalls } = trackingSource('jira');
         const { board, config, poller } = setup([githubSource, otherSource]);
@@ -380,7 +380,11 @@ describe('StatusMirrorPoller start/stop — the interval read survives a databas
 
         poller.start();
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                STATUS_MIRROR_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
         expect(logger.error).toHaveBeenCalledWith(boom);
 
@@ -388,7 +392,11 @@ describe('StatusMirrorPoller start/stop — the interval read survives a databas
         // again — rather than busy-looping or giving up after a single retry.
         releaseTick();
         await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
-        expect(delayMock).toHaveBeenLastCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        expect(delayMock).toHaveBeenLastCalledWith(
+            STATUS_MIRROR_INTERVAL_MS_DEFAULT,
+            undefined,
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
         expect(logger.error).toHaveBeenCalledTimes(2);
 
         await poller.stop();
@@ -400,7 +408,9 @@ describe('StatusMirrorPoller start/stop — the interval read survives a databas
         const { poller } = buildTestPoller(settings);
 
         poller.start();
-        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
 
         // The wait elapses, the tick after it runs, and loop() reads the setting again — this time it
         // rejects, and the fallback must be 5000 (the last known-good value), not
@@ -420,7 +430,11 @@ describe('StatusMirrorPoller start/stop — the interval read survives a databas
         poller.start();
         // Never having read a good value yet, the first failure falls back to the default.
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(STATUS_MIRROR_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                STATUS_MIRROR_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
 
         releaseTick();

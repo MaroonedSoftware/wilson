@@ -51,7 +51,13 @@ function relativeLuminance(hex: string): number {
 
 function hexToRgb(hex: string): [number, number, number] {
     const normalized = hex.replace('#', '');
-    const expanded = normalized.length === 3 ? normalized.split('').map(c => c + c).join('') : normalized;
+    const expanded =
+        normalized.length === 3
+            ? normalized
+                  .split('')
+                  .map(c => c + c)
+                  .join('')
+            : normalized;
     const value = Number.parseInt(expanded, 16);
     return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }
@@ -90,7 +96,7 @@ describe("the app's link colour against its background (card 0179's fix in theme
         // Card 0179's fix: cssVariablesResolver overrides the dark-scheme anchor to
         // theme.colors.dark[0]. The dark-scheme body is Mantine's own default (unrelated to
         // primaryColor): --mantine-color-body: var(--mantine-color-dark-7).
-        const anchor = cssVariablesResolver(merged).dark['--mantine-color-anchor'];
+        const anchor = cssVariablesResolver(merged).dark['--mantine-color-anchor']!;
         const body = merged.colors.dark[7];
         expect(contrastRatio(anchor, body)).toBeGreaterThanOrEqual(4.5);
     });
@@ -99,7 +105,7 @@ describe("the app's link colour against its background (card 0179's fix in theme
         // Card 0179 leaves light untouched (cssVariablesResolver's light: {}), so both the anchor and
         // the body fall back to Mantine's own defaults: the anchor to the primary colour at
         // primaryShade.light, the body to theme.white.
-        const anchor = merged.colors[merged.primaryColor][getPrimaryShade(merged, 'light')];
+        const anchor = merged.colors[merged.primaryColor]![getPrimaryShade(merged, 'light')];
         const body = merged.white;
         expect(contrastRatio(anchor, body)).toBeGreaterThanOrEqual(4.5);
     });

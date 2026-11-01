@@ -40,7 +40,7 @@ describe('poisonCard notifies (card 0050)', () => {
     const events = () => ({ append: vi.fn(async () => {}) }) as unknown as EventLog;
 
     it('posts a "poisoned" notification, carrying the card title and reason, when a webhook is configured', async () => {
-        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
         const boardRepo = repoOver(card('implementing', 'a poisoned card'));
         const board = boardWith('https://hooks.example/notify', 'https://board.example');
@@ -51,7 +51,7 @@ describe('poisonCard notifies (card 0050)', () => {
         );
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'poisoned',
             project: 'test',
@@ -79,7 +79,7 @@ describe('poisonCard notifies (card 0050)', () => {
     // Do not send twice for one event: a `card.stage.dead` retry, or a redelivered job, landing here
     // after an earlier attempt already poisoned the card has nothing new to report.
     it('does not notify when the card was already poisoned before this write started (a redelivery)', async () => {
-        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
         const boardRepo = repoOver(card('poisoned'));
 

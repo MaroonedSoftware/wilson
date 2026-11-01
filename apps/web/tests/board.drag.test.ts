@@ -173,7 +173,13 @@ describe('dragging a card between columns', () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: '0007', title: 'card 0007', stage: 'testing', dependsOn: [], needsHuman: false, sections: {}, body: '' } as any,
         );
-        renderBoard(new Map([['implementing', [card('0007', 'implementing')]], ['testing', []], ['review', []]]));
+        renderBoard(
+            new Map([
+                ['implementing', [card('0007', 'implementing')]],
+                ['testing', []],
+                ['review', []],
+            ]),
+        );
 
         await withStubbedRects(rulesFor('implementing'), () => dragRight(1));
 
@@ -189,7 +195,13 @@ describe('dragging a card between columns', () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: '0007', title: 'card 0007', stage: 'review', dependsOn: [], needsHuman: false, sections: {}, body: '' } as any,
         );
-        renderBoard(new Map([['implementing', [card('0007', 'implementing')]], ['testing', []], ['review', []]]));
+        renderBoard(
+            new Map([
+                ['implementing', [card('0007', 'implementing')]],
+                ['testing', []],
+                ['review', []],
+            ]),
+        );
 
         await withStubbedRects(rulesFor('implementing'), () => dragRight(2));
 
@@ -202,7 +214,13 @@ describe('dragging a card between columns', () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             {} as any,
         );
-        renderBoard(new Map([['implementing', [card('0007', 'implementing')]], ['testing', []], ['review', []]]));
+        renderBoard(
+            new Map([
+                ['implementing', [card('0007', 'implementing')]],
+                ['testing', []],
+                ['review', []],
+            ]),
+        );
 
         await withStubbedRects(rulesFor('implementing'), () => dragRight(0));
 
@@ -218,10 +236,23 @@ describe('dragging a card between columns', () => {
     });
 
     it("renders the server's refusal reason and leaves the card in its original column", async () => {
-        const moveCard = vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(
-            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: '"review" is not a valid target for this card' } }, new Headers()),
+        const moveCard = vi
+            .spyOn(wilson.board, 'moveCard')
+            .mockRejectedValue(
+                new SdkError(
+                    400,
+                    'Bad Request',
+                    { statusCode: 400, message: 'Bad Request', details: { reason: '"review" is not a valid target for this card' } },
+                    new Headers(),
+                ),
+            );
+        renderBoard(
+            new Map([
+                ['implementing', [card('0007', 'implementing')]],
+                ['testing', []],
+                ['review', []],
+            ]),
         );
-        renderBoard(new Map([['implementing', [card('0007', 'implementing')]], ['testing', []], ['review', []]]));
 
         await withStubbedRects(rulesFor('implementing'), () => dragRight(2));
 
@@ -258,7 +289,7 @@ describe('the id a moveCard-shaped request actually carries', () => {
         });
     }
 
-    it('is stale when the bound state is cleared in the same handler that calls mutate — 0046\'s own ordering', async () => {
+    it("is stale when the bound state is cleared in the same handler that calls mutate — 0046's own ordering", async () => {
         const onCall = vi.fn();
         function NaiveWidget() {
             const [activeId, setActiveId] = useState<string | null>('0007');

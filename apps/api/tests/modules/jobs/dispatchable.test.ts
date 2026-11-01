@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import type { ProjectStages, StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { Card, CardFrontmatter } from '#modules/board/card.js';
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'testing',
     mode: 'agent',
     worktree: 'rw',

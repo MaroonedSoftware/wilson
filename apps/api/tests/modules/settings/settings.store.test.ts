@@ -138,6 +138,7 @@ describe('SettingsStore.get/set — a database row', () => {
             envVar: 'POLLER_INTERVAL_MS',
             parseEnv: raw => Number(raw),
             defaultValue: 30_000,
+            scope: 'project',
         };
 
         expect(await store.get(POLLER_INTERVAL_MS)).toBe(30_000);

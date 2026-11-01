@@ -765,7 +765,7 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
         await job.run({ cardId: '0001', stageName: 'testing' });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'manual',
             project: 'test',
@@ -818,7 +818,7 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
 
         await job.run({ cardId: '0001', stageName: 'testing' });
 
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body.title).toBe('0001');
     });
 

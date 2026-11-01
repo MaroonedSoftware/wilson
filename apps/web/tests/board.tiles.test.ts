@@ -21,11 +21,7 @@ const columns: BoardColumns = {
     nonStages: ['merged'],
 };
 
-const card = (
-    id: string,
-    stage: string,
-    opts: { needsHuman?: boolean; dependsOn?: string[]; stageEnteredAt?: DateTime } = {},
-): CardSummary => ({
+const card = (id: string, stage: string, opts: { needsHuman?: boolean; dependsOn?: string[]; stageEnteredAt?: DateTime } = {}): CardSummary => ({
     id,
     title: `card ${id}`,
     stage,
@@ -54,11 +50,7 @@ function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router })),
-        ),
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
     return { router };
 }

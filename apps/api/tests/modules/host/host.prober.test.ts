@@ -108,7 +108,7 @@ describe('HostProber', () => {
 
     it('counts a missing clone as a note where the host can clone and the project says what from', async () => {
         const name = await registerHost({ codeRoot: join(base, 'not-cloned') });
-        const [{ project }] = (await hosts.find(name))!.projects as [{ project: string }];
+        const { project } = (await hosts.find(name))!.projects[0]!;
         await db.updateTable('wilson.projects').set({ repository: 'acme/widgets' }).where('name', '=', project).execute();
         const row = (await hosts.find(name))!;
         const server = await startWorkerServer({ token: { ...row, kind: 'worker' } });

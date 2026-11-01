@@ -143,7 +143,11 @@ describe('BoundedCardStageJobRunner.watchConcurrency — the interval read survi
 
         await runner.start();
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                POLLER_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
         expect(logger.error).toHaveBeenCalledWith(boom);
 
@@ -151,7 +155,11 @@ describe('BoundedCardStageJobRunner.watchConcurrency — the interval read survi
         // again — rather than busy-looping or giving up after a single retry.
         releaseTick();
         await vi.waitFor(() => expect(delayMock).toHaveBeenCalledTimes(2));
-        expect(delayMock).toHaveBeenLastCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        expect(delayMock).toHaveBeenLastCalledWith(
+            POLLER_INTERVAL_MS_DEFAULT,
+            undefined,
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
         expect(logger.error).toHaveBeenCalledTimes(2);
 
         await expect(runner.stop()).resolves.toBeUndefined();
@@ -163,7 +171,9 @@ describe('BoundedCardStageJobRunner.watchConcurrency — the interval read survi
         const { runner } = buildRunner(settings);
 
         await runner.start();
-        await vi.waitFor(() => expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+        await vi.waitFor(() =>
+            expect(delayMock).toHaveBeenCalledWith(5_000, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+        );
 
         // The wait elapses, the watcher's own tick (reconcileConcurrency) runs, and the loop reads the
         // setting again — this time it rejects, and the fallback must be 5000 (the last known-good
@@ -183,7 +193,11 @@ describe('BoundedCardStageJobRunner.watchConcurrency — the interval read survi
         await runner.start();
         // Never having read a good value yet, the first failure falls back to the default.
         await vi.waitFor(() =>
-            expect(delayMock).toHaveBeenCalledWith(POLLER_INTERVAL_MS_DEFAULT, undefined, expect.objectContaining({ signal: expect.any(AbortSignal) })),
+            expect(delayMock).toHaveBeenCalledWith(
+                POLLER_INTERVAL_MS_DEFAULT,
+                undefined,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            ),
         );
 
         releaseTick();

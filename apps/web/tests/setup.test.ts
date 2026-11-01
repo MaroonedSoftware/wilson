@@ -7,7 +7,7 @@ import { getConfig } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 describe('apps/web/tests/setup.ts, registered as a setupFile in apps/web/vitest.config.ts', () => {
-    it('raises the shared asyncUtilTimeout to 5000ms, from Testing Library\'s 1000ms default', () => {
+    it("raises the shared asyncUtilTimeout to 5000ms, from Testing Library's 1000ms default", () => {
         expect(getConfig().asyncUtilTimeout).toBe(5000);
     });
 });

@@ -21,12 +21,7 @@ function DiffView({ lines }: { lines: DiffLine[] }) {
         <ScrollArea.Autosize mah={360} type="auto">
             <Stack gap={2} p={4} style={{ fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 'var(--mantine-font-size-xs)' }}>
                 {lines.map((line, index) => (
-                    <Text
-                        key={index}
-                        span
-                        c={line.kind === 'add' ? 'teal' : 'red'}
-                        style={{ whiteSpace: 'pre-wrap' }}
-                    >
+                    <Text key={index} span c={line.kind === 'add' ? 'teal' : 'red'} style={{ whiteSpace: 'pre-wrap' }}>
                         {line.kind === 'add' ? '+ ' : '- '}
                         {line.text}
                     </Text>
@@ -76,10 +71,7 @@ function ApproveDialog({
                     <Button variant="default" onClick={onClose} disabled={saveDraft.isPending}>
                         Cancel
                     </Button>
-                    <Button
-                        loading={saveDraft.isPending}
-                        onClick={() => saveDraft.mutate(draft, { onSuccess: onSaved })}
-                    >
+                    <Button loading={saveDraft.isPending} onClick={() => saveDraft.mutate(draft, { onSuccess: onSaved })}>
                         Write this version
                     </Button>
                 </Group>

@@ -113,7 +113,12 @@ export function DirectoryPicker({ label, value, onSelect, disabled }: DirectoryP
                     )}
 
                     <Group justify="space-between">
-                        <Checkbox label="Show hidden folders" size="xs" checked={showHidden} onChange={event => setShowHidden(event.currentTarget.checked)} />
+                        <Checkbox
+                            label="Show hidden folders"
+                            size="xs"
+                            checked={showHidden}
+                            onChange={event => setShowHidden(event.currentTarget.checked)}
+                        />
                         <Group gap="xs">
                             <Button variant="default" onClick={() => setOpened(false)}>
                                 Cancel

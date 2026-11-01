@@ -138,7 +138,9 @@ describe('CliStageAgent engine failure attribution', () => {
 
         await agent.run(runInput(makeStage()) as never);
 
-        const engineEvent = appended.find((e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed');
+        const engineEvent = appended.find(
+            (e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed',
+        );
         expect(engineEvent).toBeDefined();
         expect(engineEvent?.payload.errorClass).toBe('aborted');
         expect(engineEvent?.payload.message).toBe('Claude Code process aborted by user');
@@ -158,7 +160,9 @@ describe('CliStageAgent engine failure attribution', () => {
         const output = (await agent.run(runInput(makeStage()) as never)) as { engineFailure?: string };
 
         expect(output.engineFailure).toContain('exit code 1');
-        const engineEvent = appended.find((e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed');
+        const engineEvent = appended.find(
+            (e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed',
+        );
         expect(engineEvent?.payload.exitCode).toBe(1);
     });
 
@@ -173,7 +177,9 @@ describe('CliStageAgent engine failure attribution', () => {
         const output = (await agent.run(runInput(makeStage()) as never)) as { engineFailure?: string };
 
         expect(output.engineFailure).toContain('signal SIGKILL');
-        const engineEvent = appended.find((e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed');
+        const engineEvent = appended.find(
+            (e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed',
+        );
         expect(engineEvent?.payload.signal).toBe('SIGKILL');
     });
 
@@ -190,7 +196,9 @@ describe('CliStageAgent engine failure attribution', () => {
         const output = (await agent.run(runInput(makeStage()) as never)) as { engineFailure?: string };
 
         expect(output.engineFailure).toContain('fatal: out of memory');
-        const engineEvent = appended.find((e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed');
+        const engineEvent = appended.find(
+            (e): e is { type: string; payload: Record<string, unknown> } => (e as { type: string }).type === 'engine.failed',
+        );
         expect(engineEvent?.payload.stderr).toContain('fatal: out of memory');
     });
 

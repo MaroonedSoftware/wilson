@@ -1,0 +1,9 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Covers tests/ as well as src/, which the build tsconfig leaves out.
+        "rootDir": "."
+    },
+    "include": ["./src/**/*", "./tests/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

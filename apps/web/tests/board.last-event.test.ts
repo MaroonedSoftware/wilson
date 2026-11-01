@@ -32,7 +32,7 @@ describe('lastEventAge', () => {
 });
 
 describe('LAST_EVENT_STALE_MS', () => {
-    it('is five minutes, matching card 0204\'s proposed idle watchdog', () => {
+    it("is five minutes, matching card 0204's proposed idle watchdog", () => {
         expect(LAST_EVENT_STALE_MS).toBe(5 * 60 * 1000);
     });
 });
@@ -42,17 +42,17 @@ describe('showsLastEventLine', () => {
         expect(showsLastEventLine(undefined, 'testing')).toBe(false);
     });
 
-    it('is true for a stage.dispatched event whose own stage matches the card\'s current stage', () => {
+    it("is true for a stage.dispatched event whose own stage matches the card's current stage", () => {
         expect(showsLastEventLine({ type: 'stage.dispatched', stage: 'testing', payload: null, ts: '2026-01-10T12:00:00.000Z' }, 'testing')).toBe(
             true,
         );
     });
 
-    it.each(['tool.executed', 'tool.denied', 'tool.unguarded'])('is true for a %s event whose own stage matches the card\'s current stage', type => {
+    it.each(['tool.executed', 'tool.denied', 'tool.unguarded'])("is true for a %s event whose own stage matches the card's current stage", type => {
         expect(showsLastEventLine({ type, stage: 'testing', payload: null, ts: '2026-01-10T12:00:00.000Z' }, 'testing')).toBe(true);
     });
 
-    it('is false when the event\'s own stage differs from the card\'s current stage (AC5: the card has since moved on)', () => {
+    it("is false when the event's own stage differs from the card's current stage (AC5: the card has since moved on)", () => {
         expect(showsLastEventLine({ type: 'tool.executed', stage: 'planning', payload: null, ts: '2026-01-10T12:00:00.000Z' }, 'testing')).toBe(
             false,
         );

@@ -30,10 +30,10 @@ const fakeCardJobs = (jobIdByProjectAndCard: Record<string, string>): FakeCardJo
     }),
 });
 
-const fakeRunner = (stop: () => Promise<void>): JobRunner => ({ start: vi.fn(), stop } as unknown as JobRunner);
+const fakeRunner = (stop: () => Promise<void>): JobRunner => ({ start: vi.fn(), stop }) as unknown as JobRunner;
 
 describe('stopCardStageJobs scopes each confirmation to the project its card ran under (card 0149)', () => {
-    it('resolves each RunningCards entry\'s confirmation under that entry\'s own project, not a shared/default one', async () => {
+    it("resolves each RunningCards entry's confirmation under that entry's own project, not a shared/default one", async () => {
         const runner = fakeRunner(vi.fn().mockResolvedValue(undefined));
         const running = new RunningCards();
         running.add('alpha', '0001');
