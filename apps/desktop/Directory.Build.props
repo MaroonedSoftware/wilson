@@ -1,0 +1,27 @@
+<!--
+    What every project under apps/desktop is, before it says anything about itself. Deadair's file,
+    and its reasons apply unchanged. This does NOT reach `packages/sdk-csharp`, which sits outside
+    this directory and carries its own properties.
+
+    An XML comment may not contain a double hyphen: MSBuild reports it as MSB4024 from every project
+    that imports the file, naming the file and not the reason.
+-->
+<Project>
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+        <AnalysisLevel>latest-recommended</AnalysisLevel>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+        <!-- So a plain build and a publish agree about what the lock file contains. -->
+        <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
+        <Version>0.1.0</Version>
+        <Company>Marooned Software</Company>
+        <Product>Wilson</Product>
+    </PropertyGroup>
+
+</Project>

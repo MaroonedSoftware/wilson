@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>Walk</RootNamespace>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" />
+        <PackageReference Include="Avalonia.Headless" />
+        <PackageReference Include="Avalonia.Skia" />
+        <PackageReference Include="Avalonia.Themes.Fluent" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop/MaroonedSoftware.Wilson.Desktop.csproj" />
+        <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop.Mac/MaroonedSoftware.Wilson.Desktop.Mac.csproj" />
+    </ItemGroup>
+
+</Project>

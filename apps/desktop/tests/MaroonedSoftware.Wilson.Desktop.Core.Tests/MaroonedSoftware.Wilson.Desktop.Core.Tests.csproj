@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <RootNamespace>MaroonedSoftware.Wilson.Desktop.Core.Tests</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="xunit.v3" />
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop.Core/MaroonedSoftware.Wilson.Desktop.Core.csproj" />
+    </ItemGroup>
+
+    <!-- Real API responses, recorded for the Android tests. One set, so the two clients cannot disagree. -->
+    <ItemGroup>
+        <None Include="../../../android/app/src/test/resources/api/*.json" LinkBase="api" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

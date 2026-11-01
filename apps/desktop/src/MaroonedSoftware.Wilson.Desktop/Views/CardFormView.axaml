@@ -1,0 +1,19 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.CardFormView"
+    x:DataType="vm:CardFormViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="{Binding Heading}" />
+        </DockPanel>
+        <TextBox DockPanel.Dock="Top" PlaceholderText="Title" Text="{Binding Title}" Margin="0,0,0,8" />
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding !Busy}" />
+            <TextBlock Classes="error" Text="{Binding Error}" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBox PlaceholderText="What is this card for?" Text="{Binding Body}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" VerticalContentAlignment="Top" />
+    </DockPanel>
+</UserControl>

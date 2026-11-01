@@ -1,0 +1,10 @@
+<Window
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.MainWindow"
+    Title="Wilson"
+    Width="1180" Height="760"
+    MinWidth="820" MinHeight="520">
+    <views:ShellView />
+</Window>
