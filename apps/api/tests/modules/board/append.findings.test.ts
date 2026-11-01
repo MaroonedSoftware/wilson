@@ -4,6 +4,7 @@ import type { ReviewCriterion, ReviewFinding } from '#modules/stages/stage.resul
 
 const finding = (overrides: Partial<ReviewFinding> = {}): ReviewFinding => ({
     severity: 'blocker',
+    kind: 'defect',
     file: 'src/thing.ts',
     line: 12,
     problem: 'the thing is broken',

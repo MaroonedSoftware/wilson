@@ -217,7 +217,7 @@ describe('the context section', () => {
 
         const removeButtons = screen.getAllByRole('button', { name: 'Remove' });
         expect(removeButtons).toHaveLength(2);
-        fireEvent.click(removeButtons[0]);
+        fireEvent.click(removeButtons[0]!);
 
         // The confirmation dialog itself — clicking it must not have removed anything yet. The
         // dialog names the same URL again (in its own confirmation copy), so the list's own copy

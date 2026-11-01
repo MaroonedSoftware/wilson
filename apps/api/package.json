@@ -19,6 +19,7 @@
         "migrate:create": "dbmate -d ./data/migrations new",
         "lint": "eslint --fix",
         "lint:check": "eslint",
+        "typecheck": "tsc -p tsconfig.tests.json",
         "test": "vitest run",
         "test:engine": "vitest run --config vitest.engine.config.ts"
     },

@@ -27,7 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -233,7 +233,7 @@ describe('dragging a card between columns (the real Board.tsx)', () => {
     it('keeps the card in its starting column, reading as pending, while the move request is in flight', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(COLUMNS);
         vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([card('0007', 'implementing')]);
-        let resolveMove!: (value: unknown) => void;
+        let resolveMove!: (value: CardDetail) => void;
         vi.spyOn(BoardClient.prototype, 'moveCard').mockImplementation(() => new Promise(resolve => (resolveMove = resolve)));
 
         renderApp(BOARD_PATH);

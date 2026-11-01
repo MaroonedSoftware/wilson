@@ -19,10 +19,13 @@ describe('ProjectsService', () => {
         runRoot: `/run/${name}`,
     });
 
+    // Only a request naming a `repository` reaches the directories or the cloner, and none of these does.
+    const serviceOver = (repository: ProjectRepository) => new ProjectsService(repository, {} as ProjectDirectoriesService, {} as GitHubCloner);
+
     it('maps every registered project row down to its name, in the order the repository returned them', async () => {
         const rows = [row('alpha'), row('beta')];
         const repository = { list: async () => rows } as unknown as ProjectRepository;
-        const service = new ProjectsService(repository);
+        const service = serviceOver(repository);
 
         const result = await service.list();
 
@@ -37,7 +40,7 @@ describe('ProjectsService', () => {
     // fails here even if it still satisfies a looser shape check elsewhere.
     it('carries no path field from the repository row — only name', async () => {
         const repository = { list: async () => [row('alpha')] } as unknown as ProjectRepository;
-        const service = new ProjectsService(repository);
+        const service = serviceOver(repository);
 
         const [project] = await service.list();
 
@@ -49,7 +52,7 @@ describe('ProjectsService', () => {
 
     it('returns an empty array when no project is registered, rather than throwing or returning undefined', async () => {
         const repository = { list: async () => [] } as unknown as ProjectRepository;
-        const service = new ProjectsService(repository);
+        const service = serviceOver(repository);
 
         await expect(service.list()).resolves.toEqual([]);
     });
@@ -76,7 +79,7 @@ describe('ProjectsService', () => {
                     created.push(row);
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             const result = await service.create(request());
 
@@ -94,7 +97,7 @@ describe('ProjectsService', () => {
                     created.push(row);
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await service.create(request({ codeRoot: '/a/b/../c' }));
 
@@ -106,7 +109,7 @@ describe('ProjectsService', () => {
                 throw new Error('create should not have been called');
             };
             const repository = { find: async () => ({ name: 'wilson', codeRoot: '/x', worktreeRoot: '/x', runRoot: '/x' }), create } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await expect(service.create(request())).rejects.toMatchObject({
                 statusCode: 409,
@@ -124,7 +127,7 @@ describe('ProjectsService', () => {
                     throw new Error('create should not have been called');
                 };
                 const repository = { find, create } as unknown as ProjectRepository;
-                const service = new ProjectsService(repository);
+                const service = serviceOver(repository);
 
                 await expect(service.create(request({ [field]: 'relative/path' }))).rejects.toMatchObject({
                     statusCode: 400,
@@ -142,7 +145,7 @@ describe('ProjectsService', () => {
                     throw new Error('create should not have been called');
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await expect(service.create(request({ codeRoot: '' }))).rejects.toMatchObject({ statusCode: 400 });
         });
@@ -161,7 +164,7 @@ describe('ProjectsService', () => {
                     return true;
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             const result = await service.update('wilson', { codeRoot: '/new-code' });
 
@@ -177,7 +180,7 @@ describe('ProjectsService', () => {
                     return true;
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await service.update('wilson', { runRoot: '/new-run' });
 
@@ -192,7 +195,7 @@ describe('ProjectsService', () => {
                     return true;
                 },
             } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await service.update('wilson', { codeRoot: '/a/b/../c' });
 
@@ -204,7 +207,7 @@ describe('ProjectsService', () => {
                 throw new Error('update should not have been called');
             };
             const repository = { update } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await expect(service.update('wilson', { codeRoot: 'relative/path' })).rejects.toMatchObject({
                 statusCode: 400,
@@ -214,7 +217,7 @@ describe('ProjectsService', () => {
 
         it('refuses an unregistered name with 404 when the repository reports no row matched', async () => {
             const repository = { update: async () => false } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             await expect(service.update('ghost', { codeRoot: '/new-code' })).rejects.toMatchObject({
                 statusCode: 404,
@@ -224,7 +227,7 @@ describe('ProjectsService', () => {
 
         it('carries no path field in its response — only name, the same withholding "create" and "list" both give', async () => {
             const repository = { update: async () => true } as unknown as ProjectRepository;
-            const service = new ProjectsService(repository);
+            const service = serviceOver(repository);
 
             const result = await service.update('wilson', { codeRoot: '/new-code' });
 

@@ -15,6 +15,7 @@ import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
@@ -46,6 +47,7 @@ const baseCard: Card = {
 };
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'implementing',
     mode: 'agent',
     worktree: 'rw',

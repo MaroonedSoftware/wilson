@@ -63,7 +63,7 @@ describe('CardContextRepository', () => {
     });
 
     it('stores a missing title as SQL NULL and reads it back as undefined, never an empty string', async () => {
-        const snapshot = await repo.attach('0001', 'https://example.com/doc', fetchedAt, 'url-provider', null, 'content', 'hash-1');
+        const snapshot = await repo.attach('0001', 'https://example.com/doc', fetchedAt, 'url-provider', undefined, 'content', 'hash-1');
 
         expect(snapshot.title).toBeUndefined();
         const got = await repo.get(snapshot.id);

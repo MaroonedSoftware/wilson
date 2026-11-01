@@ -180,7 +180,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(stored.frontmatter.retries).toEqual({});
 
         const version = await board.currentVersion('0001');
-        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', version!).executeTakeFirstOrThrow();
+        const row = await db.selectFrom('wilson.cardVersions').select('message').where('id', '=', BigInt(version!)).executeTakeFirstOrThrow();
         expect(row.message).toBe('0001: testing flagged for a human (over budget)');
     });
 
@@ -195,7 +195,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         const history = await board.versions('0001', 10);
         expect(history).toHaveLength(2); // card creation, then this one refusal
 
-        const latest = await board.readAt('0001', history[0].id);
+        const latest = await board.readAt('0001', history[0]!.id);
         expect(latest.frontmatter.stage).toBe('testing');
         expect(latest.frontmatter.needsHuman).toBe(true);
         expect(latest.frontmatter.needsHumanReason).toMatch(/spent its budget/);
@@ -250,7 +250,7 @@ describe('StageDispatcher.run notifies when it refuses an over-budget card (card
         await dispatcher.run('0001', 'testing');
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
         expect(body).toMatchObject({
             moment: 'needs-human',
             project,

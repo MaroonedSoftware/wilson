@@ -190,7 +190,7 @@ describe('SourcePoller tick — applying and advancing', () => {
     });
 
     it('a tick with SOURCE_POLL_ENABLED false polls nothing', async () => {
-        const changedSince = vi.fn(async () => ({ ok: true, items: [], cursor: 'cursor-1' }));
+        const changedSince = vi.fn(async () => ({ ok: true as const, items: [], cursor: 'cursor-1' }));
         const source: CardSource = { name: 'linear', changedSince };
         const config = new StaticBoardConfig('source-poller-disabled-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const settings = fakeSettingsStore(config, { [config.project]: { 'source-poll-enabled': false } });
@@ -216,7 +216,7 @@ describe('SourcePoller tick — applying and advancing', () => {
         const config = new StaticBoardConfig('source-poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const boom = new Error('database is on fire');
         const projects = { list: vi.fn(async () => Promise.reject(boom)) } as unknown as ProjectRepository;
-        const changedSince = vi.fn(async () => ({ ok: true, items: [], cursor: 'cursor-1' }));
+        const changedSince = vi.fn(async () => ({ ok: true as const, items: [], cursor: 'cursor-1' }));
         const { poller, logger } = buildPoller([{ name: 'linear', changedSince }], { config, projects });
 
         await expect(runOneTick(poller)).resolves.toBeUndefined();
@@ -238,7 +238,7 @@ describe('SourcePoller tick — multiple registered projects', () => {
         const rows = [projectRow('alpha'), projectRow('beta')];
         const config = new ProjectScopedBoardConfig('alpha');
         const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
-        const changedSince = vi.fn(async () => ({ ok: true, items: [], cursor: 'cursor-1' }));
+        const changedSince = vi.fn(async () => ({ ok: true as const, items: [], cursor: 'cursor-1' }));
         const settings = fakeSettingsStore(config, { alpha: { 'source-poll-enabled': true }, beta: { 'source-poll-enabled': false } });
         const { poller } = buildPoller([{ name: 'linear', changedSince }], { config, projects, settings });
 
@@ -253,7 +253,7 @@ describe('SourcePoller tick — multiple registered projects', () => {
         const config = new ProjectScopedBoardConfig('alpha');
         const projects = { list: vi.fn(async () => rows) } as unknown as ProjectRepository;
         const boom = new Error('beta settings unreachable');
-        const changedSince = vi.fn(async () => ({ ok: true, items: [], cursor: 'cursor-1' }));
+        const changedSince = vi.fn(async () => ({ ok: true as const, items: [], cursor: 'cursor-1' }));
         const settings = {
             get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => {
                 if (config.project === 'beta') throw boom;
@@ -294,7 +294,7 @@ describe('SourcePoller start/stop', () => {
     });
 
     it('ticks through the real public start()/stop() surface once the interval elapses, using SOURCE_POLL_INTERVAL_MS', async () => {
-        const changedSince = vi.fn(async () => ({ ok: true, items: [], cursor: 'cursor-1' }));
+        const changedSince = vi.fn(async () => ({ ok: true as const, items: [], cursor: 'cursor-1' }));
         const { poller, cursors } = buildPoller([{ name: 'linear', changedSince }]);
 
         poller.start();

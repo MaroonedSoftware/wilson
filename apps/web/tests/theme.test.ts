@@ -7,9 +7,9 @@
 // injects (`MantineCssVariables`, `@mantine/core`'s own mechanism for turning a theme into `:root`
 // custom properties) — proof the values in `theme.ts` actually reach the provider, not just that
 // `theme.ts` exports an object shaped the right way.
-import { createElement } from 'react';
+import { createElement, type ComponentType } from 'react';
 import { cleanup, render } from '@testing-library/react';
-import { Anchor, MantineProvider } from '@mantine/core';
+import { Anchor, MantineProvider, type AnchorProps } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { theme, cssVariablesResolver } from '#src/theme.js';
 
@@ -112,7 +112,7 @@ describe('cssVariablesResolver (card 0179 — links unreadable in dark mode)', (
  * `'not-hover'`, or `'always'`). Reading the attribute is what proves which behaviour is actually
  * wired up, rather than trusting that passing `defaultProps` did something. */
 function renderedAnchorUnderline(providerTheme?: typeof theme): string | null {
-    const { container } = render(createElement(MantineProvider, { theme: providerTheme }, createElement(Anchor, { href: '#' }, 'a link')));
+    const { container } = render(createElement(MantineProvider, { theme: providerTheme }, createElement(Anchor as ComponentType<AnchorProps & { href: string }>, { href: '#' }, 'a link')));
     return container.querySelector('a')?.getAttribute('data-underline') ?? null;
 }
 

@@ -24,7 +24,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
 const { z } = await import('zod');
 
-const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} };
 
 const makeStage = (overrides = {}) => ({
     name: 'implementing',

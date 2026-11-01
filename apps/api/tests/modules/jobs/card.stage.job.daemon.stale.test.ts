@@ -83,7 +83,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         const board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         const dispatcher = { run: vi.fn(async () => outcome()) };
         const broker = { send: vi.fn(async () => 'job-1') };
-        const events = { append: vi.fn(async () => {}) };
+        const events = { append: vi.fn<EventLog['append']>(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
         // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and this test exercises `checkDaemonCurrent` exactly as before.
@@ -169,7 +169,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         board = new StaticBoardConfig('test', codeRoot, join(base, 'worktrees'), join(base, 'run'));
         dispatcher = { run: vi.fn(async () => outcome()) };
         broker = { send: vi.fn(async () => 'job-1') };
-        events = { append: vi.fn(async () => {}) };
+        events = { append: vi.fn<EventLog['append']>(async () => {}) };
         // Card 0104: `deferOnScopeConflict` reads the card first; a rejected read is treated the
         // same as "nothing to defer" (see its doc comment in predispatch/scope.conflict.ts), so the new check
         // falls straight through and these tests exercise `checkDaemonCurrent` exactly as before.
@@ -232,7 +232,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         );
 
         dispatcher = { run: vi.fn(async () => outcome()) };
-        events = { append: vi.fn(async () => {}) };
+        events = { append: vi.fn<EventLog['append']>(async () => {}) };
         board = noGitBoard;
         const job = buildJob();
         await job.run({ cardId: '0001', stageName: 'implementing' });

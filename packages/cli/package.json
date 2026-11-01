@@ -12,6 +12,7 @@
         "wilson": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
         "lint": "eslint --fix",
         "lint:check": "eslint",
+        "typecheck": "tsc -p tsconfig.tests.json",
         "test": "vitest run"
     },
     "dependencies": {

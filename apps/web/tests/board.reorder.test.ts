@@ -27,7 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { BoardClient, SdkError } from '@wilson/sdk';
 import { columnOrder } from '#src/lib/board.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -168,7 +168,7 @@ describe('reordering the parking lot (the real Board.tsx)', () => {
         // A deliberately unsettled request, the same shape board.dnd.test.ts's own in-flight test
         // uses: proves the reorder is visible immediately (`onMutate`'s cache write), not merely
         // after a fast-resolving mock happens to settle before this test gets around to asserting.
-        let resolveReposition!: (value: unknown) => void;
+        let resolveReposition!: (value: CardDetail) => void;
         const repositionCard = vi
             .spyOn(BoardClient.prototype, 'repositionCard')
             .mockImplementation(() => new Promise(resolve => (resolveReposition = resolve)));
@@ -189,7 +189,7 @@ describe('reordering the parking lot (the real Board.tsx)', () => {
         expect(renderedOrder()).toEqual(['0002', '0001', '0003']);
 
         await act(async () => {
-            resolveReposition({});
+            resolveReposition({} as CardDetail);
             await new Promise(resolve => setTimeout(resolve, 0));
         });
     });

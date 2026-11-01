@@ -44,7 +44,7 @@ class FakeEventSource {
     }
 }
 
-const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1];
+const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
 
 /** Builds the JSON text a `card` SSE event actually carries (`card.feed.listener.ts`'s own shape:
  * `{ id, ts, message, correlationId, data: { stage, payload } }`) — see `feed.ts`'s `WireCardEvent`. */
@@ -119,8 +119,8 @@ describe('useCardFeed activity', () => {
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0001', message: 'stage.dispatched' })));
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0002', message: 'tool.executed' })));
 
-        expect(result.current.activity['0001'].type).toBe('stage.dispatched');
-        expect(result.current.activity['0002'].type).toBe('tool.executed');
+        expect(result.current.activity['0001']!.type).toBe('stage.dispatched');
+        expect(result.current.activity['0002']!.type).toBe('tool.executed');
     });
 
     it('records nothing for a card event with no correlationId, rather than crashing', () => {
@@ -170,7 +170,7 @@ describe('useCardFeed invalidation exclusion (AC1)', () => {
 
         act(() => latestSource().emit('card', wireEvent({ correlationId: '0043', message: 'tool.denied' })));
 
-        expect(result.current.activity['0043'].type).toBe('tool.denied');
+        expect(result.current.activity['0043']!.type).toBe('tool.denied');
     });
 });
 
@@ -181,7 +181,7 @@ describe('useCardFeed toolLog', () => {
         act(() => latestSource().emit('card', wireEvent({ id: 1, correlationId: '0043', message: 'tool.executed', ts: '2026-01-10T12:00:00.000Z' })));
         act(() => latestSource().emit('card', wireEvent({ id: 2, correlationId: '0043', message: 'tool.denied', ts: '2026-01-10T12:01:00.000Z' })));
 
-        expect(result.current.toolLog['0043'].map(event => event.type)).toEqual(['tool.denied', 'tool.executed']);
+        expect(result.current.toolLog['0043']!.map(event => event.type)).toEqual(['tool.denied', 'tool.executed']);
     });
 
     it('does not add a non-tool event to the tool log', () => {
@@ -204,11 +204,11 @@ describe('useCardFeed toolLog', () => {
             );
         }
 
-        const log = result.current.toolLog['0043'];
+        const log = result.current.toolLog['0043']!;
         expect(log).toHaveLength(MAX_LIVE_TOOL_EVENTS);
         // Newest first: the very last event emitted (id MAX_LIVE_TOOL_EVENTS + 4) is still present at
         // the front; the oldest ones (id 0..4) were dropped off the end.
-        expect(log[0].id).toBe(MAX_LIVE_TOOL_EVENTS + 4);
+        expect(log[0]!.id).toBe(MAX_LIVE_TOOL_EVENTS + 4);
         expect(log.map(event => event.id)).not.toContain(0);
     });
 
@@ -220,7 +220,7 @@ describe('useCardFeed toolLog', () => {
 
         expect(result.current.toolLog['0001']).toHaveLength(1);
         expect(result.current.toolLog['0002']).toHaveLength(1);
-        expect(result.current.toolLog['0001'][0].type).toBe('tool.executed');
+        expect(result.current.toolLog['0001']![0]!.type).toBe('tool.executed');
     });
 });
 

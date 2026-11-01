@@ -1,0 +1,13 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Covers tests/ as well as src/, which the build tsconfig leaves out. The root is the repo's,
+        // because the tests resolve @wilson/sdk to its source, as vitest.config.ts does.
+        "rootDir": "../..",
+        "paths": {
+            "#src/*": ["./src/*"]
+        }
+    },
+    "include": ["./src/**/*", "./tests/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

@@ -21,6 +21,7 @@ import { BoardClient, ChatClient, ProjectsClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardSummary } from '@wilson/sdk';
 import { API_BASE } from '#src/lib/sdk.js';
 import { routeTree } from '#src/routeTree.gen.js';
+import type { FetchMock } from './support/fetchMock.js';
 
 const columns: BoardColumns = {
     stages: ['planning', 'implementing', 'review'],
@@ -82,7 +83,7 @@ class FakeEventSource {
 
 const feedSource = () => FakeEventSource.instances.find(s => s.url.includes('/api/feed'));
 const planStreamSources = () => FakeEventSource.instances.filter(s => s.url.includes('/plan/stream'));
-const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1];
+const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1]!;
 
 /** `Board` renders inside Mantine's `ScrollArea`, which measures itself with `ResizeObserver` on
  * mount — jsdom does not implement it. Same stand-in flagged.test.ts uses. */
@@ -310,7 +311,7 @@ describe('a project-scoped route, reading through a client built for its own pro
  * `BoardClient` mock standing in between.
  */
 describe('a project-scoped route, sending its project over the wire', () => {
-    let fetchMock: ReturnType<typeof vi.fn>;
+    let fetchMock: FetchMock;
 
     beforeEach(() => {
         FakeEventSource.instances = [];
@@ -344,12 +345,12 @@ describe('a project-scoped route, sending its project over the wire', () => {
 
         await screen.findByText('card 0001');
 
-        const cardsCalls = fetchMock.mock.calls.filter(([url]: [string]) => url === `${API_BASE}/api/cards`);
+        const cardsCalls = fetchMock.mock.calls.filter(([url]) => url === `${API_BASE}/api/cards`);
         // Two calls hit the same path: the project-scoped board itself, and `FlaggedIndicator` in
         // the shared header, which still reads through the app-wide singleton (this card's plan
         // defers that propagation to [[0155]]) — so exactly one of the two carries the header.
         expect(cardsCalls).toHaveLength(2);
-        const projectHeaders = cardsCalls.map(([, init]: [string, RequestInit]) => (init.headers as Record<string, string>)['X-Wilson-Project']);
+        const projectHeaders = cardsCalls.map(([, init]) => (init.headers as Record<string, string>)['X-Wilson-Project']);
         expect(projectHeaders).toContain('demo');
         expect(projectHeaders).toContain(undefined);
     });

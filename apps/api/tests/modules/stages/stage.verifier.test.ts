@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StageConfigSchema, assertRoutesResolve, type StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { VerificationInput, VerificationOutcome } from '#modules/stages/stage.verifier.js';
 import { StageVerifierMap, checkFormat, type StageVerifier } from '#modules/stages/stage.verifier.js';
 import type { Worktree } from '#modules/worktree/worktree.manager.js';
@@ -69,6 +70,7 @@ describe('StageConfigSchema', () => {
 
 describe('assertRoutesResolve', () => {
     const stage = (name: string, onPass: string, onFail: string) => ({
+        ...stageDefaults,
         name,
         mode: 'agent' as const,
         worktree: 'rw' as const,
@@ -85,7 +87,13 @@ describe('assertRoutesResolve', () => {
         maxKickbacks: 3,
         baselineCheck: true,
     });
-    const config = (...stages: ReturnType<typeof stage>[]) => ({ scopeViolation: 'widen' as const, alwaysAllowed: [], deny: [], stages });
+    const config = (...stages: ReturnType<typeof stage>[]) => ({
+        scopeViolation: 'widen' as const,
+        alwaysAllowed: [],
+        deny: [],
+        sandbox: { enabled: false, allowedDomains: [] },
+        stages,
+    });
 
     it('accepts a route to another configured stage', () => {
         expect(() => assertRoutesResolve(config(stage('a', 'b', 'a'), stage('b', 'merged', 'a')))).not.toThrow();

@@ -296,7 +296,7 @@ describe('SourcesModule start/shutdown', () => {
         const sourcePoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
         const statusMirrorPoller = { start: vi.fn(), stop: vi.fn(async () => {}) };
 
-        await SourcesModule.start!(fakeContainer(sourcePoller, statusMirrorPoller));
+        await SourcesModule.start!(fakeContainer(sourcePoller, statusMirrorPoller), new AbortController().signal);
 
         expect(sourcePoller.start).toHaveBeenCalledTimes(1);
         expect(statusMirrorPoller.start).toHaveBeenCalledTimes(1);

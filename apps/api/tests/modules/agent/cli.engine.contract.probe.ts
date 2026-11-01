@@ -253,8 +253,8 @@ const attemptedFromContent = (content: { type: string; name?: string; input?: un
         });
 
 /** Wraps a real `canUseTool` so every call and its resolved decision is recorded, without changing what it decides. */
-const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolName: string; result: PermissionResult }[] } => {
-    const calls: { toolName: string; result: PermissionResult }[] = [];
+const watchGuard = (raw: CanUseTool): { canUseTool: CanUseTool; calls: { toolName: string; result: PermissionResult | null }[] } => {
+    const calls: { toolName: string; result: PermissionResult | null }[] = [];
     const canUseTool: CanUseTool = async (toolName, input, opts) => {
         const result = await raw(toolName, input, opts);
         calls.push({ toolName, result });

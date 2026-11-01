@@ -24,6 +24,7 @@ import type { BoardColumns, CardDetail } from '@wilson/sdk';
 import { API_BASE } from '#src/lib/sdk.js';
 import { WilsonSdkProvider, useWilsonSdk } from '#src/lib/sdk-context.js';
 import { routeTree } from '#src/routeTree.gen.js';
+import type { FetchMock } from './support/fetchMock.js';
 
 describe('useWilsonSdk / WilsonSdkProvider', () => {
     it('throws rather than falling back when called with no provider above it', () => {
@@ -38,7 +39,7 @@ describe('useWilsonSdk / WilsonSdkProvider', () => {
     it('returns exactly the client instance passed to the nearest surrounding provider', () => {
         const client = new WilsonSdk({ baseUrl: API_BASE });
         const wrapper = ({ children }: { children: React.ReactNode }) =>
-            createElement(WilsonSdkProvider, { client }, children);
+            createElement(WilsonSdkProvider, { client, children });
 
         const { result } = renderHook(() => useWilsonSdk(), { wrapper });
 
@@ -47,9 +48,9 @@ describe('useWilsonSdk / WilsonSdkProvider', () => {
 
     it('lets an inner provider override an outer one for whatever renders beneath it', () => {
         const outer = new WilsonSdk({ baseUrl: API_BASE });
-        const inner = new WilsonSdk({ baseUrl: API_BASE, project: 'demo' });
+        const inner = new WilsonSdk({ baseUrl: API_BASE, headers: { 'X-Wilson-Project': 'demo' } });
         const wrapper = ({ children }: { children: React.ReactNode }) =>
-            createElement(WilsonSdkProvider, { client: outer }, createElement(WilsonSdkProvider, { client: inner }, children));
+            createElement(WilsonSdkProvider, { client: outer, children: createElement(WilsonSdkProvider, { client: inner, children }) });
 
         const { result } = renderHook(() => useWilsonSdk(), { wrapper });
 
@@ -100,7 +101,7 @@ describe('a component reached through a project-scoped route now merges and open
         disconnect() {}
     }
 
-    let fetchMock: ReturnType<typeof vi.fn>;
+    let fetchMock: FetchMock;
 
     function renderApp(path: string) {
         const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
@@ -179,7 +180,7 @@ describe('a component reached through a project-scoped route now merges and open
 
         await screen.findByText('Merged');
 
-        const mergeCalls = fetchMock.mock.calls.filter(([url]: [string]) => url === `${API_BASE}/api/cards/0007/merge`);
+        const mergeCalls = fetchMock.mock.calls.filter(([url]) => url === `${API_BASE}/api/cards/0007/merge`);
         expect(mergeCalls).toHaveLength(1);
         const [, init] = mergeCalls[0] as [string, RequestInit];
         expect((init.headers as Record<string, string>)['X-Wilson-Project']).toBe('demo');
@@ -200,7 +201,7 @@ describe('a component reached through a project-scoped route now merges and open
         renderApp('/projects/demo/cards/0007');
         await screen.findByText('card 0007');
 
-        const openCalls = () => fetchMock.mock.calls.filter(([url]: [string]) => url === `${API_BASE}/api/cards/0007/plan/open`);
+        const openCalls = () => fetchMock.mock.calls.filter(([url]) => url === `${API_BASE}/api/cards/0007/plan/open`);
         await vi.waitFor(() => expect(openCalls()).toHaveLength(1));
 
         const [, init] = openCalls()[0] as [string, RequestInit];

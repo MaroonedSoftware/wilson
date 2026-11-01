@@ -82,8 +82,8 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.needsHuman).toBe(false);
-            expect(summary.needsHumanReason).toBeUndefined();
+            expect(summary!.needsHuman).toBe(false);
+            expect(summary!.needsHumanReason).toBeUndefined();
         });
 
         it('carries needsHuman and its reason through to the summary when the frontmatter sets them', async () => {
@@ -93,8 +93,8 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.needsHuman).toBe(true);
-            expect(summary.needsHumanReason).toBe('waiting on legal sign-off');
+            expect(summary!.needsHuman).toBe(true);
+            expect(summary!.needsHumanReason).toBe('waiting on legal sign-off');
         });
 
         it('leaves branch undefined for a card that has none, rather than sending null', async () => {
@@ -104,7 +104,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.branch).toBeUndefined();
+            expect(summary!.branch).toBeUndefined();
         });
 
         // Card 0160: most cards never record a `branch` (card 0095) — `resolvedBranch` still has to
@@ -117,8 +117,8 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.branch).toBeUndefined();
-            expect(summary.resolvedBranch).toBe(worktrees.branchName('0002', 'Fix the thing'));
+            expect(summary!.branch).toBeUndefined();
+            expect(summary!.resolvedBranch).toBe(worktrees.branchName('0002', 'Fix the thing'));
         });
 
         // Card 0091: `position` orders the parking lot on the wire now, instead of being left off
@@ -130,7 +130,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.position).toBe(1500);
+            expect(summary!.position).toBe(1500);
         });
 
         it('leaves position undefined for a card nothing has ever dragged, rather than sending null', async () => {
@@ -140,7 +140,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.position).toBeUndefined();
+            expect(summary!.position).toBeUndefined();
         });
 
         // Card 0178: a moved card's summary reports when it entered its current stage — the same
@@ -159,7 +159,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.stageEnteredAt).toEqual(enteredReview);
+            expect(summary!.stageEnteredAt).toEqual(enteredReview);
         });
 
         // Card 0178: a card whose fetched event history has no events at all has no answer to "when
@@ -171,7 +171,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.stageEnteredAt).toBeUndefined();
+            expect(summary!.stageEnteredAt).toBeUndefined();
         });
 
         it("reads each card's own event tail for this board's project, not some other card's or project's", async () => {
@@ -212,7 +212,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.stageEnteredAt).toBeUndefined();
+            expect(summary!.stageEnteredAt).toBeUndefined();
         });
 
         // Card 0178 review: the same full-window case, but the transition is present in the
@@ -233,7 +233,7 @@ describe('BoardService', () => {
 
             const [summary] = await service.list();
 
-            expect(summary.stageEnteredAt).toEqual(enteredReview);
+            expect(summary!.stageEnteredAt).toEqual(enteredReview);
         });
 
         // Card 0178: only a handful of a card's most recent events are fetched to answer

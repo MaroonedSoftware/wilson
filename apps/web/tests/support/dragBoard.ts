@@ -12,8 +12,21 @@
 // are not something 0046's Board.tsx needs, and are not part of what the stub matches on (the stub
 // matches by Mantine's own class names, which 0046's Board.tsx already has) so the same rule set
 // applies unchanged once this logic is folded back into Board.tsx.
-import { createElement, useState } from 'react';
-import { Badge, Box, Group, Loader, Paper, ScrollArea, Stack, Text } from '@mantine/core';
+import { createElement, useState, type ComponentType } from 'react';
+import {
+    Badge as MantineBadge,
+    Box as MantineBox,
+    Group,
+    Loader,
+    Paper as MantinePaper,
+    ScrollArea,
+    Stack,
+    Text as MantineText,
+    type BadgeProps,
+    type BoxProps,
+    type PaperProps,
+    type TextProps,
+} from '@mantine/core';
 import {
     DndContext,
     DragOverlay,
@@ -30,6 +43,13 @@ import type { CardSummary } from '@wilson/sdk';
 import { useMoveCard } from '#src/lib/mutations.js';
 
 const e = createElement;
+
+// Mantine's polymorphic components are generic over their root element, which `createElement` cannot
+// infer. Each is used here at its default element, so it is typed as that.
+const Badge = MantineBadge as ComponentType<BadgeProps>;
+const Box = MantineBox as ComponentType<BoxProps>;
+const Paper = MantinePaper as ComponentType<PaperProps>;
+const Text = MantineText as ComponentType<TextProps>;
 
 function CardBody({ card, pending }: { card: CardSummary; pending: boolean }) {
     return e(
@@ -56,9 +76,10 @@ function DragCard({ card, pending }: { card: CardSummary; pending: boolean }) {
 
 function DragColumn({ stage, cards, pendingId }: { stage: string; cards: CardSummary[]; pendingId: string | null }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
+    const dataAttributes = { 'data-testid': `column-${stage}`, 'data-over': isOver };
     return e(
         Stack,
-        { ref: setNodeRef, gap: 'xs', w: 260, p: 4, 'data-testid': `column-${stage}`, 'data-over': isOver },
+        { ref: setNodeRef, gap: 'xs', w: 260, p: 4, ...dataAttributes },
         e(Group, { gap: 'xs', justify: 'space-between' }, e(Badge, { variant: 'light', radius: 'sm' }, stage)),
         e(
             Stack,

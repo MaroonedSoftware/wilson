@@ -44,6 +44,10 @@ jobs:
             - name: Lint
               run: pnpm lint:check
 
+            # The tests are outside every build tsconfig, so this is the only thing that compiles them.
+            - name: Type-check, tests included
+              run: pnpm typecheck
+
             - name: Build
               run: pnpm build
 

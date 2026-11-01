@@ -8,6 +8,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { BREADTH_THRESHOLD, DEPTH_THRESHOLD, FANOUT_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
 import type { ScopeCheckResult } from '#modules/stages/stage.result.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { planlessCard } from '#tests/modules/stages/stage.fixture.js';
 
 const exec = promisify(execFile);
 
@@ -52,7 +53,7 @@ describe('ScopeCheckVerifier', () => {
 
     const verify = async (result: unknown) => {
         const worktree = await manager.create('0001', 'card/0001-thing');
-        return verifier.verify({ worktree, stage: {} as never, cardId: '0001', scope: {} as never, result });
+        return verifier.verify({ worktree, stage: {} as never, cardId: '0001', card: planlessCard(), scope: {} as never, result });
     };
 
     /**
@@ -96,11 +97,13 @@ describe('ScopeCheckVerifier', () => {
                 title: 'card lifecycle writes',
                 tasks: ['create card endpoint', 'edit card endpoint', 'move card endpoint', 'depend card endpoint'],
                 delivers: 'create, edit, move and depend as an API write surface',
+                dependsOn: [],
             },
             {
                 title: 'card lifecycle transitions',
                 tasks: ['approve card endpoint', 'release card endpoint', 'ack card endpoint', 'start card endpoint'],
                 delivers: 'approve, release, ack and start as an API write surface',
+                dependsOn: [],
             },
         ],
     };
@@ -129,11 +132,13 @@ describe('ScopeCheckVerifier', () => {
                 title: 'read and setup commands',
                 tasks: ['port ack', 'port approve', 'port board.init', 'port board.ready'],
                 delivers: 'ack, approve, board.init and board.ready ported to the API transport',
+                dependsOn: [],
             },
             {
                 title: 'lifecycle commands',
                 tasks: ['port move', 'port release', 'port show', 'port start'],
                 delivers: 'move, release, show and start ported to the API transport',
+                dependsOn: [],
             },
         ],
     };
@@ -202,8 +207,8 @@ describe('ScopeCheckVerifier', () => {
         verdict: 'refuse',
         reason: "one task, but it touches roughly ten files — the same shape that exhausted card 0151's step budget nine times over.",
         division: [
-            { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration' },
-            { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration' },
+            { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration', dependsOn: [] },
+            { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration', dependsOn: [] },
         ],
     };
 
@@ -267,7 +272,7 @@ describe('ScopeCheckVerifier', () => {
     it('accepts a division piece that depends on another piece in the same division', async () => {
         const dividedCard = {
             ...card0075,
-            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[0].title] }],
+            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[0]!.title] }],
         };
         const outcome = await verify(dividedCard);
 
@@ -311,7 +316,7 @@ describe('ScopeCheckVerifier', () => {
     it('rejects a division piece that names itself as a dependency', async () => {
         const outcome = await verify({
             ...card0075,
-            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[1].title] }],
+            division: [card0075.division[0], { ...card0075.division[1], dependsOn: [card0075.division[1]!.title] }],
         });
 
         expect(outcome.passed).toBe(false);
@@ -455,7 +460,7 @@ describe('ScopeCheckVerifier', () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
         await writeFile(join(worktree.path, 'README.md'), 'changed\n', 'utf8');
 
-        const outcome = await verifier.verify({ worktree, stage: {} as never, cardId: '0001', scope: {} as never, result: card0079 });
+        const outcome = await verifier.verify({ worktree, stage: {} as never, cardId: '0001', card: planlessCard(), scope: {} as never, result: card0079 });
 
         expect(outcome.passed).toBe(false);
         expect(outcome.failures.some(f => f.includes('read-only judge must not do'))).toBe(true);
@@ -563,11 +568,11 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: 'four near-identical fields — the same kind of thing repeated four times.',
             division: [
-                { title: 'fields a and b', tasks: ['field a', 'field b'], delivers: 'fields a and b, working alone' },
-                { title: 'fields c and d', tasks: ['field c', 'field d'], delivers: 'fields c and d, working alone' },
+                { title: 'fields a and b', tasks: ['field a', 'field b'], delivers: 'fields a and b, working alone', dependsOn: [] },
+                { title: 'fields c and d', tasks: ['field c', 'field d'], delivers: 'fields c and d, working alone', dependsOn: [] },
             ],
         };
-        expect(atThreshold.groups[0].tasks).toHaveLength(BREADTH_THRESHOLD);
+        expect(atThreshold.groups[0]!.tasks).toHaveLength(BREADTH_THRESHOLD);
 
         const outcome = await verify(atThreshold);
 
@@ -583,11 +588,12 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: `${DEPTH_THRESHOLD} distinct pieces collected into one card.`,
             division: [
-                { title: 'first half', tasks: card0120.groups.slice(0, half).flatMap(g => g.tasks), delivers: 'the first half, working alone' },
+                { title: 'first half', tasks: card0120.groups.slice(0, half).flatMap(g => g.tasks), delivers: 'the first half, working alone', dependsOn: [] },
                 {
                     title: 'second half',
                     tasks: card0120.groups.slice(half, DEPTH_THRESHOLD).flatMap(g => g.tasks),
                     delivers: 'the second half, working alone',
+                    dependsOn: [],
                 },
             ],
         };
@@ -606,11 +612,12 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: `${DEPTH_THRESHOLD - 1} distinct pieces collected into one card.`,
             division: [
-                { title: 'first half', tasks: card0120.groups.slice(0, 2).flatMap(g => g.tasks), delivers: 'the first half, working alone' },
+                { title: 'first half', tasks: card0120.groups.slice(0, 2).flatMap(g => g.tasks), delivers: 'the first half, working alone', dependsOn: [] },
                 {
                     title: 'second half',
                     tasks: card0120.groups.slice(2, DEPTH_THRESHOLD - 1).flatMap(g => g.tasks),
                     delivers: 'the second half, working alone',
+                    dependsOn: [],
                 },
             ],
         };
@@ -639,8 +646,8 @@ describe('ScopeCheckVerifier', () => {
         // site count rather than tasks or groups.
         expect(outcome.passed).toBe(false);
         expect(outcome.failures).toHaveLength(1);
-        expect(outcome.failures[0]).toContain(card0153.groups[0].title);
-        expect(outcome.failures[0]).toContain(`${card0153.groups[0].sites} places`);
+        expect(outcome.failures[0]).toContain(card0153.groups[0]!.title);
+        expect(outcome.failures[0]).toContain(`${card0153.groups[0]!.sites} places`);
         expect(outcome.failures[0]).toContain(`>= ${FANOUT_THRESHOLD}`);
         expect(outcome.failures[0]).toContain('"pass"');
     });
@@ -703,8 +710,8 @@ describe('ScopeCheckVerifier', () => {
             verdict: 'refuse',
             reason: 'one task touching several files, but not enough to justify refusing on its own.',
             division: [
-                { title: 'first half', tasks: ['update every internal link'], delivers: 'half the links, working alone' },
-                { title: 'second half', tasks: ['update every internal link'], delivers: 'the rest of the links, working alone' },
+                { title: 'first half', tasks: ['update every internal link'], delivers: 'half the links, working alone', dependsOn: [] },
+                { title: 'second half', tasks: ['update every internal link'], delivers: 'the rest of the links, working alone', dependsOn: [] },
             ],
         };
 
@@ -742,7 +749,7 @@ describe('ScopeCheckVerifier', () => {
      * only one piece already is above.
      */
     it('rejects a group that reports no site count at all', async () => {
-        const groupWithoutSites = { title: card0079.groups[0].title, tasks: card0079.groups[0].tasks };
+        const groupWithoutSites = { title: card0079.groups[0]!.title, tasks: card0079.groups[0]!.tasks };
         const outcome = await verify({ ...card0079, groups: [groupWithoutSites, ...card0079.groups.slice(1)] });
 
         expect(outcome.passed).toBe(false);

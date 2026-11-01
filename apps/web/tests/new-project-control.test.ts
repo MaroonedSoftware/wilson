@@ -19,6 +19,7 @@ import { BoardClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk
 import type { BoardColumns, DirectoryListing, DirectoryQuery, Health } from '@wilson/sdk';
 import { routeTree } from '#src/routeTree.gen.js';
 import { API_BASE } from '#src/lib/sdk.js';
+import type { FetchMock } from './support/fetchMock.js';
 
 const columns: BoardColumns = { stages: ['implementing'], nonStages: ['merged'] };
 
@@ -49,9 +50,9 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const REGISTER_URL = `${API_BASE}/api/projects`;
 const INIT_URL = `${API_BASE}/api/board/init`;
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: FetchMock;
 
-const callsTo = (url: string) => fetchMock.mock.calls.filter(([called]: [string]) => called === url) as [string, RequestInit][];
+const callsTo = (url: string) => fetchMock.mock.calls.filter(([called]) => called === url);
 
 function renderApp() {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/projects'] }) });

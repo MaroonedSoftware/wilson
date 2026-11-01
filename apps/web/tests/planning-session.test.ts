@@ -97,7 +97,7 @@ class FakeEventSource {
 }
 
 const planStreamSources = () => FakeEventSource.instances.filter(source => source.url.includes('/plan/stream'));
-const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1];
+const latestPlanStream = () => planStreamSources()[planStreamSources().length - 1]!;
 
 /** `AppShell.Main` renders inside Mantine's `ScrollArea`, which measures itself with
  * `ResizeObserver` on mount — jsdom does not implement it. Same stand-in flagged.test.ts uses. */

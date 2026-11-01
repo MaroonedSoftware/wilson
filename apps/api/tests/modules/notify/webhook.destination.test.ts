@@ -97,7 +97,7 @@ describe('checkWebhookDestination', () => {
             vi.mocked(lookup).mockResolvedValueOnce([
                 { address: '8.8.8.8', family: 4 },
                 { address: '169.254.169.254', family: 4 },
-            ]);
+            ] as never);
 
             const result = await checkWebhookDestination('https://multi-answer.example/hook');
 
@@ -109,7 +109,7 @@ describe('checkWebhookDestination', () => {
             vi.mocked(lookup).mockResolvedValueOnce([
                 { address: '8.8.8.8', family: 4 },
                 { address: '1.1.1.1', family: 4 },
-            ]);
+            ] as never);
 
             await expect(checkWebhookDestination('https://multi-answer-clean.example/hook')).resolves.toEqual({ ok: true });
         });
@@ -137,7 +137,7 @@ describe('warnOnceInvalidWebhook', () => {
         warnOnceInvalidWebhook(logger, 'https://warn-once-a.example/hook', 'resolves to a private address (10.0.0.1)');
 
         expect(logger.warn).toHaveBeenCalledTimes(1);
-        expect(logger.warn.mock.calls[0][0]).toContain('resolves to a private address (10.0.0.1)');
+        expect(logger.warn.mock.calls[0]![0]).toContain('resolves to a private address (10.0.0.1)');
     });
 
     it('does not log again for the same URL failing the same way', () => {

@@ -128,7 +128,7 @@ describe('the header refresh affordance', () => {
         const queryClient = new QueryClient();
         renderApp('/projects/demo', queryClient);
         await screen.findByText('0 cards');
-        const [initial] = FakeEventSource.instances;
+        const initial = FakeEventSource.instances[0]!;
 
         await act(async () => {
             fireEvent.click(screen.getByLabelText('Refresh'));

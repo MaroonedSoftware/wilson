@@ -61,7 +61,7 @@ const renderFeed = () => {
 describe('useCardFeed', () => {
     it('invalidates once per card event, not just on the first', () => {
         const { invalidateQueries } = renderFeed();
-        const source = FakeEventSource.instances[0];
+        const source = FakeEventSource.instances[0]!;
 
         act(() => source.emit('card'));
         act(() => source.emit('card'));
@@ -78,15 +78,15 @@ describe('useCardFeed', () => {
         renderFeed();
 
         expect(FakeEventSource.instances).toHaveLength(2);
-        expect(FakeEventSource.instances[0].closed).toBe(true);
-        expect(FakeEventSource.instances[1].closed).toBe(false);
+        expect(FakeEventSource.instances[0]!.closed).toBe(true);
+        expect(FakeEventSource.instances[1]!.closed).toBe(false);
     });
 
     it('keeps two mounted subscribers independent — one going live does not flip the other', () => {
         const first = renderFeed();
         const second = renderFeed();
 
-        act(() => FakeEventSource.instances[0].onopen?.());
+        act(() => FakeEventSource.instances[0]!.onopen?.());
 
         expect(first.result.current.status).toBe('live');
         expect(second.result.current.status).toBe('disconnected');

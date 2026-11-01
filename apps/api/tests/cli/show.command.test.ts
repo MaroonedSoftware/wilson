@@ -146,7 +146,7 @@ describe('wilson card show', () => {
         // next` (which goes through `unsatisfiedDependencies`) correctly reported only 0162.
         expect(logger.info).toHaveBeenCalledWith('blocked:  0162');
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.includes('0155'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.includes('0155'))).toBe(false);
     });
 
     it('shows no blocked: line at all when every dependency has merged', async () => {
@@ -160,7 +160,7 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
     });
 
     it('shows a dropped or poisoned dependency as one that will never clear, distinct from one still waiting', async () => {
@@ -191,7 +191,7 @@ describe('wilson card show', () => {
         // `run()` always fetches usage whether or not there is a dependency to check.
         expect(fetchMock).toHaveBeenCalledTimes(3);
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.startsWith('blocked:'))).toBe(false);
     });
 
     it('reports zero files in scope, without throwing, when the plan genuinely has no Files in scope section', async () => {
@@ -256,8 +256,8 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         expect(logger.info).toHaveBeenCalledWith('  2026-01-01T00:00:00.000Z  daemon.stale (implementing)');
-        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => m.includes('commit(s) behind'))).toBe(false);
+        const messages = logger.info.mock.calls.map((c: unknown[]) => c[0] as string);
+        expect(messages.some(m => m.includes('commit(s) behind'))).toBe(false);
     });
 
     it('prints a single JSON object with --json, dropping retries/planVersionId (no longer on the wire contract)', async () => {
@@ -320,7 +320,7 @@ describe('wilson card show', () => {
         await run(ctx, '0001');
 
         const messages = logger.info.mock.calls.map((c: unknown[]) => c[0]);
-        expect(messages.some((m: string) => typeof m === 'string' && m.includes('usage:'))).toBe(false);
+        expect(messages.some(m => typeof m === 'string' && m.includes('usage:'))).toBe(false);
     });
 
     it('prints the API-supplied reason and exits 1 for a card that does not exist, rather than an HTTP status line', async () => {

@@ -188,7 +188,7 @@ describe('the flagged count in the header', () => {
         expect(screen.queryByText(/needs human/)).toBeNull();
 
         listCards.mockResolvedValue([card('0001', 'review', true)]);
-        const source = FakeEventSource.instances[0];
+        const source = FakeEventSource.instances[0]!;
         await act(async () => {
             source.emit('card');
         });
@@ -203,7 +203,7 @@ describe('the flagged count in the header', () => {
         expect(await screen.findByText('1 needs human')).toBeTruthy();
 
         listCards.mockResolvedValue([card('0001', 'review', false)]);
-        const source = FakeEventSource.instances[0];
+        const source = FakeEventSource.instances[0]!;
         await act(async () => {
             source.emit('card');
         });

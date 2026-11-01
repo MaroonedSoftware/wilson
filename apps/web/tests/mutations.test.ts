@@ -128,7 +128,7 @@ describe('useRepositionCard', () => {
     it("writes the caller's already-reordered cards straight into the ['cards'] cache before the request even resolves — the one optimistic write on the board", async () => {
         const original = [card('0001', 0), card('0002', 1)];
         const optimisticCards = [card('0002', 0), card('0001', 1)];
-        let resolveReposition!: (value: unknown) => void;
+        let resolveReposition!: (value: CardDetail) => void;
         vi.spyOn(wilson.board, 'repositionCard').mockImplementation(() => new Promise(resolve => (resolveReposition = resolve)));
         const queryClient = new QueryClient();
         queryClient.setQueryData(['cards'], original);
@@ -139,7 +139,7 @@ describe('useRepositionCard', () => {
         });
 
         await waitFor(() => expect(queryClient.getQueryData(['cards'])).toEqual(optimisticCards));
-        resolveReposition({});
+        resolveReposition({} as CardDetail);
     });
 
     it('sends only id, beforeId and afterId — not the optimistic cards array — to the SDK', async () => {

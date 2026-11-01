@@ -216,7 +216,7 @@ const buildPoller = (
 ) => {
     const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
     const scopeConflict = deps.scopeConflict ?? noConflict;
-    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn(async () => 'card-version-1'), scopeConflict };
+    const board = { list: vi.fn(async () => cards), writeWithEvent: vi.fn<BoardRepository['writeWithEvent']>(async () => 'card-version-1'), scopeConflict };
     const cardJobs = deps.cardJobs ?? statefulCardJobs();
     const broker = deps.broker ?? fakeBroker();
     const logger = deps.logger ?? fakeLogger();
@@ -254,9 +254,9 @@ describe('Poller tick — what it will and will not enqueue', () => {
         // multi-project describe block below for the case where that field actually differs.
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
-        expect(broker.send.mock.invocationCallOrder[0]).toBeLessThan(cardJobs.record.mock.invocationCallOrder[0]);
+        expect(broker.send.mock.invocationCallOrder[0]!).toBeLessThan(cardJobs.record.mock.invocationCallOrder[0]!);
         expect(logger.info).toHaveBeenCalledTimes(1);
-        expect(logger.info.mock.calls[0][0]).toContain('0001');
+        expect(logger.info.mock.calls[0]![0]).toContain('0001');
     });
 
     /**
@@ -320,7 +320,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(broker.send).toHaveBeenCalledTimes(1);
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
-        expect(logger.info.mock.calls[0][0]).toContain('0002');
+        expect(logger.info.mock.calls[0]![0]).toContain('0002');
     });
 
     it('skips a command-stage card the same way as a manual one, and enqueues the dispatchable candidate behind it', async () => {
@@ -371,7 +371,7 @@ describe('Poller tick — what it will and will not enqueue', () => {
         expect(broker.send).toHaveBeenCalledTimes(1);
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).not.toHaveBeenCalledWith('0001', expect.anything());
-        expect(logger.info.mock.calls[0][0]).toContain('0002');
+        expect(logger.info.mock.calls[0]![0]).toContain('0002');
     });
 
     /**
@@ -708,7 +708,7 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
 
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'scope-check', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledWith('0001', 'job-1');
-        expect(logger.info.mock.calls[0][0]).toContain('0001');
+        expect(logger.info.mock.calls[0]![0]).toContain('0001');
     });
 
     /**
@@ -870,8 +870,8 @@ describe('Poller tick — the daily output token ceiling (card 0264)', () => {
         expect(overBoard.list).not.toHaveBeenCalled();
         expect(overBroker.send).not.toHaveBeenCalled();
         expect(overLogger.error).toHaveBeenCalledTimes(1);
-        expect(overLogger.error.mock.calls[0][0]).toContain('over-budget-project');
-        expect(overLogger.error.mock.calls[0][0]).toContain('1000');
+        expect(overLogger.error.mock.calls[0]![0]).toContain('over-budget-project');
+        expect(overLogger.error.mock.calls[0]![0]).toContain('1000');
 
         // A second project, ticked independently under its own ceiling, is untouched by the first's.
         const { poller: underPoller, broker: underBroker } = buildPoller([card('0002', 'implementing')], {

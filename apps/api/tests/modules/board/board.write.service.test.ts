@@ -245,7 +245,7 @@ describe('BoardWriteService', () => {
 
             const versions = await board.versions(detail.id, 10);
             expect(versions).toHaveLength(1);
-            expect(versions[0].message).toBe(`Create ${detail.id}: Traceable card`);
+            expect(versions[0]!.message).toBe(`Create ${detail.id}: Traceable card`);
         });
 
         it('starts on the next id over the highest one already on the board, not just count + 1', async () => {
@@ -291,7 +291,7 @@ describe('BoardWriteService', () => {
 
             const versions = await board.versions(created.frontmatter.id, 10);
             expect(versions).toHaveLength(1);
-            expect(versions[0].message).toBe(`Create ${created.frontmatter.id} from linear ENG-9: Traceable`);
+            expect(versions[0]!.message).toBe(`Create ${created.frontmatter.id} from linear ENG-9: Traceable`);
         });
     });
 
@@ -717,7 +717,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0020');
             expect(stored.body).toBe('new plan text');
             const versions = await board.versions('0020', 10);
-            expect(versions[0].message).toBe('Edit 0020 plan body');
+            expect(versions[0]!.message).toBe('Edit 0020 plan body');
         });
 
         it('writes nothing when the body is unchanged, unlike an ordinary edit', async () => {
@@ -749,7 +749,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0080');
             expect(stored.frontmatter.title).toBe('New title');
             const versions = await board.versions('0080', 10);
-            expect(versions[0].message).toBe('Rename 0080: "Old title" → "New title"');
+            expect(versions[0]!.message).toBe('Rename 0080: "Old title" → "New title"');
         });
 
         it('touches only the title — stage, branch and retries are untouched, and no event is appended', async () => {
@@ -918,7 +918,7 @@ describe('BoardWriteService', () => {
             const stored = await board.read('0033');
             expect(stored.frontmatter.dependsOn).toEqual(['0034']);
             const versions = await board.versions('0033', 10);
-            expect(versions[0].message).toBe('Add 0033 dependency on 0034');
+            expect(versions[0]!.message).toBe('Add 0033 dependency on 0034');
         });
 
         it('is a no-op — no write — when adding a dependency already present', async () => {
@@ -942,7 +942,7 @@ describe('BoardWriteService', () => {
 
             expect(detail.dependsOn).toEqual([]);
             const versions = await board.versions('0038', 10);
-            expect(versions[0].message).toBe('Drop 0038 dependency on 0037');
+            expect(versions[0]!.message).toBe('Drop 0038 dependency on 0037');
         });
 
         it('is a no-op — no write — when removing a dependency that is not present', async () => {
@@ -1198,7 +1198,7 @@ describe('BoardWriteService', () => {
             // otherwise.
             const sendOrder = broker.send.mock.invocationCallOrder[0];
             const recordOrder = recordSpy.mock.invocationCallOrder[0];
-            expect(sendOrder).toBeLessThan(recordOrder);
+            expect(sendOrder).toBeLessThan(recordOrder!);
 
             expect(await cardJobs.inFlight('0063')).toBe('job-77');
         });
@@ -1363,7 +1363,7 @@ describe('BoardWriteService', () => {
 
             const cancelOrder = broker.cancel.mock.invocationCallOrder[0];
             const clearOrder = clearSpy.mock.invocationCallOrder[0];
-            expect(cancelOrder).toBeLessThan(clearOrder);
+            expect(cancelOrder).toBeLessThan(clearOrder!);
         });
 
         // Card 0087: a queued job — `created` or `retry` — is, by definition, one no worker has

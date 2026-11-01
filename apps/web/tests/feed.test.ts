@@ -47,7 +47,7 @@ class FakeEventSource {
     }
 }
 
-const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1];
+const latestSource = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
 
 beforeEach(() => {
     FakeEventSource.instances = [];
@@ -198,7 +198,7 @@ describe('useCardFeed', () => {
         const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
 
         renderHook(() => useCardFeed('project-a'), { wrapper });
-        const [sourceA] = FakeEventSource.instances;
+        const sourceA = FakeEventSource.instances[0]!;
 
         act(() => sourceA.emit('card'));
 

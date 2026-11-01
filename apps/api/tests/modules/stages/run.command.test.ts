@@ -213,7 +213,7 @@ describe('pnpmStoreLock onWaited callback', () => {
         expect(firstOnWaited).not.toHaveBeenCalled();
         expect(secondOnWaited).toHaveBeenCalledTimes(1);
         expect(secondOnWaited).toHaveBeenCalledWith(expect.any(Number));
-        expect(secondOnWaited.mock.calls[0][0]).toBeGreaterThanOrEqual(0);
+        expect(secondOnWaited.mock.calls[0]![0]).toBeGreaterThanOrEqual(0);
     });
 
     it('never fires when nothing else is contending for the lock', async () => {

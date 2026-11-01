@@ -487,11 +487,14 @@ describe('BoundedCardStageJobRunner — concurrency reconciliation (card 0115)',
  * ordinary ~30s retry path instead of waiting out `CARD_STAGE_EXPIRES_IN`'s hour.
  */
 describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', () => {
-    const orphanedJob = (overrides: { jobId?: string; project?: string; startedOn?: string | undefined } = {}) => ({
-        jobId: overrides.jobId ?? 'job-1',
-        payload: { cardId: '0001', stageName: 'implementing', project: overrides.project },
-        startedOn: overrides.startedOn === undefined ? undefined : { toISO: () => overrides.startedOn },
-    });
+    const orphanedJob = (overrides: { jobId?: string; project?: string; startedOn?: string | undefined } = {}) => {
+        const { startedOn } = overrides;
+        return {
+            jobId: overrides.jobId ?? 'job-1',
+            payload: { cardId: '0001', stageName: 'implementing', project: overrides.project },
+            startedOn: startedOn === undefined ? undefined : { toISO: () => startedOn },
+        };
+    };
 
     it('fails every active job through pg-boss before inner.start() registers a work() handler — AC1', async () => {
         const order: string[] = [];

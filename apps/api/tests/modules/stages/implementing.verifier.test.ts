@@ -9,12 +9,14 @@ import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { ImplementingVerifier } from '#modules/stages/implementing.verifier.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { planlessCard, stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+    ...stageDefaults,
     name: 'implementing',
     mode: 'agent',
     worktree: 'rw',
@@ -75,7 +77,7 @@ describe('ImplementingVerifier — format check', () => {
         // A permissive scope: format-check wiring is what these tests are about, not the separate
         // scope re-check `ImplementingVerifier` also runs.
         const scope = new ScopeGuard({ worktreeRoot: worktree.path, allow: ['**'], alwaysAllowed: [] });
-        return verifier.verify({ worktree, scope, stage, cardId: '0001', result: undefined });
+        return verifier.verify({ worktree, scope, stage, cardId: '0001', card: planlessCard(), result: undefined });
     };
 
     it('fails and names the file when the stage leaves something prettier would reformat', async () => {

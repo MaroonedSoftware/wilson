@@ -15,6 +15,7 @@ import { StageVerifierMap, type StageVerifier } from '#modules/stages/stage.veri
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
@@ -60,6 +61,7 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
     };
 
     const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
+        ...stageDefaults,
         name: 'review',
         mode: 'agent',
         worktree: 'rw',

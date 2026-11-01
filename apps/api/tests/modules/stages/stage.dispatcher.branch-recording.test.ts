@@ -166,7 +166,7 @@ describe("StageDispatcher records a card's branch on first dispatch and prefers 
         // the first — proving the resolver was asked about the current, real state, not a copy from
         // before that write.
         expect(worktrees.resolveBranch).toHaveBeenCalledTimes(2);
-        expect(worktrees.resolveBranch.mock.calls[1][0]).toMatchObject({ frontmatter: { branch: 'card/0001-do-the-thing' } });
+        expect(worktrees.resolveBranch.mock.calls[1]![0]).toMatchObject({ frontmatter: { branch: 'card/0001-do-the-thing' } });
         expect(worktrees.resume).toHaveBeenLastCalledWith('0001', 'card/0001-do-the-thing');
 
         // Only the transition adds a version this time — the branch was already recorded, so nothing

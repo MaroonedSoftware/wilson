@@ -77,9 +77,9 @@ describe('routers', () => {
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[16]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -106,9 +106,9 @@ describe('routers', () => {
         expect(mounted[13]).toBe(ApiKeysRouter);
         expect(mounted[14]).toBe(FactorsRouter);
         expect(mounted[15]).toBe(DevicesRouter);
-        expect(mounted[16].match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[17].match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[18].match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[16]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[17]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[18]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {
@@ -343,6 +343,9 @@ describe('routers', () => {
     });
 });
 
+/** A fake Koa context with the one member `authorize` needs spelled out. */
+type RouteContext = Record<string, unknown> & { container: { get: (token: unknown) => unknown } };
+
 /**
  * Card 0162. `ProjectsRouter`'s handler, driven through `@koa/router`'s own public `routes()`
  * dispatch — the same pattern `plan.stream.route.test.ts` uses for `PlanStreamRouter` and this
@@ -352,7 +355,7 @@ describe('routers', () => {
  */
 describe('ProjectsRouter', () => {
     const dispatchProjects = (service: { list: () => Promise<Array<{ name: string }>> }): Promise<Record<string, unknown>> => {
-        const ctx: Record<string, unknown> = {
+        const ctx: RouteContext = {
             method: 'GET',
             path: '/api/projects',
             request: {},
@@ -522,7 +525,7 @@ describe('GET /api/projects end to end through ProjectContextRouter', () => {
         const board = new StaticBoardConfig('configured-project', '/tmp/code', '/tmp/wt', '/tmp/run');
         const find = vi.fn(async () => undefined);
         const list = vi.fn(async () => [{ name: 'configured-project' }]);
-        const ctx: Record<string, unknown> = {
+        const ctx: RouteContext = {
             method: 'GET',
             path: '/api/projects',
             request: {},

@@ -43,8 +43,8 @@ describe('Notifier, destination checking (card 0107)', () => {
 
             expect(fetchMock).not.toHaveBeenCalled();
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('private');
-            expect(logger.warn.mock.calls[0][0]).toContain('10.1.2.3');
+            expect(logger.warn.mock.calls[0]![0]).toContain('private');
+            expect(logger.warn.mock.calls[0]![0]).toContain('10.1.2.3');
         });
 
         it('does not POST, and logs the reason, when the webhook resolves to loopback', async () => {
@@ -56,7 +56,7 @@ describe('Notifier, destination checking (card 0107)', () => {
 
             expect(fetchMock).not.toHaveBeenCalled();
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('loopback');
+            expect(logger.warn.mock.calls[0]![0]).toContain('loopback');
         });
 
         it('does not POST an http webhook — https-only is enforced on every send, not just at write', async () => {
@@ -68,7 +68,7 @@ describe('Notifier, destination checking (card 0107)', () => {
 
             expect(fetchMock).not.toHaveBeenCalled();
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('https');
+            expect(logger.warn.mock.calls[0]![0]).toContain('https');
         });
 
         it('does not throw when the destination is refused — behaves like no webhook configured, not like a failure', async () => {
@@ -81,13 +81,13 @@ describe('Notifier, destination checking (card 0107)', () => {
 
     describe('a destination the check allows', () => {
         it('still POSTs the same payload it always did, to a webhook resolving to a public address', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://93.184.216.34/notify', undefined, fakeLogger()).notify(notification({ cardId: '0072', title: 'a card' }));
 
             expect(fetchMock).toHaveBeenCalledTimes(1);
-            const [url, init] = fetchMock.mock.calls[0];
+            const [url, init] = fetchMock.mock.calls[0]!;
             expect(url).toBe('https://93.184.216.34/notify');
             expect(JSON.parse(init.body as string)).toEqual({
                 moment: 'manual',
@@ -99,12 +99,12 @@ describe('Notifier, destination checking (card 0107)', () => {
         });
 
         it('sends with redirect: "manual" rather than letting fetch follow one automatically', async () => {
-            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+            const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
             vi.stubGlobal('fetch', fetchMock);
 
             await new Notifier('https://93.184.216.34/notify', undefined, fakeLogger()).notify(notification());
 
-            const init = fetchMock.mock.calls[0][1];
+            const init = fetchMock.mock.calls[0]![1];
             expect(init.redirect).toBe('manual');
         });
     });
@@ -122,8 +122,8 @@ describe('Notifier, destination checking (card 0107)', () => {
             await new Notifier('https://93.184.216.34/notify', undefined, logger).notify(notification({ cardId: '0072', moment: 'manual' }));
 
             expect(logger.warn).toHaveBeenCalledTimes(1);
-            expect(logger.warn.mock.calls[0][0]).toContain('0072');
-            expect(logger.warn.mock.calls[0][0]).toContain('redirect');
+            expect(logger.warn.mock.calls[0]![0]).toContain('0072');
+            expect(logger.warn.mock.calls[0]![0]).toContain('redirect');
         });
     });
 });

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
+import type { JsonValue } from '@wilson/sdk';
 import { lastStageHost, acceptanceCriteria, CARD_BODY_SKELETON, filesInScope, formatTimestamp } from '#src/lib/card.js';
 
 describe('filesInScope', () => {
@@ -218,7 +219,7 @@ describe('CARD_BODY_SKELETON', () => {
 });
 
 describe('lastStageHost', () => {
-    const event = (type: string, payload: unknown = {}) => ({ type, payload });
+    const event = (type: string, payload: JsonValue = {}) => ({ type, payload });
 
     it('names the host the most recent stage was placed on', () => {
         expect(lastStageHost([event('stage.placed', { host: 'agent-3', slot: 'host:agent-3:slot:1' }), event('stage.dispatched')])).toBe('agent-3');

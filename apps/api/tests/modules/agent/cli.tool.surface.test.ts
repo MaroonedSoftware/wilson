@@ -110,7 +110,7 @@ type InitMessage = { tools: string[]; mcp_servers: { name: string; status: strin
  * what it varies. */
 const initMessageFor = async (home: string, options: Record<string, unknown> = {}): Promise<InitMessage> => {
     const abortController = new AbortController();
-    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
 

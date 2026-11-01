@@ -143,8 +143,8 @@ describe('LiveActivity ordering', () => {
         });
 
         const rows = screen.getAllByText(/command$/);
-        expect(rows[0].textContent).toBe('newest command');
-        expect(rows[1].textContent).toBe('first command');
+        expect(rows[0]!.textContent).toBe('newest command');
+        expect(rows[1]!.textContent).toBe('first command');
     });
 });
 

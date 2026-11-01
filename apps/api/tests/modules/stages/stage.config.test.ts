@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
 import { StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage } from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
@@ -228,7 +229,7 @@ describe('StageConfigSchema sandbox override', () => {
 });
 
 describe('findStage sandbox resolution (AC5)', () => {
-    const projectStages = (overrides: Partial<ReturnType<typeof ProjectStagesSchema.parse>> = {}) =>
+    const projectStages = (overrides: Partial<z.input<typeof ProjectStagesSchema>> = {}) =>
         ProjectStagesSchema.parse({ stages: [minimalStage], ...overrides });
 
     it('resolves sandbox to false with neither the stage nor the project configuring it', () => {
