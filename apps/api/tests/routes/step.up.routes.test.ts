@@ -94,14 +94,12 @@ describe('step-up', () => {
         };
         const unique = () => `step-up-${randomUUID().slice(0, 8)}`;
 
-        it.each([
-            ['registering a host', () => ['POST', '/api/hosts', { name: unique(), kind: 'worker' }]],
-            ['changing an SSH target', () => ['PUT', '/api/hosts/x/ssh-target', { sshTarget: 'attacker' }]],
-            ['minting a worker token', () => ['POST', '/api/hosts/x/worker-token', undefined]],
-            ['assigning an engine token', () => ['PUT', '/api/hosts/x/engine-token', { name: 'pool-a' }]],
-        ] as const)('refuses a manage key %s, as step_up_unavailable', async (_name, call) => {
-            const [method, path, body] = call();
-
+        it.each<[string, string, string, unknown]>([
+            ['registering a host', 'POST', '/api/hosts', { name: 'rogue', kind: 'worker' }],
+            ['changing an SSH target', 'PUT', '/api/hosts/x/ssh-target', { sshTarget: 'attacker' }],
+            ['minting a worker token', 'POST', '/api/hosts/x/worker-token', undefined],
+            ['assigning an engine token', 'PUT', '/api/hosts/x/engine-token', { name: 'pool-a' }],
+        ])('refuses a manage key %s, as step_up_unavailable', async (_name, method, path, body) => {
             const res = await request(server, method, path, { token: manageKey, ...(body ? { body } : {}) });
 
             expect(res.status).toBe(403);
