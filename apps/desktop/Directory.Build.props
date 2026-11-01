@@ -19,7 +19,7 @@
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
         <!-- So a plain build and a publish agree about what the lock file contains. -->
         <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
-        <Version>0.2.1</Version>
+        <Version>0.3.0</Version>
         <Company>Marooned Software</Company>
         <Product>Wilson</Product>
     </PropertyGroup>
