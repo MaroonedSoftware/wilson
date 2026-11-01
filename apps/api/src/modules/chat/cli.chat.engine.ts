@@ -31,11 +31,11 @@ const withTranscript = (history: ChatMessage[], text: string): string =>
  * credentials planning and `cli` stages use), resuming the thread's own session each turn rather
  * than replaying it, which is why it stores `engineSessionId` and no `engineMessages`.
  *
- * The tool surface is the chat's four tools and nothing else: `tools: []` turns every built-in tool
+ * The tool surface is the chat's five tools and nothing else: `tools: []` turns every built-in tool
  * off (no Bash, no file access), and `settingSources: []` with `strictMcpConfig: true` keeps the host
- * machine's own settings and MCP servers out, as `CliStageAgent` does. The four are listed in
+ * machine's own settings and MCP servers out, as `CliStageAgent` does. The five are listed in
  * `allowedTools`, pre-approving them: there is no one at a terminal to approve a call, and none of
- * them can change anything (a change is only ever proposed, `chatTools`).
+ * them can change anything (a change is only ever proposed, a question only ever asked, `chatTools`).
  */
 @Injectable()
 export class CliChatEngine extends ChatEngine {

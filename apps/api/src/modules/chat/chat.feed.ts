@@ -1,19 +1,21 @@
 import { ServerFeed } from '@maroonedsoftware/serverfeed';
 import type { ChatToolEvent } from './chat.tools.js';
-import { toWireAction } from './chat.wire.js';
+import { toWireAction, toWireQuestion } from './chat.wire.js';
 
 /** The `source` every chat event is published under; `correlationId` is the thread's id. */
 export const CHAT_SOURCE = 'chat';
 
 /**
  * What a turn in progress sends a person watching its thread, in order: the answer's text as it is
- * written (`delta`), each read as it runs (`operation`), each change as it is proposed (`proposed`),
- * then `done` once the answer is stored or `failed` with the reason it could not be.
+ * written (`delta`), each read as it runs (`operation`), each change as it is proposed (`proposed`)
+ * or each question as it is asked (`asked`), then `done` once the answer is stored or `failed` with
+ * the reason it could not be.
  */
 export type ChatStreamEvent =
     | { event: 'delta'; data: string }
     | { event: 'operation'; data: unknown }
     | { event: 'proposed'; data: unknown }
+    | { event: 'asked'; data: unknown }
     | { event: 'done'; data: { seq: number } }
     | { event: 'failed'; data: { reason: string } };
 
@@ -34,8 +36,16 @@ export const publishChat = (threadId: string, streamEvent: ChatStreamEvent): voi
 };
 
 /** A chat tool's event, as the stream sends it. */
-export const toStreamEvent = (event: ChatToolEvent): ChatStreamEvent =>
-    event.type === 'operation' ? { event: 'operation', data: event.operation } : { event: 'proposed', data: toWireAction(event.action) };
+export const toStreamEvent = (event: ChatToolEvent): ChatStreamEvent => {
+    switch (event.type) {
+        case 'operation':
+            return { event: 'operation', data: event.operation };
+        case 'proposed':
+            return { event: 'proposed', data: toWireAction(event.action) };
+        case 'asked':
+            return { event: 'asked', data: toWireQuestion(event.question) };
+    }
+};
 
 /** Subscribe to `threadId`'s stream events. Returns an unsubscribe function. */
 export const onChatEvent = (threadId: string, listener: (streamEvent: ChatStreamEvent) => void): (() => void) =>

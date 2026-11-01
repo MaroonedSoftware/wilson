@@ -58,6 +58,27 @@ export const ChatPendingAction = z.strictObject({
 export type ChatPendingAction = z.infer<typeof ChatPendingAction>;
 
 /**
+ * One suggested answer to a `ChatQuestion`.
+ * generated from [ChatQuestionOption](../../data/contracts/chat.ck)
+ */
+export const ChatQuestionOption = z.strictObject({
+    label: z.string(),
+    description: z.string(),
+});
+export type ChatQuestionOption = z.infer<typeof ChatQuestionOption>;
+
+/**
+ * One question's answer: the options chosen, by index into its own `options` (never by label — a
+ * submission is validated against the stored question, not a string match), and any "Other" text.
+ * generated from [ChatQuestionAnswer](../../data/contracts/chat.ck)
+ */
+export const ChatQuestionAnswer = z.strictObject({
+    chosen: z.array(z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())),
+    other: z.string().optional(),
+});
+export type ChatQuestionAnswer = z.infer<typeof ChatQuestionAnswer>;
+
+/**
  * generated from [RenameChatThreadRequest](../../data/contracts/chat.ck)
  */
 export const RenameChatThreadRequest = z.strictObject({
@@ -96,12 +117,52 @@ export const ChatMessage = z.strictObject({
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
 /**
+ * One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it.
+ * generated from [ChatQuestion](../../data/contracts/chat.ck)
+ */
+export const ChatQuestion = z.strictObject({
+    header: z.string(),
+    text: z.string(),
+    options: z.array(ChatQuestionOption),
+    multiSelect: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type ChatQuestion = z.infer<typeof ChatQuestion>;
+
+/**
+ * `POST .../questions/{questionId}/answers`'s request: one answer per question asked, in order.
+ * generated from [AnswerChatQuestionsRequest](../../data/contracts/chat.ck)
+ */
+export const AnswerChatQuestionsRequest = z.strictObject({
+    answers: z.array(ChatQuestionAnswer),
+});
+export type AnswerChatQuestionsRequest = z.infer<typeof AnswerChatQuestionsRequest>;
+
+/**
+ * A question the agent asked, waiting on the person. `pending` until they answer it or an ordinary
+ * message on the thread dismisses it (`ChatService.sendMessage`); `answered` once they submit. A
+ * pending question past `expiresAt` can no longer be answered.
+ * generated from [ChatPendingQuestion](../../data/contracts/chat.ck)
+ */
+export const ChatPendingQuestion = z.strictObject({
+    id: z.string(),
+    threadId: z.string(),
+    questions: z.array(ChatQuestion),
+    answers: z.array(ChatQuestionAnswer).optional(),
+    status: z.enum(['pending', 'answered', 'dismissed']),
+    expiresAt: _ZodDatetime,
+    decidedAt: _ZodDatetime.optional(),
+    createdAt: _ZodDatetime,
+});
+export type ChatPendingQuestion = z.infer<typeof ChatPendingQuestion>;
+
+/**
  * generated from [ChatThreadDetail](../../data/contracts/chat.ck)
  */
 export const ChatThreadDetail = z.strictObject({
     thread: ChatThread,
     messages: z.array(ChatMessage),
     actions: z.array(ChatPendingAction),
+    questions: z.array(ChatPendingQuestion),
 });
 export type ChatThreadDetail = z.infer<typeof ChatThreadDetail>;
 
@@ -115,5 +176,6 @@ export const ChatTurnResult = z.strictObject({
     message: ChatMessage,
     reply: ChatMessage,
     proposed: z.array(ChatPendingAction),
+    asked: z.array(ChatPendingQuestion),
 });
 export type ChatTurnResult = z.infer<typeof ChatTurnResult>;

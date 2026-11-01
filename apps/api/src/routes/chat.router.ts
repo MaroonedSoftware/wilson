@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { ChatService } from '#modules/chat/chat.service.js';
 import {
+    AnswerChatQuestionsRequest,
     ChatPendingAction,
+    ChatPendingQuestion,
     ChatThread,
     ChatThreadDetail,
     ChatTurnResult,
@@ -149,3 +151,39 @@ ChatRouter.post('/api/chat/actions/:id/decision', requirePolicy({ policy: 'wilso
     ctx.type = 'application/json';
     ctx.body = result;
 });
+
+/**
+ * Answers a question `ask_user` asked, choosing options by index and/or typing free text under
+ * "Other". A valid submission moves the row to `answered` and starts a follow-up turn on the thread,
+ * carrying the chosen labels and any "Other" text as a note from Wilson — the same mechanism a
+ * confirmed change already uses (`POST .../decision`) — never a `role: 'user'` message in the
+ * person's name. The second path param is `questionId`, not `id`: contractkit keys a `params` block
+ * by name, so two `{id}` segments in one path cannot be expressed (see `.../context/{contextId}` in
+ * `context.ck` and `.../comments/{commentId}/resolve` in `board.ck` for the same shape). One
+ * consequence of nesting under the thread, which is the point of it: the same 404 below covers either
+ * id not existing — the thread, or a question id that does not belong to it.
+ * from [chat.ck](../../data/contracts/chat.ck) `POST /api/chat/threads/{id}/questions/{questionId}/answers`
+ */
+ChatRouter.post(
+    '/api/chat/threads/:id/questions/:questionId/answers',
+    requirePolicy({ policy: 'wilson.manage' }),
+    bodyParserMiddleware(['json']),
+    async ctx => {
+        const { id, questionId } = await parseAndValidate(
+            ctx.params,
+            z.strictObject({
+                id: z.string(),
+                questionId: z.string(),
+            }),
+        );
+
+        const body = await parseAndValidate(ctx.parsedBody, AnswerChatQuestionsRequest);
+
+        const service = ctx.container.get(ChatService);
+        const result: ChatPendingQuestion = await service.answerQuestions(id, questionId, body);
+
+        ctx.status = 200;
+        ctx.type = 'application/json';
+        ctx.body = result;
+    },
+);

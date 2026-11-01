@@ -5,7 +5,9 @@ import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
+    AnswerChatQuestionsRequest,
     ChatPendingAction as WirePendingAction,
+    ChatPendingQuestion as WirePendingQuestion,
     ChatThread as WireChatThread,
     ChatThreadDetail,
     ChatTurnResult,
@@ -15,6 +17,8 @@ import type {
 } from '#src/generated/chat.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 import { publishChat, toStreamEvent } from './chat.feed.js';
+import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
+import { describeAnswers, validateAnswers, type QuestionAnswer } from './chat.questions.js';
 import { splitSuggestions } from './chat.suggestions.js';
 import type { ChatEngine } from './chat.engine.js';
 import type { ChatEngineChoice } from './chat.engine.setting.js';
@@ -23,7 +27,7 @@ import { ChatPendingActionRepository, type PendingAction } from './chat.pending.
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
 import { chatTools, type ChatTurnContext } from './chat.tools.js';
-import { toWireAction, toWireMessage, toWireThread } from './chat.wire.js';
+import { toWireAction, toWireMessage, toWireQuestion, toWireThread } from './chat.wire.js';
 
 /** A thread's title until its first message names it. */
 export const NEW_THREAD_TITLE = 'New chat';
@@ -54,6 +58,16 @@ export const followUpNote = (action: PendingAction): string =>
     ].join('\n');
 
 /**
+ * The note a follow-up turn is given in place of a message from the person, once they have answered
+ * a question `ask_user` asked: what they chose, in their own words taken off the stored answer, never
+ * a `role: 'user'` message (`ChatService.answerQuestions`). Unlike {@link followUpNote} it never
+ * offers {@link NOTHING_MORE} — the agent asked because it needed this to carry on, so it always has
+ * something to do with it now.
+ */
+export const answerNote = (question: PendingQuestion, answers: QuestionAnswer[]): string =>
+    `(A note from Wilson, not from the person.) They answered the question you asked:\n${describeAnswers(question.questions, answers)}`;
+
+/**
  * One lock per thread, so a second message sent while the first is still being answered waits for
  * it rather than racing it: each turn reads the thread's history, and two at once would each answer
  * without the other.
@@ -66,9 +80,10 @@ const threadLock = (threadId: string): Mutex => {
 };
 
 /**
- * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the four
+ * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the five
  * chat tools (`chatTools`), and stores its answer with the operations it ran. A change the answer
- * proposed runs only through {@link decide}, as the person's own act.
+ * proposed runs only through {@link decide}, and a question it asked only through
+ * {@link answerQuestions} — both as the person's own act, never guessed on their behalf.
  *
  * Takes the container itself, registered through a factory (`ChatModule`), because the catalog runs
  * each operation in a fresh scope of it, as each HTTP request gets one (`ChatCatalog.run`). `session`
@@ -84,6 +99,7 @@ export class ChatService {
         private readonly threads: ChatThreadRepository,
         private readonly messages: ChatMessageRepository,
         private readonly actions: ChatPendingActionRepository,
+        private readonly questions: ChatQuestionRepository,
         private readonly catalog: ChatCatalog,
         private readonly projects: ProjectRepository,
         private readonly engines: Record<ChatEngineName, ChatEngine | undefined>,
@@ -102,8 +118,13 @@ export class ChatService {
 
     async getThread(id: string): Promise<ChatThreadDetail> {
         const thread = await this.threadOrThrow(id);
-        const [messages, actions] = await Promise.all([this.messages.since(id), this.actions.forThread(id)]);
-        return { thread: toWireThread(thread), messages: messages.map(toWireMessage), actions: actions.map(toWireAction) };
+        const [messages, actions, questions] = await Promise.all([this.messages.since(id), this.actions.forThread(id), this.questions.forThread(id)]);
+        return {
+            thread: toWireThread(thread),
+            messages: messages.map(toWireMessage),
+            actions: actions.map(toWireAction),
+            questions: questions.map(toWireQuestion),
+        };
     }
 
     async renameThread(id: string, { title }: RenameChatThreadRequest): Promise<WireChatThread> {
@@ -131,12 +152,19 @@ export class ChatService {
             message => this.logger.info(message),
             async () => {
                 const thread = await this.threadOrThrow(id);
+                // An ordinary message supersedes whatever the agent was still waiting to hear back on.
+                await this.questions.dismissPending(id);
                 const history = await this.messages.since(id);
                 if (history.length === 0 && thread.title === NEW_THREAD_TITLE) await this.threads.rename(id, titleFrom(said));
                 const message = await this.messages.append(id, { role: 'user', content: said });
 
-                const { reply, proposed } = await this.answer(thread, history, said, session, project);
-                return { message: toWireMessage(message), reply: toWireMessage(reply!), proposed: proposed.map(toWireAction) };
+                const { reply, proposed, asked } = await this.answer(thread, history, said, session, project);
+                return {
+                    message: toWireMessage(message),
+                    reply: toWireMessage(reply!),
+                    proposed: proposed.map(toWireAction),
+                    asked: asked.map(toWireQuestion),
+                };
             },
         );
     }
@@ -166,6 +194,28 @@ export class ChatService {
         }
         if (finished) this.followUp(finished, session);
         return toWireAction(finished ?? decided);
+    }
+
+    /**
+     * Answer a question `ask_user` asked: 404 for an unknown thread, an unknown question, or one that
+     * belongs to another thread (one 404 covers all three — `chat.ck`'s own comment on why); 400 for a
+     * submission {@link validateAnswers} refuses; 409 for one already answered, already dismissed, or
+     * past its `expiresAt`. A valid submission starts a follow-up turn carrying what was chosen
+     * ({@link followUpQuestions}), not awaited here, exactly as {@link decide} starts its own.
+     */
+    async answerQuestions(id: string, questionId: string, { answers }: AnswerChatQuestionsRequest): Promise<WirePendingQuestion> {
+        await this.threadOrThrow(id);
+        const question = await this.questions.get(questionId);
+        if (!question || question.threadId !== id) throw httpError(404).withDetails({ reason: `chat question ${questionId} not found` });
+
+        const reason = validateAnswers(question.questions, answers);
+        if (reason) throw httpError(400).withDetails({ reason });
+
+        const answered = await this.questions.answer(questionId, answers);
+        if (!answered) throw httpError(409).withDetails({ reason: this.whyUnanswerable(question) });
+
+        this.followUpQuestions(answered, answers, this.session());
+        return toWireQuestion(answered);
     }
 
     /** Resolves once every follow-up this service started has finished: for tests, and an orderly shutdown. */
@@ -200,6 +250,31 @@ export class ChatService {
     }
 
     /**
+     * After an answered question, give the chat a turn of its own to carry on, told what the person
+     * chose ({@link answerNote}) in place of a message from them. `followUp: true` for
+     * {@link answer}'s `engineMessages` head-prepending, the same as {@link followUp}'s own call; the
+     * `NOTHING_MORE` branch it also guards never fires here, since {@link answerNote} never asks for
+     * that token. Tracked in `this.followUps` so `whenIdle` covers it, and takes the thread's lock so a
+     * message sent meanwhile waits for it rather than racing it, the same as {@link followUp}.
+     */
+    private followUpQuestions(question: PendingQuestion, answers: QuestionAnswer[], session: AuthenticationSession): void {
+        const run = threadLock(question.threadId)
+            .run(
+                `follow-up to chat question ${question.id}`,
+                message => this.logger.info(message),
+                async () => {
+                    const thread = await this.threads.get(question.threadId);
+                    if (!thread) return;
+                    const history = await this.messages.since(thread.id);
+                    await this.answer(thread, history, answerNote(question, answers), session, undefined, { followUp: true });
+                },
+            )
+            .catch(err => this.logger.warn(`chat question ${question.id}: the follow-up failed: ${explainError(err)}`))
+            .finally(() => this.followUps.delete(run));
+        this.followUps.add(run);
+    }
+
+    /**
      * Run one turn on the thread's engine and store its answer, publishing its progress to anyone
      * watching the thread (`chatFeed`) as it goes.
      */
@@ -210,7 +285,7 @@ export class ChatService {
         session: AuthenticationSession,
         project?: string,
         { followUp = false }: { followUp?: boolean } = {},
-    ): Promise<{ reply?: ChatMessage; proposed: PendingAction[] }> {
+    ): Promise<{ reply?: ChatMessage; proposed: PendingAction[]; asked: PendingQuestion[] }> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
             throw httpError(502).withDetails({ reason });
@@ -228,6 +303,7 @@ export class ChatService {
             session,
             operations: [],
             proposed: [],
+            asked: [],
             emit: event => publishChat(thread.id, toStreamEvent(event)),
         };
 
@@ -252,14 +328,15 @@ export class ChatService {
         const { text: written, suggestions } = splitSuggestions(output.text.trim());
         if (followUp && written === NOTHING_MORE && context.proposed.length === 0) {
             publishChat(thread.id, { event: 'done', data: { seq: history.at(-1)?.seq ?? 0 } });
-            return { proposed: [] };
+            return { proposed: [], asked: [] };
         }
         const reply = await this.messages.append(thread.id, {
             role: 'assistant',
             content: written.replace(NOTHING_MORE, '').trim() || '(no answer)',
             operations: context.operations,
-            // What to ask next follows once the person has decided, not while a change waits on them.
-            suggestions: context.proposed.length === 0 ? suggestions : [],
+            // What to ask next follows once the person has decided, not while a change waits on them —
+            // or while a question they asked still waits on the person.
+            suggestions: context.proposed.length === 0 && context.asked.length === 0 ? suggestions : [],
             // A follow-up's note is not stored as a message, so the 'api' engine keeps it at the head
             // of the answer's own record: replayed next turn, the answer still follows what prompted it
             // rather than a second answer in a row.
@@ -269,12 +346,17 @@ export class ChatService {
                     : output.engineMessages,
         });
         publishChat(thread.id, { event: 'done', data: { seq: reply.seq } });
-        return { reply, proposed: context.proposed };
+        return { reply, proposed: context.proposed, asked: context.asked };
     }
 
     private whyUndecidable(action: PendingAction): string {
         if (action.status !== 'pending') return `chat action ${action.id} was already decided (${action.status})`;
         return `chat action ${action.id} expired before it was decided; ask for it again`;
+    }
+
+    private whyUnanswerable(question: PendingQuestion): string {
+        if (question.status !== 'pending') return `chat question ${question.id} was already ${question.status}`;
+        return `chat question ${question.id} expired before it was answered; ask again`;
     }
 
     private async threadOrThrow(id: string): Promise<ChatThread> {

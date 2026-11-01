@@ -5,6 +5,8 @@ import { Duration } from 'luxon';
 import { z } from 'zod';
 import type { ChatOperation } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
+import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
+import { QUESTION_TTL, QUESTIONS_SCHEMA, type AskedQuestion } from './chat.questions.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 
 /**
@@ -21,11 +23,14 @@ export interface ChatTool {
 }
 
 /** What the tools report as they run, for the stream to show while a turn is still in progress. */
-export type ChatToolEvent = { type: 'operation'; operation: ChatOperation } | { type: 'proposed'; action: PendingAction };
+export type ChatToolEvent =
+    | { type: 'operation'; operation: ChatOperation }
+    | { type: 'proposed'; action: PendingAction }
+    | { type: 'asked'; question: PendingQuestion };
 
 /**
- * One turn's state, shared by its tools. `operations` and `proposed` are what the turn did, kept on
- * the stored answer; `emit` passes each one on as it happens.
+ * One turn's state, shared by its tools. `operations`, `proposed` and `asked` are what the turn did,
+ * kept on the stored answer; `emit` passes each one on as it happens.
  */
 export interface ChatTurnContext {
     threadId: string;
@@ -35,6 +40,7 @@ export interface ChatTurnContext {
     session: AuthenticationSession;
     operations: ChatOperation[];
     proposed: PendingAction[];
+    asked: PendingQuestion[];
     emit?: (event: ChatToolEvent) => void;
 }
 
@@ -62,9 +68,11 @@ const ARGUMENTS = z
     );
 
 /**
- * The four tools the chat's agent gets, in the shape of ats's meta tools: one to find an operation,
- * one to read its input schema, one to run a read, and one to propose a change. Nothing here runs a
- * change. `propose_change` stores it as a pending action, and only the person's confirm runs it.
+ * The five tools the chat's agent gets, in the shape of ats's meta tools: one to find an operation,
+ * one to read its input schema, one to run a read, one to propose a change, and one to ask the person
+ * a structured question. Nothing here runs a change. `propose_change` stores it as a pending action,
+ * and only the person's confirm runs it; `ask_user` stores a pending question the same way, and only
+ * their submission answers it.
  */
 export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatTool[] => {
     const record = (operation: ChatOperation) => {
@@ -143,6 +151,24 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                 context.proposed.push(action);
                 context.emit?.({ type: 'proposed', action });
                 return `Proposed as change ${action.id}: "${summary}". It has not been made. The person will confirm or decline it within ${PROPOSAL_TTL.as('minutes')} minutes.`;
+            },
+        },
+        {
+            name: 'ask_user',
+            description:
+                'Ask the person a structured choice, or for something missing before you can carry on: up to 4 related questions in one prompt, ' +
+                'each needing 2-4 suggested options. An "Other" free-text box is always offered, so never add one as an option yourself. It ' +
+                'returns immediately and the answer arrives separately, not from this call: say what you asked and that it waits on them, and ' +
+                'never guess the answer yourself.',
+            input: QUESTIONS_SCHEMA,
+            execute: async input => {
+                const { questions } = input as { questions: AskedQuestion[] };
+                const question = await context.container
+                    .get(ChatQuestionRepository)
+                    .ask(context.threadId, { questions, expiresIn: QUESTION_TTL });
+                context.asked.push(question);
+                context.emit?.({ type: 'asked', question });
+                return `Asked as question ${question.id}. It has not been answered. The person has ${QUESTION_TTL.as('minutes')} minutes to answer it.`;
             },
         },
     ];
