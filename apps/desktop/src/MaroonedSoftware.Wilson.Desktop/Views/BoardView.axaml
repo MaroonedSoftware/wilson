@@ -1,0 +1,57 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.BoardView"
+    x:DataType="vm:BoardViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12" LastChildFill="False">
+            <TextBlock Classes="title" Text="Wilson" Margin="0,0,16,0" VerticalAlignment="Center" />
+            <ComboBox ItemsSource="{Binding Projects}" SelectedItem="{Binding Project}" MinWidth="160" VerticalAlignment="Center" />
+            <ToggleButton Content="Flagged" IsChecked="{Binding FlaggedOnly}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" IsVisible="{Binding Live}" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="not live" IsVisible="{Binding !Live}" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Columns}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:BoardColumn">
+                        <Border Width="250" Background="{DynamicResource Panel}" CornerRadius="4" Padding="8">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="2,0,2,8">
+                                    <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding Count}" />
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding Cards}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="sdk:CardSummary">
+                                                <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,6">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Classes="quiet" Text="{Binding Id}" />
+                                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="Needs you" Foreground="{DynamicResource Flag}" FontSize="12" IsVisible="{Binding NeedsHuman}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

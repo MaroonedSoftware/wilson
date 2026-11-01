@@ -1,0 +1,63 @@
+<Application
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
+    x:Class="MaroonedSoftware.Wilson.Desktop.App"
+    Name="Wilson"
+    RequestedThemeVariant="Default">
+
+    <Application.DataTemplates>
+        <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
+        <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <FontFamily x:Key="Serif">Georgia, Times New Roman, serif</FontFamily>
+            <FontFamily x:Key="Mono">SF Mono, Menlo, Consolas, monospace</FontFamily>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="Panel" Color="#f4f4f3" />
+                    <SolidColorBrush x:Key="Tile" Color="#ffffff" />
+                    <SolidColorBrush x:Key="Line" Color="#d9d9d6" />
+                    <SolidColorBrush x:Key="Quiet" Color="#6b6b68" />
+                    <SolidColorBrush x:Key="Flag" Color="#a33a12" />
+                    <SolidColorBrush x:Key="Added" Color="#dcf3e1" />
+                    <SolidColorBrush x:Key="Removed" Color="#fbe0de" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="Panel" Color="#2a2a29" />
+                    <SolidColorBrush x:Key="Tile" Color="#343433" />
+                    <SolidColorBrush x:Key="Line" Color="#464644" />
+                    <SolidColorBrush x:Key="Quiet" Color="#a8a8a4" />
+                    <SolidColorBrush x:Key="Flag" Color="#f09a6c" />
+                    <SolidColorBrush x:Key="Added" Color="#1f3d29" />
+                    <SolidColorBrush x:Key="Removed" Color="#4a2523" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <!-- Monochrome, because the brand has one colour (brand/README.md). -->
+        <FluentTheme DensityStyle="Compact">
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Dark" Accent="#c9c9c6" RegionColor="#222221" />
+                <ColorPaletteResources x:Key="Light" Accent="#2b2b2a" RegionColor="#fbfbfa" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
+        <Style Selector="TextBlock.title">
+            <Setter Property="FontFamily" Value="{StaticResource Serif}" />
+            <Setter Property="FontSize" Value="24" />
+        </Style>
+        <Style Selector="TextBlock.quiet, SelectableTextBlock.quiet">
+            <Setter Property="Foreground" Value="{DynamicResource Quiet}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.error, SelectableTextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource Flag}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Application.Styles>
+</Application>

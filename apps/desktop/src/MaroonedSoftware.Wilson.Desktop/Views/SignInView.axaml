@@ -1,0 +1,16 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.SignInView"
+    x:DataType="vm:SignInViewModel">
+    <StackPanel Width="340" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Classes="title" Text="Wilson" />
+        <TextBox PlaceholderText="Server address" Text="{Binding Address}" IsEnabled="{Binding !NeedsCode}" />
+        <TextBox PlaceholderText="Email" Text="{Binding Email}" IsVisible="{Binding !NeedsCode}" />
+        <TextBox PlaceholderText="Password" PasswordChar="•" Text="{Binding Password}" IsVisible="{Binding !NeedsCode}" />
+        <TextBox PlaceholderText="Code from your authenticator" Text="{Binding Code}" IsVisible="{Binding NeedsCode}" />
+        <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Button Content="Sign in" Command="{Binding SubmitCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+    </StackPanel>
+</UserControl>

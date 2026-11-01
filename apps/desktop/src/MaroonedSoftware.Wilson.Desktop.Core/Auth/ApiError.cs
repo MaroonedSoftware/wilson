@@ -19,6 +19,21 @@ public static partial class ApiError
                 : null;
     }
 
+    /// <summary>The sentence to show for a failed call: the API's own when it sent one.</summary>
+    public static string Reason(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        return failure switch
+        {
+            SdkException refused => Message(refused)
+                ?? (refused.Json is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String ? message.GetString() : null)
+                ?? FormattableString.Invariant($"The server answered {refused.Status}."),
+            HttpRequestException => "Could not reach the server.",
+            _ => failure.Message,
+        };
+    }
+
     /// <summary>
     /// Whether the API itself refused a refresh, which is the only answer that ends a session. A 401
     /// naming the refusal in `WWW-Authenticate` rather than any 4xx: a proxy or a tunnel can answer
