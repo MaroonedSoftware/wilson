@@ -175,7 +175,11 @@ export class BoardWriteService {
             id,
             `Move ${id} to ${target}`,
             async card => {
-                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = card.frontmatter;
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...flagless } = card.frontmatter;
+                // Clearing a flag spends what `ack` spends: the flagged stage's retry key goes, or the
+                // stage's next single failure would land straight back on `maxKickbacks`.
+                const { [card.frontmatter.stage]: _dropped, ...retries } = card.frontmatter.retries;
+                const rest = card.frontmatter.needsHuman ? { ...flagless, retries } : flagless;
                 if (!enteringBacklog) {
                     return { ...card, frontmatter: { ...rest, stage: target } };
                 }
