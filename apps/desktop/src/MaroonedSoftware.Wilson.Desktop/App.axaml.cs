@@ -19,7 +19,10 @@ public partial class App : Application
         {
             var updateHttp = new HttpClient();
             updateHttp.DefaultRequestHeaders.UserAgent.ParseAdd($"wilson-desktop/{UpdateCheck.Current}");
-            var shell = new ShellViewModel(new MacKeychainSecretStore(), DesktopSettings.DefaultPath()) { Updates = new UpdateViewModel(new UpdateChecker(updateHttp, UpdateCheck.Current)) };
+            var key = UpdateSignature.BuiltInKey();
+            var downloader = key is null ? null : new UpdateDownloader(updateHttp, key, Path.Combine(Path.GetTempPath(), "wilson-updates"));
+            var updates = new UpdateViewModel(new UpdateChecker(updateHttp, UpdateCheck.Current), downloader, new MacUpdateInstaller(), BundleSwap.BundleOf(Environment.ProcessPath), () => desktop.Shutdown());
+            var shell = new ShellViewModel(new MacKeychainSecretStore(), DesktopSettings.DefaultPath()) { Updates = updates };
             desktop.MainWindow = new MainWindow { DataContext = shell };
             desktop.Exit += (_, _) =>
             {
@@ -27,7 +30,7 @@ public partial class App : Application
                 updateHttp.Dispose();
             };
             _ = shell.StartAsync();
-            _ = shell.Updates.RunAsync();
+            _ = updates.RunAsync();
         }
 
         base.OnFrameworkInitializationCompleted();

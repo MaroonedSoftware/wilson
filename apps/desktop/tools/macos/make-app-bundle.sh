@@ -27,6 +27,7 @@ dotnet publish "$root/src/MaroonedSoftware.Wilson.Desktop" \
     --self-contained true \
     -p:PublishTrimmed=false \
     -p:PublishSingleFile=false \
+    -p:Version="$version" \
     --output "$out/publish"
 
 cp -R "$out/publish/." "$app/Contents/MacOS/"

@@ -7,7 +7,8 @@
     <DockPanel>
         <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" Padding="16,6" IsVisible="{Binding Updates.Visible, FallbackValue=False}">
             <DockPanel>
-                <Button DockPanel.Dock="Right" Content="View release" Command="{Binding Updates.ViewReleaseCommand, FallbackValue={x:Null}}" />
+                <Button DockPanel.Dock="Right" Content="View release" Command="{Binding Updates.ViewReleaseCommand, FallbackValue={x:Null}}" IsVisible="{Binding Updates.CanView, FallbackValue=False}" />
+                <Button DockPanel.Dock="Right" Content="Restart to update" Command="{Binding Updates.RestartCommand, FallbackValue={x:Null}}" IsVisible="{Binding Updates.Ready, FallbackValue=False}" IsEnabled="{Binding !Updates.Installing, FallbackValue=False}" />
                 <TextBlock Text="{Binding Updates.Message, FallbackValue={x:Null}}" VerticalAlignment="Center" TextWrapping="Wrap" />
             </DockPanel>
         </Border>
