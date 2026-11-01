@@ -6,6 +6,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
 import { SettingsStore } from './settings.store.js';
 import { PollerSettingService } from './poller.setting.service.js';
+import { DrainSettingService } from './drain.setting.service.js';
 import { PollerIntervalSettingService } from './poller.interval.setting.service.js';
 import { CardStageConcurrencySettingService } from './card.stage.concurrency.setting.service.js';
 import { LocalStageSlotsSettingService } from './local.stage.slots.setting.service.js';
@@ -47,6 +48,7 @@ export const SettingsModule: ServerKitModule = {
             .useFactory(c => new SettingsStore(c.get(BoardConfig), c.get(Kysely<DB>), config))
             .asTransient();
         registry.register(PollerSettingService).useClass(PollerSettingService).asTransient();
+        registry.register(DrainSettingService).useClass(DrainSettingService).asTransient();
         registry.register(PollerIntervalSettingService).useClass(PollerIntervalSettingService).asTransient();
         registry.register(CardStageConcurrencySettingService).useClass(CardStageConcurrencySettingService).asTransient();
         registry.register(LocalStageSlotsSettingService).useClass(LocalStageSlotsSettingService).asTransient();

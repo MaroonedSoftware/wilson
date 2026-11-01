@@ -41,6 +41,27 @@ public sealed class SettingsClient(SdkHttp http)
         return http.ReadJson<PollerSetting>(response);
     }
 
+    /// <summary>Get drain status</summary>
+    public async Task<DrainStatus> GetDrainStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "settings", "drain"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<DrainStatus>(response);
+    }
+
+    /// <summary>Set drain</summary>
+    public async Task<DrainStatus> SetDrainAsync(SetDrainRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "settings", "drain"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<DrainStatus>(response);
+    }
+
     /// <summary>Get poller interval</summary>
     public async Task<PollerInterval> GetPollerIntervalAsync(CancellationToken cancellationToken = default)
     {

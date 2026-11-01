@@ -10,6 +10,7 @@ import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.se
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
+import { DrainSettingService } from '#modules/settings/drain.setting.service.js';
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
@@ -21,6 +22,7 @@ import {
     CardStageConcurrency,
     ChatEngineSetting,
     ClaudeConfigDirSetting,
+    DrainStatus,
     DryRunSetting,
     GitHubAppSetting,
     LocalStageSlots,
@@ -30,6 +32,7 @@ import {
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
+    SetDrainRequest,
     SetDryRunSettingRequest,
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
@@ -48,6 +51,8 @@ function requireMcpContainer(context: McpToolContext): Container {
 
 const GetPollerSettingArgs = z.object({});
 const SetPollerSettingArgs = z.object({ body: SetPollerSettingRequest });
+const GetDrainStatusArgs = z.object({});
+const SetDrainArgs = z.object({ body: SetDrainRequest });
 const GetPollerIntervalArgs = z.object({});
 const SetPollerIntervalArgs = z.object({ body: SetPollerIntervalRequest });
 const GetCardStageConcurrencyArgs = z.object({});
@@ -106,6 +111,49 @@ export class SetPollerSettingMcpTool implements McpToolHandler {
         await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
         const { body } = await parseAndValidate(args, SetPollerSettingArgs);
         const result = await container.get(PollerSettingService).set(body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/drain`
+ */
+@Injectable()
+export class GetDrainStatusMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_drain_status',
+        inputSchema: z.toJSONSchema(GetDrainStatusArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(DrainStatus, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(DrainSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `PUT /api/settings/drain`
+ */
+@Injectable()
+export class SetDrainMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'set_drain',
+        inputSchema: z.toJSONSchema(SetDrainArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(DrainStatus, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { body } = await parseAndValidate(args, SetDrainArgs);
+        const result = await container.get(DrainSettingService).set(body);
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     }
 }
@@ -503,6 +551,8 @@ export class SetGithubAppSettingMcpTool implements McpToolHandler {
 export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('get_poller_setting', container.get(GetPollerSettingMcpTool));
     map.set('set_poller_setting', container.get(SetPollerSettingMcpTool));
+    map.set('get_drain_status', container.get(GetDrainStatusMcpTool));
+    map.set('set_drain', container.get(SetDrainMcpTool));
     map.set('get_poller_interval', container.get(GetPollerIntervalMcpTool));
     map.set('set_poller_interval', container.get(SetPollerIntervalMcpTool));
     map.set('get_card_stage_concurrency', container.get(GetCardStageConcurrencyMcpTool));
@@ -527,6 +577,8 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
 export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(GetPollerSettingMcpTool).useClass(GetPollerSettingMcpTool).asSingleton();
     registry.register(SetPollerSettingMcpTool).useClass(SetPollerSettingMcpTool).asSingleton();
+    registry.register(GetDrainStatusMcpTool).useClass(GetDrainStatusMcpTool).asSingleton();
+    registry.register(SetDrainMcpTool).useClass(SetDrainMcpTool).asSingleton();
     registry.register(GetPollerIntervalMcpTool).useClass(GetPollerIntervalMcpTool).asSingleton();
     registry.register(SetPollerIntervalMcpTool).useClass(SetPollerIntervalMcpTool).asSingleton();
     registry.register(GetCardStageConcurrencyMcpTool).useClass(GetCardStageConcurrencyMcpTool).asSingleton();

@@ -41,6 +41,18 @@ data class SetPollerSettingRequest(
     val enabled: Boolean,
 )
 
+/** One card this process is running a stage for right now. */
+@Serializable
+data class DrainRunningCard(
+    val project: String,
+    val cardId: String,
+)
+
+@Serializable
+data class SetDrainRequest(
+    val draining: Boolean,
+)
+
 /**
  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
@@ -194,6 +206,22 @@ data class GitHubAppSetting(
 @Serializable
 data class SetGitHubAppSettingRequest(
     val appId: String?,
+)
+
+/**
+ * Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
+ * while draining with nothing running, since an idle moment without a drain lasts only until the next
+ * stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan
+ * drafts, which a drain does not hold but a restart would still kill. Neither this nor `running` sees
+ * a merge in progress, because a merge runs inside a request and not as a job.
+ */
+@Serializable
+data class DrainStatus(
+    val draining: Boolean,
+    val running: List<DrainRunningCard>,
+    val held: Long,
+    val planDrafts: Long,
+    val safeToRestart: Boolean,
 )
 
 @Serializable(with = EngineTokenSettingSourceSerializer::class)
