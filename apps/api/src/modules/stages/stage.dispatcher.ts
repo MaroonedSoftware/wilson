@@ -843,6 +843,18 @@ export class StageDispatcher {
                 payload: { wantedStage: stageName, actualStage: err.actualStage },
             });
             this.logger.warn(`${cardId} moved to "${err.actualStage}" while ${stageName} ran; leaving it there`);
+            // `move` leaves the tree alone while this run is using it, so a card moved to a terminal
+            // stage gets its worktree back here, now that the run is over.
+            const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                target: err.actualStage,
+                flagged: Boolean(head.frontmatter.needsHuman),
+            });
+            if (reclaimed.error) {
+                this.logger.warn(`could not reclaim worktree for ${cardId} after it moved to "${err.actualStage}": ${reclaimed.error}`);
+            }
             return { needsHuman: false };
         }
 

@@ -120,6 +120,16 @@ describe('StageDispatcher.run writing a transition', () => {
         expect(worktrees.reclaim).not.toHaveBeenCalled();
     });
 
+    it('reclaims the worktree once the run ends, for a card moved to a terminal stage during it', async () => {
+        const { dispatcher, worktrees } = await harness(board =>
+            board.write('0001', 'dropped by hand', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'dropped' } })),
+        );
+
+        await dispatcher.run('0001', 'testing');
+
+        expect(worktrees.reclaim).toHaveBeenCalledOnce();
+    });
+
     it('records a failed transition as transition.failed, not as the stage having failed', async () => {
         const { board, events, dispatcher } = await harness();
         vi.spyOn(board, 'writeWithEvent').mockRejectedValueOnce(new Error('connection lost'));

@@ -205,13 +205,18 @@ export class BoardWriteService {
         // (`isTerminal(target)`) rather than growing its own idea of "done". `clearsFlag` reflects
         // the card's state *before* this move, which is what must gate reclaiming even though this
         // same move is what clears the flag (card 0055 keeps a flagged card's tree on purpose).
-        const reclaimed = await this.boardRepository.reclaimIfTerminal(this.worktrees, this.eventLog, {
-            project: this.boardConfig.project,
-            cardId: id,
-            stage: target,
-            target,
-            flagged: clearsFlag,
-        });
+        // Not while a stage is using that tree: the run notices the move when it finishes, and
+        // reclaims then (`StageDispatcher.writeTransition`).
+        const running = this.runningCards.snapshot().some(entry => entry.project === this.boardConfig.project && entry.cardId === id);
+        const reclaimed = running
+            ? {}
+            : await this.boardRepository.reclaimIfTerminal(this.worktrees, this.eventLog, {
+                  project: this.boardConfig.project,
+                  cardId: id,
+                  stage: target,
+                  target,
+                  flagged: clearsFlag,
+              });
         if (reclaimed.error) {
             this.logger.warn(`could not reclaim worktree for ${id} after moving to "${target}": ${reclaimed.error}`);
         }

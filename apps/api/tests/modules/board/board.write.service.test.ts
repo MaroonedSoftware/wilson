@@ -422,6 +422,18 @@ describe('BoardWriteService', () => {
             );
         });
 
+        it('leaves the worktree to the run when a stage is still using it', async () => {
+            const { board, config, events, runningCards, service, worktrees } = freshBoard();
+            await board.create(card('0012', { stage: 'testing' }), 'seed');
+            runningCards.add(config.project, '0012');
+
+            const detail = await service.move('0012', { stage: 'merged' });
+
+            expect(detail.stage).toBe('merged');
+            expect(worktrees.reclaim).not.toHaveBeenCalled();
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
+        });
+
         it("never reclaims a flagged card's tree, even on a terminal move that itself clears the flag (card 0055)", async () => {
             const { board, events, worktrees, service } = freshBoard();
             await board.create(card('0011', { stage: 'testing', needsHuman: true, needsHumanReason: 'stuck' }), 'seed');
