@@ -53,3 +53,4 @@ packages/sdk-csharp/bin/
 packages/sdk-csharp/obj/
 apps/desktop/**/bin/
 apps/desktop/**/obj/
+apps/desktop/artifacts/

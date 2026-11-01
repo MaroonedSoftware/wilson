@@ -15,6 +15,7 @@
 
     <ItemGroup>
         <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop/MaroonedSoftware.Wilson.Desktop.csproj" />
+        <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop.Mac/MaroonedSoftware.Wilson.Desktop.Mac.csproj" />
     </ItemGroup>
 
 </Project>

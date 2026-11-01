@@ -6,6 +6,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using MaroonedSoftware.Wilson.Desktop;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Mac;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 using MaroonedSoftware.Wilson.Desktop.Views;
 
@@ -18,6 +19,7 @@ namespace Walk;
 // (apps/android/tools/api.sh) and never the real board: it changes cards.
 //
 //     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark]
+//     dotnet run --project tools/Walk -- keychain
 internal static class Program
 {
     private const int Width = 1180;
@@ -26,11 +28,34 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        if (args is ["keychain"])
+        {
+            Keychain();
+            return;
+        }
+
         AppBuilder.Configure<App>()
             .UseSkia()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .AfterSetup(_ => Run(args))
             .SetupWithoutStarting();
+    }
+
+    /// <summary>Writes, reads, replaces and deletes one throwaway item in the login Keychain.</summary>
+    private static void Keychain()
+    {
+        const string Origin = "wilson-walk-keychain-check";
+        var store = new MacKeychainSecretStore();
+        var session = new StoredSession { Origin = Origin, Email = "walk@example.com", AccessToken = "a", RefreshToken = "r" };
+
+        store.WriteAsync(session).GetAwaiter().GetResult();
+        var read = store.ReadAsync(Origin).GetAwaiter().GetResult();
+        store.WriteAsync(session with { RefreshToken = "r2" }).GetAwaiter().GetResult();
+        var replaced = store.ReadAsync(Origin).GetAwaiter().GetResult();
+        store.DeleteAsync(Origin).GetAwaiter().GetResult();
+        var gone = store.ReadAsync(Origin).GetAwaiter().GetResult();
+
+        Console.WriteLine($"read {read == session}, replaced {replaced?.RefreshToken == "r2"}, deleted {gone is null}");
     }
 
     private static void Run(string[] args)
