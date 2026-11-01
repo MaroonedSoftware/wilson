@@ -3,7 +3,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
-import type { CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery, SplitPieceSummary } from '../../generated/board.js';
+import type { ActivityEvent, ActivityQuery, CardDiff, CardEvent, CardDetail, CardSummary, CardUsage, CardVersion, ListQuery, SplitPieceSummary } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
@@ -148,6 +148,19 @@ export class BoardService {
      * `usageByStage`'s zeros in an ordinary 200, same as `events` returns an empty array rather than
      * refusing a card with no history yet.
      */
+    async activity(query: ActivityQuery): Promise<ActivityEvent[]> {
+        const rows = await this.eventLog.recent(this.boardConfig.project, clampLimit(query.limit), query.before);
+        return rows.map(row => ({
+            id: row.id,
+            cardId: row.cardId,
+            cardTitle: row.cardTitle ?? null,
+            type: row.type,
+            stage: row.stage,
+            payload: row.payload as unknown as ActivityEvent['payload'],
+            createdAt: row.createdAt,
+        }));
+    }
+
     async usage(id: string): Promise<CardUsage> {
         try {
             await this.boardRepository.read(id);

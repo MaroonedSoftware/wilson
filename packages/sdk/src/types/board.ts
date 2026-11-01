@@ -470,6 +470,22 @@ export function reviveCardDetail(raw: CardDetail): CardDetail {
 }
 
 /**
+ * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+ * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+ * generated from [ActivityEvent](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ActivityEvent extends CardEvent {
+    cardId: string;
+    cardTitle: string | null;
+}
+
+/** Rehydrates every wire-encoded scalar in a ActivityEvent into its runtime type. Mutates and returns `raw`. */
+export function reviveActivityEvent(raw: ActivityEvent): ActivityEvent {
+    reviveCardEvent(raw as never);
+    return raw;
+}
+
+/**
  * `GET /api/cards/{id}/usage`'s response: what a card has cost, read from `EventLog.usageByStage`
  * rather than tracked as a separate running total (`card_events` stays the one record — this card's
  * Constraints). `total` sums every stage; `stages` breaks that down one row per stage, in the order
@@ -500,6 +516,14 @@ export interface CardDiff {
      * while this stays false.
      */
     truncated: boolean;
+}
+
+/**
+ * `before` is the id of the oldest event already held, for reading further back.
+ * generated from [ActivityQuery](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ActivityQuery extends ListQuery {
+    before?: number;
 }
 
 /**

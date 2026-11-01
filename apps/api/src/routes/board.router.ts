@@ -7,6 +7,8 @@ import { PlanLintService } from '#modules/board/plan.lint.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { StagesService } from '#modules/stages/stages.service.js';
 import {
+    ActivityEvent,
+    ActivityQuery,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -605,6 +607,22 @@ BoardRouter.get('/api/cards/:id/events', requirePolicy({ policy: 'wilson.view' }
 
     const service = ctx.container.get(BoardService);
     const result: CardEvent[] = await service.events(id, query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+ * `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/activity`
+ */
+BoardRouter.get('/api/activity', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, ActivityQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: ActivityEvent[] = await service.activity(query);
 
     ctx.status = 200;
     ctx.type = 'application/json';

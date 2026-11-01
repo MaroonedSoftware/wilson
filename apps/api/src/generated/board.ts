@@ -416,6 +416,17 @@ export const CardDetail = CardSummary.extend({
 export type CardDetail = z.infer<typeof CardDetail>;
 
 /**
+ * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+ * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+ * generated from [ActivityEvent](../../data/contracts/board.ck)
+ */
+export const ActivityEvent = CardEvent.extend({
+    cardId: z.string(),
+    cardTitle: z.string().nullable(),
+});
+export type ActivityEvent = z.infer<typeof ActivityEvent>;
+
+/**
  * `GET /api/cards/{id}/usage`'s response: what a card has cost, read from `EventLog.usageByStage`
  * rather than tracked as a separate running total (`card_events` stays the one record — this card's
  * Constraints). `total` sums every stage; `stages` breaks that down one row per stage, in the order
@@ -452,6 +463,15 @@ export const CardDiff = z.strictObject({
         ),
 });
 export type CardDiff = z.infer<typeof CardDiff>;
+
+/**
+ * `before` is the id of the oldest event already held, for reading further back.
+ * generated from [ActivityQuery](../../data/contracts/board.ck)
+ */
+export const ActivityQuery = ListQuery.extend({
+    before: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type ActivityQuery = z.infer<typeof ActivityQuery>;
 
 /**
  * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a

@@ -1,4 +1,6 @@
 import type {
+    ActivityEvent,
+    ActivityQuery,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -29,6 +31,7 @@ import type {
     SplitResult,
 } from './types/board.js';
 import {
+    reviveActivityEvent,
     reviveCardDetail,
     reviveCardEvent,
     reviveCardSummary,
@@ -360,6 +363,19 @@ export class BoardClient {
             method: 'GET',
         });
         return (await parseJson<CardEvent[]>(result)).map(reviveCardEvent);
+    }
+
+    /**
+     * @name List project activity
+     * @description What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+     * `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+     */
+    async listProjectActivity(query?: ActivityQuery): Promise<ActivityEvent[]> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/activity${qs}`, {
+            method: 'GET',
+        });
+        return (await parseJson<ActivityEvent[]>(result)).map(reviveActivityEvent);
     }
 
     /**

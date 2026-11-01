@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { BoardService } from '#modules/board/board.service.js';
@@ -36,6 +36,21 @@ const noHistory = { tail: async () => [] } as unknown as EventLog;
  * repository itself already has its own Postgres-backed tests; nothing here re-tests persistence.
  */
 describe('BoardService', () => {
+    describe('activity', () => {
+        it('reads the configured project, clamps the limit and turns a missing title into null', async () => {
+            const recent = vi.fn(async () => [
+                { id: '7', cardId: '0001', stage: 'review', type: 'stage.passed', payload: {}, createdAt: DateTime.utc() },
+            ]);
+            const service = new BoardService({} as unknown as BoardRepository, { recent } as unknown as EventLog, config, worktrees);
+
+            const [event] = await service.activity({ limit: 1_000_000, before: 9 });
+
+            expect(recent).toHaveBeenCalledWith('proj', expect.any(Number), 9);
+            expect((recent.mock.calls[0] as unknown[])[1]).toBeLessThan(1_000_000);
+            expect(event).toMatchObject({ id: '7', cardId: '0001', cardTitle: null, type: 'stage.passed' });
+        });
+    });
+
     describe('list', () => {
         it('maps board cards into summaries, leaving body and sections behind', async () => {
             const cards = [card('0001', { title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'] }, { Goal: 'x' }, 'the body')];

@@ -169,6 +169,13 @@ contract CardEvent: {
     createdAt: datetime
 }
 
+# One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+# when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+contract ActivityEvent: CardEvent & {
+    cardId: string
+    cardTitle: string | null
+}
+
 contract CardVersion: {
     id: string
     message: string
@@ -233,6 +240,11 @@ contract CardDiff: {
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
     limit?: int
+}
+
+# `before` is the id of the oldest event already held, for reading further back.
+contract ActivityQuery: ListQuery & {
+    before?: int
 }
 
 # Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
@@ -965,6 +977,24 @@ operation /api/cards/{id}/events: {
         response: {
             200: {
                 application/json: array(CardEvent)
+            }
+        }
+    }
+}
+
+# What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+# `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+operation /api/activity: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List project activity
+        service: BoardService.activity
+        query: ActivityQuery
+        response: {
+            200: {
+                application/json: array(ActivityEvent)
             }
         }
     }
