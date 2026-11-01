@@ -731,11 +731,13 @@ bound to the origin it was made at, and the API takes that origin from the reque
 one of `WEB_ORIGINS`, so a page anywhere else is never handed a challenge one of ours would answer.
 Passkeys work only in the web app, which has a browser: the CLI completes a sign-in with the
 authenticator app, and tells a passkey-only account to set one up as well. Step-up, meaning a strong factor proven within the last five
-minutes, guards minting an API key and editing stage config (`wilson stages edit` / `set`),
-because those are the two actions that hand out or rewrite authority. An API-key session never
-satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
+minutes, guards minting an API key, editing stage config (`wilson stages edit` / `set`), and
+saying which machine receives card work and engine tokens (`wilson host add`, `host set
+--ssh-target`, `host token`, `host engine-token`), because those are the actions that hand out or
+rewrite authority. An API-key session never satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI
 answers that refusal by asking for the password and making that one call with a fresh session,
-signed out again straight after. A leaked key can read the stage config and cannot rewrite it.
+signed out again straight after. A leaked key can read the stage config and cannot rewrite it, and
+cannot register a worker to be sent repository contents and engine tokens.
 Until a second factor is enrolled, a password proved within the window is the step-up; after, only
 the second factor is, so a stolen password cannot remove the authenticator meant to stop it. Adding
 or removing a factor is itself behind step-up, and the web app asks for it in a "confirm it's you"

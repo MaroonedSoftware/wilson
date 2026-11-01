@@ -4,6 +4,7 @@ import type {
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
     PutHostProjectRequest,
+    PutHostSshTargetRequest,
     UpdateHostRequest,
 } from './types/hosts.js';
 import { reviveHost, reviveIssuedWorkerToken } from './types/hosts.js';
@@ -59,6 +60,21 @@ export class HostsClient {
     }
 
     /**
+     * @name Set host SSH target
+     * @description Where the daemon reaches an `ssh` host. An operation of its own, not a field on
+     * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
+     * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+     */
+    async setHostSshTarget(name: string, body: PutHostSshTargetRequest): Promise<Host> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/ssh-target`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveHost(await parseJson<Host>(result));
+    }
+
+    /**
      * @name Probe host
      * @description Connect to the host and record what is there: that it can be reached, which `claude` it has, that each
      * project's clone is a git repository and its roots can be written, and, given a lifetime, when it
@@ -94,9 +110,10 @@ export class HostsClient {
     /**
      * @name Mint worker token
      * @description The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-     * it, and only as this host, so it grants less than the `manage` key or session minting it already
-     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-     * `post` mints one, replacing any the host had, so rotating is posting again.
+     * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+     * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+     * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+     * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
      */
     async mintWorkerToken(name: string): Promise<IssuedWorkerToken> {
         const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/worker-token`, { method: 'POST' });
@@ -106,9 +123,10 @@ export class HostsClient {
     /**
      * @name Revoke worker token
      * @description The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-     * it, and only as this host, so it grants less than the `manage` key or session minting it already
-     * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-     * `post` mints one, replacing any the host had, so rotating is posting again.
+     * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+     * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+     * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+     * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
      */
     async revokeWorkerToken(name: string): Promise<void> {
         await this.fetch(`/api/hosts/${encodeURIComponent(name)}/worker-token`, { method: 'DELETE' });
@@ -117,8 +135,10 @@ export class HostsClient {
     /**
      * @name Assign engine token
      * @description Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
-     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
-     * reaches the next engine started there, never one already running.
+     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach, and
+     * assigning one needs `wilson.step.up`, since it decides which machine receives that credential.
+     * Clearing it only takes authority away, so that stays `wilson.manage`. A change reaches the next
+     * engine started there, never one already running.
      */
     async assignEngineToken(name: string, body: PutHostEngineTokenRequest): Promise<Host> {
         const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/engine-token`, {

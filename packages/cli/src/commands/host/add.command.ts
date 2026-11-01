@@ -1,6 +1,7 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
 import { variableNames } from '../../host-view.js';
+import { withStepUp } from '../../sign.in.js';
 
 interface AddOpts {
     worker?: boolean;
@@ -16,6 +17,10 @@ interface AddOpts {
  * `wilson host serve` says where that project's clone lives on it, so registering one places no
  * work on it. `--worker` registers one whose worker program connects in, rather than one reached
  * over SSH; it takes no `--ssh-target`.
+ *
+ * Registering needs a factor proved in the last five minutes (`wilson.step.up`), which this machine's
+ * API key never is, so it asks for the password (`withStepUp`). A leaked key cannot add a host of its
+ * own to send card work to.
  */
 const command: CommandModule<AddOpts> = {
     description: 'Register a host a card stage can run on, reached over SSH or by a worker that connects in',
@@ -42,15 +47,17 @@ const command: CommandModule<AddOpts> = {
     ],
     run: withApi<AddOpts>(async (opts, ctx, args, api) => {
         const name = String(args[0]);
-        const host = await api.hosts.registerHost({
-            name,
-            ...(opts.worker && { kind: 'worker' as const }),
-            ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
-            ...(opts.slots !== undefined && { slots: opts.slots }),
-            ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
-            ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
-            ...(opts.projectsRoot !== undefined && { projectsRoot: opts.projectsRoot }),
-        });
+        const host = await withStepUp(ctx, api, client =>
+            client.hosts.registerHost({
+                name,
+                ...(opts.worker && { kind: 'worker' as const }),
+                ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
+                ...(opts.slots !== undefined && { slots: opts.slots }),
+                ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
+                ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
+                ...(opts.projectsRoot !== undefined && { projectsRoot: opts.projectsRoot }),
+            }),
+        );
         const reached = host.kind === 'worker' ? 'worker' : `ssh ${host.sshTarget}`;
         ctx.logger.info(`${host.name} registered (${reached}, ${host.slots} slot${host.slots === 1 ? '' : 's'})`);
         return 0;
