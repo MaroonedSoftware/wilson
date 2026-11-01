@@ -37,14 +37,10 @@ describe('classifyDispatchFailure', () => {
             expect(classifyDispatchFailure(error)).toEqual({ kind: 'stale', actualStage: 'merged' });
         });
 
-        /**
-         * `stale` is only right once the card is *finished*. A card sitting on some other live stage
-         * is a genuine mismatch, and treating it as a stale arrival would silently drop it.
-         */
-        it('poisons a wrong-stage refusal when the stage the card is actually on is not terminal', () => {
+        it('calls a job for a card a human moved to another live stage stale, not poisoned', () => {
             const error = new NotDispatchableError({ kind: 'wrong-stage', actualStage: 'implementing' }, 'card is on implementing');
 
-            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison' });
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'stale', actualStage: 'implementing' });
         });
 
         /**
@@ -85,7 +81,9 @@ describe('classifyDispatchFailure', () => {
         });
 
         it('still poisons an invalid_request_error that is not an overflow', () => {
-            const error = new Error('{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}');
+            const error = new Error(
+                '{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}',
+            );
 
             expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'poison', error });
         });
@@ -100,7 +98,7 @@ describe('classifyDispatchFailure', () => {
      * `stage.poisoned` event and no transition — exactly the bug this card fixes.
      */
     describe('StageConfigError, routed on its typed kind', () => {
-        it('poisons a stage-not-found error, the same as wrong-stage', () => {
+        it('poisons a stage-not-found error', () => {
             const error = new StageConfigError('stage-not-found', 'no stage named "reviewing" in stages.yaml (have: implementing)');
 
             expect(classifyDispatchFailure(error)).toEqual({ kind: 'poison', error });
