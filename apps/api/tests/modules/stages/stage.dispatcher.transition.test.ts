@@ -53,7 +53,7 @@ const card: Card = {
 };
 
 /** Everything `run` needs, with `duringRun` standing in for whatever happens while the agent works. */
-const harness = async (duringRun: (board: BoardRepository) => Promise<void> = async () => {}) => {
+const harness = async (duringRun: (board: BoardRepository) => Promise<unknown> = async () => {}) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-transition-'));
     const worktreeDir = join(base, 'worktree');
     await mkdir(worktreeDir, { recursive: true });

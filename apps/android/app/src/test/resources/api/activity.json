@@ -1,41 +1,41 @@
 [
-  {
-    "id": "3",
-    "cardId": "0002",
-    "cardTitle": "Second card",
-    "type": "card.acked",
-    "stage": "parking-lot",
-    "payload": {
-      "by": "human",
-      "stage": "parking-lot",
-      "reason": "Retries exhausted (seeded for the emulator run)"
+    {
+        "id": "3",
+        "cardId": "0002",
+        "cardTitle": "Second card",
+        "type": "card.acked",
+        "stage": "parking-lot",
+        "payload": {
+            "by": "human",
+            "stage": "parking-lot",
+            "reason": "Retries exhausted (seeded for the emulator run)"
+        },
+        "createdAt": "2026-10-31T20:08:05.609Z"
     },
-    "createdAt": "2026-10-31T20:08:05.609Z"
-  },
-  {
-    "id": "2",
-    "cardId": "0001",
-    "cardTitle": "First card",
-    "type": "transition.written",
-    "stage": "planning",
-    "payload": {
-      "by": "human",
-      "to": "planning",
-      "from": "parking-lot"
+    {
+        "id": "2",
+        "cardId": "0001",
+        "cardTitle": "First card",
+        "type": "transition.written",
+        "stage": "planning",
+        "payload": {
+            "by": "human",
+            "to": "planning",
+            "from": "parking-lot"
+        },
+        "createdAt": "2026-10-31T20:04:31.731Z"
     },
-    "createdAt": "2026-10-31T20:04:31.731Z"
-  },
-  {
-    "id": "1",
-    "cardId": "0005",
-    "cardTitle": "Fifth",
-    "type": "transition.written",
-    "stage": "implementing",
-    "payload": {
-      "by": "human",
-      "to": "implementing",
-      "from": "parking-lot"
-    },
-    "createdAt": "2026-10-31T19:22:33.618Z"
-  }
+    {
+        "id": "1",
+        "cardId": "0005",
+        "cardTitle": "Fifth",
+        "type": "transition.written",
+        "stage": "implementing",
+        "payload": {
+            "by": "human",
+            "to": "implementing",
+            "from": "parking-lot"
+        },
+        "createdAt": "2026-10-31T19:22:33.618Z"
+    }
 ]
