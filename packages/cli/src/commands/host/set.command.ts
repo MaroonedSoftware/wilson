@@ -2,6 +2,7 @@ import type { CommandModule } from '@maroonedsoftware/johnny5';
 import type { UpdateHostRequest } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
 import { describeHost, variableNames } from '../../host-view.js';
+import { withStepUp } from '../../sign.in.js';
 
 interface SetOpts {
     sshTarget?: string;
@@ -20,6 +21,10 @@ interface SetOpts {
  *
  * `--disable` takes the host out of consideration altogether; `--drain` stops new stages landing on
  * it but lets the ones already there finish, which is how a VM is emptied before it is deleted.
+ *
+ * `--ssh-target` is a call of its own (`PUT /api/hosts/{name}/ssh-target`), made first: it says which
+ * machine receives card work, so it needs the password (`withStepUp`), and declining the prompt
+ * changes nothing.
  */
 const command: CommandModule<SetOpts> = {
     description: "Change a host's SSH target, slots, or whether it takes work",
@@ -56,7 +61,6 @@ const command: CommandModule<SetOpts> = {
         }
 
         const patch: UpdateHostRequest = {
-            ...(opts.sshTarget !== undefined && { sshTarget: opts.sshTarget }),
             ...(opts.slots !== undefined && { slots: opts.slots }),
             ...(opts.lifetimeMinutes !== undefined && { lifetimeMinutes: opts.lifetimeMinutes }),
             ...(opts.commandEnv !== undefined && { commandEnv: variableNames(opts.commandEnv) }),
@@ -64,12 +68,16 @@ const command: CommandModule<SetOpts> = {
             ...((opts.enable || opts.disable) && { enabled: !!opts.enable }),
             ...((opts.drain || opts.undrain) && { draining: !!opts.drain }),
         };
-        if (Object.keys(patch).length === 0) {
+        const hasPatch = Object.keys(patch).length > 0;
+        if (!hasPatch && opts.sshTarget === undefined) {
             ctx.logger.error('nothing to change: pass at least one option');
             return 1;
         }
 
-        const host = await api.hosts.updateHost(name, patch);
+        const sshTarget = opts.sshTarget;
+        const retargeted =
+            sshTarget === undefined ? undefined : await withStepUp(ctx, api, client => client.hosts.setHostSshTarget(name, { sshTarget }));
+        const host = hasPatch || !retargeted ? await api.hosts.updateHost(name, patch) : retargeted;
         for (const line of describeHost(host)) ctx.logger.info(line);
         return 0;
     }),

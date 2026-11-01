@@ -88,11 +88,11 @@ data class CreateHostRequest(
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
  * moving a machine to the other kind is removing the host and registering it again.
+ * No `sshTarget`: where a host is reached decides who receives a card's repository, so it has an
+ * operation of its own (`PUT /api/hosts/{name}/ssh-target`), behind step-up and out of an agent's reach.
  */
 @Serializable
 data class UpdateHostRequest(
-    /** Only for an `ssh` host. */
-    val sshTarget: String? = null,
     val slots: Long? = null,
     val enabled: Boolean? = null,
     val draining: Boolean? = null,
@@ -102,6 +102,12 @@ data class UpdateHostRequest(
     val commandEnv: List<String>? = null,
     /** An empty string clears it. */
     val projectsRoot: String? = null,
+)
+
+@Serializable
+data class PutHostSshTargetRequest(
+    /** What `ssh` connects to. */
+    val sshTarget: String,
 )
 
 @Serializable

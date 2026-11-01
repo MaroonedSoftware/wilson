@@ -197,6 +197,18 @@ export class ScopeGuard {
         return contained;
     }
 
+    /**
+     * Whether the agent may *search* a directory or file: {@link checkRead}, except that the
+     * worktree root itself is allowed. Searching the whole tree is the ordinary case, and `contain`
+     * refuses the root only because no file can be written at it.
+     */
+    async checkSearch(candidate: string): Promise<ScopeDecision> {
+        const absolute = isAbsolute(candidate) ? candidate : resolve(this.options.worktreeRoot, candidate);
+        const root = await this.host.realpath(this.options.worktreeRoot).catch(() => this.options.worktreeRoot);
+        if ((await this.resolveThroughExisting(absolute)) === root) return { allowed: true, path: '.' };
+        return this.checkRead(candidate);
+    }
+
     async check(candidate: string): Promise<ScopeDecision> {
         const contained = await this.contain(candidate);
         if (!contained.allowed) return contained;

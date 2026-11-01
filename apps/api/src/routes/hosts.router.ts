@@ -10,6 +10,7 @@ import {
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
     PutHostProjectRequest,
+    PutHostSshTargetRequest,
     UpdateHostRequest,
 } from '../generated/hosts.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
@@ -37,7 +38,7 @@ HostsRouter.get('/api/hosts', requirePolicy({ policy: 'wilson.view' }), async ct
  * page, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).
  * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts`
  */
-HostsRouter.post('/api/hosts', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+HostsRouter.post('/api/hosts', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const body = await parseAndValidate(ctx.parsedBody, CreateHostRequest);
 
     const service = ctx.container.get(HostsService);
@@ -103,6 +104,30 @@ HostsRouter.delete('/api/hosts/:name', requirePolicy({ policy: 'wilson.manage' }
     await service.remove(name);
 
     ctx.status = 204;
+});
+
+/**
+ * Where the daemon reaches an `ssh` host. An operation of its own, not a field on
+ * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
+ * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/ssh-target`
+ */
+HostsRouter.put('/api/hosts/:name/ssh-target', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, PutHostSshTargetRequest);
+
+    const service = ctx.container.get(HostsService);
+    const result: Host = await service.setSshTarget(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });
 
 /**
@@ -172,12 +197,13 @@ HostsRouter.delete('/api/hosts/:name/projects/:project', requirePolicy({ policy:
 
 /**
  * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
- * it, and only as this host, so it grants less than the `manage` key or session minting it already
- * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
- * `post` mints one, replacing any the host had, so rotating is posting again.
+ * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+ * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+ * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+ * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
  * from [hosts.ck](../../data/contracts/hosts.ck) `POST /api/hosts/{name}/worker-token`
  */
-HostsRouter.post('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+HostsRouter.post('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilson.step.up' }), async ctx => {
     const { name } = await parseAndValidate(
         ctx.params,
         z.strictObject({
@@ -195,9 +221,10 @@ HostsRouter.post('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilso
 
 /**
  * The one credential a worker host's worker program connects with. Only the worker endpoint accepts
- * it, and only as this host, so it grants less than the `manage` key or session minting it already
- * holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
- * `post` mints one, replacing any the host had, so rotating is posting again.
+ * it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+ * minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+ * CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+ * `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
  * from [hosts.ck](../../data/contracts/hosts.ck) `DELETE /api/hosts/{name}/worker-token`
  */
 HostsRouter.delete('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
@@ -216,11 +243,13 @@ HostsRouter.delete('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wil
 
 /**
  * Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
- * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
- * reaches the next engine started there, never one already running.
+ * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach, and
+ * assigning one needs `wilson.step.up`, since it decides which machine receives that credential.
+ * Clearing it only takes authority away, so that stays `wilson.manage`. A change reaches the next
+ * engine started there, never one already running.
  * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/engine-token`
  */
-HostsRouter.put('/api/hosts/:name/engine-token', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+HostsRouter.put('/api/hosts/:name/engine-token', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
     const { name } = await parseAndValidate(
         ctx.params,
         z.strictObject({

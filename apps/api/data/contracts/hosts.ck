@@ -18,6 +18,12 @@ options {
 # or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
 # or key does. Anything without a credential gets 401 before a handler runs.
 #
+# Four operations raise it to `wilson.step.up`, which no API key satisfies: registering a host,
+# changing its SSH target, minting its worker token, and assigning it an engine token. Each decides
+# which machine receives a card's repository and an engine's credentials, so a leaked `manage` key
+# must not be able to point them at a machine of its own (PROJECT.md, Authentication: Factors). They
+# stay out of the operation catalog for the same reason, and the CLI asks for the password.
+#
 # The paths below are paths on the host, not on the daemon's machine, and they are returned where
 # `projects.ck` withholds its own: an operator managing a host needs to see where its clone is, and a
 # switcher never did.
@@ -123,9 +129,9 @@ contract CreateHostRequest: {
 # A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
 # No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
 # moving a machine to the other kind is removing the host and registering it again.
+# No `sshTarget`: where a host is reached decides who receives a card's repository, so it has an
+# operation of its own (`PUT /api/hosts/{name}/ssh-target`), behind step-up and out of an agent's reach.
 contract UpdateHostRequest: {
-    # Only for an `ssh` host.
-    sshTarget?: string
     slots?: int
     enabled?: boolean
     draining?: boolean
@@ -135,6 +141,11 @@ contract UpdateHostRequest: {
     commandEnv?: array(string)
     # An empty string clears it.
     projectsRoot?: string
+}
+
+contract PutHostSshTargetRequest: {
+    # What `ssh` connects to.
+    sshTarget: string
 }
 
 contract PutHostEngineTokenRequest: {
@@ -167,7 +178,11 @@ operation /api/hosts: {
     # page, which agents cannot do, and the worker started on the machine (`apps/worker/README.md`).
     post: {
         name: Register host
+        mcp: exclude # Step-up: a new host is somewhere card work can be sent
         service: HostsService.create
+        security: {
+            policy: wilson.step.up
+        }
         request: {
             application/json: CreateHostRequest
         }
@@ -210,7 +225,7 @@ operation /api/hosts/{name}: {
             200: {
                 application/json: Host
             }
-            # An empty SSH target, an SSH target for a worker host, or slots outside 1 to 8.
+            # Slots outside 1 to 8.
             400:
             404:
         }
@@ -220,6 +235,35 @@ operation /api/hosts/{name}: {
         service: HostsService.remove
         response: {
             204:
+            404:
+        }
+    }
+}
+
+# Where the daemon reaches an `ssh` host. An operation of its own, not a field on
+# `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
+# engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+operation /api/hosts/{name}/ssh-target: {
+    params: {
+        name: string
+    }
+    put: {
+        name: Set host SSH target
+        mcp: exclude # Step-up: this says which machine receives card work
+        sdk: setHostSshTarget
+        service: HostsService.setSshTarget
+        security: {
+            policy: wilson.step.up
+        }
+        request: {
+            application/json: PutHostSshTargetRequest
+        }
+        response: {
+            200: {
+                application/json: Host
+            }
+            # An empty target, or a worker host, which connects in and has none.
+            400:
             404:
         }
     }
@@ -283,9 +327,10 @@ operation /api/hosts/{name}/projects/{project}: {
 }
 
 # The one credential a worker host's worker program connects with. Only the worker endpoint accepts
-# it, and only as this host, so it grants less than the `manage` key or session minting it already
-# holds; that is why minting needs `wilson.manage` and not a step-up, which a CLI key cannot give.
-# `post` mints one, replacing any the host had, so rotating is posting again.
+# it, and only as this host, but whatever holds it is sent repository contents and engine tokens, so
+# minting needs `wilson.step.up`: a leaked `manage` key must not be able to mint itself a worker. The
+# CLI answers the refusal by asking for the password. Revoking only takes authority away, so it stays
+# `wilson.manage`. `post` mints one, replacing any the host had, so rotating is posting again.
 operation /api/hosts/{name}/worker-token: {
     params: {
         name: string
@@ -295,6 +340,9 @@ operation /api/hosts/{name}/worker-token: {
         mcp: exclude # Credentials are never handed to an agent
         sdk: mintWorkerToken
         service: WorkerTokensService.issue
+        security: {
+            policy: wilson.step.up
+        }
         response: {
             201: {
                 application/json: IssuedWorkerToken
@@ -318,8 +366,10 @@ operation /api/hosts/{name}/worker-token: {
 }
 
 # Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
-# on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
-# reaches the next engine started there, never one already running.
+# on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach, and
+# assigning one needs `wilson.step.up`, since it decides which machine receives that credential.
+# Clearing it only takes authority away, so that stays `wilson.manage`. A change reaches the next
+# engine started there, never one already running.
 operation /api/hosts/{name}/engine-token: {
     params: {
         name: string
@@ -329,6 +379,9 @@ operation /api/hosts/{name}/engine-token: {
         mcp: exclude # Credentials are never handed to an agent
         sdk: assignEngineToken
         service: EngineTokensService.assign
+        security: {
+            policy: wilson.step.up
+        }
         request: {
             application/json: PutHostEngineTokenRequest
         }

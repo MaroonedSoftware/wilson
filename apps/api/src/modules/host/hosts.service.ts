@@ -2,7 +2,7 @@ import { isAbsolute, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { ProjectRepository } from '#modules/board/project.repository.js';
-import type { CreateHostRequest, Host, PutHostProjectRequest, UpdateHostRequest } from '../../generated/hosts.js';
+import type { CreateHostRequest, Host, PutHostProjectRequest, PutHostSshTargetRequest, UpdateHostRequest } from '../../generated/hosts.js';
 import { HostRepository, type HostPatch, type HostRow } from './host.repository.js';
 
 /** The range `wilson.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
@@ -65,17 +65,21 @@ export class HostsService {
     }
 
     /**
-     * Change a host's target, slots or switches. Refuses an unregistered name with 404, and an SSH
-     * target for a worker host with 400.
+     * Change where the daemon reaches an `ssh` host. Separate from {@link update} because it is
+     * gated by step-up (`hosts.ck`). Refuses an unregistered name with 404, and a worker host or an
+     * empty target with 400.
      */
+    async setSshTarget(name: string, request: PutHostSshTargetRequest): Promise<Host> {
+        if ((await this.require(name)).kind === 'worker') {
+            throw httpError(400).withDetails({ reason: `host "${name}" is a worker, which connects in and has no sshTarget` });
+        }
+        await this.hosts.update(name, { sshTarget: requireNonEmpty('sshTarget', request.sshTarget) });
+        return this.get(name);
+    }
+
+    /** Change a host's slots or switches. Refuses an unregistered name with 404. */
     async update(name: string, request: UpdateHostRequest): Promise<Host> {
         const patch: HostPatch = {};
-        if (request.sshTarget !== undefined) {
-            if ((await this.require(name)).kind === 'worker') {
-                throw httpError(400).withDetails({ reason: `host "${name}" is a worker, which connects in and has no sshTarget` });
-            }
-            patch.sshTarget = requireNonEmpty('sshTarget', request.sshTarget);
-        }
         if (request.slots !== undefined) patch.slots = requireSlots(request.slots);
         if (request.enabled !== undefined) patch.enabled = request.enabled;
         if (request.draining !== undefined) patch.draining = request.draining;

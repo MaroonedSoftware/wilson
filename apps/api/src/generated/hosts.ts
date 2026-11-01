@@ -91,10 +91,11 @@ export type CreateHostRequest = z.infer<typeof CreateHostRequest>;
  * A partial update, as `UpdateProjectRequest` is: a field present is set, a field absent is left.
  * No `name`: it is the key every lease and job that names this host will carry. No `kind` either:
  * moving a machine to the other kind is removing the host and registering it again.
+ * No `sshTarget`: where a host is reached decides who receives a card's repository, so it has an
+ * operation of its own (`PUT /api/hosts/{name}/ssh-target`), behind step-up and out of an agent's reach.
  * generated from [UpdateHostRequest](../../data/contracts/hosts.ck)
  */
 export const UpdateHostRequest = z.strictObject({
-    sshTarget: z.string().optional().describe('Only for an `ssh` host.'),
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
@@ -106,6 +107,14 @@ export const UpdateHostRequest = z.strictObject({
     projectsRoot: z.string().optional().describe('An empty string clears it.'),
 });
 export type UpdateHostRequest = z.infer<typeof UpdateHostRequest>;
+
+/**
+ * generated from [PutHostSshTargetRequest](../../data/contracts/hosts.ck)
+ */
+export const PutHostSshTargetRequest = z.strictObject({
+    sshTarget: z.string().describe('What `ssh` connects to.'),
+});
+export type PutHostSshTargetRequest = z.infer<typeof PutHostSshTargetRequest>;
 
 /**
  * generated from [PutHostEngineTokenRequest](../../data/contracts/hosts.ck)

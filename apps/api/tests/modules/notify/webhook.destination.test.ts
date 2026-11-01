@@ -92,6 +92,45 @@ describe('checkWebhookDestination', () => {
         });
     });
 
+    describe('ranges that reach inside a network without looking private', () => {
+        it.each([
+            ['100.64.0.1', 'shared'],
+            ['100.127.255.254', 'shared'],
+            ['0.1.2.3', 'unspecified'],
+            ['192.0.0.8', 'reserved'],
+            ['198.18.0.1', 'reserved'],
+            ['198.19.255.255', 'reserved'],
+        ])('refuses %s as %s', async (address, rule) => {
+            expect(await checkWebhookDestination(`https://${address}/hook`)).toMatchObject({ ok: false, reason: expect.stringContaining(rule) });
+        });
+
+        it.each(['100.63.255.255', '100.128.0.1', '192.0.1.1', '198.17.0.1', '198.20.0.1'])('leaves the public neighbour %s alone', async address => {
+            expect(await checkWebhookDestination(`https://${address}/hook`)).toEqual({ ok: true });
+        });
+
+        it.each([
+            ['fe90::1', 'link-local'],
+            ['febf::1', 'link-local'],
+            ['0:0:0:0:0:0:0:1', 'loopback'],
+            ['0:0:0:0:0:ffff:7f00:1', 'loopback'],
+            ['::ffff:a00:1', 'private'],
+            ['::7f00:1', 'loopback'],
+            ['64:ff9b::7f00:1', 'loopback'],
+            ['64:ff9b::a9fe:a9fe', 'link-local'],
+            ['64:ff9b::192.168.0.1', 'private'],
+            ['64:ff9b:1::1', 'private'],
+            ['2002:7f00:1::', 'loopback'],
+            ['2002:0a00:0001::1', 'private'],
+            ['2002:a9fe:a9fe::', 'link-local'],
+        ])('refuses the IPv6 form %s as %s', async (address, rule) => {
+            expect(await checkWebhookDestination(`https://[${address}]/hook`)).toMatchObject({ ok: false, reason: expect.stringContaining(rule) });
+        });
+
+        it.each(['64:ff9b::808:808', '2002:808:808::1'])('leaves %s alone, which carries a public address', async address => {
+            expect(await checkWebhookDestination(`https://[${address}]/hook`)).toEqual({ ok: true });
+        });
+    });
+
     describe('a hostname with more than one resolved address', () => {
         it('refuses the URL when any resolved address is disallowed, even if it is not the first', async () => {
             vi.mocked(lookup).mockResolvedValueOnce([

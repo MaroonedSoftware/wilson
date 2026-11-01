@@ -1,5 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { withStepUp } from '../../sign.in.js';
 
 interface EngineTokenOpts {
     clear?: boolean;
@@ -8,6 +9,9 @@ interface EngineTokenOpts {
 /**
  * Choose the saved engine token a worker host's engines sign in with (`PUT
  * /api/hosts/{name}/engine-token`), or with `--clear` go back to the worker's own (`DELETE`).
+ *
+ * Assigning asks for the password (`withStepUp`), since it decides which machine receives that
+ * credential. Clearing needs only the key.
  */
 const command: CommandModule<EngineTokenOpts> = {
     description: 'Assign a saved engine token to a worker host, or clear it',
@@ -27,7 +31,7 @@ const command: CommandModule<EngineTokenOpts> = {
             ctx.logger.error('name a saved token, or pass --clear; `wilson engine-token list` shows them');
             return 1;
         }
-        await api.hosts.assignEngineToken(host, { name: String(args[1]) });
+        await withStepUp(ctx, api, client => client.hosts.assignEngineToken(host, { name: String(args[1]) }));
         ctx.logger.info(`${host}'s next engine signs in with ${String(args[1])}`);
         return 0;
     }),

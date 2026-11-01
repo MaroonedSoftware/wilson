@@ -1,4 +1,6 @@
 pnpm-lock.yaml
+# Written by `dotnet restore`, which is what keeps them in step, not by hand.
+**/packages.lock.json
 .claude/
 **/node_modules/
 **/dist/
