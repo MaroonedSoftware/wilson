@@ -17,6 +17,20 @@ public class UpdateSignatureTests
     }
 
     [Fact]
+    public void TheAppCarriesThePublicHalfOfTheKey_AndOnlyThat()
+    {
+        var key = UpdateSignature.BuiltInKey();
+
+        Assert.NotNull(key);
+        Assert.Contains("BEGIN PUBLIC KEY", key, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE", key, StringComparison.Ordinal);
+
+        using var parsed = ECDsa.Create();
+        parsed.ImportFromPem(key);
+        Assert.Equal(256, parsed.KeySize);
+    }
+
+    [Fact]
     public void AGoodSignaturePasses()
     {
         var (key, signature) = Signed("wilson-update 0.2.0 abc123");
