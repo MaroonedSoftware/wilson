@@ -56,9 +56,12 @@ The diff step needs a card with a branch: that API's `code_root` is its own scra
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
-runtime. `.github/workflows/desktop-release.yml` is run by hand and cuts a `desktop-v<version>`
-release from `Version` in `Directory.Build.props`. It is not notarised, so macOS refuses a first
-launch. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns` from `brand/`.
+runtime. `.github/workflows/desktop-release.yml` publishes a `desktop-v<version>` release when a push
+to main changes `Version` in `Directory.Build.props`, so **bumping the version is the decision to
+ship**: nobody looks at it after that, and installed copies offer it within six hours. The tests cover
+Core and not the screens, so walk the app before bumping, and a bad release can only be replaced by
+a higher version. Run by hand, the workflow makes a draft. It skips a version that already has a
+release, draft or not. It is not notarised, so macOS refuses a first launch. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns` from `brand/`.
 
 ## Updates
 

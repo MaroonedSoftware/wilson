@@ -1,6 +1,8 @@
-# Building the desktop app as something somebody can download. By hand and not on a push: a GitHub
-# release is a permanent entry with a version somebody may already have downloaded. The tag is
-# `desktop-v<version>`, and the version is `Version` in `apps/desktop/Directory.Build.props`.
+# Building the desktop app as something somebody can download. A push to main that changes `Version` in
+# `apps/desktop/Directory.Build.props` publishes it, and installed copies pick it up on their next
+# check, so bumping the version IS the decision to ship. Not on every merge: a release is permanent,
+# and each one asks the operator to restart. By hand it makes a draft, unless told otherwise. The tag
+# is `desktop-v<version>`.
 #
 # Signed only ad hoc and not notarised, as deadair's is. Notarising needs an Apple Developer ID; the
 # bundle script already signs every Mach-O under the hardened runtime, so adding it later is swapping
@@ -9,6 +11,10 @@
 name: Desktop release
 
 on:
+    push:
+        branches: [main]
+        paths:
+            - apps/desktop/Directory.Build.props
     workflow_dispatch:
         inputs:
             draft:
@@ -19,8 +25,38 @@ on:
 permissions:
     contents: write
 
+# Two merges in quick succession must not race to publish one version.
+concurrency: desktop-release
+
 jobs:
+    # That file holds more than the version, and a release of this version may already exist, as a draft
+    # with no tag yet. `gh release view` sees both, so a push that changed something else publishes nothing.
+    decide:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            version: ${{ steps.version.outputs.value }}
+            release: ${{ steps.version.outputs.release }}
+        steps:
+            - uses: actions/checkout@v4
+            - id: version
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  version="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' apps/desktop/Directory.Build.props)"
+                  test -n "$version"
+                  echo "value=${version}" >> "$GITHUB_OUTPUT"
+                  if gh release view "desktop-v${version}" > /dev/null 2>&1; then
+                      echo "::notice::desktop-v${version} already exists, so there is nothing to release."
+                      echo "release=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "release=true" >> "$GITHUB_OUTPUT"
+                  fi
+
     release:
+        needs: decide
+        if: needs.decide.outputs.release == 'true'
         # macOS because a self-contained osx-arm64 bundle is signed with codesign.
         runs-on: macos-latest
         timeout-minutes: 30
@@ -38,12 +74,10 @@ jobs:
             - run: dotnet restore Wilson.Desktop.slnx --locked-mode
             - run: dotnet build Wilson.Desktop.slnx -c Release -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx -c Release --no-build
-            - id: version
-              run: echo "value=$(dotnet msbuild Directory.Build.props -getProperty:Version | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
-            - run: tools/macos/make-app-bundle.sh "${{ steps.version.outputs.value }}"
+            - run: tools/macos/make-app-bundle.sh "${{ needs.decide.outputs.version }}"
             # `ditto` keeps what a plain zip drops, and macOS will not launch what a plain zip leaves.
             - working-directory: apps/desktop/artifacts
-              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${{ steps.version.outputs.value }}-osx-arm64.zip"
+              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip"
             # What the app verifies before installing an update (`UpdateSignature`). The message must
             # match `UpdateSignature.Message`, and a release with no key fails here rather than
             # shipping something no copy of the app would install.
@@ -51,7 +85,7 @@ jobs:
               working-directory: apps/desktop/artifacts
               env:
                   UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-                  VERSION: ${{ steps.version.outputs.value }}
+                  VERSION: ${{ needs.decide.outputs.version }}
               run: |
                   set -euo pipefail
                   zip="wilson-${VERSION}-osx-arm64.zip"
@@ -63,10 +97,10 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  gh release create "desktop-v${{ steps.version.outputs.value }}" \
-                      --title "Wilson desktop ${{ steps.version.outputs.value }}" \
+                  gh release create "desktop-v${{ needs.decide.outputs.version }}" \
+                      --title "Wilson desktop ${{ needs.decide.outputs.version }}" \
                       --generate-notes \
                       --notes "Signed only ad hoc and not notarised, so macOS refuses the first launch. Open it once, let it refuse, then press Open Anyway in System Settings, Privacy & Security. Or run: xattr -dr com.apple.quarantine /Applications/Wilson.app" \
                       ${{ inputs.draft && '--draft' || '' }} \
-                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip" \
-                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip.sig"
+                      "artifacts/wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip" \
+                      "artifacts/wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip.sig"
