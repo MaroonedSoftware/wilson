@@ -24,7 +24,7 @@ import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository, type ProjectRow } from '#modules/board/project.repository.js';
 import { ProjectsService } from '#modules/board/projects.service.js';
 import { cardFeed } from '#modules/feed/card.feed.js';
-import { authorize } from '#tests/support/test.authorized.js';
+import { authorize, SIGNED_IN } from '#tests/support/test.authorized.js';
 import { uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -584,6 +584,7 @@ describe('ProjectContextRouter', () => {
             query,
             get: (name: string) => (headerValue && name.toLowerCase() === 'x-wilson-project' ? headerValue : ''),
             container: containerFor(board, find),
+            authenticationSession: SIGNED_IN,
         };
         return router.routes()(ctx as never, next);
     };

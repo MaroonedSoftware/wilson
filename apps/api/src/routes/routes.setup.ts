@@ -1,6 +1,15 @@
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
-import { firstQueryValue, openSseStream, requirePolicy, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
+import {
+    firstQueryValue,
+    openSseStream,
+    requirePolicy,
+    resolveLastEventId,
+    ServerKitRouter,
+    type ServerKitContext,
+    type SseContext,
+} from '@maroonedsoftware/koa';
+import { sessionOf } from '#modules/authentication/request.session.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { onChatEvent } from '#modules/chat/chat.feed.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
@@ -90,6 +99,12 @@ const ANY_PATH = /.*/;
  * into that map regardless, the same idempotent call `Poller.tick` makes every tick, so a later
  * request (or a job) sees it without a DB round trip.
  *
+ * Only a request with a live session gets that check. It answers differently for a name that exists
+ * and one that does not, so asked of anyone it would tell a caller with no credential which projects
+ * are registered, one guess at a time. A request with no session runs as the daemon's own project
+ * instead, with the name unread: a gated route then answers 401 either way, and the public routes
+ * (health, onboarding, signing in) are not scoped to a project.
+ *
  * Card 0153: a `?project=` query value is read the same way `resolveLastEventId` already reads
  * `?lastEventId=` — `firstQueryValue` (`@maroonedsoftware/koa`) — and used only when the header is
  * absent, for the two SSE routes below (`FeedRouter`, `PlanStreamRouter`), whose `EventSource`
@@ -112,6 +127,11 @@ const ProjectContextRouter = () => {
         const queryProject = firstQueryValue(ctx.query.project);
         const named = header || queryProject;
         const project = named || board.project;
+
+        if (named && !sessionOf(ctx as unknown as ServerKitContext)) {
+            await runAsProject(board.project, next);
+            return;
+        }
 
         if (named) {
             const row = await ctx.container.get(ProjectRepository).find(named);
