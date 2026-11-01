@@ -4,7 +4,7 @@
 // that rides `__root.tsx`'s one feed connection.
 import { createElement } from 'react';
 import { DateTime } from 'luxon';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -121,5 +121,23 @@ describe('the activity page', () => {
         expect(await screen.findByText('Committed work')).toBeTruthy();
         expect(list).toHaveBeenLastCalledWith({ limit: 50, before: 51 });
         expect(screen.queryByRole('button', { name: 'Show older' })).toBeNull();
+    });
+
+    it('refreshes on a feed event, but not on a tool call', async () => {
+        const list = vi.spyOn(BoardClient.prototype, 'listProjectActivity').mockResolvedValue([event(1)]);
+
+        renderApp();
+        await screen.findByText('Passed review');
+        const source = FakeEventSource.instances[0]!;
+        const reads = list.mock.calls.length;
+
+        source.emit({ id: 1, ts: new Date().toISOString(), message: 'tool.executed', correlationId: '0001' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(list.mock.calls.length).toBe(reads);
+
+        list.mockResolvedValue([event(2, { type: 'work.committed' }), event(1)]);
+        source.emit({ id: 2, ts: new Date().toISOString(), message: 'work.committed', correlationId: '0001' });
+
+        await waitFor(() => expect(screen.getByText('Committed work')).toBeTruthy());
     });
 });

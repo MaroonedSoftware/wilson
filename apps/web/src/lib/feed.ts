@@ -233,7 +233,10 @@ export const useCardFeed = (project?: string): CardFeed => {
             // doc comment above and `TOOL_EVENT_TYPES`'s.
             if (TOOL_EVENT_TYPES.has(type)) return;
             void queryClient.invalidateQueries({ queryKey: cardsQueryKey });
-            if (project) void queryClient.invalidateQueries({ queryKey: ['cards'] });
+            if (project) {
+                void queryClient.invalidateQueries({ queryKey: ['cards'] });
+                void queryClient.invalidateQueries({ queryKey: activityQueryKey(project) });
+            }
         });
 
         return () => source.close();
