@@ -42,6 +42,21 @@ jobs:
             # `ditto` keeps what a plain zip drops, and macOS will not launch what a plain zip leaves.
             - working-directory: apps/desktop/artifacts
               run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${{ steps.version.outputs.value }}-osx-arm64.zip"
+            # What the app verifies before installing an update (`UpdateSignature`). The message must
+            # match `UpdateSignature.Message`, and a release with no key fails here rather than
+            # shipping something no copy of the app would install.
+            - name: Sign the update
+              working-directory: apps/desktop/artifacts
+              env:
+                  UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+                  VERSION: ${{ steps.version.outputs.value }}
+              run: |
+                  set -euo pipefail
+                  zip="wilson-${VERSION}-osx-arm64.zip"
+                  test -n "$UPDATE_SIGNING_KEY"
+                  hash="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+                  printf 'wilson-update %s %s' "$VERSION" "$hash" \
+                      | openssl dgst -sha256 -sign <(printf '%s\n' "$UPDATE_SIGNING_KEY") -out "$zip.sig"
             - name: Publish the release
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -51,4 +66,5 @@ jobs:
                       --generate-notes \
                       --notes "Signed only ad hoc and not notarised, so macOS refuses the first launch. Open it once, let it refuse, then press Open Anyway in System Settings, Privacy & Security. Or run: xattr -dr com.apple.quarantine /Applications/Wilson.app" \
                       ${{ inputs.draft && '--draft' || '' }} \
-                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip"
+                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip" \
+                      "artifacts/wilson-${{ steps.version.outputs.value }}-osx-arm64.zip.sig"
