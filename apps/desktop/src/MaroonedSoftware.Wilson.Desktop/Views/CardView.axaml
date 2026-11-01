@@ -2,6 +2,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.CardView"
     x:DataType="vm:CardViewModel">
     <DockPanel Margin="16">
@@ -37,7 +38,7 @@
         <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Acting}" IsVisible="{Binding Acting, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <SelectableTextBlock DockPanel.Dock="Top" Text="{Binding Notice}" TextWrapping="Wrap" Margin="0,0,0,4" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <TabControl>
+        <TabControl SelectedIndex="{Binding SelectedTab}">
             <TabItem Header="Plan">
                 <ScrollViewer>
                     <SelectableTextBlock Text="{Binding Card.Body}" TextWrapping="Wrap" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,8,8" />
@@ -58,6 +59,40 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+            <TabItem Header="Diff">
+                <DockPanel>
+                    <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding DiffNote}" Margin="0,8" />
+                    <Grid ColumnDefinitions="260,*">
+                        <ListBox ItemsSource="{Binding DiffFiles}" SelectedItem="{Binding SelectedFile}" Background="{DynamicResource Panel}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="sdk:CardDiffFile">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Path}" TextTrimming="LeadingCharacterEllipsis" ToolTip.Tip="{Binding Path}" />
+                                        <TextBlock Classes="quiet" Text="{Binding Status}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <ListBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding DiffRows}" FontFamily="{StaticResource Mono}" FontSize="12" Background="Transparent">
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
+                                <Style Selector="Grid.added"><Setter Property="Background" Value="{DynamicResource Added}" /></Style>
+                                <Style Selector="Grid.removed"><Setter Property="Background" Value="{DynamicResource Removed}" /></Style>
+                                <Style Selector="Grid.hunk TextBlock"><Setter Property="Foreground" Value="{DynamicResource Quiet}" /></Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DiffRow">
+                                    <Grid ColumnDefinitions="44,44,*" Classes.added="{Binding IsAdded}" Classes.removed="{Binding IsRemoved}" Classes.hunk="{Binding IsHunk}">
+                                        <TextBlock Classes="quiet" Text="{Binding Old}" TextAlignment="Right" Margin="0,0,6,0" />
+                                        <TextBlock Grid.Column="1" Classes="quiet" Text="{Binding New}" TextAlignment="Right" Margin="0,0,8,0" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Text}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </DockPanel>
             </TabItem>
         </TabControl>

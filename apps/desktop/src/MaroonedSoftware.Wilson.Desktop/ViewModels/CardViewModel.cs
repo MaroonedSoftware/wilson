@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Board;
+using MaroonedSoftware.Wilson.Desktop.Core.Diff;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
 using MaroonedSoftware.Wilson.Sdk;
 using MaroonedSoftware.Wilson.Sdk.Models;
@@ -14,6 +15,23 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 /// <summary>One line of a card's activity.</summary>
 public sealed record EventLine(string When, string What);
 
+/// <summary>One line of a diff, as drawn.</summary>
+public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk)
+{
+    public static DiffRow Of(PatchLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        return new DiffRow(
+            line.OldNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            line.NewNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            line.Text,
+            line.Kind == PatchLineKind.Added,
+            line.Kind == PatchLineKind.Removed,
+            line.Kind is PatchLineKind.Hunk or PatchLineKind.Note);
+    }
+}
+
 /// <summary>
 /// One card. Actions are offered as the web app offers them: whatever applies is the server's to
 /// decide, a refusal comes back in its own words, and only a re-read ever changes the stage shown.
@@ -21,6 +39,7 @@ public sealed record EventLine(string When, string What);
 public sealed partial class CardViewModel(ShellViewModel shell, string project, string id) : PageViewModel
 {
     private const long EventLimit = 100;
+    private const int DiffTab = 2;
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
 
     private readonly WilsonSdk _sdk = shell.Connection!.ForProject(project);
@@ -30,9 +49,22 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public ObservableCollection<string> Stages { get; } = [];
 
+    public ObservableCollection<CardDiffFile> DiffFiles { get; } = [];
+
+    public ObservableCollection<DiffRow> DiffRows { get; } = [];
+
     public ShellViewModel Shell => shell;
 
     public string Id => id;
+
+    [ObservableProperty]
+    private int _selectedTab;
+
+    [ObservableProperty]
+    private CardDiffFile? _selectedFile;
+
+    [ObservableProperty]
+    private string? _diffNote;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
@@ -138,6 +170,45 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
                 return Task.CompletedTask;
             },
             cancellationToken: cancellationToken);
+    }
+
+    partial void OnSelectedTabChanged(int value)
+    {
+        if (value == DiffTab)
+        {
+            _ = LoadDiffAsync();
+        }
+    }
+
+    partial void OnSelectedFileChanged(CardDiffFile? value)
+    {
+        DiffRows.Clear();
+        foreach (var line in Patch.Parse(value?.Patch ?? string.Empty))
+        {
+            DiffRows.Add(DiffRow.Of(line));
+        }
+    }
+
+    private async Task LoadDiffAsync()
+    {
+        DiffNote = "Reading the diff.";
+        try
+        {
+            var diff = await _sdk.Board.GetCardDiffAsync(id);
+            var selected = SelectedFile?.Path;
+            DiffFiles.Clear();
+            foreach (var file in diff.Files)
+            {
+                DiffFiles.Add(file);
+            }
+
+            SelectedFile = DiffFiles.FirstOrDefault(file => file.Path == selected) ?? DiffFiles.FirstOrDefault();
+            DiffNote = diff.Files.Count == 0 ? "This card's branch changes nothing." : diff.Truncated ? $"Against {diff.Base[..Math.Min(8, diff.Base.Length)]}. Too large to show whole." : $"Against {diff.Base[..Math.Min(8, diff.Base.Length)]}.";
+        }
+        catch (HttpRequestException failure)
+        {
+            DiffNote = ApiError.Reason(failure);
+        }
     }
 
     private async Task ReloadSettledAsync(CancellationToken cancellationToken)

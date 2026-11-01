@@ -31,7 +31,29 @@ internal static class Steps
         await walk.UntilAsync("the feed live", () => board.Live);
         walk.Shot("03-board");
 
+        await DiffAsync(walk, board);
         await CardsAsync(walk, board);
+    }
+
+    /// <summary>Only if the throwaway board has a card with a branch: a fresh one has none, and it takes a hand to give it one.</summary>
+    private static async Task DiffAsync(Walker walk, BoardViewModel board)
+    {
+        if (board.Columns.SelectMany(column => column.Cards).FirstOrDefault(card => card.Branch is not null) is not { } branched)
+        {
+            Console.WriteLine("skip the diff: no card has a branch");
+            return;
+        }
+
+        board.OpenCard(branched);
+        var card = walk.Page<CardViewModel>();
+        card.SelectedTab = 2;
+        await walk.UntilAsync("the diff, or the refusal said", () => card.DiffNote is not null and not "Reading the diff.");
+        Console.WriteLine($"     diff: {card.DiffNote} {card.DiffFiles.Count} files, {card.DiffRows.Count} rows");
+        walk.Shot("03a-diff");
+        card.SelectedFile = card.DiffFiles.FirstOrDefault(file => file.Path.EndsWith("BoardViewModel.cs", StringComparison.Ordinal)) ?? card.SelectedFile;
+        walk.Shot("03b-diff-another-file");
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
     }
 
     private static async Task CardsAsync(Walker walk, BoardViewModel board)
