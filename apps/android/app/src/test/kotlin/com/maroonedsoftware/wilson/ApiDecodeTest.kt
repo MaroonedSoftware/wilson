@@ -1,5 +1,6 @@
 package com.maroonedsoftware.wilson
 
+import com.maroonedsoftware.wilson.sdk.models.ActivityEvent
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
@@ -50,6 +51,13 @@ class ApiDecodeTest {
         assertEquals("Body", decode<CardDetail>("card").body.trim())
         decode<List<CardEvent>>("events")
         assertEquals(0, decode<CardUsage>("usage").stages.size)
+    }
+
+    @Test
+    fun theActivityFeed() {
+        val events: List<ActivityEvent> = decode("activity")
+        assertTrue(events.isNotEmpty())
+        assertTrue(events.all { it.id.toLongOrNull() != null })
     }
 
     @Test
