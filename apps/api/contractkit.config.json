@@ -4,6 +4,11 @@
     "prettier": true,
     "patterns": ["apps/api/data/contracts/**/*.ck"],
     "plugins": {
+        "@contractkit/plugin-csharp": {
+            "baseDir": "packages/sdk-csharp/",
+            "namespace": "MaroonedSoftware.Wilson.Sdk",
+            "sdkName": "WilsonSdk"
+        },
         "@contractkit/plugin-kotlin": {
             "baseDir": "packages/sdk-kotlin/",
             "packageName": "com.maroonedsoftware.wilson.sdk",

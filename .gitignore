@@ -47,3 +47,7 @@ apps/api/db/schema.sql
 
 # ContractKit's incremental compile cache. Regenerated on every codegen run.
 .contractkit/
+
+# .NET
+packages/sdk-csharp/bin/
+packages/sdk-csharp/obj/
