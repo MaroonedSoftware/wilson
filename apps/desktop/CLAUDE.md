@@ -66,6 +66,13 @@ The screen is deadair's setup steps: a welcome on a first run, the address, then
 code. A remembered server opens on the sign-in. `ServerProbe` asks `/api/health` before an address is
 kept, and an address that answers moves straight on, because a server has no name to confirm.
 
+## Menu bar
+
+Closing the window hides it and the app keeps running, so `ShutdownMode` is `OnExplicitShutdown`. Only
+`WindowClosing` is intercepted: Quit and a restart to update close with a shutdown reason.
+`tools/macos/make-tray-icon.sh` rebuilds `Assets/tray.png`, a template image, so macOS colours it for
+the menu bar.
+
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
@@ -127,8 +134,7 @@ Here: sign-in, the board and its feed, card detail and every card action, creati
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
 dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and splitting a card. A
-card's plan shows as plain text, not rendered Markdown. There is no menu-bar icon or notification,
-and closing the window quits.
+card's plan shows as plain text, not rendered Markdown. There are no notifications.
 
 ## Verified
 
@@ -144,8 +150,13 @@ release built, signed and published from the workflow, and that download launche
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
 signature did not name were both refused.
 
+2026-11-01, menu bar, on a real `Wilson.app` through macOS Accessibility: the close button and Cmd+W
+hid the window and left the app running, the icon's Open and the Dock icon brought it back, and the
+icon's Quit and the app menu's Quit each ended the process.
+
 Not verified:
 
+- How the menu-bar icon looks, which was only checked as a PNG.
 - A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
 - An update through the running app's own button, or from a real release.
 - Typing into the real window, as opposed to driving the view models headless, and a session
