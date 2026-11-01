@@ -31,6 +31,16 @@ const card = (overrides: Partial<CardSummary> = {}): CardSummary => ({
 });
 
 describe('unsatisfiedDependencies', () => {
+    it('counts a split origin as finished only once every piece has merged', () => {
+        const origin = card({ id: '0002', stage: 'dropped' });
+        const merged = card({ id: '0003', stage: 'merged', splitFrom: '0002' });
+        const dependent = card({ dependsOn: ['0002'] });
+
+        expect(unsatisfiedDependencies(dependent, [origin, merged, card({ id: '0004', stage: 'planning', splitFrom: '0002' })])).toEqual(['0002']);
+        expect(unsatisfiedDependencies(dependent, [origin, merged, card({ id: '0004', stage: 'dropped', splitFrom: '0002' })])).toEqual(['0002']);
+        expect(unsatisfiedDependencies(dependent, [origin, merged, card({ id: '0004', stage: 'merged', splitFrom: '0002' })])).toEqual([]);
+    });
+
     it('returns nothing for a card with no dependencies', () => {
         expect(unsatisfiedDependencies(card({ dependsOn: [] }), [])).toEqual([]);
     });
@@ -79,6 +89,19 @@ describe('deadDependencies', () => {
     it('reports a dependency sitting in dropped', () => {
         const dep = card({ id: '0085', stage: 'dropped' });
         expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual(['0085']);
+    });
+
+    it('does not report a dropped split origin while its pieces can still finish it', () => {
+        const origin = card({ id: '0085', stage: 'dropped' });
+        const piece = card({ id: '0086', stage: 'planning', splitFrom: '0085' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, piece], nonStages)).toEqual([]);
+    });
+
+    it('reports a dropped split origin once one of its pieces is dead too', () => {
+        const origin = card({ id: '0085', stage: 'dropped' });
+        const merged = card({ id: '0086', stage: 'merged', splitFrom: '0085' });
+        const dropped = card({ id: '0087', stage: 'dropped', splitFrom: '0085' });
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, merged, dropped], nonStages)).toEqual(['0085']);
     });
 
     it('reports a dependency sitting in poisoned', () => {

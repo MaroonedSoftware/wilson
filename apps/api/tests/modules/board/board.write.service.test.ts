@@ -1551,6 +1551,18 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.title).toBe('Piece A');
         });
 
+        it('records the origin on every piece, and not on the origin itself', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0111', { stage: 'planning' }), 'seed');
+
+            const result = await service.split('0111', { pieces: twoPieces() });
+
+            for (const piece of result.pieces) {
+                expect((await board.read(piece.id)).frontmatter.splitFrom).toBe('0111');
+            }
+            expect((await board.read('0111')).frontmatter.splitFrom).toBeUndefined();
+        });
+
         it('records the dependency named in dependsOn between the created cards, resolving titles to the new ids', async () => {
             const { board, service } = freshBoard();
             await board.create(card('0111', { stage: 'planning' }), 'seed');
@@ -1665,6 +1677,17 @@ describe('BoardWriteService', () => {
             const { service } = freshBoard();
 
             await expect(service.split('missing', { pieces: twoPieces() })).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses an origin already in `split`: its pieces exist, and this would create them again', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0116', { stage: 'split' }), 'seed');
+
+            await expect(service.split('0116', { pieces: twoPieces() })).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: '0116 has already been split' },
+            });
+            expect(await board.list()).toHaveLength(1);
         });
     });
 

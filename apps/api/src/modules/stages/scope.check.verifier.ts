@@ -58,6 +58,16 @@ export const BREADTH_THRESHOLD = 4;
  * lower. Cards 0075 and 0078 — the breadth cases `BREADTH_THRESHOLD` was calibrated against — report
  * a single group each (all the repeated work is one kind, per `ScopeGroupSchema`'s own doc comment)
  * and are unaffected by a depth threshold at any setting.
+ *
+ * Because the metric cannot see cohesion, depth is one-directional: reaching this line supports a
+ * refusal, but does not make a "pass" inconsistent. Breadth and fan-out are counts of repetition, so a
+ * pass past those lines contradicts itself; a group count past this one does not, because whether
+ * many kinds of work belong together is exactly the merit this class leaves to the model. Card 0004
+ * is what forced this: a single feature through every layer reported 20 groups, the model passed it
+ * twice on those grounds, and no regrouping could have got it under 6, so the verifier's override
+ * left the card with no route forward except a split nobody had judged necessary. The cost is that a
+ * model that passes a card shaped like 0120 is now believed. That is the trade this comment's last
+ * paragraph already asks for.
  */
 export const DEPTH_THRESHOLD = 6;
 
@@ -101,6 +111,17 @@ const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g
 const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.sites > max.sites ? g : max));
 
 /**
+ * What identifies a Tasks-section item when a division cites it: its number when it has one, otherwise
+ * its text. `ScopeGroupSchema` invites a model to "quote or number" an item, so the same task can come
+ * back as `1. apps/api/data/migrations/x.sql (new)` in `groups` and `1. migration` in `division`. Card
+ * 0004 lost a supported refusal to exactly that, with all twenty of its citations judged invented.
+ */
+const taskKey = (task: string): string => {
+    const trimmed = task.trim();
+    return /^(\d+)(?:[.):]|$)/.exec(trimmed)?.[1] ?? trimmed;
+};
+
+/**
  * The scope-check stage's exit condition: does the plan fit in one pass.
  *
  * This lane judges, it does not split (card 0105's Goal) — merit (is the card actually too large) is
@@ -109,10 +130,11 @@ const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((
  * from the model's own reported evidence (`groups`), and — when refusing — is the division concrete
  * (at least two pieces, each naming what it delivers alone and what it depends on, each built only
  * from tasks — and citing only dependencies on other pieces — the model itself reported). A model
- * that says "pass" while its own `groups` show an eight-wide repeat, or nine groups of different work,
- * or says "refuse" while reporting neither, has produced an inconsistent report regardless of which
- * way it leans — but, as of card 0157, the two directions no longer carry the same consequence. See
- * the last paragraph below.
+ * that says "pass" while its own `groups` show an eight-wide repeat, or says "refuse" while reporting
+ * no signal at all, has produced an inconsistent report regardless of which way it leans — but, as of
+ * card 0157, the two directions no longer carry the same consequence. See the last paragraph below.
+ * Depth is the exception on the "pass" side: it supports a refusal without contradicting a pass (see
+ * `DEPTH_THRESHOLD`).
  *
  * Three signals feed that check, and they catch different shapes. Breadth (`BREADTH_THRESHOLD`, the
  * width of the widest group) catches one kind of work repeated until it will not fit — card 0075's
@@ -191,15 +213,12 @@ export class ScopeCheckVerifier implements StageVerifier {
         const tooFannedOut = mostFannedOut.sites >= FANOUT_THRESHOLD;
         const tooLarge = tooBroad || tooDeep || tooFannedOut;
 
-        if (tooLarge && verdict !== 'refuse') {
+        // Depth has no branch here: it backs a refusal (`tooLarge`) but never contradicts a pass. See
+        // `DEPTH_THRESHOLD`'s doc comment.
+        if (verdict !== 'refuse') {
             if (tooBroad) {
                 failures.push(
                     `"${widest.title}" repeats across ${widest.tasks.length} tasks (>= ${BREADTH_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
-                );
-            }
-            if (tooDeep) {
-                failures.push(
-                    `the plan reports ${groups.length} distinct groups (>= ${DEPTH_THRESHOLD}) — many different kinds of work collected into one card, which is what this stage exists to catch, but the verdict is "pass"`,
                 );
             }
             if (tooFannedOut) {
@@ -216,11 +235,11 @@ export class ScopeCheckVerifier implements StageVerifier {
             // A division is only real if it is built from work the model actually reported seeing.
             // Not full-coverage checked (a piece is free to leave shared plumbing ungrouped) — only
             // that nothing it names is invented.
-            const namedTasks = new Set(groups.flatMap(g => g.tasks));
+            const namedTasks = new Set(groups.flatMap(g => g.tasks).map(taskKey));
             const pieceTitles = new Set(division.map(p => p.title));
             for (const piece of division) {
                 for (const task of piece.tasks) {
-                    if (!namedTasks.has(task)) {
+                    if (!namedTasks.has(taskKey(task))) {
                         failures.push(`division piece "${piece.title}" cites task "${task}", which is not among the reported groups`);
                     }
                 }
@@ -265,6 +284,11 @@ export class ScopeCheckVerifier implements StageVerifier {
         // tracks whether the verdict was a clean, uncontradicted "pass", not whether the card actually
         // advances, which `failures.length` alone decides. An unfounded refusal above leaves `failures`
         // empty and so does advance, even though it is reported as `passed: false` here.
-        return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [] };
+        //
+        // `supportedRefusal` asks for exactly one failure, the `refusing:` push above: anything beside
+        // it (a stage that wrote files, an empty reason, an invented task) means the division cannot
+        // be acted on without a person, even though the card still goes back to `planning` as it did.
+        const supportedRefusal = verdict === 'refuse' && tooLarge && failures.length === 1 ? { reason, division } : undefined;
+        return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [], ...(supportedRefusal && { supportedRefusal }) };
     }
 }

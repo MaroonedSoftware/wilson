@@ -43,6 +43,7 @@ import { withFindings } from './append.findings.js';
 import { git } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
+import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
 
 /**
@@ -972,7 +973,8 @@ export class BoardWriteService {
      * pieces are exactly what would be stranded), and never re-runs `scope-check` on what it creates
      * — deciding a split is `scope-check`'s job (card 0105); this only acts on pieces an operator
      * already confirmed, which is the whole of `request.pieces` rather than anything re-read from the
-     * event log.
+     * event log. This is the confirmed path, the only one when `AUTO_SPLIT_ENABLED` is off. With it on,
+     * `AutoSplitter` splits a supported refusal itself, retires the origin to `split` and asks nobody.
      *
      * Cards are created one at a time, each computing the next id over the board it just extended —
      * the same sequential assignment {@link create} uses, applied in a loop because this creates more
@@ -998,32 +1000,22 @@ export class BoardWriteService {
     async split(id: string, request: SplitCardsRequest): Promise<SplitResult> {
         const origin = await this.readOrThrow(id);
 
-        if (request.pieces.length < 2) {
-            throw httpError(400).withDetails({ reason: 'a split needs at least two pieces' });
+        // Its division is still on the event log, so `division` still answers, but the pieces already
+        // exist: confirming it would create every one of them a second time.
+        if (origin.frontmatter.stage === 'split') {
+            throw httpError(400).withDetails({ reason: `${id} has already been split` });
         }
 
-        const titles = new Set(request.pieces.map(piece => piece.title));
-        if (titles.size !== request.pieces.length) {
-            throw httpError(400).withDetails({ reason: 'piece titles must be unique' });
-        }
-        for (const piece of request.pieces) {
-            for (const dep of piece.dependsOn) {
-                if (dep === piece.title) {
-                    throw httpError(400).withDetails({ reason: `piece "${piece.title}" lists itself as a dependency` });
-                }
-                if (!titles.has(dep)) {
-                    throw httpError(400).withDetails({
-                        reason: `piece "${piece.title}" depends on "${dep}", which is not one of the pieces being created`,
-                    });
-                }
-            }
+        const problem = splitProblem(request.pieces);
+        if (problem) {
+            throw httpError(400).withDetails({ reason: problem });
         }
 
         const titleToId = new Map<string, string>();
         for (const piece of request.pieces) {
             const cardId = nextCardId(await this.boardRepository.list());
             const card: Card = {
-                frontmatter: { id: cardId, title: piece.title, stage: 'planning', dependsOn: [], retries: {} },
+                frontmatter: { id: cardId, title: piece.title, stage: 'planning', dependsOn: [], retries: {}, splitFrom: id },
                 sections: {},
                 body: seedSplitBody(id, origin.frontmatter.title, piece),
             };
@@ -1074,17 +1066,6 @@ export class BoardWriteService {
 const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
 
 /**
- * The next id on the board. Sequential and zero-padded, matching `nextCardId` in
- * `packages/cli/src/commands/card/editor.ts` — duplicated rather than imported because the
- * dependency runs the other way (`packages/cli` depends on `@wilson/api`, not the reverse), and
- * this card does not touch CLI files.
- */
-const nextCardId = (cards: Card[]): string => {
-    const highest = cards.reduce((max, card) => Math.max(max, Number.parseInt(card.frontmatter.id, 10) || 0), 0);
-    return String(highest + 1).padStart(4, '0');
-};
-
-/**
  * How far back {@link BoardWriteService.division} scans a card's event log for its most recent
  * scope-check refusal. `EventLog.tail` has no type/stage-filtered query — `event.log.ts` is outside
  * this card's "Files in scope" — so this is the same best-effort lookback cap
@@ -1109,22 +1090,3 @@ const RE_REVIEW_RETRY_KEY = 'review:re-review';
  * files keep colliding with what lands on `main` is not making progress by retrying forever.
  */
 const RE_REVIEW_CAP = 2;
-
-/**
- * A stub body for a card created from one division piece: what it would deliver, the tasks it
- * carries, and a pointer back to the card it was cut from. Not the six-heading plan contract —
- * `PLAN_SECTIONS` is what `backlog` requires, and this card lands in `planning`, unplanned, on
- * purpose (see {@link BoardWriteService.split}'s doc comment).
- */
-const seedSplitBody = (originId: string, originTitle: string, piece: { tasks: string[]; delivers: string }): string =>
-    [
-        `Split from ${originId} (${originTitle}), one piece of a scope-check refusal's division. Not yet planned — run \`wilson card plan\` next.`,
-        '',
-        '## Delivers',
-        '',
-        piece.delivers,
-        '',
-        '## Tasks',
-        '',
-        ...piece.tasks.map(task => `- ${task}`),
-    ].join('\n');

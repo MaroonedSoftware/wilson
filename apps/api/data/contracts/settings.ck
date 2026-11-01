@@ -8,6 +8,7 @@ options {
         ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
         EngineTokenSettingService: "#modules/settings/engine.token.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
+        AutoSplitSettingService: "#modules/settings/auto.split.setting.service.js"
         GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
     }
@@ -312,6 +313,39 @@ operation /api/settings/dry-run: {
         }
         response: {
             200: { application/json: DryRunSetting }
+        }
+    }
+}
+
+# Whether a scope-check refusal the verifier supported splits its card without an operator confirming
+# the division — see `auto.split.setting.ts` for the default (off) and `AutoSplitter` for what it does.
+contract AutoSplitSetting: {
+    enabled: boolean
+}
+
+contract SetAutoSplitSettingRequest: {
+    enabled: boolean
+}
+
+operation /api/settings/auto-split: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get auto split setting
+        service: AutoSplitSettingService.get
+        response: {
+            200: { application/json: AutoSplitSetting }
+        }
+    }
+    put: {
+        name: Set auto split setting
+        service: AutoSplitSettingService.set
+        request: {
+            application/json: SetAutoSplitSettingRequest
+        }
+        response: {
+            200: { application/json: AutoSplitSetting }
         }
     }
 }

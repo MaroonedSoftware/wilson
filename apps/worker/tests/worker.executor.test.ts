@@ -201,6 +201,46 @@ describe('WorkerExecutor', () => {
         expect(await running.waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit')).toMatchObject({ signal: 'SIGTERM' });
     });
 
+    it('signs the engine in with a token Wilson sent, for that process alone', async () => {
+        const { executor, waitFor, sent } = harness();
+
+        executor.handle({ type: 'spawn', id: 'assigned', command: 'claude', args: [], cwd: root, env: {}, engineToken: 'assigned-token' });
+        executor.handle({ type: 'stdin-end', id: 'assigned' });
+        await waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit' && m.id === 'assigned');
+        executor.handle({ type: 'spawn', id: 'own', command: 'claude', args: [], cwd: root, env: {} });
+        executor.handle({ type: 'stdin-end', id: 'own' });
+        await waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit' && m.id === 'own');
+
+        const output = (id: string) =>
+            sent.flatMap(m => (m.type === 'out' && m.id === id ? [Buffer.from(m.data, 'base64').toString()] : [])).join('');
+        expect(output('assigned')).toContain('token=assigned-token');
+        expect(output('own')).toContain('token=worker-token');
+    });
+
+    it('runs claude for the sign-in check with a token Wilson sent, on a worker with none', async () => {
+        const { executor, waitFor } = harness({ env: { PATH: process.env.PATH } });
+
+        executor.handle({ type: 'run-claude', id: 'check', args: ['auth', 'status'], timeoutMs: 5_000, engineToken: 'assigned-token' });
+
+        const result = await waitFor((m): m is Extract<FromWorker, { type: 'result'; ok: true }> => m.type === 'result' && m.id === 'check');
+        expect(result.value).toMatchObject({ stdout: 'token=assigned-token\n' });
+    });
+
+    it('keeps both tokens out of a command that inherits the worker’s environment, as a git hook would', async () => {
+        const { executor, waitFor } = harness({
+            env: { PATH: process.env.PATH, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token', WILSON_WORKER_TOKEN: 'wilson_worker_x', KEPT: 'yes' },
+        });
+
+        executor.handle({
+            type: 'call',
+            id: 'inherit',
+            call: { op: 'exec', file: 'sh', args: ['-c', 'echo "$CLAUDE_CODE_OAUTH_TOKEN|$WILSON_WORKER_TOKEN|$KEPT"'], options: { cwd: root } },
+        });
+
+        const result = await waitFor((m): m is Extract<FromWorker, { type: 'result'; ok: true }> => m.type === 'result' && m.id === 'inherit');
+        expect(result.value).toMatchObject({ stdout: '||yes\n' });
+    });
+
     it('runs claude for the sign-in check with its own token', async () => {
         const { executor, waitFor } = harness();
 

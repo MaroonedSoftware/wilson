@@ -67,6 +67,7 @@ beforeEach(() => {
     vi.spyOn(wilson.board, 'listBoardColumns').mockResolvedValue({ stages: [], nonStages: [] });
     vi.spyOn(wilson.board, 'listCards').mockResolvedValue([]);
     vi.spyOn(wilson.projects, 'listProjects').mockResolvedValue([{ name: 'tga' }, { name: 'wilson' }]);
+    vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     // jsdom has no layout engine, so the combobox's own `scrollIntoView` on the active option
@@ -179,6 +180,26 @@ describe('the hosts page', () => {
 
         await waitFor(() => expect(register).toHaveBeenCalledWith({ name: 'agent-4', slots: 1 }));
         expect(await screen.findByText('host "agent-4" is already registered')).toBeTruthy();
+    });
+
+    it('assigns a saved engine token to a worker host, and offers none to an ssh host', async () => {
+        const worker: Host = { ...agentHost, name: 'unraid-vm', kind: 'worker', sshTarget: undefined, running: [] };
+        vi.spyOn(wilson.hosts, 'listHosts').mockResolvedValue([worker, agentHost]);
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([
+            { name: 'pool-a', createdAt: DateTime.fromMillis(NOW), updatedAt: DateTime.fromMillis(NOW), hosts: [] },
+        ]);
+        const assign = vi.spyOn(wilson.hosts, 'assignEngineToken').mockResolvedValue({ ...worker, engineToken: 'pool-a' });
+        renderApp('/hosts');
+
+        const card = await screen.findByLabelText('host unraid-vm');
+        fireEvent.click(within(card).getByRole('combobox', { name: /Engine token/ }));
+        const option = await screen.findByRole('option', { name: 'pool-a', hidden: true });
+        await act(async () => {
+            fireEvent.click(option);
+        });
+
+        await waitFor(() => expect(assign).toHaveBeenCalledWith('unraid-vm', { name: 'pool-a' }));
+        expect(within(await screen.findByLabelText('host agent-3')).queryByRole('combobox', { name: /Engine token/ })).toBeNull();
     });
 
     it('registers a worker host without an SSH target, and shows it as a worker', async () => {

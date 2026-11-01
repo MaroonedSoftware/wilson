@@ -7,8 +7,9 @@ import { WorkerClient, WorkerStoppedError } from './worker.client.js';
  *
  * - `WILSON_URL` (required): Wilson's API, e.g. `http://tower:13100`.
  * - `WILSON_WORKER_TOKEN` (required): this host's token, from `wilson host token <name>`.
- * - `CLAUDE_CODE_OAUTH_TOKEN`: what the engine signs in with here (from `claude setup-token`). Unset,
- *   the engine uses this machine's own `claude` sign-in, if it has one.
+ * - `CLAUDE_CODE_OAUTH_TOKEN`: what the engine signs in with here (from `claude setup-token`) when
+ *   Wilson assigns this host no token. Unset as well, the engine uses this machine's own `claude`
+ *   sign-in, if it has one.
  * - `WILSON_CLAUDE`: the `claude` binary, when it is not the one on `PATH`.
  *
  * Exits 1 when Wilson refuses this worker for good (a bad token, another protocol version, or a second

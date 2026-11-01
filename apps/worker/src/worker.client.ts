@@ -65,6 +65,7 @@ export class WorkerClient {
     private delay: number;
     private readonly logger: WorkerLogger;
     private settle?: { resolve: () => void; reject: (err: Error) => void };
+    private warnedPlaintext = false;
     /** The host this worker was welcomed as, once it has been. */
     host?: string;
 
@@ -99,6 +100,13 @@ export class WorkerClient {
         this.settle?.resolve();
     }
 
+    /** An engine token came over this connection. Once, since each engine start brings one. */
+    private warnIfPlaintext(): void {
+        if (this.warnedPlaintext || connectUrl(this.options.url).startsWith('wss:')) return;
+        this.warnedPlaintext = true;
+        this.logger.warn('Wilson sent an engine token over an unencrypted connection; use an https WILSON_URL unless this network is private');
+    }
+
     private connect(): void {
         const socket = new WebSocket(connectUrl(this.options.url), {
             headers: { authorization: `Bearer ${this.options.token}` },
@@ -126,6 +134,7 @@ export class WorkerClient {
                 this.delay = this.options.minReconnectMs ?? 1_000;
                 return;
             }
+            if ('engineToken' in message && message.engineToken !== undefined) this.warnIfPlaintext();
             executor.handle(message);
         });
         socket.on('unexpected-response', (_request, response) => {

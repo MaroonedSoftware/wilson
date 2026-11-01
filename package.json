@@ -6,6 +6,7 @@
         "codegen": "turbo run codegen",
         "dev": "turbo run dev",
         "lint": "turbo run lint",
+        "lint:check": "turbo run lint:check",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "turbo run test",

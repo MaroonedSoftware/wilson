@@ -156,6 +156,20 @@ data class SetDryRunSettingRequest(
 )
 
 /**
+ * Whether a scope-check refusal the verifier supported splits its card without an operator confirming
+ * the division — see `auto.split.setting.ts` for the default (off) and `AutoSplitter` for what it does.
+ */
+@Serializable
+data class AutoSplitSetting(
+    val enabled: Boolean,
+)
+
+@Serializable
+data class SetAutoSplitSettingRequest(
+    val enabled: Boolean,
+)
+
+/**
  * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
  * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
  * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.

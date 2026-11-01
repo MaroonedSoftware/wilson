@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { ClaudeSpawnOptions, ExecOptions, ExecResult, ExecutionHost, HostStat } from '#modules/host/execution.host.js';
+import { ENGINE_TOKEN_VARIABLE } from '@wilson/worker-protocol';
 import { toExecFailure, type WorkerConnection, type WorkerStreamMessage } from './worker.connection.js';
 
 /** How long a file primitive may take before it is treated as a lost connection, as on an SSH host. */
@@ -24,6 +25,9 @@ const definedEnv = (env: NodeJS.ProcessEnv): Record<string, string> => {
     return defined;
 };
 
+/** What this host's engines sign in with now: the token assigned to it, or undefined for the worker's own. */
+export type EngineTokenResolver = () => Promise<string | undefined>;
+
 /**
  * A machine whose worker program has connected in: every primitive is a message over its connection,
  * answered by the worker running the same `node:fs` or `execFile` call there.
@@ -39,6 +43,7 @@ export class WorkerExecutionHost implements ExecutionHost {
     constructor(
         private readonly connection: WorkerConnection,
         readonly commandEnv: readonly string[] = [],
+        private readonly engineToken: EngineTokenResolver = async () => undefined,
     ) {
         this.name = `worker:${connection.hostName}`;
     }
@@ -95,8 +100,15 @@ export class WorkerExecutionHost implements ExecutionHost {
 
     /**
      * Start `claude` on the worker for the Agent SDK's `spawnClaudeCodeProcess`. Only the SDK's own
-     * variables travel; the worker supplies its `PATH`, its home and its own engine token, which never
-     * leaves that machine.
+     * variables travel, and the token this host is assigned, resolved now so a replaced one reaches
+     * the next engine; the worker supplies its `PATH`, its home, and its own token if none is assigned.
+     * A token in `options.env` is this machine's and stays here: the frame would carry it to a worker
+     * that is not meant to have it, even though the worker drops it on arrival.
+     *
+     * The SDK needs the process back at once and the token takes a query to find, so the process
+     * returned starts a moment later, holding back whatever the SDK writes until it has. A token that
+     * cannot be read ends the process with that reason, on stderr, which is where a stage's failure
+     * reads it from.
      *
      * The returned object is not a real `ChildProcess`: it is {@link WorkerEngineProcess}, which has
      * every member the SDK's `SpawnedProcess` reads (stdin, stdout, stderr, `killed`, `exitCode`,
@@ -104,24 +116,34 @@ export class WorkerExecutionHost implements ExecutionHost {
      */
     spawnClaude(options: ClaudeSpawnOptions): ChildProcess {
         const id = randomUUID();
-        const engine = new WorkerEngineProcess(this.connection, id);
-        this.connection.stream(
-            id,
-            {
-                type: 'spawn',
-                id,
-                command: options.command,
-                args: options.args,
-                ...(options.cwd && { cwd: options.cwd }),
-                env: definedEnv(options.env),
+        const env = { ...options.env };
+        delete env[ENGINE_TOKEN_VARIABLE];
+        const started = this.engineToken().then(
+            engineToken =>
+                this.connection.stream(
+                    id,
+                    {
+                        type: 'spawn',
+                        id,
+                        command: options.command,
+                        args: options.args,
+                        ...(options.cwd && { cwd: options.cwd }),
+                        env: definedEnv(env),
+                        ...(engineToken !== undefined && { engineToken }),
+                    },
+                    message => engine.receive(message),
+                ),
+            (err: Error) => {
+                engine.stderr.write(`${err.message}\n`);
+                engine.receive({ type: 'exit', id, code: null, signal: null, error: { message: err.message } });
             },
-            message => engine.receive(message),
         );
+        const engine = new WorkerEngineProcess(this.connection, id, started);
         return engine as unknown as ChildProcess;
     }
 
     async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
-        return this.connection.runClaude(args, timeoutMs);
+        return this.connection.runClaude(args, timeoutMs, await this.engineToken());
     }
 
     async cloneRepository(url: string, path: string, token: string): Promise<void> {
@@ -146,16 +168,21 @@ export class WorkerEngineProcess extends EventEmitter {
     constructor(
         private readonly connection: WorkerConnection,
         private readonly id: string,
+        private readonly started: Promise<void> = Promise.resolve(),
     ) {
         super();
         this.stdin = new Writable({
             write: (chunk: Buffer, _encoding, done) => {
-                connection.send({ type: 'stdin', id, data: Buffer.from(chunk).toString('base64') });
-                done();
+                void started.then(() => {
+                    connection.send({ type: 'stdin', id, data: Buffer.from(chunk).toString('base64') });
+                    done();
+                });
             },
             final: done => {
-                connection.send({ type: 'stdin-end', id });
-                done();
+                void started.then(() => {
+                    connection.send({ type: 'stdin-end', id });
+                    done();
+                });
             },
         });
     }
@@ -163,7 +190,7 @@ export class WorkerEngineProcess extends EventEmitter {
     kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
         if (this.ended) return false;
         this.killed = true;
-        this.connection.send({ type: 'kill', id: this.id, signal });
+        void this.started.then(() => this.connection.send({ type: 'kill', id: this.id, signal }));
         return true;
     }
 

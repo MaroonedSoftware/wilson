@@ -219,6 +219,38 @@ describe('unsatisfiedDependencies', () => {
         expect(unsatisfiedDependencies(dependent, [dependency, dependent])).toEqual(['0001']);
     });
 
+    describe('a split origin', () => {
+        const piece = (id: string, stage: string, splitFrom: string): Card => {
+            const c = card(id, stage);
+            return { ...c, frontmatter: { ...c.frontmatter, splitFrom } };
+        };
+        const dependent = card('0009', 'planning', ['0001']);
+
+        it('is finished once every piece has merged, even though it never merged itself', () => {
+            const board = [card('0001', 'dropped'), piece('0002', 'merged', '0001'), piece('0003', 'merged', '0001'), dependent];
+
+            expect(unsatisfiedDependencies(dependent, board)).toEqual([]);
+        });
+
+        it('is unfinished while any piece is still in progress', () => {
+            const board = [card('0001', 'dropped'), piece('0002', 'merged', '0001'), piece('0003', 'implementing', '0001'), dependent];
+
+            expect(unsatisfiedDependencies(dependent, board)).toEqual(['0001']);
+        });
+
+        it('stays unfinished when a piece was dropped, because that work was not delivered', () => {
+            const board = [card('0001', 'dropped'), piece('0002', 'merged', '0001'), piece('0003', 'dropped', '0001'), dependent];
+
+            expect(unsatisfiedDependencies(dependent, board)).toEqual(['0001']);
+        });
+
+        it('follows a piece that was itself split', () => {
+            const board = [card('0001', 'dropped'), piece('0002', 'dropped', '0001'), piece('0003', 'merged', '0002'), dependent];
+
+            expect(unsatisfiedDependencies(dependent, board)).toEqual([]);
+        });
+    });
+
     it('treats a dependency id absent from the board as unsatisfied, not as fine', () => {
         const dependent = card('0002', 'planning', ['9999']);
 

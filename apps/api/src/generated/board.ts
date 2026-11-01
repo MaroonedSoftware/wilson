@@ -50,6 +50,12 @@ export const CardSummary = z.strictObject({
         ),
     needsHumanReason: z.string().optional(),
     position: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    splitFrom: z
+        .string()
+        .optional()
+        .describe(
+            'The card this one was split out of. Absent on every other card, including pieces split before\nthe field existed, so absence does not prove a card has no origin.',
+        ),
     stageEnteredAt: _ZodDatetime
         .optional()
         .describe(
@@ -57,6 +63,18 @@ export const CardSummary = z.strictObject({
         ),
 });
 export type CardSummary = z.infer<typeof CardSummary>;
+
+/**
+ * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+ * has got without a read per piece.
+ * generated from [SplitPieceSummary](../../data/contracts/board.ck)
+ */
+export const SplitPieceSummary = z.strictObject({
+    id: z.string(),
+    title: z.string(),
+    stage: z.string(),
+});
+export type SplitPieceSummary = z.infer<typeof SplitPieceSummary>;
 
 /**
  * The write surface. Each request body is its own named contract rather than inlined on the
@@ -388,8 +406,25 @@ export type HumanFinding = z.infer<typeof HumanFinding>;
 export const CardDetail = CardSummary.extend({
     body: z.string(),
     sections: z.record(z.string(), z.string()),
+    pieces: z
+        .array(SplitPieceSummary)
+        .optional()
+        .describe(
+            'The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the\nsame way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it\nabsent rather than guess. Empty, from `getById`, on a card that was never split.',
+        ),
 });
 export type CardDetail = z.infer<typeof CardDetail>;
+
+/**
+ * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+ * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+ * generated from [ActivityEvent](../../data/contracts/board.ck)
+ */
+export const ActivityEvent = CardEvent.extend({
+    cardId: z.string(),
+    cardTitle: z.string().nullable(),
+});
+export type ActivityEvent = z.infer<typeof ActivityEvent>;
 
 /**
  * `GET /api/cards/{id}/usage`'s response: what a card has cost, read from `EventLog.usageByStage`
@@ -428,6 +463,15 @@ export const CardDiff = z.strictObject({
         ),
 });
 export type CardDiff = z.infer<typeof CardDiff>;
+
+/**
+ * `before` is the id of the oldest event already held, for reading further back.
+ * generated from [ActivityQuery](../../data/contracts/board.ck)
+ */
+export const ActivityQuery = ListQuery.extend({
+    before: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type ActivityQuery = z.infer<typeof ActivityQuery>;
 
 /**
  * `GET /api/cards/{id}/division`'s response: the most recent scope-check refusal on record for a

@@ -83,6 +83,11 @@ describe('serializeCard', () => {
         expect(frontmatter.needsHumanReason).toBe('blocked on legal');
     });
 
+    it('writes splitFrom only when the card carries it', () => {
+        expect(serializeCard(card())).not.toContain('splitFrom');
+        expect(split(serializeCard(card({ splitFrom: '0111' }))).frontmatter.splitFrom).toBe('0111');
+    });
+
     it('writes external refs and sourceClosed when set, including an explicit false', () => {
         const { frontmatter } = split(serializeCard(card({ external: { linear: 'ENG-123' }, sourceClosed: false })));
 

@@ -57,6 +57,11 @@ export interface CardSummary {
     needsHumanReason?: string;
     position?: number;
     /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    splitFrom?: string;
+    /**
      * Card 0178. The moment this card entered its current stage — the most recent
      * `transition.written` event's timestamp, or its earliest recorded event if the card has never
      * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -78,6 +83,17 @@ export function reviveCardSummary(raw: CardSummary): CardSummary {
         __o0['stageEnteredAt'] = __dt(__o0['stageEnteredAt'], 'CardSummary.stageEnteredAt');
     }
     return raw;
+}
+
+/**
+ * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+ * has got without a read per piece.
+ * generated from [SplitPieceSummary](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface SplitPieceSummary {
+    id: string;
+    title: string;
+    stage: string;
 }
 
 /**
@@ -439,11 +455,33 @@ export interface HumanFinding {
 export interface CardDetail extends CardSummary {
     body: string;
     sections: Record<string, string>;
+    /**
+     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     */
+    pieces?: SplitPieceSummary[];
 }
 
 /** Rehydrates every wire-encoded scalar in a CardDetail into its runtime type. Mutates and returns `raw`. */
 export function reviveCardDetail(raw: CardDetail): CardDetail {
     reviveCardSummary(raw as never);
+    return raw;
+}
+
+/**
+ * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+ * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+ * generated from [ActivityEvent](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ActivityEvent extends CardEvent {
+    cardId: string;
+    cardTitle: string | null;
+}
+
+/** Rehydrates every wire-encoded scalar in a ActivityEvent into its runtime type. Mutates and returns `raw`. */
+export function reviveActivityEvent(raw: ActivityEvent): ActivityEvent {
+    reviveCardEvent(raw as never);
     return raw;
 }
 
@@ -478,6 +516,14 @@ export interface CardDiff {
      * while this stays false.
      */
     truncated: boolean;
+}
+
+/**
+ * `before` is the id of the oldest event already held, for reading further back.
+ * generated from [ActivityQuery](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ActivityQuery extends ListQuery {
+    before?: number;
 }
 
 /**

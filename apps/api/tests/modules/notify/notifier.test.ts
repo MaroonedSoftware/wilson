@@ -218,8 +218,12 @@ describe('Notifier', () => {
             // it ever creates the abort timeout `advanceTimersByTimeAsync` below is meant to fire —
             // that lookup is genuine OS-level I/O, not a fake timer, so it needs a real (not
             // simulated) tick to resolve. Without this, the abort timeout does not exist yet when
-            // fake time is advanced, and `pending` hangs until vitest's own real test timeout.
-            await new Promise(resolve => realSetTimeout(resolve, 50));
+            // fake time is advanced, and `pending` hangs until vitest's own real test timeout. It
+            // waits on `fetch` being called, which comes straight after the timeout is created,
+            // rather than for a fixed time, which a slower lookup on a CI runner can outlast.
+            while (fetchMock.mock.calls.length === 0) {
+                await new Promise(resolve => realSetTimeout(resolve, 5));
+            }
             await vi.advanceTimersByTimeAsync(5_000);
             await pending;
 

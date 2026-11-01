@@ -71,6 +71,41 @@ describe('wilson card show', () => {
         expect(logger.info).toHaveBeenCalledWith('  src/a.ts');
     });
 
+    it('shows a split origin, its pieces, and how many have merged', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse(
+                detail({
+                    splitFrom: '0100',
+                    pieces: [
+                        { id: '0002', title: 'piece a', stage: 'merged' },
+                        { id: '0003', title: 'piece b', stage: 'planning' },
+                    ],
+                }),
+            ),
+        );
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        expect(logger.info).toHaveBeenCalledWith('split from: 0100');
+        expect(logger.info).toHaveBeenCalledWith('\npieces (1/2 merged):');
+        expect(logger.info).toHaveBeenCalledWith('  0003  planning  piece b');
+    });
+
+    it('prints no split lines for a card that was never split', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ pieces: [] })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
+        const { ctx, logger } = buildCtx();
+
+        await run(ctx, '0001');
+
+        const lines = logger.info.mock.calls.map((call: unknown[]) => String(call[0]));
+        expect(lines.some((line: string) => line.includes('split from') || line.includes('pieces ('))).toBe(false);
+    });
+
     it('shows the branch, the unsatisfied dependency, and the flag reason when the card carries them', async () => {
         fetchMock.mockResolvedValueOnce(
             jsonResponse(detail({ branch: 'card/0001', dependsOn: ['0002'], needsHuman: true, needsHumanReason: 'stuck' })),
@@ -246,6 +281,8 @@ describe('wilson card show', () => {
             secondsInStage: null,
             needsHuman: false,
             needsHumanReason: null,
+            splitFrom: null,
+            pieces: [],
         });
     });
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
+import { AutoSplitter } from '#modules/board/auto.splitter.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/append.attempts.js';
@@ -259,6 +260,9 @@ export class StageDispatcher {
         // Optional for the reason the three above are. Left undefined, every stage runs on this
         // machine whatever its `placement` says, which is how every stage ran before hosts existed.
         private readonly placer?: HostPlacer,
+        // Optional for the reason the four above are. Left undefined, a refusal routes as it always
+        // has, which is also what `AUTO_SPLIT_ENABLED` being off does.
+        private readonly autoSplitter?: AutoSplitter,
     ) {}
 
     async run(cardId: string, stageName: string): Promise<StageOutcome> {
@@ -652,10 +656,12 @@ export class StageDispatcher {
             // run, leaving the card's history contradicting itself about what the stage did.
             let transitionedTo: string | undefined;
             let needsHuman = false;
+            let splitInto: string[] | undefined;
             try {
                 const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
                 transitionedTo = transition.target;
                 needsHuman = transition.needsHuman;
+                splitInto = transition.splitInto;
             } catch (err) {
                 await this.events.append({
                     project: this.config.project,
@@ -668,7 +674,7 @@ export class StageDispatcher {
                 // silent failure here is how a card sits untouched forever.
                 throw err;
             }
-            return { ...outcome, transitionedTo, needsHuman };
+            return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
         } catch (err) {
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
@@ -702,7 +708,15 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target: string; needsHuman: boolean }> {
+    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
+        // Before any routing: a split replaces the kickback rather than following it, and when it
+        // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
+        // left to the halt below: nobody wants its work divided up.
+        if (outcome.supportedRefusal && this.autoSplitter && !head.frontmatter.sourceClosed) {
+            const split = await this.autoSplitter.split(cardId, stageName, outcome.supportedRefusal);
+            if (split) return this.finishAutoSplit(cardId, stageName, card, split.pieceIds);
+        }
+
         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
         // is frozen at approval — a retry count read from it would forget every attempt made since,
         // and a flag read from it would look unset even after the card was flagged post-approval.
@@ -856,6 +870,41 @@ export class StageDispatcher {
         }
 
         return { target: decision.target, needsHuman: needsHuman !== undefined };
+    }
+
+    /**
+     * What `writeTransition` does after a transition, for the one `AutoSplitter` wrote itself: give
+     * the worktree back, and tell a person the pieces are waiting. Empty `pieceIds` means another run
+     * of this stage got there first and did both.
+     */
+    private async finishAutoSplit(
+        cardId: string,
+        stageName: string,
+        card: Card,
+        pieceIds: string[],
+    ): Promise<{ target: string; needsHuman: boolean; splitInto?: string[] }> {
+        const target = 'split';
+        if (pieceIds.length === 0) return { target, needsHuman: false };
+
+        const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            target,
+            flagged: false,
+        });
+        if (reclaimed.error) {
+            this.logger.warn(`could not reclaim worktree for ${cardId} after reaching "${target}": ${reclaimed.error}`);
+        }
+
+        await this.notify({
+            cardId,
+            title: card.frontmatter.title,
+            stage: target,
+            moment: 'auto-split',
+            reason: `split into ${pieceIds.join(', ')}, which wait in planning for their plans to be approved`,
+        });
+        return { target, needsHuman: false, splitInto: pieceIds };
     }
 
     /**
@@ -1200,6 +1249,10 @@ export class StageDispatcher {
                 Boolean(run.engineFailure) ||
                 Boolean(verification.reportRejected));
 
+        // Only the verifier's own failures may stand: one added above means the run did not finish,
+        // and a report from a run that did not finish is not a division to act on.
+        const supportedRefusal = !unjudged && failures.length === verification.failures.length ? verification.supportedRefusal : undefined;
+
         return {
             passed: failures.length === 0,
             failures,
@@ -1211,6 +1264,7 @@ export class StageDispatcher {
             resultDropped: run.resultDropped,
             engineStopReason: run.engineStopReason,
             trace: run.trace,
+            ...(supportedRefusal && { supportedRefusal }),
         };
     }
 }

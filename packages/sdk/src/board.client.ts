@@ -1,4 +1,6 @@
 import type {
+    ActivityEvent,
+    ActivityQuery,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -29,6 +31,7 @@ import type {
     SplitResult,
 } from './types/board.js';
 import {
+    reviveActivityEvent,
     reviveCardDetail,
     reviveCardEvent,
     reviveCardSummary,
@@ -216,7 +219,8 @@ export class BoardClient {
      * drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
      * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
      * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
-     * already confirmed.
+     * already confirmed. A project with `auto-split-enabled` on gets none of that confirmation:
+     * `AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.
      */
     async splitCard(id: string, body: SplitCardsRequest): Promise<SplitResult> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/split`, {
@@ -359,6 +363,19 @@ export class BoardClient {
             method: 'GET',
         });
         return (await parseJson<CardEvent[]>(result)).map(reviveCardEvent);
+    }
+
+    /**
+     * @name List project activity
+     * @description What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+     * `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+     */
+    async listProjectActivity(query?: ActivityQuery): Promise<ActivityEvent[]> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/activity${qs}`, {
+            method: 'GET',
+        });
+        return (await parseJson<ActivityEvent[]>(result)).map(reviveActivityEvent);
     }
 
     /**

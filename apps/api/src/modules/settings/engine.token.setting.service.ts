@@ -5,11 +5,21 @@ import type { EngineTokenSetting, SetEngineTokenSettingRequest } from '#src/gene
 import { SettingsStore } from './settings.store.js';
 import { ENGINE_TOKEN } from './engine.token.setting.js';
 
+/** `token` trimmed, refusing what `CLAUDE_CODE_OAUTH_TOKEN` could not carry with 400. */
+export const requireEngineToken = (token: string): string => {
+    const trimmed = token.trim();
+    if (trimmed === '' || /\s/.test(trimmed)) {
+        throw httpError(400).withDetails({ reason: 'the engine token must be a single word, as `claude setup-token` prints it' });
+    }
+    return trimmed;
+};
+
 /**
  * The engine token saved in `wilson.settings`, encrypted under the same root key as the TOTP seeds.
  *
- * Reaches engines on this machine only: `engineEnvironment` and `SshHost` both drop a token Wilson
- * sends, so a worker or SSH host goes on signing in as it was set up to.
+ * Reaches engines on this machine only: `WorkerExecutionHost` and `SshHost` both keep it out of what
+ * they send. A worker host signs in with the token assigned to it (`EngineTokensService`), or as that
+ * machine was set up to, and an SSH host with `REMOTE_CLAUDE_CODE_OAUTH_TOKEN`.
  *
  * Callers resolve it once per engine start and pass it to `subscriptionEnv`, the same as
  * `claude-config-dir`, so a save reaches the next stage or session and never one already running.
@@ -38,11 +48,7 @@ export class EngineTokenSettingService {
 
     /** Encrypt and persist `token`, refusing what `CLAUDE_CODE_OAUTH_TOKEN` could not carry. */
     async save(token: string): Promise<void> {
-        const trimmed = token.trim();
-        if (trimmed === '' || /\s/.test(trimmed)) {
-            throw httpError(400).withDetails({ reason: 'the engine token must be a single word, as `claude setup-token` prints it' });
-        }
-        await this.settings.set(ENGINE_TOKEN, this.encryption.encrypt(trimmed));
+        await this.settings.set(ENGINE_TOKEN, this.encryption.encrypt(requireEngineToken(token)));
     }
 
     /** Remove the saved token. Never decrypts it, so this still works after the key is lost. */

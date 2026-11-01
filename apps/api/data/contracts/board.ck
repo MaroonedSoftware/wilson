@@ -50,6 +50,9 @@ contract CardSummary: {
     needsHuman: boolean
     needsHumanReason?: string
     position?: int
+    # The card this one was split out of. Absent on every other card, including pieces split before
+    # the field existed, so absence does not prove a card has no origin.
+    splitFrom?: string
     # Card 0178. The moment this card entered its current stage — the most recent
     # `transition.written` event's timestamp, or its earliest recorded event if the card has never
     # transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -63,9 +66,21 @@ contract CardSummary: {
     stageEnteredAt?: datetime
 }
 
+# One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+# has got without a read per piece.
+contract SplitPieceSummary: {
+    id: string
+    title: string
+    stage: string
+}
+
 contract CardDetail: CardSummary & {
     body: string
     sections: record(string, string)
+    # The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+    # same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+    # absent rather than guess. Empty, from `getById`, on a card that was never split.
+    pieces?: array(SplitPieceSummary)
 }
 
 # `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
@@ -154,6 +169,13 @@ contract CardEvent: {
     createdAt: datetime
 }
 
+# One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+# when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+contract ActivityEvent: CardEvent & {
+    cardId: string
+    cardTitle: string | null
+}
+
 contract CardVersion: {
     id: string
     message: string
@@ -218,6 +240,11 @@ contract CardDiff: {
 # that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
 contract ListQuery: {
     limit?: int
+}
+
+# `before` is the id of the oldest event already held, for reading further back.
+contract ActivityQuery: ListQuery & {
+    before?: int
 }
 
 # Card 0077 splits `wilson card plan` into the half that must be local — the interactive `claude`
@@ -714,7 +741,8 @@ operation /api/cards/{id}/division: {
 # drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
 # pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
 # deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
-# already confirmed.
+# already confirmed. A project with `auto-split-enabled` on gets none of that confirmation:
+# `AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.
 operation /api/cards/{id}/split: {
     params: {
         id: string
@@ -949,6 +977,24 @@ operation /api/cards/{id}/events: {
         response: {
             200: {
                 application/json: array(CardEvent)
+            }
+        }
+    }
+}
+
+# What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+# `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+operation /api/activity: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List project activity
+        service: BoardService.activity
+        query: ActivityQuery
+        response: {
+            200: {
+                application/json: array(ActivityEvent)
             }
         }
     }

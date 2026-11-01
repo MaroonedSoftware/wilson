@@ -4,6 +4,7 @@ package com.maroonedsoftware.wilson.sdk.clients
 import com.maroonedsoftware.wilson.sdk.models.CreateHostRequest
 import com.maroonedsoftware.wilson.sdk.models.Host
 import com.maroonedsoftware.wilson.sdk.models.IssuedWorkerToken
+import com.maroonedsoftware.wilson.sdk.models.PutHostEngineTokenRequest
 import com.maroonedsoftware.wilson.sdk.models.PutHostProjectRequest
 import com.maroonedsoftware.wilson.sdk.models.UpdateHostRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
@@ -133,5 +134,32 @@ class HostsClient(private val http: SdkHttp) {
         http.execute(HttpMethod.Delete) {
             path("api", "hosts", segment(name), "worker-token")
         }
+    }
+
+    /**
+     * Assign engine token
+     * Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
+     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
+     * reaches the next engine started there, never one already running.
+     * @throws SdkError on 400, 404
+     */
+    suspend fun assignEngineToken(name: String, body: PutHostEngineTokenRequest): Host {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "hosts", segment(name), "engine-token")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Unassign engine token
+     * Back to the worker's own sign-in.
+     * @throws SdkError on 404
+     */
+    suspend fun unassignEngineToken(name: String): Host {
+        val response = http.execute(HttpMethod.Delete) {
+            path("api", "hosts", segment(name), "engine-token")
+        }
+        return http.decodeJson(response)
     }
 }

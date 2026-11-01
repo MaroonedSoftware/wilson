@@ -7,6 +7,8 @@ import { PlanLintService } from '#modules/board/plan.lint.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { StagesService } from '#modules/stages/stages.service.js';
 import {
+    ActivityEvent,
+    ActivityQuery,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -352,7 +354,8 @@ BoardRouter.get('/api/cards/:id/division', requirePolicy({ policy: 'wilson.view'
  * drops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the
  * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
  * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
- * already confirmed.
+ * already confirmed. A project with `auto-split-enabled` on gets none of that confirmation:
+ * `AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.
  * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/split`
  */
 BoardRouter.post('/api/cards/:id/split', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
@@ -604,6 +607,22 @@ BoardRouter.get('/api/cards/:id/events', requirePolicy({ policy: 'wilson.view' }
 
     const service = ctx.container.get(BoardService);
     const result: CardEvent[] = await service.events(id, query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out
+ * `tool.*` events: a single stage writes hundreds, and the card page already shows them live.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/activity`
+ */
+BoardRouter.get('/api/activity', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, ActivityQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: ActivityEvent[] = await service.activity(query);
 
     ctx.status = 200;
     ctx.type = 'application/json';

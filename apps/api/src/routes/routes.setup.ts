@@ -17,6 +17,7 @@ import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
 import { ChatRouter } from './chat.router.js';
 import { DevicesRouter } from './devices.router.js';
+import { EngineTokensRouter } from './engine.tokens.router.js';
 import { FactorsRouter } from './factors.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
@@ -296,6 +297,7 @@ export const routers = (signal?: AbortSignal) => [
     SettingsRouter,
     ProjectsRouter,
     HostsRouter,
+    EngineTokensRouter,
     StagesRouter,
     LearningsRouter,
     ChatRouter,

@@ -14,6 +14,20 @@ export interface CardEventRow {
     createdAt: DateTime;
 }
 
+/** One row of {@link EventLog.recent}: a {@link CardEventRow}, plus which card it happened to. */
+export interface ActivityRow extends CardEventRow {
+    cardId: string;
+    /** Absent when the card no longer exists: `wilson.card_events` has no foreign key to it. */
+    cardTitle?: string;
+}
+
+/**
+ * Left out of {@link EventLog.recent}. A stage writes these by the hundred, and `LiveActivity` already
+ * shows them on the card's own page. An exclusion list, so an event type added later is shown by
+ * default.
+ */
+const QUIET_ACTIVITY_TYPES: CardEventType[] = ['tool.executed', 'tool.denied', 'tool.unguarded'];
+
 /** One stage's share of {@link CardUsage} — see {@link EventLog.usageByStage}. */
 export interface CardStageUsage {
     stage: string;
@@ -141,6 +155,33 @@ export class EventLog {
 
         return rows.reverse().map(row => ({
             id: String(row.id),
+            stage: row.stage,
+            type: row.type as CardEventType,
+            payload: (row.payload ?? {}) as Record<string, unknown>,
+            createdAt: row.createdAt,
+        }));
+    }
+
+    /**
+     * What is happening across a whole project, newest first. `before` is an event id: only events
+     * older than it come back, which is how a reader pages further into the history.
+     */
+    async recent(project: string, limit = 100, before?: number): Promise<ActivityRow[]> {
+        let query = this.db
+            .selectFrom('wilson.cardEvents as event')
+            .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
+            .where('event.project', '=', project)
+            .where('event.type', 'not in', QUIET_ACTIVITY_TYPES)
+            .orderBy('event.id', 'desc')
+            .limit(limit)
+            .select(['event.id', 'event.cardId', 'card.title as cardTitle', 'event.stage', 'event.type', 'event.payload', 'event.createdAt']);
+        if (before !== undefined) query = query.where('event.id', '<', BigInt(before));
+
+        const rows = await query.execute();
+        return rows.map(row => ({
+            id: String(row.id),
+            cardId: row.cardId,
+            cardTitle: row.cardTitle ?? undefined,
             stage: row.stage,
             type: row.type as CardEventType,
             payload: (row.payload ?? {}) as Record<string, unknown>,

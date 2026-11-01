@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandEnvironment, engineEnvironment } from '../src/worker.env.js';
+import { commandEnvironment, engineEnvironment, inheritedEnvironment } from '../src/worker.env.js';
 
 const own = { PATH: '/worker/bin', HOME: '/home/worker', GITHUB_TOKEN: 'worker-gh', CLAUDE_CODE_OAUTH_TOKEN: 'worker-engine', SECRET: 'worker-only' };
 
@@ -48,5 +48,26 @@ describe('engineEnvironment', () => {
 
     it('never forwards a token Wilson sent, even when the worker has none of its own', () => {
         expect(engineEnvironment({ CLAUDE_CODE_OAUTH_TOKEN: 'from-wilson' }, {})).toEqual({});
+    });
+
+    it('signs in with the assigned token ahead of the worker’s own, and whatever env carried', () => {
+        const env = engineEnvironment({ CLAUDE_CODE_OAUTH_TOKEN: 'from-wilson' }, own, 'assigned');
+
+        expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('assigned');
+    });
+
+    it('uses the assigned token on a worker with none of its own', () => {
+        expect(engineEnvironment({}, { PATH: '/worker/bin' }, 'assigned')).toEqual({ PATH: '/worker/bin', CLAUDE_CODE_OAUTH_TOKEN: 'assigned' });
+    });
+});
+
+describe('inheritedEnvironment', () => {
+    it('is the worker’s own environment without either token', () => {
+        expect(inheritedEnvironment({ ...own, WILSON_WORKER_TOKEN: 'wilson_worker_x' })).toEqual({
+            PATH: '/worker/bin',
+            HOME: '/home/worker',
+            GITHUB_TOKEN: 'worker-gh',
+            SECRET: 'worker-only',
+        });
     });
 });

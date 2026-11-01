@@ -13,6 +13,8 @@ import { PlanLintService } from '#modules/board/plan.lint.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { StagesService } from '#modules/stages/stages.service.js';
 import {
+    ActivityEvent,
+    ActivityQuery,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -67,6 +69,7 @@ const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRe
 const ListPlanCommentsArgs = z.object({ id: z.string() });
 const ResolveAPlanCommentArgs = z.object({ id: z.string(), commentId: z.string() });
 const ListCardEventsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
+const ListProjectActivityArgs = z.object({ query: ActivityQuery.optional() });
 const GetCardUsageArgs = z.object({ id: z.string() });
 const GetCardDiffArgs = z.object({ id: z.string() });
 const ListCardVersionsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
@@ -403,7 +406,7 @@ export class SplitCardMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'split_card',
         description:
-            "Card 0113. Creates one card per confirmed piece, in `planning`, records the dependencies named in\neach piece's `dependsOn`, and annotates the origin card with the ids it produced. Never moves or\ndrops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the\npieces themselves are what would strand — and never re-runs `scope-check` on what it creates:\ndeciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator\nalready confirmed.",
+            "Card 0113. Creates one card per confirmed piece, in `planning`, records the dependencies named in\neach piece's `dependsOn`, and annotates the origin card with the ids it produced. Never moves or\ndrops the origin — card [[0090]]'s lesson about stranding dependents applies here too, and the\npieces themselves are what would strand — and never re-runs `scope-check` on what it creates:\ndeciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator\nalready confirmed. A project with `auto-split-enabled` on gets none of that confirmation:\n`AutoSplitter` acts on a supported refusal itself and moves the origin to `split`, which this refuses.",
         inputSchema: z.toJSONSchema(SplitCardArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(SplitResult, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -565,6 +568,34 @@ export class ListCardEventsMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `GET /api/activity`
+ */
+@Injectable()
+export class ListProjectActivityMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_project_activity',
+        description:
+            'What is happening across one project, newest first. Reads `EventLog.recent`, which leaves out\n`tool.*` events: a single stage writes hundreds, and the card page already shows them live.',
+        inputSchema: z.toJSONSchema(ListProjectActivityArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(ActivityEvent) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { query = await parseAndValidate({}, ListProjectActivityArgs.shape.query.unwrap()) } = await parseAndValidate(
+            args,
+            ListProjectActivityArgs,
+        );
+        const result = await container.get(BoardService).activity(query);
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/usage`
  */
 @Injectable()
@@ -705,6 +736,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
     map.set('resolve_a_plan_comment', container.get(ResolveAPlanCommentMcpTool));
     map.set('list_card_events', container.get(ListCardEventsMcpTool));
+    map.set('list_project_activity', container.get(ListProjectActivityMcpTool));
     map.set('get_card_usage', container.get(GetCardUsageMcpTool));
     map.set('get_card_diff', container.get(GetCardDiffMcpTool));
     map.set('list_card_versions', container.get(ListCardVersionsMcpTool));
@@ -735,6 +767,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();
     registry.register(ResolveAPlanCommentMcpTool).useClass(ResolveAPlanCommentMcpTool).asSingleton();
     registry.register(ListCardEventsMcpTool).useClass(ListCardEventsMcpTool).asSingleton();
+    registry.register(ListProjectActivityMcpTool).useClass(ListProjectActivityMcpTool).asSingleton();
     registry.register(GetCardUsageMcpTool).useClass(GetCardUsageMcpTool).asSingleton();
     registry.register(GetCardDiffMcpTool).useClass(GetCardDiffMcpTool).asSingleton();
     registry.register(ListCardVersionsMcpTool).useClass(ListCardVersionsMcpTool).asSingleton();

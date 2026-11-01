@@ -65,6 +65,9 @@ export const MAX_LIVE_TOOL_EVENTS = 100;
  * tile") — see `useCardFeed`'s own ticking effect below. */
 const ACTIVITY_TICK_MS = 10_000;
 
+/** The cache key of one project's activity page, which the feed below keeps fresh. */
+export const activityQueryKey = (project: string): string[] => ['project', project, 'activity'];
+
 interface CardActivityValue {
     /** The latest feed event per card id, for a board tile's "last event" line. */
     activity: Record<string, CardActivity>;
@@ -230,7 +233,10 @@ export const useCardFeed = (project?: string): CardFeed => {
             // doc comment above and `TOOL_EVENT_TYPES`'s.
             if (TOOL_EVENT_TYPES.has(type)) return;
             void queryClient.invalidateQueries({ queryKey: cardsQueryKey });
-            if (project) void queryClient.invalidateQueries({ queryKey: ['cards'] });
+            if (project) {
+                void queryClient.invalidateQueries({ queryKey: ['cards'] });
+                void queryClient.invalidateQueries({ queryKey: activityQueryKey(project) });
+            }
         });
 
         return () => source.close();

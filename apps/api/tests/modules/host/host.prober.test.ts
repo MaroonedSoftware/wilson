@@ -126,6 +126,30 @@ describe('HostProber', () => {
         }
     });
 
+    it('finds a worker with no token of its own signed in when Wilson assigns it one, and says what to do when not', async () => {
+        const name = await registerHost({ codeRoot: join(base, 'clone') });
+        const row = { ...(await hosts.find(name))!, kind: 'worker' as const };
+        const server = await startWorkerServer({ token: row });
+        const env = { ...process.env };
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+        try {
+            await connectLoopbackWorker(server.apiUrl, 'token', { env });
+            await eventually(() => server.connections.get(name) !== undefined);
+            const probeWith = (assigned?: string) =>
+                new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections, async () => assigned)).inspect(row);
+
+            const signedIn = await probeWith('assigned-token');
+            expect(signedIn.ok).toBe(true);
+            expect(signedIn.detail ?? '').not.toContain('not signed in');
+
+            const unsigned = await probeWith(undefined);
+            expect(unsigned.ok).toBe(false);
+            expect(unsigned.detail).toContain('wilson host engine-token');
+        } finally {
+            await server.close();
+        }
+    });
+
     it('reports a clone that is not a git repository, and still runs every other check', async () => {
         const name = await registerHost({ codeRoot: join(base, 'not-a-repo') });
 

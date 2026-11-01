@@ -229,6 +229,58 @@ describe('EventLog.append publishing', () => {
  * the same reasoning `EventLog.append publishing` above already follows. Each test uses its own
  * `uniqueProject()`/cardId pair, so no two tests' rows can be summed together by accident.
  */
+describe('EventLog.recent', () => {
+    let db: Kysely<DB>;
+    let log: EventLog;
+
+    beforeAll(() => {
+        db = testDb();
+        log = new EventLog(db, silentLogger);
+    });
+
+    afterAll(async () => {
+        await db.destroy();
+    });
+
+    it('reads a project newest first, across cards, naming each card that still exists', async () => {
+        const project = uniqueProject();
+        await db.insertInto('wilson.cards').values({ project, id: '0001', title: 'Ship it', stage: 'backlog', body: 'body' }).execute();
+        await log.append({ project, cardId: '0001', stage: 'implementing', type: 'stage.dispatched' });
+        await log.append({ project, cardId: 'gone', stage: 'review', type: 'stage.passed' });
+        await log.append({ project: uniqueProject(), cardId: '0001', type: 'stage.failed' });
+
+        const rows = await log.recent(project);
+
+        expect(rows.map(row => [row.cardId, row.cardTitle, row.type])).toEqual([
+            ['gone', undefined, 'stage.passed'],
+            ['0001', 'Ship it', 'stage.dispatched'],
+        ]);
+    });
+
+    it('leaves out tool calls', async () => {
+        const project = uniqueProject();
+        await log.append({ project, cardId: '0001', type: 'tool.executed' });
+        await log.append({ project, cardId: '0001', type: 'tool.denied' });
+        await log.append({ project, cardId: '0001', type: 'tool.unguarded' });
+        await log.append({ project, cardId: '0001', type: 'work.committed' });
+
+        expect((await log.recent(project)).map(row => row.type)).toEqual(['work.committed']);
+    });
+
+    it('pages back from an id', async () => {
+        const project = uniqueProject();
+        await log.append({ project, cardId: '0001', type: 'stage.dispatched' });
+        await log.append({ project, cardId: '0001', type: 'stage.passed' });
+        await log.append({ project, cardId: '0001', type: 'work.committed' });
+
+        const [newest, middle] = await log.recent(project, 2);
+        const rest = await log.recent(project, 2, Number(middle!.id));
+
+        expect([newest!.type, middle!.type]).toEqual(['work.committed', 'stage.passed']);
+        expect(rest.map(row => row.type)).toEqual(['stage.dispatched']);
+    });
+});
+
 describe('EventLog.usageByStage', () => {
     let db: Kysely<DB>;
 

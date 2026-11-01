@@ -11,6 +11,7 @@
         "build": "tsc --noEmit",
         "wilson": "node --no-warnings --import @swc-node/register/esm-register ./src/index.ts",
         "lint": "eslint --fix",
+        "lint:check": "eslint",
         "test": "vitest run"
     },
     "dependencies": {

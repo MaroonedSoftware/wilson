@@ -53,6 +53,11 @@ data class CardSummary(
     val needsHumanReason: String? = null,
     val position: Long? = null,
     /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    val splitFrom: String? = null,
+    /**
      * Card 0178. The moment this card entered its current stage — the most recent
      * `transition.written` event's timestamp, or its earliest recorded event if the card has never
      * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -65,6 +70,17 @@ data class CardSummary(
      * fact as "just entered".
      */
     val stageEnteredAt: Instant? = null,
+)
+
+/**
+ * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
+ * has got without a read per piece.
+ */
+@Serializable
+data class SplitPieceSummary(
+    val id: String,
+    val title: String,
+    val stage: String,
 )
 
 /**
@@ -406,6 +422,11 @@ data class CardDetail(
     val needsHumanReason: String? = null,
     val position: Long? = null,
     /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    val splitFrom: String? = null,
+    /**
      * Card 0178. The moment this card entered its current stage — the most recent
      * `transition.written` event's timestamp, or its earliest recorded event if the card has never
      * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -420,6 +441,27 @@ data class CardDetail(
     val stageEnteredAt: Instant? = null,
     val body: String,
     val sections: Map<String, String>,
+    /**
+     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     */
+    val pieces: List<SplitPieceSummary>? = null,
+)
+
+/**
+ * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
+ * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
+ */
+@Serializable
+data class ActivityEvent(
+    val id: String,
+    val type: String,
+    val stage: String?,
+    val payload: JsonElement,
+    val createdAt: Instant,
+    val cardId: String,
+    val cardTitle: String?,
 )
 
 /**
@@ -453,6 +495,13 @@ data class CardDiff(
      * while this stays false.
      */
     val truncated: Boolean,
+)
+
+/** `before` is the id of the oldest event already held, for reading further back. */
+@Serializable
+data class ActivityQuery(
+    val limit: Long? = null,
+    val before: Long? = null,
 )
 
 /**
@@ -528,6 +577,11 @@ data class ReleaseResult(
     val needsHumanReason: String? = null,
     val position: Long? = null,
     /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    val splitFrom: String? = null,
+    /**
      * Card 0178. The moment this card entered its current stage — the most recent
      * `transition.written` event's timestamp, or its earliest recorded event if the card has never
      * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -542,6 +596,12 @@ data class ReleaseResult(
     val stageEnteredAt: Instant? = null,
     val body: String,
     val sections: Map<String, String>,
+    /**
+     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     */
+    val pieces: List<SplitPieceSummary>? = null,
     val releasedAs: ReleaseResultReleasedAs,
 )
 
@@ -578,6 +638,11 @@ data class MergeResult(
     val needsHumanReason: String? = null,
     val position: Long? = null,
     /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    val splitFrom: String? = null,
+    /**
      * Card 0178. The moment this card entered its current stage — the most recent
      * `transition.written` event's timestamp, or its earliest recorded event if the card has never
      * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
@@ -592,6 +657,12 @@ data class MergeResult(
     val stageEnteredAt: Instant? = null,
     val body: String,
     val sections: Map<String, String>,
+    /**
+     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     */
+    val pieces: List<SplitPieceSummary>? = null,
     val merged: Boolean,
     /** The commit `main` now points at, present only when `merged` is true. */
     val commit: String? = null,

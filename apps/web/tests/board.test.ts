@@ -7,7 +7,6 @@ import {
     collapsedColumnsKey,
     columnOrder,
     groupByStage,
-    stagesById,
     toggleCollapsed,
     unfinishedDeps,
 } from '#src/lib/board.js';
@@ -121,15 +120,25 @@ describe('unfinishedDeps', () => {
     const board = [card('0034', 'merged'), card('0021', 'implementing'), card('0035', 'implementing', ['0034'])];
 
     it('does not report a dependency that merged', () => {
-        expect(unfinishedDeps(card('0035', 'implementing', ['0034']), stagesById(board))).toEqual([]);
+        expect(unfinishedDeps(card('0035', 'implementing', ['0034']), board)).toEqual([]);
     });
 
     it('reports a dependency that has not merged', () => {
-        expect(unfinishedDeps(card('0022', 'implementing', ['0021']), stagesById(board))).toEqual(['0021']);
+        expect(unfinishedDeps(card('0022', 'implementing', ['0021']), board)).toEqual(['0021']);
+    });
+
+    it('counts a split origin as finished only once every piece has merged', () => {
+        const origin = card('0040', 'dropped');
+        const piece = (id: string, stage: string): CardSummary => ({ ...card(id, stage), splitFrom: '0040' });
+        const dependent = card('0050', 'implementing', ['0040']);
+
+        expect(unfinishedDeps(dependent, [origin, piece('0041', 'merged'), piece('0042', 'merged')])).toEqual([]);
+        expect(unfinishedDeps(dependent, [origin, piece('0041', 'merged'), piece('0042', 'review')])).toEqual(['0040']);
+        expect(unfinishedDeps(dependent, [origin, piece('0041', 'merged'), piece('0042', 'dropped')])).toEqual(['0040']);
     });
 
     it('treats a dependency missing from the board as unfinished', () => {
-        expect(unfinishedDeps(card('0099', 'implementing', ['9999']), stagesById(board))).toEqual(['9999']);
+        expect(unfinishedDeps(card('0099', 'implementing', ['9999']), board)).toEqual(['9999']);
     });
 });
 

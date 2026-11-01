@@ -14,6 +14,15 @@ export interface CardVersionSummary {
     createdAt: DateTime;
 }
 
+/** Everything one split writes: see {@link BoardRepository.applySplit}. */
+export interface SplitWrite {
+    /** Whole cards, ids and dependencies included; a dependency may name a later piece. */
+    pieces: { card: Card; message: string }[];
+    origin: Card;
+    originMessage: string;
+    events: AppendableCardEvent[];
+}
+
 /**
  * Cap on how much of a card's event history {@link cardHistory} scans for `scope.granted` and
  * `work.committed` rows.
@@ -174,6 +183,14 @@ export abstract class BoardRepository {
 
     /** Create a card that does not exist yet. Fails if the id is taken. */
     abstract create(card: Card, message: string): Promise<string>;
+
+    /**
+     * Create a split's pieces, rewrite its origin and append its events, all or none, with the origin
+     * row locked throughout. `plan` runs inside that lock against the origin and board as they stand
+     * right now, so it is what decides a retried or racing split has nothing left to do: returning
+     * `undefined` writes nothing. An id another writer took first fails the whole transaction.
+     */
+    abstract applySplit(originId: string, plan: (origin: Card, board: Card[]) => SplitWrite | undefined): Promise<SplitWrite | undefined>;
 
     /**
      * Card 0091. Set a card's `position` and nothing else.

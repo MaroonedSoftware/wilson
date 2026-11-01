@@ -35,7 +35,11 @@ import cardShowCommand from './commands/card/show.command.js';
 import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
+import engineTokenListCommand from './commands/engine-token/list.command.js';
+import engineTokenRemoveCommand from './commands/engine-token/remove.command.js';
+import engineTokenSetCommand from './commands/engine-token/set.command.js';
 import hostAddCommand from './commands/host/add.command.js';
+import hostEngineTokenCommand from './commands/host/engine-token.command.js';
 import hostListCommand from './commands/host/list.command.js';
 import hostProbeCommand from './commands/host/probe.command.js';
 import hostRemoveCommand from './commands/host/remove.command.js';
@@ -108,6 +112,10 @@ const app = await createCliApp({
         reg(['host', 'serve'], hostServeCommand),
         reg(['host', 'unserve'], hostUnserveCommand),
         reg(['host', 'token'], hostTokenCommand),
+        reg(['host', 'engine-token'], hostEngineTokenCommand),
+        reg(['engine-token', 'list'], engineTokenListCommand),
+        reg(['engine-token', 'set'], engineTokenSetCommand),
+        reg(['engine-token', 'remove'], engineTokenRemoveCommand),
         reg(['host', 'probe'], hostProbeCommand),
         reg(['stages', 'show'], stagesShowCommand),
         reg(['stages', 'edit'], stagesEditCommand),

@@ -2,7 +2,7 @@ import { Link, Outlet, createRootRoute, useLocation, useParams } from '@tanstack
 import { ActionIcon, AppShell, Badge, Box, Drawer, Group, Title, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
-import { IconLayoutKanban, IconLogout, IconMoon, IconRefresh, IconServer2, IconSettings, IconSun } from '@tabler/icons-react';
+import { IconActivity, IconLayoutKanban, IconLogout, IconMoon, IconRefresh, IconServer2, IconSettings, IconSun } from '@tabler/icons-react';
 import { AuthGate } from '#src/components/AuthGate.js';
 import { WilsonMark } from '#src/components/brand/WilsonMark.js';
 import { ChatDock, ChatDockToggle } from '#src/components/ChatDock.js';
@@ -139,6 +139,15 @@ function Shell() {
                                         <IconLayoutKanban size={18} />
                                     </ActionIcon>
                                 </Tooltip>
+                                {project && (
+                                    <Tooltip label="Activity">
+                                        <Link to="/projects/$project/activity" params={{ project }} aria-label="Activity">
+                                            <ActionIcon component="span" variant="subtle">
+                                                <IconActivity size={18} />
+                                            </ActionIcon>
+                                        </Link>
+                                    </Tooltip>
+                                )}
                                 {!home && <ChatDockToggle />}
                                 <ColorSchemeToggle />
                                 <Tooltip label="Hosts">

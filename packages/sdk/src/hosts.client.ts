@@ -1,4 +1,11 @@
-import type { CreateHostRequest, Host, IssuedWorkerToken, PutHostProjectRequest, UpdateHostRequest } from './types/hosts.js';
+import type {
+    CreateHostRequest,
+    Host,
+    IssuedWorkerToken,
+    PutHostEngineTokenRequest,
+    PutHostProjectRequest,
+    UpdateHostRequest,
+} from './types/hosts.js';
 import { reviveHost, reviveIssuedWorkerToken } from './types/hosts.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
@@ -105,5 +112,29 @@ export class HostsClient {
      */
     async revokeWorkerToken(name: string): Promise<void> {
         await this.fetch(`/api/hosts/${encodeURIComponent(name)}/worker-token`, { method: 'DELETE' });
+    }
+
+    /**
+     * @name Assign engine token
+     * @description Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
+     * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
+     * reaches the next engine started there, never one already running.
+     */
+    async assignEngineToken(name: string, body: PutHostEngineTokenRequest): Promise<Host> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/engine-token`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveHost(await parseJson<Host>(result));
+    }
+
+    /**
+     * @name Unassign engine token
+     * @description Back to the worker's own sign-in.
+     */
+    async unassignEngineToken(name: string): Promise<Host> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/engine-token`, { method: 'DELETE' });
+        return reviveHost(await parseJson<Host>(result));
     }
 }

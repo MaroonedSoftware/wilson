@@ -1,9 +1,17 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
+import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
 import { HostProber } from '#modules/host/host.prober.js';
 import { HostsService } from '#modules/host/hosts.service.js';
 import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
-import { CreateHostRequest, Host, IssuedWorkerToken, PutHostProjectRequest, UpdateHostRequest } from '../generated/hosts.js';
+import {
+    CreateHostRequest,
+    Host,
+    IssuedWorkerToken,
+    PutHostEngineTokenRequest,
+    PutHostProjectRequest,
+    UpdateHostRequest,
+} from '../generated/hosts.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -204,4 +212,48 @@ HostsRouter.delete('/api/hosts/:name/worker-token', requirePolicy({ policy: 'wil
     await service.revoke(name);
 
     ctx.status = 204;
+});
+
+/**
+ * Which saved engine token a worker host's engines sign in with. An operation of its own, not a field
+ * on `PATCH /api/hosts/{name}`, so that choosing a credential stays out of an agent's reach. A change
+ * reaches the next engine started there, never one already running.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/engine-token`
+ */
+HostsRouter.put('/api/hosts/:name/engine-token', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, PutHostEngineTokenRequest);
+
+    const service = ctx.container.get(EngineTokensService);
+    const result: Host = await service.assign(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * Back to the worker's own sign-in.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `DELETE /api/hosts/{name}/engine-token`
+ */
+HostsRouter.delete('/api/hosts/:name/engine-token', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(EngineTokensService);
+    const result: Host = await service.unassign(name);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });

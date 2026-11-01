@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { BoardService } from '#modules/board/board.service.js';
@@ -36,6 +36,21 @@ const noHistory = { tail: async () => [] } as unknown as EventLog;
  * repository itself already has its own Postgres-backed tests; nothing here re-tests persistence.
  */
 describe('BoardService', () => {
+    describe('activity', () => {
+        it('reads the configured project, clamps the limit and turns a missing title into null', async () => {
+            const recent = vi.fn(async () => [
+                { id: '7', cardId: '0001', stage: 'review', type: 'stage.passed', payload: {}, createdAt: DateTime.utc() },
+            ]);
+            const service = new BoardService({} as unknown as BoardRepository, { recent } as unknown as EventLog, config, worktrees);
+
+            const [event] = await service.activity({ limit: 1_000_000, before: 9 });
+
+            expect(recent).toHaveBeenCalledWith('proj', expect.any(Number), 9);
+            expect((recent.mock.calls[0] as unknown[])[1]).toBeLessThan(1_000_000);
+            expect(event).toMatchObject({ id: '7', cardId: '0001', cardTitle: null, type: 'stage.passed' });
+        });
+    });
+
     describe('list', () => {
         it('maps board cards into summaries, leaving body and sections behind', async () => {
             const cards = [card('0001', { title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'] }, { Goal: 'x' }, 'the body')];
@@ -246,6 +261,7 @@ describe('BoardService', () => {
         it('includes the body and kebab-cases every section heading', async () => {
             const found = card('0001', { title: 'Ship it', stage: 'review' }, { Goal: 'Do it.', 'Files in scope': '- src/a.ts' }, 'full body');
             const boardRepository = {
+                list: async () => [],
                 read: async (id: string) => {
                     expect(id).toBe('0001');
                     return found;
@@ -265,6 +281,7 @@ describe('BoardService', () => {
             const recorded = card('0001', { branch: 'card/0001-custom' });
             const unrecorded = card('0002', { title: 'Fix the thing', branch: undefined });
             const boardRepository = {
+                list: async () => [],
                 read: async (id: string) => (id === '0001' ? recorded : unrecorded),
             } as unknown as BoardRepository;
             const service = new BoardService(boardRepository, noHistory, config, worktrees);
@@ -276,7 +293,7 @@ describe('BoardService', () => {
         // Card 0178: `getById` stitches `stageEnteredAt` on just like `list` does.
         it('reports stageEnteredAt as the moment the card last transitioned', async () => {
             const found = card('0001', { stage: 'review' });
-            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const boardRepository = { list: async () => [], read: async () => found } as unknown as BoardRepository;
             const enteredReview = DateTime.fromISO('2024-01-02T00:00:00.000Z');
             const eventLog = {
                 tail: async () => [{ id: '1', stage: 'review', type: 'transition.written', payload: {}, createdAt: enteredReview }],
@@ -290,7 +307,7 @@ describe('BoardService', () => {
 
         it('omits stageEnteredAt for a card with no usable event history', async () => {
             const found = card('0001');
-            const boardRepository = { read: async () => found } as unknown as BoardRepository;
+            const boardRepository = { list: async () => [], read: async () => found } as unknown as BoardRepository;
             const service = new BoardService(boardRepository, noHistory, config, worktrees);
 
             const detail = await service.getById('0001');
@@ -298,8 +315,40 @@ describe('BoardService', () => {
             expect(detail.stageEnteredAt).toBeUndefined();
         });
 
+        it('lists the cards split out of this one, lowest id first, and carries splitFrom on a piece', async () => {
+            const origin = card('0001');
+            const pieceA = card('0002', { title: 'Piece A', stage: 'merged', splitFrom: '0001' });
+            const pieceB = card('0003', { title: 'Piece B', stage: 'planning', splitFrom: '0001' });
+            const unrelated = card('0004', { splitFrom: '0099' });
+            const boardRepository = {
+                list: async () => [unrelated, pieceB, origin, pieceA],
+                read: async (id: string) => (id === '0001' ? origin : pieceA),
+            } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            const detail = await service.getById('0001');
+
+            expect(detail.pieces).toEqual([
+                { id: '0002', title: 'Piece A', stage: 'merged' },
+                { id: '0003', title: 'Piece B', stage: 'planning' },
+            ]);
+            expect(detail.splitFrom).toBeUndefined();
+
+            const piece = await service.getById('0002');
+            expect(piece.splitFrom).toBe('0001');
+            expect(piece.pieces).toEqual([]);
+        });
+
+        it('carries splitFrom on a summary from list', async () => {
+            const boardRepository = { list: async () => [card('0002', { splitFrom: '0001' })] } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            expect((await service.list())[0]!.splitFrom).toBe('0001');
+        });
+
         it('translates a missing card into a 404 rather than letting it become a 500', async () => {
             const boardRepository = {
+                list: async () => [],
                 read: async () => {
                     throw new CardNotFoundError('card 0001 does not exist');
                 },
@@ -312,6 +361,7 @@ describe('BoardService', () => {
         it('leaves any other error alone, rather than folding it into a 404', async () => {
             const boom = new Error('database is unreachable');
             const boardRepository = {
+                list: async () => [],
                 read: async () => {
                     throw boom;
                 },

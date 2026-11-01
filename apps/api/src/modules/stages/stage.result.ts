@@ -155,9 +155,9 @@ export const ScopeGroupSchema = z.object({
 /**
  * One piece of a proposed division, reported only when the verdict is "refuse".
  *
- * Not itself a split — dividing a card is `planning`'s decision (card 0105's Goal) — but concrete
- * enough that a human or `wilson card plan` has seams to start from instead of "this card is too
- * large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
+ * Not itself a split: that takes an operator confirming it, or `AUTO_SPLIT_ENABLED` being on for the
+ * project (`AutoSplitter`). Concrete enough either way that a human or `wilson card plan` has seams to
+ * start from instead of "this card is too large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
  * on its own. `dependsOn` is the third thing card 0105's Constraints requires the refusal to name —
  * "which tasks group together, what each piece would deliver on its own, what depends on what" — kept
  * optional and defaulted to `[]` so a division where every piece is independent (the common case)
@@ -165,7 +165,7 @@ export const ScopeGroupSchema = z.object({
  */
 export const ScopeDivisionPieceSchema = z.object({
     title: z.string().describe('A short name for this piece.'),
-    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry.'),
+    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry — cite them the way `groups` does.'),
     delivers: z.string().describe('What this piece would deliver on its own, if built alone.'),
     dependsOn: z
         .array(z.string())
@@ -223,6 +223,12 @@ export type ScopeCheckResult = z.infer<typeof ScopeCheckResultSchema>;
  */
 export class StageResultSchemaMap extends Map<string, z.ZodTypeAny> {}
 
+/** A scope-check refusal the verifier believed: why, and the pieces the model proposed. */
+export interface SupportedRefusal {
+    reason: string;
+    division: z.infer<typeof ScopeDivisionPieceSchema>[];
+}
+
 export interface StageOutcome {
     passed: boolean;
     /** Why the exit condition failed, in the order the checks ran. */
@@ -231,6 +237,13 @@ export interface StageOutcome {
     scopeGrants: string[];
     result?: unknown;
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    /**
+     * `VerificationOutcome.supportedRefusal`, carried only when the run itself added no failure of
+     * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.
+     */
+    supportedRefusal?: SupportedRefusal;
+    /** The pieces this stage's automatic split created, for `CardStageJob` to have drafted. */
+    splitInto?: string[];
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */

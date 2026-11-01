@@ -86,6 +86,8 @@ const command: CommandModule<ShowOpts> = {
                         secondsInStage: timeInStage ? timeInStage.as('seconds') : null,
                         needsHuman: card.needsHuman,
                         needsHumanReason: card.needsHumanReason ?? null,
+                        splitFrom: card.splitFrom ?? null,
+                        pieces: card.pieces ?? [],
                     },
                     null,
                     2,
@@ -100,6 +102,14 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`branch:   ${card.branch ?? '—'}`);
         if (blockedOn.length > 0) ctx.logger.info(`blocked:  ${blockedOn.join(', ')}`);
         if (card.needsHuman) ctx.logger.info(`needs human: ${card.needsHumanReason ?? '(no reason given)'}`);
+        if (card.splitFrom) ctx.logger.info(`split from: ${card.splitFrom}`);
+
+        const pieces = card.pieces ?? [];
+        if (pieces.length > 0) {
+            const merged = pieces.filter(piece => piece.stage === 'merged').length;
+            ctx.logger.info(`\npieces (${merged}/${pieces.length} merged):`);
+            for (const piece of pieces) ctx.logger.info(`  ${piece.id}  ${piece.stage}  ${piece.title}`);
+        }
 
         const scope = filesInScope(card.sections);
         ctx.logger.info(`\nfiles in scope (${scope.length}):`);

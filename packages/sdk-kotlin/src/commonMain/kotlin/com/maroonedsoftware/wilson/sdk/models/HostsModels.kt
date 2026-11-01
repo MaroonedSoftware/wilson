@@ -104,6 +104,12 @@ data class UpdateHostRequest(
     val projectsRoot: String? = null,
 )
 
+@Serializable
+data class PutHostEngineTokenRequest(
+    /** The name a token was saved under (`/api/engine-tokens/{name}`). */
+    val name: String,
+)
+
 /** The three paths for one project on one host. All three are absolute paths on the host. */
 @Serializable
 data class PutHostProjectRequest(
@@ -150,6 +156,11 @@ data class Host(
     val probe: HostProbe? = null,
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     val workerToken: WorkerTokenSummary? = null,
+    /**
+     * The name of the saved engine token its engines sign in with, never the token. Absent, a worker's
+     * engines sign in as that machine was set up to. Never present on an `ssh` host.
+     */
+    val engineToken: String? = null,
 )
 
 /** A freshly minted worker token. `token` is in this response and nowhere else: only its hash is kept. */

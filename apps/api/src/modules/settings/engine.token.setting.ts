@@ -1,7 +1,7 @@
 import type { SettingDefinition } from './setting.definition.js';
 
 /**
- * The token engines on this machine sign in with, saved from the board so that changing it needs no
+ * The token engines on this machine sign in with, as opposed to the ones Wilson assigns to worker hosts, saved from the board so that changing it needs no
  * restart. The one secret in `wilson.settings`, so its row holds ciphertext.
  *
  * Read with `SettingsStore.stored`, never `get`, whose fallback would hand back the environment

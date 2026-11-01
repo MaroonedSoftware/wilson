@@ -28,6 +28,7 @@ export const serializeCard = (card: Card): string => {
     if (card.frontmatter.sourceClosed !== undefined) fm.sourceClosed = card.frontmatter.sourceClosed;
     if (card.frontmatter.needsHuman !== undefined) fm.needsHuman = card.frontmatter.needsHuman;
     if (card.frontmatter.needsHumanReason !== undefined) fm.needsHumanReason = card.frontmatter.needsHumanReason;
+    if (card.frontmatter.splitFrom !== undefined) fm.splitFrom = card.frontmatter.splitFrom;
 
     return `---\n${stringifyYaml(fm).trimEnd()}\n---\n${card.body}`;
 };

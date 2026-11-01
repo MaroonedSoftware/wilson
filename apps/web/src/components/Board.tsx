@@ -27,7 +27,9 @@ import {
     groupByStage,
     lastEventAge,
     showsLastEventLine,
+    splitProgress,
     stagesById,
+    type SplitProgress,
     toggleCollapsed,
     unfinishedDeps,
 } from '#src/lib/board.js';
@@ -57,6 +59,7 @@ export const TONE: Record<string, string> = {
     merged: 'green',
     poisoned: 'red',
     dropped: 'gray',
+    split: 'gray',
 };
 
 /**
@@ -83,7 +86,17 @@ export const TONE: Record<string, string> = {
  * is the one shared, app-wide ten-second clock this reads to re-render on, rather than each tile
  * running its own interval (this card's Constraints).
  */
-function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: string[]; pending: boolean }) {
+function CardBody({
+    card,
+    blockedBy,
+    pieces,
+    pending,
+}: {
+    card: CardSummary;
+    blockedBy: string[];
+    pieces: SplitProgress | undefined;
+    pending: boolean;
+}) {
     const state = cardState(card);
     const satisfiedDeps = card.dependsOn.length > 0 && blockedBy.length === 0;
     const activity = useCardActivity(card.id);
@@ -102,7 +115,7 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
                 </Text>
                 {pending && <Loader size={12} />}
             </Group>
-            {(card.needsHuman || blockedBy.length > 0 || satisfiedDeps) && (
+            {(card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
                 <Group gap={6} mt={6}>
                     {card.needsHuman && (
                         <Badge size="xs" color="red" variant="light">
@@ -117,6 +130,11 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
                     {satisfiedDeps && (
                         <Text size="xs" c="dimmed">
                             {card.dependsOn.length} deps
+                        </Text>
+                    )}
+                    {pieces && (
+                        <Text size="xs" c="dimmed">
+                            {pieces.merged}/{pieces.total} pieces
                         </Text>
                     )}
                 </Group>
@@ -142,7 +160,19 @@ function CardBody({ card, blockedBy, pending }: { card: CardSummary; blockedBy: 
  * every click would clear the threshold at 0px and the board would stop navigating, which is the
  * one thing dragging must not break.
  */
-function Card({ card, blockedBy, pending, project }: { card: CardSummary; blockedBy: string[]; pending: boolean; project: string }) {
+function Card({
+    card,
+    blockedBy,
+    pieces,
+    pending,
+    project,
+}: {
+    card: CardSummary;
+    blockedBy: string[];
+    pieces: SplitProgress | undefined;
+    pending: boolean;
+    project: string;
+}) {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
     return (
         <Link
@@ -153,7 +183,7 @@ function Card({ card, blockedBy, pending, project }: { card: CardSummary; blocke
             {...attributes}
             {...listeners}
         >
-            <CardBody card={card} blockedBy={blockedBy} pending={pending} />
+            <CardBody card={card} blockedBy={blockedBy} pieces={pieces} pending={pending} />
         </Link>
     );
 }
@@ -171,11 +201,13 @@ function Card({ card, blockedBy, pending, project }: { card: CardSummary; blocke
 function SortableCard({
     card,
     blockedBy,
+    pieces,
     pending,
     project,
 }: {
     card: CardSummary;
     blockedBy: string[];
+    pieces: SplitProgress | undefined;
     pending: boolean;
     project: string;
 }) {
@@ -196,7 +228,7 @@ function SortableCard({
             {...attributes}
             {...listeners}
         >
-            <CardBody card={card} blockedBy={blockedBy} pending={pending} />
+            <CardBody card={card} blockedBy={blockedBy} pieces={pieces} pending={pending} />
         </Link>
     );
 }
@@ -226,7 +258,7 @@ function SortableCard({
 function Column({
     stage,
     cards,
-    stageById,
+    boardCards,
     pendingId,
     project,
     collapsed,
@@ -234,7 +266,7 @@ function Column({
 }: {
     stage: string;
     cards: CardSummary[];
-    stageById: Map<string, string>;
+    boardCards: CardSummary[];
     pendingId: string | null;
     project: string;
     collapsed: boolean;
@@ -311,7 +343,8 @@ function Column({
                                     <SortableCard
                                         key={card.id}
                                         card={card}
-                                        blockedBy={unfinishedDeps(card, stageById)}
+                                        blockedBy={unfinishedDeps(card, boardCards)}
+                                        pieces={splitProgress(card, boardCards)}
                                         pending={card.id === pendingId}
                                         project={project}
                                     />
@@ -322,7 +355,8 @@ function Column({
                                 <Card
                                     key={card.id}
                                     card={card}
-                                    blockedBy={unfinishedDeps(card, stageById)}
+                                    blockedBy={unfinishedDeps(card, boardCards)}
+                                    pieces={splitProgress(card, boardCards)}
                                     pending={card.id === pendingId}
                                     project={project}
                                 />
@@ -386,7 +420,8 @@ export function Board({
 }) {
     const order = columnOrder(columns, cards);
     const grouped = groupByStage(cards);
-    const stageById = stagesById(allCards ?? cards);
+    const boardCards = allCards ?? cards;
+    const stageById = stagesById(boardCards);
 
     // Card 0183: which stages are collapsed, per project. `getInitialValueInEffect: false` because
     // this is a client-only Vite SPA with no SSR to hydrate against — the default (`true`) would
@@ -492,7 +527,7 @@ export function Board({
                                 key={stage}
                                 stage={stage}
                                 cards={grouped.get(stage) ?? []}
-                                stageById={stageById}
+                                boardCards={boardCards}
                                 pendingId={pendingId}
                                 project={project}
                                 collapsed={collapsedSet.has(stage)}
@@ -503,7 +538,7 @@ export function Board({
                 </Box>
             </ScrollArea>
             <DragOverlay>
-                {activeCard ? <CardBody card={activeCard} blockedBy={unfinishedDeps(activeCard, stageById)} pending={false} /> : null}
+                {activeCard ? <CardBody card={activeCard} blockedBy={unfinishedDeps(activeCard, boardCards)} pieces={splitProgress(activeCard, boardCards)} pending={false} /> : null}
             </DragOverlay>
         </DndContext>
     );

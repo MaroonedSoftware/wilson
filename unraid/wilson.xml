@@ -104,7 +104,7 @@
         Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
 
     <Config Name="Worker engine token" Target="REMOTE_CLAUDE_CODE_OAUTH_TOKEN" Default="" Mode=""
-        Description="What an engine on an SSH host signs in with. Workers bring their own, so this is unused unless you register SSH hosts, which this image cannot reach yet: it has no ssh client."
+        Description="What an engine on an SSH host signs in with. Workers use the engine tokens saved on the Settings page, or their own, so this is unused unless you register SSH hosts, which this image cannot reach yet: it has no ssh client."
         Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 
     <Config Name="Notification webhook" Target="NOTIFY_WEBHOOK_URL" Default="" Mode=""

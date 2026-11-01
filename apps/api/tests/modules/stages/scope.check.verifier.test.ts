@@ -200,8 +200,7 @@ describe('ScopeCheckVerifier', () => {
         summary: 'one link-migration task that touches every internal link in the app',
         groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: 10 }],
         verdict: 'refuse',
-        reason:
-            'one task, but it touches roughly ten files — the same shape that exhausted card 0151\'s step budget nine times over.',
+        reason: "one task, but it touches roughly ten files — the same shape that exhausted card 0151's step budget nine times over.",
         division: [
             { title: 'nav-rendering links', tasks: ['update every internal link'], delivers: 'the nav-rendering half of the link migration' },
             { title: 'remaining links', tasks: ['update every internal link'], delivers: 'the rest of the link migration' },
@@ -279,6 +278,36 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([`refusing: ${dividedCard.reason}`]);
     });
 
+    describe('supportedRefusal', () => {
+        it('carries the division when the refusal is the only failure', async () => {
+            const outcome = await verify(card0075);
+
+            expect(outcome.supportedRefusal?.reason).toBe(card0075.reason);
+            expect(outcome.supportedRefusal?.division.map(piece => piece.title)).toEqual(card0075.division.map(piece => piece.title));
+        });
+
+        it('is absent when a division cites an invented task, even though the refusal still routes', async () => {
+            const outcome = await verify({
+                ...card0075,
+                division: [{ ...card0075.division[0], tasks: ['a task nobody reported'] }, card0075.division[1]],
+            });
+
+            expect(outcome.failures.some(failure => failure.startsWith('refusing:'))).toBe(true);
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('is absent on an unsupported refusal, which advances instead', async () => {
+            const division = card0075.division;
+            const outcome = await verify({ ...card0079, verdict: 'refuse', division: [division[0], division[1]] });
+
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('is absent on a pass', async () => {
+            expect((await verify(card0079)).supportedRefusal).toBeUndefined();
+        });
+    });
+
     it('rejects a division piece that names itself as a dependency', async () => {
         const outcome = await verify({
             ...card0075,
@@ -299,13 +328,67 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures.some(f => f.includes('a piece nobody proposed'))).toBe(true);
     });
 
+    describe('citing numbered tasks', () => {
+        const numbered: ScopeCheckResult = {
+            ...card0075,
+            groups: [
+                {
+                    title: 'add a write endpoint',
+                    tasks: [
+                        '1. create card endpoint in board.router.ts',
+                        '2) edit card endpoint',
+                        '3: move card endpoint',
+                        '4. depend card endpoint',
+                    ],
+                    sites: 4,
+                },
+            ],
+        };
+
+        // Card 0004: the groups quoted each task in full and the division abbreviated the same numbers.
+        it('accepts a division that abbreviates a numbered task', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['1. create', '2'], delivers: 'create and edit' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures).toEqual([`refusing: ${numbered.reason}`]);
+            expect(outcome.supportedRefusal?.division).toHaveLength(2);
+        });
+
+        it('still rejects a number no group reported', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['5. create'], delivers: 'create' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures.some(f => f.includes('"5. create"'))).toBe(true);
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('reads a leading number as a task number only when it is punctuated as one', async () => {
+            const outcome = await verify({
+                ...numbered,
+                division: [
+                    { title: 'first half', tasks: ['1 endpoint'], delivers: 'create' },
+                    { title: 'second half', tasks: ['3. move', '4. depend'], delivers: 'move and depend' },
+                ],
+            });
+
+            expect(outcome.failures.some(f => f.includes('"1 endpoint"'))).toBe(true);
+        });
+    });
+
     it('rejects a refusal whose division cites a task no group reported', async () => {
         const outcome = await verify({
             ...card0075,
-            division: [
-                ...card0075.division.slice(1),
-                { title: 'invented piece', tasks: ['a task nobody reported'], delivers: 'nothing real' },
-            ],
+            division: [...card0075.division.slice(1), { title: 'invented piece', tasks: ['a task nobody reported'], delivers: 'nothing real' }],
         });
 
         expect(outcome.passed).toBe(false);
@@ -344,7 +427,7 @@ describe('ScopeCheckVerifier', () => {
             ...card0079,
             groups: [{ title: 'add a read-only report field', tasks: ['field a', 'field b', 'field c'], sites: 3 }],
             verdict: 'pass',
-            reason: 'three near-identical fields, one below this stage\'s repetition threshold.',
+            reason: "three near-identical fields, one below this stage's repetition threshold.",
         };
 
         const outcome = await verify(belowThreshold);
@@ -379,21 +462,17 @@ describe('ScopeCheckVerifier', () => {
     });
 
     /**
-     * Card 0120's shape: nine groups, none of them wide (breadth never fires), collected into one
-     * "pass". Depth is what has to catch this — the whole reason `DEPTH_THRESHOLD` exists.
+     * Card 0004's shape: many groups, none wide or fanned out. Depth supports a refusal but does not
+     * contradict a pass, because whether many kinds of work belong together is the model's call
+     * (`DEPTH_THRESHOLD`'s doc comment). Card 0120's fixture has the same shape, so it stands in here.
      */
-    it('rejects a "pass" backed by card 0120\'s nine-group shape, naming depth rather than breadth', async () => {
+    it('accepts a "pass" past the depth threshold when neither breadth nor fan-out fired (card 0004)', async () => {
+        expect(card0120.groups.length).toBeGreaterThanOrEqual(DEPTH_THRESHOLD);
+
         const outcome = await verify(card0120);
 
-        expect(outcome.passed).toBe(false);
-        // Only the depth signal fired (no group repeats), so exactly one failure, and it must name
-        // depth/groups, not breadth — a message blaming breadth here would send `planning` after the
-        // wrong thing (Constraints: "each failure message must name whichever signal actually fired").
-        expect(outcome.failures).toHaveLength(1);
-        expect(outcome.failures[0]).toContain(`${card0120.groups.length} distinct groups`);
-        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[0]).toContain('"pass"');
-        expect(outcome.failures[0]).not.toContain('repeats across');
+        expect(outcome.passed).toBe(true);
+        expect(outcome.failures).toEqual([]);
     });
 
     it('accepts a "refuse" on card 0120\'s nine-group shape, with no consistency failure beyond the routing one', async () => {
@@ -426,14 +505,13 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual(['refusing: nine distinct pieces collected into one card.']);
     });
 
-    it('names both signals when a "pass" is both too broad and too deep', async () => {
+    it('still rejects a too-broad "pass" when it is also too deep, naming only breadth', async () => {
         const bothTooLarge: ScopeCheckResult = {
             ...card0120,
             groups: [
                 { title: 'add a write endpoint', tasks: ['a', 'b', 'c', 'd'], sites: 4 },
                 // Enough further groups that the depth signal fires too — derived from the constant
-                // rather than a literal, so raising or lowering it does not silently turn this into
-                // a breadth-only case that still passes its `toHaveLength(2)`.
+                // rather than a literal, so raising or lowering it keeps this a both-signals case.
                 ...card0120.groups.slice(1, DEPTH_THRESHOLD),
             ],
         };
@@ -441,44 +519,12 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(bothTooLarge);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(2);
+        expect(outcome.failures).toHaveLength(1);
         expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
         expect(outcome.failures[0]).toContain('repeats across');
-        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[1]).toContain('distinct groups');
     });
 
-    /**
-     * `DEPTH_THRESHOLD` is the exact line, the same way the existing breadth boundary tests check
-     * `BREADTH_THRESHOLD`: one group below it must not force a refusal, exactly at it must.
-     *
-     * Both boundary assertions derive their expected counts from the constant. They previously
-     * hard-coded 4 and 5, which meant raising the threshold from 5 to 6 failed them on arithmetic
-     * rather than on behaviour — the fixture had moved, but what is being tested had not.
-     */
-    it('passes a "pass" whose group count sits one below the depth threshold', async () => {
-        const belowThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD - 1) };
-        expect(belowThreshold.groups).toHaveLength(DEPTH_THRESHOLD - 1);
-
-        const outcome = await verify(belowThreshold);
-
-        expect(outcome.passed).toBe(true);
-        expect(outcome.failures).toEqual([]);
-    });
-
-    it('requires "refuse" once the group count reaches the depth threshold exactly', async () => {
-        const atThreshold: ScopeCheckResult = { ...card0120, groups: card0120.groups.slice(0, DEPTH_THRESHOLD) };
-        expect(atThreshold.groups).toHaveLength(DEPTH_THRESHOLD);
-
-        const outcome = await verify(atThreshold);
-
-        expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(1);
-        expect(outcome.failures[0]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[0]).toContain('distinct groups');
-    });
-
-    it('still passes card 0079\'s three-group shape now that depth is checked too', async () => {
+    it("still passes card 0079's three-group shape now that depth is checked too", async () => {
         const outcome = await verify(card0079);
 
         expect(outcome.passed).toBe(true);
@@ -609,7 +655,7 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([`refusing: ${card0153.reason}`]);
     });
 
-    it('still passes card 0079\'s three-group shape now that fan-out is checked too', async () => {
+    it("still passes card 0079's three-group shape now that fan-out is checked too", async () => {
         const outcome = await verify(card0079);
 
         expect(outcome.passed).toBe(true);
@@ -625,7 +671,7 @@ describe('ScopeCheckVerifier', () => {
             ...card0079,
             groups: [{ title: 'update every internal link', tasks: ['update every internal link'], sites: FANOUT_THRESHOLD - 1 }],
             verdict: 'pass',
-            reason: 'one task touching several files, one below this stage\'s fan-out threshold.',
+            reason: "one task touching several files, one below this stage's fan-out threshold.",
         };
 
         const outcome = await verify(belowThreshold);
@@ -671,7 +717,7 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.failures).toEqual([]);
     });
 
-    it('names all three signals when a "pass" is too broad, too deep, and too fanned out at once', async () => {
+    it('names breadth and fan-out when a "pass" is too broad, too deep, and too fanned out at once', async () => {
         const allThreeTooLarge: ScopeCheckResult = {
             ...card0120,
             groups: [
@@ -683,13 +729,11 @@ describe('ScopeCheckVerifier', () => {
         const outcome = await verify(allThreeTooLarge);
 
         expect(outcome.passed).toBe(false);
-        expect(outcome.failures).toHaveLength(3);
+        expect(outcome.failures).toHaveLength(2);
         expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
         expect(outcome.failures[0]).toContain('repeats across');
-        expect(outcome.failures[1]).toContain(`>= ${DEPTH_THRESHOLD}`);
-        expect(outcome.failures[1]).toContain('distinct groups');
-        expect(outcome.failures[2]).toContain(`>= ${FANOUT_THRESHOLD}`);
-        expect(outcome.failures[2]).toContain('places');
+        expect(outcome.failures[1]).toContain(`>= ${FANOUT_THRESHOLD}`);
+        expect(outcome.failures[1]).toContain('places');
     });
 
     /**

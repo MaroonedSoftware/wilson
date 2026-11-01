@@ -2,7 +2,23 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Code, Group, Loader, NumberInput, Paper, PasswordInput, SegmentedControl, Select, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import {
+    Alert,
+    Button,
+    Code,
+    Group,
+    Loader,
+    NumberInput,
+    Paper,
+    PasswordInput,
+    SegmentedControl,
+    Select,
+    Stack,
+    Switch,
+    Text,
+    TextInput,
+    Title,
+} from '@mantine/core';
 import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequest } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
@@ -10,6 +26,7 @@ import { useWilsonSdk } from '#src/lib/sdk-context.js';
 import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
+const AUTO_SPLIT_QUERY_KEY = ['settings', 'auto-split'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
@@ -17,6 +34,7 @@ const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
 const GITHUB_APP_QUERY_KEY = ['settings', 'github-app'];
 const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
+const ENGINE_TOKENS_QUERY_KEY = ['engine-tokens'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
@@ -58,6 +76,43 @@ function AutoModeToggle() {
             <Switch
                 label="Auto-mode"
                 description="Whether the runner picks up cards on its own, without a human dispatching them."
+                checked={setting.data.enabled}
+                disabled={mutation.isPending}
+                onChange={event => mutation.mutate(event.currentTarget.checked)}
+            />
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/** The same shape as `AutoModeToggle`, for whether a supported scope-check refusal splits its card. */
+function AutoSplitToggle() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: AUTO_SPLIT_QUERY_KEY, queryFn: () => wilson.settings.getAutoSplitSetting() });
+    const mutation = useMutation({
+        mutationFn: (enabled: boolean) => wilson.settings.setAutoSplitSetting({ enabled }),
+        onSuccess: result => queryClient.setQueryData(AUTO_SPLIT_QUERY_KEY, result),
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load auto-split">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    return (
+        <Stack gap="xs">
+            <Switch
+                label="Auto-split"
+                description="When scope-check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
@@ -350,10 +405,10 @@ function NotifyWebhookControl() {
     return (
         <Stack gap="sm">
             <Text size="sm" c="dimmed">
-                These carry different risk. The webhook URL is a destination this daemon sends a request to, so the
-                server checks it — https only, and not an address that resolves somewhere private — both when it is
-                saved and again every time it is used, and refuses anything that fails. The base URL only appears as
-                a link inside that request's payload; nothing here ever fetches it, so it is saved exactly as typed.
+                These carry different risk. The webhook URL is a destination this daemon sends a request to, so the server checks it — https only, and
+                not an address that resolves somewhere private — both when it is saved and again every time it is used, and refuses anything that
+                fails. The base URL only appears as a link inside that request's payload; nothing here ever fetches it, so it is saved exactly as
+                typed.
             </Text>
             <TextInput
                 label="Webhook URL"
@@ -518,7 +573,11 @@ function GitHubAppControl() {
                     : 'Private key not found. Put it at secrets/github-app.pem in the data folder on the machine Wilson runs on.'}
             </Text>
             <Group gap="xs">
-                <Button size="xs" disabled={!dirty || mutation.isPending} onClick={() => dirty && mutation.mutate(draft.trim() === '' ? null : draft.trim())}>
+                <Button
+                    size="xs"
+                    disabled={!dirty || mutation.isPending}
+                    onClick={() => dirty && mutation.mutate(draft.trim() === '' ? null : draft.trim())}
+                >
                     Save
                 </Button>
             </Group>
@@ -570,7 +629,7 @@ function EngineTokenControl() {
         <Stack gap="xs">
             <PasswordInput
                 label="Engine token"
-                description="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Workers and SSH hosts keep their own. A change applies to stages and planning sessions started afterwards, never one already running."
+                description="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Worker hosts use the tokens below, and SSH hosts their own. A change applies to stages and planning sessions started afterwards, never one already running."
                 value={draft}
                 onChange={event => setDraft(event.currentTarget.value)}
                 disabled={mutation.isPending}
@@ -590,6 +649,90 @@ function EngineTokenControl() {
             {mutation.isError && (
                 <Text size="sm" c="red">
                     {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/**
+ * The named engine tokens worker hosts are assigned (`EngineTokensService`), on the Hosts page. Write
+ * only, as {@link EngineTokenControl} is: the list has names and no token, and the fields start empty.
+ * Saving under a name already there replaces that token and no other.
+ */
+function WorkerEngineTokensControl() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const tokens = useQuery({ queryKey: ENGINE_TOKENS_QUERY_KEY, queryFn: () => wilson.engineTokens.listEngineTokens() });
+    const [name, setName] = useState('');
+    const [token, setToken] = useState('');
+
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ENGINE_TOKENS_QUERY_KEY });
+    const put = useMutation({
+        mutationFn: () => wilson.engineTokens.putEngineToken(name.trim(), { token }),
+        onSuccess: () => {
+            setName('');
+            setToken('');
+            return refresh();
+        },
+    });
+    const remove = useMutation({ mutationFn: (saved: string) => wilson.engineTokens.removeEngineToken(saved), onSuccess: refresh });
+
+    if (tokens.error) {
+        return (
+            <Alert color="red" title="Cannot load the worker engine tokens">
+                {apiErrorMessage(tokens.error)}
+            </Alert>
+        );
+    }
+    if (!tokens.data) return <Loader size="sm" />;
+
+    const failed = [put, remove].find(mutation => mutation.isError);
+    return (
+        <Stack gap="xs">
+            <Text size="sm" fw={500}>
+                Worker engine tokens
+            </Text>
+            <Text size="xs" c="dimmed">
+                Tokens Wilson holds for worker hosts, each assigned on the Hosts page. Wilson sends one to its worker with each engine start, and a
+                stage there can read it. Saving under an existing name replaces that token. Removing one sends its hosts back to their own sign-in,
+                leaves running engines alone, and does not revoke it with Anthropic.
+            </Text>
+            {tokens.data.map(saved => (
+                <Group key={saved.name} gap="xs">
+                    <Text size="sm">{saved.name}</Text>
+                    <Text size="sm" c="dimmed">
+                        {saved.hosts.length > 0 ? saved.hosts.join(', ') : 'no host'}
+                    </Text>
+                    <Button size="compact-xs" variant="subtle" color="red" disabled={remove.isPending} onClick={() => remove.mutate(saved.name)}>
+                        Remove
+                    </Button>
+                </Group>
+            ))}
+            <Group gap="xs" align="flex-end">
+                <TextInput
+                    size="xs"
+                    label="Name"
+                    value={name}
+                    onChange={event => setName(event.currentTarget.value)}
+                    disabled={put.isPending}
+                    autoComplete="off"
+                />
+                <PasswordInput
+                    size="xs"
+                    label="Token"
+                    value={token}
+                    onChange={event => setToken(event.currentTarget.value)}
+                    disabled={put.isPending}
+                    autoComplete="off"
+                />
+                <Button size="xs" disabled={name.trim() === '' || token.trim() === '' || put.isPending} onClick={() => put.mutate()}>
+                    Save
+                </Button>
+            </Group>
+            {failed && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(failed.error)}
                 </Text>
             )}
         </Stack>
@@ -723,8 +866,8 @@ function DeploymentFacts() {
                 {health.data.worktreeRoot}
             </Fact>
             <Text size="xs" c="dimmed">
-                Code and worktree roots are environment-only — set at deploy time, not editable here.
-                Changing them out from under a running daemon is a redeploy, not a setting.
+                Code and worktree roots are environment-only — set at deploy time, not editable here. Changing them out from under a running daemon is
+                a redeploy, not a setting.
             </Text>
         </Stack>
     );
@@ -766,6 +909,13 @@ function SettingsRoute() {
 
             <Paper withBorder p="md" radius="sm">
                 <Stack gap="sm">
+                    <Title order={4}>Auto-split</Title>
+                    <AutoSplitToggle />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
                     <Title order={4}>Poll interval</Title>
                     <PollerIntervalControl />
                 </Stack>
@@ -791,6 +941,7 @@ function SettingsRoute() {
                     <Title order={4}>Engine credentials</Title>
                     <ClaudeConfigDirControl />
                     <EngineTokenControl />
+                    <WorkerEngineTokensControl />
                 </Stack>
             </Paper>
 
@@ -826,6 +977,7 @@ function SettingsRoute() {
 }
 
 export const Route = createFileRoute('/settings')({
-    validateSearch: (search: Record<string, unknown>): { project?: string } => (typeof search.project === 'string' ? { project: search.project } : {}),
+    validateSearch: (search: Record<string, unknown>): { project?: string } =>
+        typeof search.project === 'string' ? { project: search.project } : {},
     component: SettingsRoute,
 });

@@ -2,6 +2,8 @@ import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { optionalConfigString } from '#shared/require.config.js';
+import { EngineTokenRepository } from './engine.token.repository.js';
+import { EngineTokensService } from './engine.tokens.service.js';
 import { HostConnector } from './host.connector.js';
 import { HostPlacer } from './host.placer.js';
 import { HostProber } from './host.prober.js';
@@ -28,11 +30,18 @@ export const HostModule: ServerKitModule = {
         // reaches exactly the workers the endpoint accepted.
         registry
             .register(HostConnector)
-            .useFactory(c => new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections)))
+            .useFactory(
+                c =>
+                    new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections), hostName =>
+                        c.get(EngineTokensService).forHost(hostName),
+                    ),
+            )
             .asSingleton();
         registry.register(ProjectClones).useClass(ProjectClones).asTransient();
         registry.register(HostProber).useClass(HostProber).asTransient();
         registry.register(HostPlacer).useClass(HostPlacer).asTransient();
         registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();
+        registry.register(EngineTokenRepository).useClass(EngineTokenRepository).asTransient();
+        registry.register(EngineTokensService).useClass(EngineTokensService).asTransient();
     },
 };

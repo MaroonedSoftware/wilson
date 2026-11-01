@@ -50,7 +50,7 @@ account, so nothing is copied to a VM by hand and no key is stored in the image.
 | ------------------------------ | ----------------- | -------- | ---------------------------------------------------------------------------------- |
 | `wilson-url`                   | instance metadata | yes      | Wilson's address, set as `WILSON_URL`                                              |
 | `wilson-worker-token-<vm>`     | secret            | yes      | That VM's token, from `wilson host token <vm>`                                     |
-| `wilson-claude-token`          | secret            | no       | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`                               |
+| `wilson-claude-token`          | secret            | no       | `CLAUDE_CODE_OAUTH_TOKEN`, used when Wilson assigns the host no engine token       |
 | `wilson-github-packages-token` | secret            | no       | `GITHUB_TOKEN`, for a project's own installs, when a host names it in `commandEnv` |
 | `wilson-tailscale-key`         | secret            | no       | Joins the tailnet at boot                                                          |
 

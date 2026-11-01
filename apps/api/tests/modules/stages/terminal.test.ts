@@ -6,6 +6,7 @@ describe('isTerminal', () => {
         expect(isTerminal('merged')).toBe(true);
         expect(isTerminal('dropped')).toBe(true);
         expect(isTerminal('poisoned')).toBe(true);
+        expect(isTerminal('split')).toBe(true);
     });
 
     it('is false for ordinary stages a card is still moving through', () => {
