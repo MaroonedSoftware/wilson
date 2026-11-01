@@ -1,0 +1,66 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.PlanView"
+    x:DataType="vm:PlanViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Button DockPanel.Dock="Right" Content="Close session" Command="{Binding CloseSessionCommand}" IsEnabled="{Binding Open}" />
+            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" IsVisible="{Binding Live}" VerticalAlignment="Center" Margin="0,0,10,0" />
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="{Binding Heading}" />
+        </DockPanel>
+        <SelectableTextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,6" />
+        <SelectableTextBlock DockPanel.Dock="Top" Text="{Binding Notice}" TextWrapping="Wrap" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,6" />
+        <Grid ColumnDefinitions="*,12,*">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0" IsEnabled="{Binding Open}">
+                    <TextBox PlaceholderText="Say what the plan needs" Text="{Binding Composer}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="160" IsEnabled="{Binding Idle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" IsEnabled="{Binding Idle}">
+                        <Button Content="Send" Command="{Binding SendCommand}" />
+                        <Button Content="Suggest cuts" Command="{Binding AskForCutsCommand}" />
+                        <Button Content="Write the draft" Command="{Binding AskForDraftCommand}" />
+                    </StackPanel>
+                </StackPanel>
+                <ScrollViewer>
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Lines}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:TranscriptLine"><StackPanel Margin="0,0,0,10" Spacing="2"><TextBlock Classes="quiet" Text="{Binding Who}" /><SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <SelectableTextBlock Classes="quiet" Text="{Binding Sent}" TextWrapping="Wrap" IsVisible="{Binding Sending}" Margin="0,0,0,8" />
+                        <SelectableTextBlock Text="{Binding Pending}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+                        <Button Content="Save draft" Command="{Binding SaveDraftCommand}" IsEnabled="{Binding Open}" />
+                        <Button Content="Comment on selection" Click="CommentOnSelection" IsEnabled="{Binding Open}" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Spacing="6" IsVisible="{Binding Quote, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,6">
+                        <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
+                        <TextBox PlaceholderText="Your comment" Text="{Binding CommentText}" />
+                        <Button Content="Add comment" Command="{Binding AddCommentCommand}" />
+                    </StackPanel>
+                    <ScrollViewer MaxHeight="170">
+                        <ItemsControl ItemsSource="{Binding Comments}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PlanCommentRow">
+                                    <DockPanel Margin="0,0,0,6">
+                                        <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
+                                        <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
+                                        <StackPanel>
+                                            <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
+                                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+                <TextBox x:Name="DraftBox" PlaceholderText="The draft" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" VerticalContentAlignment="Top" />
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

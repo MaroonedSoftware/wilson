@@ -11,6 +11,7 @@
             <ComboBox ItemsSource="{Binding Projects}" SelectedItem="{Binding Project}" MinWidth="160" VerticalAlignment="Center" />
             <ToggleButton Content="Flagged" IsChecked="{Binding FlaggedOnly}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button Content="New card" Command="{Binding NewCardCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <Button Content="Chat" Command="{Binding OpenChatCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" IsVisible="{Binding Live}" VerticalAlignment="Center" />

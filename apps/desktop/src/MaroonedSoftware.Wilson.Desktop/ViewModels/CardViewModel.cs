@@ -35,6 +35,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     public string Id => id;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanPlan))]
     private CardDetail? _card;
 
     [ObservableProperty]
@@ -60,6 +61,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _confirming;
 
     public bool Idle => Acting is null;
+
+    public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
     [RelayCommand]
     public Task AcknowledgeAsync() => ActAsync("Acknowledged.", token => _sdk.Board.AcknowledgeAFlaggedCardAsync(id, token));
@@ -103,6 +106,9 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         Confirming = null;
         _confirmed = null;
     }
+
+    [RelayCommand]
+    public void OpenPlan() => shell.Push(new PlanViewModel(shell, project, id));
 
     [RelayCommand]
     public void Edit() => shell.Push(new CardFormViewModel(shell, project, id));

@@ -57,6 +57,9 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     }
 
     [RelayCommand]
+    public void OpenChat() => shell.Push(new ThreadsViewModel(shell));
+
+    [RelayCommand]
     public void NewCard()
     {
         if (Project is { } project)

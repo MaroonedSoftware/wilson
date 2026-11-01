@@ -79,9 +79,9 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     public T Page<T>()
         where T : PageViewModel => shell.Page as T ?? throw new InvalidOperationException($"expected {typeof(T).Name}, on {shell.Page?.GetType().Name}");
 
-    public async Task UntilAsync(string what, Func<bool> done)
+    public async Task UntilAsync(string what, Func<bool> done, int seconds = 20)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (!done())
         {
             if (DateTime.UtcNow > deadline)

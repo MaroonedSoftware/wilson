@@ -12,6 +12,9 @@
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
         <DataTemplate DataType="vm:CardViewModel"><views:CardView /></DataTemplate>
         <DataTemplate DataType="vm:CardFormViewModel"><views:CardFormView /></DataTemplate>
+        <DataTemplate DataType="vm:PlanViewModel"><views:PlanView /></DataTemplate>
+        <DataTemplate DataType="vm:ThreadsViewModel"><views:ThreadsView /></DataTemplate>
+        <DataTemplate DataType="vm:ChatViewModel"><views:ChatView /></DataTemplate>
     </Application.DataTemplates>
 
     <Application.Resources>

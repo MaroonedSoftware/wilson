@@ -78,6 +78,64 @@ internal static class Steps
         edit.Title = $"{title} edited";
         await edit.SaveCommand.ExecuteAsync(null);
         await walk.UntilAsync("the edit on the card", () => walk.Shell.Page == card && card.Card?.Title.EndsWith("edited", StringComparison.Ordinal) == true);
+        await PlanningAsync(walk, card);
+        walk.Shell.Back();
+        await ChatAsync(walk, board);
+    }
+
+    private static async Task PlanningAsync(Walker walk, CardViewModel card)
+    {
+        await walk.UntilAsync("the card can be planned", () => card.CanPlan);
+        card.OpenPlan();
+        var plan = walk.Page<PlanViewModel>();
+        await walk.UntilAsync("the session open, or the refusal said", () => plan.Open || plan.Error is not null);
+        Console.WriteLine($"     open: {plan.Open}, error: {plan.Error}");
+        walk.Shot("09-plan");
+        if (!plan.Open)
+        {
+            walk.Shell.Back();
+            return;
+        }
+
+        await walk.UntilAsync("the plan stream live", () => plan.Live);
+
+        plan.Draft = "# Plan\n\nDo the first thing.\n\nThen the second thing.";
+        await plan.SaveDraftCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the draft saved", () => plan.Notice is not null);
+        Console.WriteLine($"     save: {plan.Notice}");
+
+        plan.Quote = "the first thing";
+        plan.CommentText = "Which first thing?";
+        await plan.AddCommentCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the comment added", () => plan.Comments.Count > 0);
+        walk.Shot("10-plan-commented");
+        await plan.ResolveCommentCommand.ExecuteAsync(plan.Comments[0]);
+        await walk.UntilAsync("the comment resolved", () => plan.Comments[0].Resolved);
+
+        plan.Composer = "Reply with the single word: ok";
+        await plan.SendCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the turn answered, or the refusal said", () => plan.Idle, 120);
+        Console.WriteLine($"     turn: lines {plan.Lines.Count}, error: {plan.Error}");
+        walk.Shot("11-plan-turn");
+
+        await plan.CloseSessionCommand.ExecuteAsync(null);
+        await walk.UntilAsync("back on the card", () => walk.Shell.Page == card);
+    }
+
+    private static async Task ChatAsync(Walker walk, BoardViewModel board)
+    {
+        board.OpenChat();
+        var threads = walk.Page<ThreadsViewModel>();
+        await threads.StartThreadCommand.ExecuteAsync(null);
+        var chat = walk.Page<ChatViewModel>();
+        chat.Composer = "Reply with the single word: ok";
+        await chat.SendCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the chat answered, or the refusal said", () => chat.Idle, 120);
+        Console.WriteLine($"     chat: lines {chat.Lines.Count}, error: {chat.Error}");
+        walk.Shot("12-chat");
+        walk.Shell.Back();
+        await walk.UntilAsync("the thread listed", () => threads.Threads.Count > 0);
+        walk.Shot("13-threads");
         walk.Shell.Back();
     }
 }

@@ -19,6 +19,7 @@
                 <Style Selector="Button, ComboBox"><Setter Property="Margin" Value="0,0,6,6" /></Style>
             </WrapPanel.Styles>
             <Button Content="Acknowledge" Command="{Binding AcknowledgeCommand}" IsVisible="{Binding Card.NeedsHuman, FallbackValue=False}" />
+            <Button Content="Plan" Command="{Binding OpenPlanCommand}" IsVisible="{Binding CanPlan}" />
             <Button Content="Start" Command="{Binding StartCommand}" />
             <Button Content="Approve plan" Command="{Binding ApproveCommand}" />
             <Button Content="Merge" Command="{Binding AskMergeCommand}" />
