@@ -12,7 +12,8 @@ if [ -z "$changed" ]; then
     exit 0
 fi
 
-if git diff --name-only --diff-filter=A "$BASE...$HEAD" -- '.changeset/*.md' | grep -qv README; then
+added="$(git diff --name-only --diff-filter=A "$BASE...$HEAD" -- '.changeset/*.md' ':!.changeset/README.md')"
+if [ -n "$added" ]; then
     exit 0
 fi
 
