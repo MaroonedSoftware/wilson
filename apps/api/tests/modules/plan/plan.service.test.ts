@@ -331,6 +331,30 @@ describe('PlanService', () => {
             expect(session.instructions).not.toBe("this card's existing body");
         });
 
+        it('refuses a project with no "planning" stage by naming the stage, and cuts nothing', async () => {
+            const { board, config, worktrees, worktreeRoot } = await freshEnv();
+            await board.create(card('0001', { stage: 'parking-lot' }, FULL_BODY), 'seed');
+            const noPlanning = new StaticStageConfigStore(
+                [
+                    'stages:',
+                    '  - name: implementing',
+                    '    mode: agent',
+                    '    model: claude-opus',
+                    "    instructions: 'build it'",
+                    '    onPass: merged',
+                    '    onFail: implementing',
+                    '',
+                ].join('\n'),
+            );
+            const service = new PlanService(board, config, worktrees, db, noPlanning);
+
+            await expect(service.open('0001')).rejects.toMatchObject({
+                statusCode: 400,
+                details: { reason: expect.stringContaining('no "planning" stage') },
+            });
+            expect(existsSync(join(worktreeRoot, 'plan-0001'))).toBe(false);
+        });
+
         it('refuses a card outside "planning", and cuts nothing', async () => {
             const { board, service, worktreeRoot, runRoot } = await freshEnv();
             await board.create(card('0003', { stage: 'implementing', title: 'Not planning' }), 'seed');

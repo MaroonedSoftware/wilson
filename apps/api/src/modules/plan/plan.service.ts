@@ -10,7 +10,7 @@ import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
 import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
-import { findStage, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -481,10 +481,20 @@ export class PlanService {
     }
 
     /** The `planning` stage's own config — shared by `cutSession` and `existingSession` so neither
-     * inlines its own `stageConfigs.load`/`findStage` call. */
+     * inlines its own `stageConfigs.load`/`findStage` call. A project without the stage is refused
+     * by name: a fact about its config an operator can act on, not a server fault. */
     private async loadPlanningStage(): Promise<StageConfig> {
         const stages = await this.stageConfigs.load();
-        return findStage(stages, 'planning');
+        try {
+            return findStage(stages, 'planning');
+        } catch (err) {
+            if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
+                throw httpError(400).withDetails({
+                    reason: `project "${this.boardConfig.project}" has no "planning" stage, so a card cannot be talked through yet; add one with \`wilson stages edit\``,
+                });
+            }
+            throw err;
+        }
     }
 }
 
