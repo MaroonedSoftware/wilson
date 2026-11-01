@@ -12,6 +12,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
+import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
@@ -180,8 +181,18 @@ export class Poller {
      * the walk over the *other* registered projects, which is the multi-project reading of "one tick
      * fails, log it, try again next interval" now that "next interval" is not the only remaining
      * chance for a different project this same tick.
+     *
+     * Nothing is enqueued while the server drains: `holdWhileDraining` would keep the job from
+     * dispatching anyway, but each tick would claim another card and leave it held. A failed read
+     * carries on, because that check is still there behind it.
      */
     private async tick(): Promise<void> {
+        try {
+            if (await this.settings.get(DRAIN_ENABLED)) return;
+        } catch (error) {
+            this.logger.error(error);
+        }
+
         let names: string[];
         try {
             if (this.projects) {
