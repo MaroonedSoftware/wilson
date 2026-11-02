@@ -35,6 +35,7 @@ public class ChatRulesTests
         Thread = new ChatThread { Id = "t", Title = "t", Engine = ChatThreadEngine.Api, CreatedAt = Now, UpdatedAt = Now },
         Messages = [.. messages],
         Actions = [.. actions],
+        Questions = [],
     };
 
     private static ChatOperation Ran(string name, string? project, bool ok) => new()
