@@ -259,6 +259,7 @@ export interface WilsonPlanComments {
 export interface WilsonPlanTurns {
   cardId: string;
   content: string;
+  contextSeenId: bigint | null;
   createdAt: Generated<DateTime>;
   engineSessionId: string | null;
   project: string;

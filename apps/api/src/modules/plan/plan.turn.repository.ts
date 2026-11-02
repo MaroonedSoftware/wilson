@@ -10,6 +10,8 @@ export interface PlanTurn {
     role: PlanTurnRole;
     content: string;
     engineSessionId: string | undefined;
+    /** The highest `wilson.card_context` id this turn's prompt was built from, on a user turn. */
+    contextSeenId?: string;
     createdAt: DateTime;
 }
 
@@ -40,7 +42,7 @@ export class PlanTurnRepository {
      * key slots that overload takes, locks the *card* rather than a row, so it also covers the
      * first turn; it is released automatically when the transaction ends.
      */
-    async append(cardId: string, role: PlanTurnRole, content: string, engineSessionId?: string): Promise<PlanTurn> {
+    async append(cardId: string, role: PlanTurnRole, content: string, engineSessionId?: string, contextSeenId?: string): Promise<PlanTurn> {
         return this.db.transaction().execute(async trx => {
             await sql`select pg_advisory_xact_lock(hashtext(${this.config.project}), hashtext(${cardId}))`.execute(trx);
 
@@ -63,11 +65,12 @@ export class PlanTurnRepository {
                     role,
                     content,
                     engineSessionId: engineSessionId ?? null,
+                    contextSeenId: contextSeenId === undefined ? null : BigInt(contextSeenId),
                 })
                 .returning('createdAt')
                 .executeTakeFirstOrThrow();
 
-            return { seq, role, content, engineSessionId, createdAt: row.createdAt };
+            return { seq, role, content, engineSessionId, contextSeenId, createdAt: row.createdAt };
         });
     }
 
@@ -89,6 +92,7 @@ export class PlanTurnRepository {
             role: row.role as PlanTurnRole,
             content: row.content,
             engineSessionId: row.engineSessionId ?? undefined,
+            contextSeenId: row.contextSeenId?.toString(),
             createdAt: row.createdAt,
         }));
     }
