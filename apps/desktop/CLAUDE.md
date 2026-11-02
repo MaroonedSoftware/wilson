@@ -251,6 +251,10 @@ and a card's plan is drawn with it too. `[[nnnn]]` is `MarkdownInline.CardRef`, 
 raises to the shell. It opens in the project being read, and for chat, which has no project, the one
 last shown, where the web app's home page has no link at all. The open chat is `DesktopSettings.Thread`.
 
+The composer's keys are the web app's, plus `MacTextKeys`: a browser's textarea gets the macOS text shortcuts
+from the system and `TextBox` does not. Each is said in keys `TextBox` knows, so undo still works. Ctrl+A, E
+and K act on the line as wrapped, where macOS means the paragraph. Other boxes do not have them yet.
+
 ## Verified
 
 2026-11-01, against the throwaway API with `tools/Walk`: sign-in and its refusals, the board live from
@@ -299,6 +303,11 @@ Cmd+J doing nothing there, and each kept in the settings file. Arrow keys on the
 the home page, the same chat beside the board and settings, the board live beside it, Cmd+J closing it for good, and
 the drags above. The turn came back as the login's usage-limit message, so a full answer in the sidebar, and leaving
 the home page in the middle of one, were not seen. An older file opening it is in `ChatDockTests` only.
+
+2026-11-02, the composer's keys: `MacTextKeys` in a throwaway Avalonia app on the native platform, with real
+key events posted to that process, each key's effect on the text, and undo and redo after Cmd+Backspace. With
+`tools/Walk`, Ctrl+A, E, H, K and Cmd+Backspace in the real composer through headless input. Not seen: the
+real composer under a real keyboard, Ctrl+K on a wrapped line, and Enter during input-method composition.
 
 2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
 empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the
