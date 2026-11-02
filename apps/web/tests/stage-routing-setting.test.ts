@@ -109,14 +109,14 @@ describe('the stage routing control', () => {
         fireEvent.change(model, { target: { value: 'claude-haiku-5-5' } });
         fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
 
-        await waitFor(() =>
-            expect(set).toHaveBeenCalledWith('implementing', { adapter: 'cli', provider: 'anthropic', model: 'claude-haiku-5-5' }),
-        );
+        await waitFor(() => expect(set).toHaveBeenCalledWith('implementing', { adapter: 'cli', provider: 'anthropic', model: 'claude-haiku-5-5' }));
         await waitFor(() => expect((within(row).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true));
     });
 
     it('shows why a save was refused', async () => {
-        vi.spyOn(wilson.stages, 'setStageRouting').mockRejectedValue(new SdkError('refused', 400, { reason: 'a model is required' }));
+        vi.spyOn(wilson.stages, 'setStageRouting').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'Bad Request', details: { reason: 'a model is required' } }, new Headers()),
+        );
         renderSettings();
         const model = (await screen.findByLabelText('implementing model')) as HTMLInputElement;
         const row = model.closest('.mantine-Stack-root') as HTMLElement;
@@ -124,6 +124,6 @@ describe('the stage routing control', () => {
         fireEvent.change(model, { target: { value: 'nope' } });
         fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
 
-        expect(await within(row).findByText(/a model is required|refused/)).toBeTruthy();
+        expect(await within(row).findByText(/a model is required/)).toBeTruthy();
     });
 });

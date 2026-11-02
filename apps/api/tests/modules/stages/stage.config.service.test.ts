@@ -46,7 +46,7 @@ describe('StageConfigService', () => {
 
         const saved = await service.set({ yaml: OTHER_VALID, message: 'be careful' });
 
-        expect(saved).toMatchObject({ yaml: OTHER_VALID, message: 'be careful' });
+        expect(saved).toMatchObject({ yaml: expect.stringContaining('build it carefully'), message: 'be careful' });
         expect(await service.get()).toMatchObject({ id: saved.id });
         expect((await store.load()).stages[0]!.instructions).toBe('build it carefully');
     });

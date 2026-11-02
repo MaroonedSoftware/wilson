@@ -92,6 +92,72 @@ describe('PostgresStageConfigStore', () => {
         await expect(store.load()).rejects.toThrow(/stages\.0\.provider/);
     });
 
+    it('moves routing named in a saved document to the table and stores the document without it', async () => {
+        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku\n    adapter: cli # engine\n    # keep me'), 'moved');
+
+        const document = await store.read();
+        expect(document?.yaml).not.toMatch(/model|adapter/);
+        expect(document?.yaml).toContain('# keep me');
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', provider: 'anthropic', model: 'claude-haiku' });
+    });
+
+    it('keeps a routing row when the next document says nothing about routing', async () => {
+        await store.save(VALID, 'first');
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
+        const yaml = (await store.read())!.yaml.replace('build it', 'build it well');
+
+        await store.save(yaml, 'second');
+
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'routed', instructions: 'build it well' });
+    });
+
+    it('takes only the fields a document names, keeping the rest of the row', async () => {
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
+
+        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku'), 'second');
+
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'claude-haiku' });
+    });
+
+    it('adds no routing row for a document that changes nothing', async () => {
+        await store.save(VALID, 'first');
+        await store.save(VALID, 'second');
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
+        expect(rows).toHaveLength(1);
+    });
+
+    it('refuses a stage with neither routing in the document nor a row', async () => {
+        await expect(store.save(VALID.replace('    model: claude-opus\n', ''), 'no model')).rejects.toThrow(/stages\.0\.model/);
+        expect((await store.read())?.yaml).toBe(VALID);
+    });
+
+    it('writes nothing, row or document, when a saved document is refused', async () => {
+        await expect(store.save(BROKEN_ROUTE, 'broken')).rejects.toBeInstanceOf(StageConfigError);
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
+        expect(rows).toHaveLength(0);
+    });
+
+    it('moves routing out of a stored document on start, then does nothing', async () => {
+        await store.moveStoredRouting();
+        await store.moveStoredRouting();
+
+        const versions = await store.versions();
+        expect(versions[0]?.message).toBe('Moved routing to wilson.stage_routing');
+        expect(versions).toHaveLength(2);
+        expect((await store.read())?.yaml).not.toContain('model');
+        expect(findStage(await store.load(), 'implementing').model).toBe('claude-opus');
+    });
+
+    it('keeps an existing row over a stored document when moving on start', async () => {
+        await route('implementing', 'routed');
+
+        await store.moveStoredRouting();
+
+        expect(findStage(await store.load(), 'implementing').model).toBe('routed');
+    });
+
     it('saves routing as a new row each time, so a change keeps its history', async () => {
         await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'one' }, 'first');
         await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'two' }, 'second');
@@ -168,7 +234,8 @@ describe('PostgresStageConfigStore', () => {
         const saved = await store.save(OTHER_VALID, 'second');
 
         const current = await store.read();
-        expect(current).toMatchObject({ id: saved.id, yaml: OTHER_VALID, message: 'second' });
+        expect(current).toMatchObject({ id: saved.id, yaml: saved.yaml, message: 'second' });
+        expect(current?.yaml).toContain('review it');
 
         const versions = await store.versions();
         expect(versions.map(v => v.message)).toEqual(['second', 'test']);

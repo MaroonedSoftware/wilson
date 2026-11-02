@@ -1,4 +1,4 @@
-import { parse as parseYaml } from 'yaml';
+import { isMap, isSeq, parse as parseYaml, parseDocument } from 'yaml';
 import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
 
@@ -347,6 +347,34 @@ const deepFreeze = <T>(value: T): T => {
 
 /** The part of a stage kept in `wilson.stage_routing` rather than in the document. */
 export type StageRouting = Pick<StageConfig, 'adapter' | 'provider' | 'model'>;
+
+const ROUTING_FIELDS = ['adapter', 'provider', 'model'] as const;
+
+/**
+ * Take the routing fields out of a document, keeping the rest of its text and comments.
+ *
+ * `wilson.stage_routing` is the only source of routing, so a stored document never carries it. A
+ * document submitted with those fields is saying what it wants, so the store moves them to the table
+ * rather than keeping values nothing would read. `inline` holds what each stage named, by stage.
+ *
+ * A document with no routing comes back verbatim, not re-rendered, and one that cannot be read comes
+ * back as it arrived for `parseStages` to refuse.
+ */
+export const splitRouting = (raw: string): { yaml: string; inline: Map<string, Partial<StageRouting>> } => {
+    const inline = new Map<string, Partial<StageRouting>>();
+    const document = parseDocument(raw);
+    const stages = document.errors.length === 0 ? document.get('stages') : undefined;
+    if (!isSeq(stages)) return { yaml: raw, inline };
+
+    for (const stage of stages.items) {
+        if (!isMap(stage)) continue;
+        const fields = Object.fromEntries(ROUTING_FIELDS.filter(field => stage.has(field)).map(field => [field, stage.get(field)]));
+        if (Object.keys(fields).length === 0) continue;
+        inline.set(String(stage.get('name')), fields as Partial<StageRouting>);
+        for (const field of ROUTING_FIELDS) stage.delete(field);
+    }
+    return { yaml: inline.size > 0 ? document.toString() : raw, inline };
+};
 
 /**
  * Refuse routing a stage's engine cannot honour, in the operator's own terms.

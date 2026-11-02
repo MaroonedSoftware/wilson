@@ -59,6 +59,9 @@ alwaysAllowed:
 deny: []
 
 stages:
+    # A saved document's adapter, provider and model move to wilson.stage_routing, so a new stage
+    # names them here once; \`wilson stages route\` changes them after that.
+    #
     # A conversation between a person and an agent, never dispatched. The model and instructions
     # are what the planning session runs with.
     - name: planning

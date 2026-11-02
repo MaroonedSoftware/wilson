@@ -3,7 +3,7 @@ import { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
-import { assertRoutable, findStage, parseStages, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
+import { assertRoutable, findStage, parseStages, splitRouting, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
 
 /** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
@@ -53,6 +53,10 @@ export abstract class StageConfigStore {
      * Store a new document as the current project's config. Validated first and refused with
      * `StageConfigError('config-invalid')` — nothing is written for a document `load` could not
      * later read. Every save is a new row: the previous document stays in the history.
+     *
+     * Routing fields in the document move to `wilson.stage_routing` (`splitRouting`) and are stored
+     * without them, so what comes back from `read` may not be the text submitted. A stage with neither
+     * those fields nor a routing row is refused, as a document missing `model` always was.
      */
     abstract save(yaml: string, message: string): Promise<StageConfigDocument>;
 
@@ -64,6 +68,13 @@ export abstract class StageConfigStore {
      * the routing is one `assertRoutable` turns down. Every change is a new row, like `save`.
      */
     abstract saveRouting(stage: string, routing: StageRouting, message: string): Promise<void>;
+
+    /**
+     * Move any routing left in the stored document to `wilson.stage_routing`, once, for a document
+     * from before that table. A stage that already has a row keeps it. Does nothing when there is no
+     * document or it holds no routing, so it is safe on every start.
+     */
+    abstract moveStoredRouting(): Promise<void>;
 }
 
 /**
@@ -114,8 +125,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
         const cached = parsedByProject.get(project);
         if (cached && cached.id === id) return cached.value;
 
-        const routing = new Map(rows.map(({ stage, adapter, provider, model }) => [stage, { adapter, provider, model } as StageRouting]));
-        const value = parseStages(row.yaml, `stage config ${row.id}`, routing);
+        const value = parseStages(row.yaml, `stage config ${row.id}`, routingByStage(rows));
         parsedByProject.set(project, { id, value });
         return value;
     }
@@ -126,14 +136,36 @@ export class PostgresStageConfigStore extends StageConfigStore {
     }
 
     async save(yaml: string, message: string): Promise<StageConfigDocument> {
-        parseStages(yaml, 'the submitted stage config');
+        return this.store(yaml, message, false);
+    }
 
-        const row = await this.db
-            .insertInto('wilson.stageConfigs')
-            .values({ project: this.config.project, yaml, message })
-            .returning(['id', 'yaml', 'message', 'createdAt'])
-            .executeTakeFirstOrThrow();
-        return toDocument(row);
+    async moveStoredRouting(): Promise<void> {
+        const document = await this.read();
+        if (document && splitRouting(document.yaml).inline.size > 0) {
+            await this.store(document.yaml, 'Moved routing to wilson.stage_routing', true);
+        }
+    }
+
+    /** Validate and write a document and the routing it carries, together. `keepRows` lets a row win over the document. */
+    private async store(submitted: string, message: string, keepRows: boolean): Promise<StageConfigDocument> {
+        const routing = routingByStage(await this.currentRouting());
+        const { yaml, inline } = splitRouting(submitted);
+        const changes = planRoutingChanges(submitted, routing, inline, keepRows);
+
+        return this.db.transaction().execute(async trx => {
+            if (changes.length > 0) {
+                await trx
+                    .insertInto('wilson.stageRouting')
+                    .values(changes.map(change => ({ project: this.config.project, ...change, message })))
+                    .execute();
+            }
+            const row = await trx
+                .insertInto('wilson.stageConfigs')
+                .values({ project: this.config.project, yaml, message })
+                .returning(['id', 'yaml', 'message', 'createdAt'])
+                .executeTakeFirstOrThrow();
+            return toDocument(row);
+        });
     }
 
     async versions(limit = 20): Promise<StageConfigVersionSummary[]> {
@@ -175,6 +207,35 @@ export class PostgresStageConfigStore extends StageConfigStore {
     }
 }
 
+const routingByStage = (rows: { stage: string; adapter: string; provider: string; model: string }[]) =>
+    new Map(rows.map(({ stage, adapter, provider, model }) => [stage, { adapter, provider, model } as StageRouting]));
+
+/**
+ * Validate a submitted document, and work out which routing rows saving it has to add.
+ *
+ * Only a stage the document names routing for gets one, and only if that changes anything. A field
+ * the document leaves out keeps the stage's current value.
+ */
+const planRoutingChanges = (
+    submitted: string,
+    routing: ReadonlyMap<string, StageRouting>,
+    inline: ReadonlyMap<string, Partial<StageRouting>>,
+    keepRows: boolean,
+): (StageRouting & { stage: string })[] => {
+    const merged = new Map(routing);
+    for (const [stage, fields] of inline) {
+        const row = routing.get(stage);
+        if (row && !keepRows) merged.set(stage, { ...row, ...fields });
+    }
+    const parsed = parseStages(submitted, 'the submitted stage config', merged);
+
+    return parsed.stages.flatMap(({ name, adapter, provider, model }) => {
+        const row = routing.get(name);
+        const unchanged = row?.adapter === adapter && row.provider === provider && row.model === model;
+        return inline.has(name) && !unchanged ? [{ stage: name, adapter, provider, model }] : [];
+    });
+};
+
 const toDocument = (row: { id: string | number | bigint; yaml: string; message: string; createdAt: DateTime }): StageConfigDocument => ({
     id: String(row.id),
     yaml: row.yaml,
@@ -207,8 +268,12 @@ export class StaticStageConfigStore extends StageConfigStore {
         return this.documents.at(-1);
     }
 
-    async save(yaml: string, message: string): Promise<StageConfigDocument> {
-        parseStages(yaml, 'the submitted stage config');
+    async save(submitted: string, message: string): Promise<StageConfigDocument> {
+        const { yaml, inline } = splitRouting(submitted);
+        for (const change of planRoutingChanges(submitted, this.routing, inline, false)) {
+            const { stage, ...routing } = change;
+            this.routing.set(stage, routing);
+        }
         const document = this.document(yaml, message);
         this.documents.push(document);
         return document;
@@ -226,6 +291,8 @@ export class StaticStageConfigStore extends StageConfigStore {
         assertRoutable(stage, routing);
         this.routing.set(stage, routing);
     }
+
+    async moveStoredRouting(): Promise<void> {}
 
     private document(yaml: string, message: string): StageConfigDocument {
         return { id: String(this.documents.length + 1), yaml, message, createdAt: DateTime.now() };
