@@ -43,7 +43,7 @@ describe('a worktree’s own git work runs on its host', () => {
             if (args[0] === 'diff' && args[1] === '--name-only') return { stdout: 'src/a.ts\n', stderr: '' };
             if (args[0] === 'diff' && args[1] === '--name-status') return { stdout: 'A\tsrc/new.ts\nM\tsrc/a.ts\n', stderr: '' };
             if (args[0] === 'ls-files') return { stdout: 'src/untracked.ts\n', stderr: '' };
-            if (args[0] === 'status') return { stdout: ' M src/a.ts\n?? src/untracked.ts\n', stderr: '' };
+            if (args[0] === 'status') return { stdout: ' M src/a.ts\0?? src/untracked.ts\0', stderr: '' };
             return { stdout: '', stderr: '' };
         });
         const worktree: Worktree = { path: '/remote/wt/0001', branch: 'card/0001', baseSha: 'abc', host };

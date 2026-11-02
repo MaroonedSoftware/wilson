@@ -69,6 +69,8 @@ const harness = async (duringRun: (board: BoardRepository) => Promise<unknown> =
         hasWork: vi.fn(async () => false),
         create: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
         commit: vi.fn(async () => 'committedsha'),
+        uncommittedPaths: vi.fn(async () => []),
+        uncommittedSnapshot: vi.fn(async () => ({})),
         reclaim: vi.fn(async () => {}),
         failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/run/cards/${cardId}/last-failed-attempt.patch`),
     };

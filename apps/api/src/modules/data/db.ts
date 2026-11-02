@@ -203,10 +203,21 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonEngineLimits {
+  account: string;
+  limitType: string;
+  recordedAt: Generated<DateTime>;
+  resetsAt: DateTime;
+}
+
 export interface WilsonEngineTokens {
   ciphertext: string;
   createdAt: Generated<DateTime>;
+  kind: Generated<"subscription" | "api_key">;
   name: string;
+  pooled: Generated<boolean>;
+  priority: Generated<number>;
+  provider: Generated<"anthropic" | "openai" | "xai">;
   updatedAt: Generated<DateTime>;
 }
 
@@ -346,6 +357,7 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;

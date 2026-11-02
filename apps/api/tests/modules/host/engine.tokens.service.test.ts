@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { DateTime } from 'luxon';
 import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import type { DB } from '#modules/data/db.js';
+import { EngineLimitRepository } from '#modules/host/engine.limit.repository.js';
 import { EngineTokenRepository } from '#modules/host/engine.token.repository.js';
 import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
 import { HostRepository } from '#modules/host/host.repository.js';
@@ -19,7 +21,7 @@ const uniqueName = (): string => uniqueProject().toLowerCase();
 beforeAll(() => {
     db = testDb();
     hosts = new HostRepository(db);
-    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key), hosts);
+    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key), hosts, new EngineLimitRepository(db));
 });
 afterAll(async () => {
     await db.destroy();
@@ -50,6 +52,93 @@ describe('EngineTokensService', () => {
         expect(await db.selectFrom('wilson.engineTokens').selectAll().where('name', '=', second).executeTakeFirstOrThrow()).toEqual(before);
     });
 
+    it('saves a new token as an Anthropic subscription at priority 0 unless told otherwise', async () => {
+        const [plain, key] = [uniqueName(), uniqueName()];
+
+        expect(await tokens.put(plain, { token: 'plain' })).toMatchObject({ provider: 'anthropic', kind: 'subscription', priority: 0 });
+        expect(await tokens.put(key, { token: 'key', provider: 'openai', kind: 'api_key', priority: 5 })).toMatchObject({
+            provider: 'openai',
+            kind: 'api_key',
+            priority: 5,
+        });
+    });
+
+    it('keeps what a replacement leaves out', async () => {
+        const name = uniqueName();
+        await tokens.put(name, { token: 'old', provider: 'openai', kind: 'api_key', priority: 5 });
+
+        expect(await tokens.put(name, { token: 'new' })).toMatchObject({ provider: 'openai', kind: 'api_key', priority: 5 });
+        expect(await tokens.put(name, { token: 'newer', priority: 1 })).toMatchObject({ provider: 'openai', kind: 'api_key', priority: 1 });
+        await expect(tokens.resolve(name)).resolves.toBe('newer');
+    });
+
+    it('refuses a priority outside 0 to 1000 with 400', async () => {
+        await expect(tokens.put(uniqueName(), { token: 'fine', priority: -1 })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.put(uniqueName(), { token: 'fine', priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('updates what is recorded about a token, keeping the token and what it has hit', async () => {
+        const name = uniqueName();
+        await tokens.put(name, { token: 'kept' });
+        await new EngineLimitRepository(db).record(name, 'five_hour', DateTime.now().plus({ hours: 1 }));
+
+        expect(await tokens.update(name, { pooled: true, priority: 7 })).toMatchObject({ pooled: true, priority: 7, kind: 'subscription' });
+
+        await expect(tokens.resolve(name)).resolves.toBe('kept');
+        expect((await tokens.limitsInForce()).map(limit => limit.account)).toContain(name);
+        await tokens.remove(name);
+    });
+
+    it('refuses to update an unknown token with 404, and a bad change with 400', async () => {
+        const [host, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+        await tokens.assign(host, { name });
+
+        await expect(tokens.update(uniqueName(), { pooled: true })).rejects.toMatchObject({ statusCode: 404 });
+        await expect(tokens.update(name, { priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.update(name, { provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('offers only pooled Anthropic tokens, by priority and then name, each with what to set it as', async () => {
+        const prefix = uniqueName();
+        const named = (suffix: string) => `${prefix}-${suffix}`;
+        await tokens.put(named('b'), { token: 'b', pooled: true, priority: 900 });
+        await tokens.put(named('a'), { token: 'a', pooled: true, priority: 900 });
+        await tokens.put(named('c'), { token: 'c', pooled: true, priority: 800 });
+        await tokens.put(named('out'), { token: 'out', priority: 800 });
+        await tokens.put(named('key'), { token: 'key', pooled: true, kind: 'api_key', priority: 1000 });
+        await tokens.put(named('other'), { token: 'other', pooled: true, provider: 'openai' });
+
+        const pool = (await tokens.pool()).filter(account => account.name.startsWith(prefix));
+
+        expect(pool).toEqual([
+            { name: named('c'), token: 'c', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('a'), token: 'a', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('b'), token: 'b', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('key'), token: 'key', variable: 'ANTHROPIC_API_KEY' },
+        ]);
+        for (const suffix of ['a', 'b', 'c', 'out', 'key', 'other']) await tokens.remove(named(suffix));
+    });
+
+    it('forgets the limits of a token that is replaced or removed, and only that token', async () => {
+        const limits = new EngineLimitRepository(db);
+        const [first, second] = [uniqueName(), uniqueName()];
+        await tokens.put(first, { token: 'first' });
+        await tokens.put(second, { token: 'second' });
+        const resets = DateTime.now().plus({ hours: 1 });
+        await limits.record(first, 'five_hour', resets);
+        await limits.record(second, 'five_hour', resets);
+        const limited = async () => (await limits.active()).map(limit => limit.account);
+
+        await tokens.put(first, { token: 'first-new' });
+        expect(await limited()).not.toContain(first);
+        expect(await limited()).toContain(second);
+
+        await tokens.remove(second);
+        expect(await limited()).not.toContain(second);
+    });
+
     it('removes one token and leaves the others', async () => {
         const [first, second] = [uniqueName(), uniqueName()];
         await tokens.put(first, { token: 'first' });
@@ -71,7 +160,12 @@ describe('EngineTokensService', () => {
     it('says so when a row will not decrypt, without saying what it held', async () => {
         const name = uniqueName();
         await tokens.put(name, { token: 'unreadable' });
-        const rekeyed = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(randomBytes(32)), hosts);
+        const rekeyed = new EngineTokensService(
+            new EngineTokenRepository(db),
+            new EncryptionProvider(randomBytes(32)),
+            hosts,
+            new EngineLimitRepository(db),
+        );
 
         await expect(rekeyed.resolve(name)).rejects.toThrow(`The engine token "${name}" cannot be decrypted`);
     });
@@ -100,13 +194,13 @@ describe('EngineTokensService', () => {
         await expect(tokens.forHost(host)).resolves.toBeUndefined();
 
         await tokens.assign(host, { name: first });
-        await expect(tokens.forHost(host)).resolves.toBe('first-value');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'first-value' });
 
         await tokens.put(first, { token: 'first-rotated' });
-        await expect(tokens.forHost(host)).resolves.toBe('first-rotated');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'first-rotated' });
 
         await tokens.assign(host, { name: second });
-        await expect(tokens.forHost(host)).resolves.toBe('second-value');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'second-value' });
 
         await tokens.remove(second);
         await expect(tokens.forHost(host)).resolves.toBeUndefined();
@@ -122,6 +216,37 @@ describe('EngineTokensService', () => {
         await expect(tokens.assign(uniqueName(), { name })).rejects.toMatchObject({ statusCode: 404 });
         await expect(tokens.assign(worker, { name: uniqueName() })).rejects.toMatchObject({ statusCode: 404 });
         await expect(tokens.unassign(uniqueName())).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('refuses with 400 to assign a token a host engine cannot sign in with', async () => {
+        const [host, other] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(other, { token: 'value', provider: 'openai' });
+
+        await expect(tokens.assign(host, { name: other })).rejects.toMatchObject({ statusCode: 400 });
+        expect((await hosts.find(host))?.engineToken).toBeUndefined();
+    });
+
+    it('assigns an Anthropic API key, to be set as one', async () => {
+        const [host, key] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(key, { token: 'sk-ant-api', kind: 'api_key' });
+
+        await tokens.assign(host, { name: key });
+
+        await expect(tokens.forHost(host)).resolves.toEqual({ name: key, token: 'sk-ant-api', variable: 'ANTHROPIC_API_KEY' });
+    });
+
+    it('refuses with 400 to turn an assigned token into one its host cannot use, keeping the saved one', async () => {
+        const [host, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+        await tokens.assign(host, { name });
+
+        await expect(tokens.put(name, { token: 'other', provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'value' });
+
+        expect(await tokens.put(name, { token: 'rotated', priority: 3 })).toMatchObject({ priority: 3, hosts: [host] });
     });
 
     it('removes a token that is still assigned, leaving its hosts with none', async () => {

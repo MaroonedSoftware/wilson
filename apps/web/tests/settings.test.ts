@@ -457,6 +457,7 @@ describe('the engine token control', () => {
         vi.spyOn(wilson.settings, 'getClaudeConfigDirSetting').mockResolvedValue({ configDir: null } satisfies ClaudeConfigDirSetting);
         vi.spyOn(wilson.settings, 'getEngineTokenSetting').mockResolvedValue({ source });
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([]);
+        vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([]);
     };
 
     it.each([
@@ -472,9 +473,49 @@ describe('the engine token control', () => {
         expect(((await screen.findByLabelText('Engine token')) as HTMLInputElement).value).toBe('');
     });
 
+    it('shows who is pooled and limited, including a sign-in with no saved token, and changes the pool', async () => {
+        load('none');
+        const saved = {
+            name: 'pool-a',
+            provider: 'anthropic' as const,
+            kind: 'subscription' as const,
+            priority: 3,
+            pooled: true,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            hosts: [],
+        };
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([saved]);
+        vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([
+            { account: 'pool-a', limitType: 'five_hour', resetsAt: DateTime.now().plus({ hours: 1 }) },
+            { account: 'worker:vm', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
+        ]);
+        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue({ ...saved, pooled: false });
+
+        renderApp('/settings');
+
+        expect(await screen.findByText('pooled, priority 3')).toBeTruthy();
+        expect(await screen.findByText(/five_hour limit until/)).toBeTruthy();
+        expect(await screen.findByText(/worker:vm: seven_day limit until/)).toBeTruthy();
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Leave pool' }));
+        });
+        expect(update).toHaveBeenCalledWith('pool-a', { pooled: false });
+    });
+
     it('saves a worker engine token under a name, empties both fields, and lists only names', async () => {
         load('none');
-        const saved = { name: 'pool-a', createdAt: DateTime.now(), updatedAt: DateTime.now(), hosts: ['unraid-vm'] };
+        const saved = {
+            name: 'pool-a',
+            provider: 'anthropic' as const,
+            kind: 'subscription' as const,
+            priority: 0,
+            pooled: false,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            hosts: ['unraid-vm'],
+        };
         const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(saved);
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValueOnce([]).mockResolvedValue([saved]);
 

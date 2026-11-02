@@ -73,6 +73,13 @@ const diffStatus = (letter: string): DiffFileEntry['status'] => {
  */
 export const DRY_RUN_INTEGRATION_BRANCH = 'dry-run-integration';
 
+/** Each uncommitted path's content hash, or `deleted`. See {@link WorktreeManager.uncommittedSnapshot}. */
+export type TreeSnapshot = Record<string, string>;
+
+/** The paths that differ between two snapshots, sorted. */
+export const snapshotDrift = (before: TreeSnapshot, after: TreeSnapshot): string[] =>
+    [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(path => before[path] !== after[path]).sort();
+
 /**
  * One worktree and one branch per card (PROJECT.md decision 6).
  *
@@ -744,12 +751,44 @@ export class WorktreeManager {
      * rather than the directory when they refuse, which is strictly more useful.
      */
     async uncommittedPaths(worktree: Worktree): Promise<string[]> {
-        const { stdout } = await gitOn(worktreeHost(worktree), worktree.path, ['status', '--porcelain', '--untracked-files=all']);
-        return stdout
-            .split('\n')
-            .map(line => line.slice(3).trim())
-            .filter(Boolean)
-            .sort();
+        return [...(await this.uncommittedEntries(worktree)).keys()].sort();
+    }
+
+    /**
+     * What is uncommitted right now, as each path's content hash, so that two snapshots can say
+     * whether anything moved between them. A deleted path has no content, so it reads `deleted`.
+     */
+    async uncommittedSnapshot(worktree: Worktree): Promise<TreeSnapshot> {
+        const entries = await this.uncommittedEntries(worktree);
+        const present = [...entries].filter(([, deleted]) => !deleted).map(([path]) => path);
+        const hashes =
+            present.length === 0 ? [] : (await gitOn(worktreeHost(worktree), worktree.path, ['hash-object', '--', ...present])).stdout.split('\n');
+        const snapshot: TreeSnapshot = {};
+        for (const [path, deleted] of entries) if (deleted) snapshot[path] = 'deleted';
+        present.forEach((path, index) => (snapshot[path] = hashes[index]!));
+        return snapshot;
+    }
+
+    /**
+     * Each uncommitted path and whether it is gone from the tree. `-z` because the plain format quotes
+     * a path with a space in it, which then matches no file and no glob. A rename's second field is
+     * the old path, which counts as a change of its own: the scope check must see both ends of a move.
+     */
+    private async uncommittedEntries(worktree: Worktree): Promise<Map<string, boolean>> {
+        const { stdout } = await gitOn(worktreeHost(worktree), worktree.path, ['status', '--porcelain', '-z', '--untracked-files=all']);
+        const fields = stdout.split('\0');
+        const entries = new Map<string, boolean>();
+        for (let index = 0; index < fields.length; index++) {
+            const field = fields[index]!;
+            if (field.length < 4) continue;
+            const status = field.slice(0, 2);
+            entries.set(field.slice(3), status.includes('D'));
+            if (status.includes('R') || status.includes('C')) {
+                const from = fields[++index];
+                if (from) entries.set(from, status.includes('R'));
+            }
+        }
+        return entries;
     }
 
     /** Paths changed on the branch since it was cut, relative to the worktree root. */

@@ -1,4 +1,4 @@
-import type { ExecutionHost } from './execution.host.js';
+import type { EngineAccount, ExecutionHost } from './execution.host.js';
 import type { GitTransport } from './git.transport.js';
 import type { HostRow } from './host.repository.js';
 import { gitSshCommand, SshHost } from './ssh.execution.host.js';
@@ -20,14 +20,14 @@ export class HostConnector {
      *   see `SshHost`'s parameter of the same name.
      * @param workers The worker connections open now. Absent, as in tests of SSH hosts alone, no
      *   worker host is ever connected.
-     * @param workerEngineToken The token assigned to a worker host now. Called at each engine start,
-     *   so a replaced or removed token needs no reconnect. Absent, every worker uses its own.
+     * @param workerAccount The account a worker host's engine signs in as now. Called at each engine
+     *   start, so a replaced or removed token needs no reconnect. Absent, every worker uses its own.
      */
     constructor(
         private readonly sshCommand = 'ssh',
         private readonly engineToken?: string,
         private readonly workers?: WorkerConnections,
-        private readonly workerEngineToken?: (hostName: string) => Promise<string | undefined>,
+        private readonly workerAccount?: (hostName: string) => Promise<EngineAccount>,
     ) {}
 
     /**
@@ -41,7 +41,7 @@ export class HostConnector {
         if (host.kind === 'worker') {
             const connection = this.workerConnection(host.name);
             if (host.projects) connection.send({ type: 'welcome', host: host.name, projects: host.projects });
-            return new WorkerExecutionHost(connection, host.commandEnv, async () => this.workerEngineToken?.(host.name));
+            return new WorkerExecutionHost(connection, host.commandEnv, this.workerAccount && (() => this.workerAccount!(host.name)));
         }
         return new SshHost(sshTargetOf(host), this.sshCommand, host.commandEnv, this.engineToken);
     }

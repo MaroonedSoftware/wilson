@@ -9,11 +9,47 @@ const __dt = (v: unknown, path: string): DateTime => {
 };
 
 /**
- * What is shown of a saved token: its name and when it was saved, never the token.
+ * Who a token signs in to.
+ * generated from [EngineTokenProvider](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export type EngineTokenProvider = 'anthropic' | 'openai' | 'xai';
+
+/**
+ * How it signs in: a plan's own login, or a key billed per token.
+ * generated from [EngineTokenKind](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export type EngineTokenKind = 'subscription' | 'api_key';
+
+/**
+ * A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
+ * the sign-in of engines on this machine, or `worker:<host>` for a worker's own.
+ * generated from [EngineLimit](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export interface EngineLimit {
+    account: string;
+    limitType: string;
+    resetsAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a EngineLimit into its runtime type. Mutates and returns `raw`. */
+export function reviveEngineLimit(raw: EngineLimit): EngineLimit {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['resetsAt'] = __dt(__o0['resetsAt'], 'EngineLimit.resetsAt');
+    return raw;
+}
+
+/**
+ * What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.
  * generated from [EngineTokenSummary](../../../../apps/api/data/contracts/engine.tokens.ck)
  */
 export interface EngineTokenSummary {
     name: string;
+    provider: EngineTokenProvider;
+    kind: EngineTokenKind;
+    /** Which of a provider's tokens comes first, lowest first. */
+    priority: number;
+    /** Whether Wilson may choose this token for an engine with no token assigned. */
+    pooled: boolean;
     createdAt: DateTime;
     updatedAt: DateTime;
     /** The worker hosts assigned this token, name ascending. */
@@ -34,4 +70,25 @@ export function reviveEngineTokenSummary(raw: EngineTokenSummary): EngineTokenSu
 export interface PutEngineTokenRequest {
     /** What `claude setup-token` prints. */
     token: string;
+    /**
+     * Each of these keeps what is saved under this name when left out, or its default on a new name:
+     * anthropic, subscription, 0 and not pooled.
+     */
+    provider?: EngineTokenProvider;
+    kind?: EngineTokenKind;
+    /** 0 to 1000. */
+    priority?: number;
+    pooled?: boolean;
+}
+
+/**
+ * What can change about a saved token without saving it again. What is left out stays as it is.
+ * generated from [UpdateEngineTokenRequest](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export interface UpdateEngineTokenRequest {
+    provider?: EngineTokenProvider;
+    kind?: EngineTokenKind;
+    /** 0 to 1000. */
+    priority?: number;
+    pooled?: boolean;
 }

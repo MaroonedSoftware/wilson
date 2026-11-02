@@ -13,7 +13,7 @@ import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
-import { StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
+import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
@@ -26,7 +26,7 @@ import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
@@ -381,6 +381,27 @@ export class StageDispatcher {
     }
 
     /**
+     * The last look before a passing stage commits, whatever engine ran it and whatever its verifier
+     * checked. Everything uncommitted must be in this stage's scope, since a command or an engine can
+     * write without asking a guard. And it must be what the verifier saw: an engine can land an edit
+     * after the verifier finished (see `tool.unguarded`), and committing that would record a verdict
+     * on work nobody judged. `testReportPath` is exempt from scope, being the runner's own output.
+     */
+    private async checkBeforeCommit(outcome: StageOutcome, worktree: Worktree, scope: ScopeGuard, stage: StageConfig): Promise<StageOutcome> {
+        const failures: string[] = [];
+        for (const path of await this.worktrees.uncommittedPaths(worktree)) {
+            if (path === stage.testReportPath) continue;
+            const decision = await scope.check(path);
+            if (!decision.allowed) failures.push(`${path} is outside this stage's scope (${decision.reason})`);
+        }
+        if (outcome.verifiedTree) {
+            const drifted = snapshotDrift(outcome.verifiedTree, await this.worktrees.uncommittedSnapshot(worktree));
+            if (drifted.length > 0) failures.push(`changed after the stage was verified: ${drifted.join(', ')}`);
+        }
+        return failures.length === 0 ? outcome : { ...outcome, passed: false, failures: [...outcome.failures, ...failures] };
+    }
+
+    /**
      * `run` from the worktree on: cut it (on `placement`'s host when there is one), prepare it, run
      * the stage and record what happened. Split from `run` so a placed stage's cleanup wraps all of
      * this, including a rebase conflict or a failed setup, in one `finally`.
@@ -632,6 +653,8 @@ export class StageDispatcher {
                 await this.throwIfHostLost(placement, cardId, stageName, outcome.failures.join('; ') || 'the stage did not pass');
             }
 
+            if (outcome.passed) outcome = await this.checkBeforeCommit(outcome, worktree, scope, stage);
+
             // Only a passing stage commits. A failed stage leaves its work in the worktree for
             // inspection, and the next attempt starts from the base rather than building on a tree
             // that did not satisfy its exit condition.
@@ -694,7 +717,7 @@ export class StageDispatcher {
                     cardId,
                     stage: stageName,
                     type: 'stage.interrupted',
-                    payload: { usage: err.usage },
+                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }) },
                 });
                 throw err;
             }
@@ -1241,7 +1264,7 @@ export class StageDispatcher {
         });
         if (run.interrupted) {
             const { sessionId, wallClockMs, steps } = run.interrupted;
-            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, {
+            const attempt: InterruptedAttempt = {
                 baseSha: worktree.baseSha,
                 ...(worktree.placement && { host: worktree.placement.hostName }),
                 ...(sessionId && { sessionId }),
@@ -1250,7 +1273,18 @@ export class StageDispatcher {
                     steps: (interrupted?.spent?.steps ?? 0) + steps,
                     inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
                 },
-            });
+            };
+            if (run.usageLimit) {
+                throw new StageHeldError(
+                    card.frontmatter.id,
+                    stage.name,
+                    run.usage,
+                    attempt,
+                    run.usageLimit,
+                    run.heldUntil ?? run.usageLimit.resetsAt,
+                );
+            }
+            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
         }
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
@@ -1261,6 +1295,7 @@ export class StageDispatcher {
         }
         const reported = run.result;
         const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
+        const verifiedTree = await this.worktrees.uncommittedSnapshot(worktree);
         const failures = [...verification.failures];
 
         // A result that never parsed against the stage's own schema carries no judgment about the
@@ -1336,6 +1371,7 @@ export class StageDispatcher {
             passed: failures.length === 0,
             failures,
             changedPaths: verification.changedPaths,
+            verifiedTree,
             scopeGrants: scope.grants(),
             result: reported,
             usage: run.usage,

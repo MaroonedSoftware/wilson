@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
@@ -36,6 +37,7 @@ const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
 const GITHUB_APP_QUERY_KEY = ['settings', 'github-app'];
 const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
 const ENGINE_TOKENS_QUERY_KEY = ['engine-tokens'];
+const ENGINE_LIMITS_QUERY_KEY = ['engine-limits'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 const STAGE_ROUTING_QUERY_KEY = ['stages', 'routing'];
 
@@ -666,10 +668,15 @@ function WorkerEngineTokensControl() {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     const tokens = useQuery({ queryKey: ENGINE_TOKENS_QUERY_KEY, queryFn: () => wilson.engineTokens.listEngineTokens() });
+    const limits = useQuery({ queryKey: ENGINE_LIMITS_QUERY_KEY, queryFn: () => wilson.engineTokens.listEngineLimits() });
     const [name, setName] = useState('');
     const [token, setToken] = useState('');
 
-    const refresh = () => queryClient.invalidateQueries({ queryKey: ENGINE_TOKENS_QUERY_KEY });
+    const refresh = () =>
+        Promise.all([
+            queryClient.invalidateQueries({ queryKey: ENGINE_TOKENS_QUERY_KEY }),
+            queryClient.invalidateQueries({ queryKey: ENGINE_LIMITS_QUERY_KEY }),
+        ]);
     const put = useMutation({
         mutationFn: () => wilson.engineTokens.putEngineToken(name.trim(), { token }),
         onSuccess: () => {
@@ -679,6 +686,10 @@ function WorkerEngineTokensControl() {
         },
     });
     const remove = useMutation({ mutationFn: (saved: string) => wilson.engineTokens.removeEngineToken(saved), onSuccess: refresh });
+    const setPooled = useMutation({
+        mutationFn: ({ saved, pooled }: { saved: string; pooled: boolean }) => wilson.engineTokens.updateEngineToken(saved, { pooled }),
+        onSuccess: refresh,
+    });
 
     if (tokens.error) {
         return (
@@ -689,7 +700,14 @@ function WorkerEngineTokensControl() {
     }
     if (!tokens.data) return <Loader size="sm" />;
 
-    const failed = [put, remove].find(mutation => mutation.isError);
+    const failed = [put, remove, setPooled].find(mutation => mutation.isError);
+    const describeLimits = (account: string) =>
+        (limits.data ?? [])
+            .filter(limit => limit.account === account)
+            .map(limit => `${limit.limitType} limit until ${limit.resetsAt.toLocaleString(DateTime.DATETIME_SHORT)}`)
+            .join(', ');
+    const savedNames = new Set(tokens.data.map(saved => saved.name));
+    const otherAccounts = [...new Set((limits.data ?? []).map(limit => limit.account))].filter(account => !savedNames.has(account));
     return (
         <Stack gap="xs">
             <Text size="sm" fw={500}>
@@ -698,7 +716,8 @@ function WorkerEngineTokensControl() {
             <Text size="xs" c="dimmed">
                 Tokens Wilson holds for worker hosts, each assigned on the Hosts page. Wilson sends one to its worker with each engine start, and a
                 stage there can read it. Saving under an existing name replaces that token. Removing one sends its hosts back to their own sign-in,
-                leaves running engines alone, and does not revoke it with Anthropic.
+                leaves running engines alone, and does not revoke it with Anthropic. An engine with no token assigned takes the first pooled token
+                with no limit in force, lowest priority first.
             </Text>
             {tokens.data.map(saved => (
                 <Group key={saved.name} gap="xs">
@@ -706,10 +725,33 @@ function WorkerEngineTokensControl() {
                     <Text size="sm" c="dimmed">
                         {saved.hosts.length > 0 ? saved.hosts.join(', ') : 'no host'}
                     </Text>
+                    {saved.pooled && (
+                        <Text size="sm" c="dimmed">
+                            pooled, priority {saved.priority}
+                        </Text>
+                    )}
+                    {describeLimits(saved.name) !== '' && (
+                        <Text size="sm" c="orange">
+                            {describeLimits(saved.name)}
+                        </Text>
+                    )}
+                    <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        disabled={setPooled.isPending}
+                        onClick={() => setPooled.mutate({ saved: saved.name, pooled: !saved.pooled })}
+                    >
+                        {saved.pooled ? 'Leave pool' : 'Add to pool'}
+                    </Button>
                     <Button size="compact-xs" variant="subtle" color="red" disabled={remove.isPending} onClick={() => remove.mutate(saved.name)}>
                         Remove
                     </Button>
                 </Group>
+            ))}
+            {otherAccounts.map(account => (
+                <Text key={account} size="sm" c="orange">
+                    {account}: {describeLimits(account)}
+                </Text>
             ))}
             <Group gap="xs" align="flex-end">
                 <TextInput

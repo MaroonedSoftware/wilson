@@ -97,7 +97,10 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
         // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
         // building its attempts bullet, so the worktrees stub needs a real function here — the
         // "still judged" tests below hit exactly that branch.
-        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+        const worktrees = {
+            failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch'),
+            uncommittedSnapshot: async () => ({}),
+        };
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
@@ -207,7 +210,7 @@ describe('StageDispatcher runAgent (via private access) computes unjudged from t
             { project: 'test' } as BoardConfig,
             {} as StageConfigStore,
             {} as BoardRepository,
-            {} as WorktreeManager,
+            { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
             agents,
             verifiers,
             resultSchemas,

@@ -1,3 +1,4 @@
+import { ENGINE_TOKEN_VARIABLE, type EngineCredentialVariable } from '@wilson/worker-protocol';
 import { dirname, isAbsolute, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -12,10 +13,11 @@ import {
     type SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import type { ExecutionHost } from '#modules/host/execution.host.js';
+import type { EngineAccount, ExecutionHost } from '#modules/host/execution.host.js';
+import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
-import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
@@ -92,18 +94,22 @@ const ENGINE_PASSED_THROUGH_PREFIXES = ['LC_', 'CLAUDE_CODE_', 'TEST_DATABASE_']
  * and pass the result in, the same way they already resolve everything else this function does not
  * know about on its own.
  *
- * `engineToken`, when given, is set as `CLAUDE_CODE_OAUTH_TOKEN`, over one this process already has,
+ * `engineToken`, when given, is set as `variable` (`CLAUDE_CODE_OAUTH_TOKEN` unless it is an API key), over one this process already has,
  * which the prefix above would otherwise pass through. The engine signs in with a token ahead of
  * anything under `CLAUDE_CONFIG_DIR`. Left `undefined`, the environment's own token, if any, stands.
  */
-export const subscriptionEnv = (configDir?: string, engineToken?: string): NodeJS.ProcessEnv => {
+export const subscriptionEnv = (
+    configDir?: string,
+    engineToken?: string,
+    variable: EngineCredentialVariable = ENGINE_TOKEN_VARIABLE,
+): NodeJS.ProcessEnv => {
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (value === undefined) continue;
         if (ENGINE_PASSED_THROUGH.includes(key) || ENGINE_PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
-    if (engineToken !== undefined) env.CLAUDE_CODE_OAUTH_TOKEN = engineToken;
+    if (engineToken !== undefined) env[variable] = engineToken;
     return env;
 };
 
@@ -114,10 +120,14 @@ export const subscriptionEnv = (configDir?: string, engineToken?: string): NodeJ
  */
 const remoteEngine = (
     host: ExecutionHost,
+    account?: EngineAccount,
 ): { pathToClaudeCodeExecutable?: string; spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess } => {
     const spawnClaude = host.spawnClaude?.bind(host);
     if (!spawnClaude) return {};
-    return { pathToClaudeCodeExecutable: 'claude', spawnClaudeCodeProcess: options => spawnClaude(options) as SpawnedProcess };
+    return {
+        pathToClaudeCodeExecutable: 'claude',
+        spawnClaudeCodeProcess: options => spawnClaude(account ? { ...options, account } : options) as SpawnedProcess,
+    };
 };
 
 /**
@@ -231,12 +241,12 @@ export class CliStageAgent extends StageAgent {
     // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
     // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
     // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
-    // `engineTokens` is optional for the same reason: none means no saved token. So is `interrupts`:
+    // `accounts` is optional for the same reason: none means no saved token. So is `interrupts`:
     // none means nothing can interrupt the run.
     constructor(
         private readonly logger: Logger,
         private readonly settings?: SettingsStore,
-        private readonly engineTokens?: EngineTokenSettingService,
+        private readonly accounts?: EngineAccountsService,
         private readonly interrupts?: StageInterrupt,
     ) {
         super();
@@ -257,7 +267,21 @@ export class CliStageAgent extends StageAgent {
         // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
         // happen out here rather than inline where it is used.
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
-        const engineToken = await this.engineTokens?.resolve();
+        const host = toolHost(context);
+        const chooseAccount = async () => (host.engineAccount ? host.engineAccount() : this.accounts?.local());
+        const hostAccount = await host.engineAccount?.();
+        const account = hostAccount ?? (await this.accounts?.local());
+        // Refused before it starts, rather than spend an engine start learning what is already recorded.
+        if (account?.limit) {
+            const sessionId = resume?.sessionId;
+            return {
+                truncated: true,
+                usageLimit: account.limit,
+                heldUntil: account.limit.resetsAt,
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: 0, steps: 0 },
+            };
+        }
+        const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
 
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
@@ -603,12 +627,12 @@ export class CliStageAgent extends StageAgent {
                 // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
-                env: subscriptionEnv(configDir, engineToken),
+                env: subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
                 // A worktree on another machine needs the engine there too: its built-in tools read
                 // and write the tree directly. The host starts `claude` from its own PATH, and the
                 // SDK's callbacks above still run here, over the same stdio. A host with no
                 // `spawnClaude` is this machine, where the SDK's own spawn is already right.
-                ...remoteEngine(toolHost(context)),
+                ...remoteEngine(host, hostAccount),
                 // Captured independent of how the read loop ends — the only way to see what the
                 // engine wrote to stderr when it dies before producing a `result` message at all.
                 stderr: (data: string) => {
@@ -713,6 +737,26 @@ export class CliStageAgent extends StageAgent {
             };
         };
 
+        // Only ever for a run with nothing reported: one that has reported has finished its work,
+        // whatever state its account is left in. A failed write costs the next engine start a refusal.
+        const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
+            await this.accounts?.recordLimit(limit).catch((error: unknown) => this.logger.warn(`could not record a usage limit: ${String(error)}`));
+            // Asked again now the limit is recorded. An answer of this same account means the record
+            // did not take, and an error means no answer: either way, wait for what is known.
+            const next = await chooseAccount().catch(() => undefined);
+            const moved = next !== undefined && next.name !== limit.account;
+            const heldUntil = next?.limit?.resetsAt ?? (moved ? Date.now() : limit.resetsAt);
+            const sessionId = engineSessionId ?? resume?.sessionId;
+            return {
+                usage: usage ?? spentSoFar(),
+                truncated: true,
+                usageLimit: limit,
+                heldUntil,
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps: turns },
+                ...traceField(),
+            };
+        };
+
         try {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
@@ -750,9 +794,13 @@ export class CliStageAgent extends StageAgent {
                 // limit `describeEngineStop` below exists to not paper over. The fallthrough return at
                 // the end of this method carries none, same as an ordinary pass — there is nothing
                 // truthful to put there.
-                if (next.done) break;
+                if (next.done) {
+                    if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
+                    break;
+                }
                 beat();
                 const message = next.value;
+                usageWatch.observe(message);
 
                 // Swallowed: this is only what a later attempt could resume from, and losing it costs
                 // that attempt a fresh start, which is no reason to fail the run in progress.
@@ -851,6 +899,7 @@ export class CliStageAgent extends StageAgent {
                         outputTokens: message.usage?.output_tokens,
                         cachedInputTokens: (message.usage?.cache_read_input_tokens ?? 0) + (message.usage?.cache_creation_input_tokens ?? 0),
                     };
+                    if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
                     // The engine reports its own truncation; treat anything but a clean end as cut off.
                     // That covers `error_max_budget_usd` too: it is not `success`, so it lands here.
                     if (message.subtype !== 'success') {
@@ -985,6 +1034,8 @@ export class CliStageAgent extends StageAgent {
                     ...traceField(),
                 };
             }
+
+            if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
 
             // None of the runner's own controls fired, and the read still rejected. The engine's own
             // process lifecycle tags every abnormal exit it produces — an abort, a nonzero exit, a

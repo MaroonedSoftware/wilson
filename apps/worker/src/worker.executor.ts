@@ -87,7 +87,7 @@ export class WorkerExecutor {
                 void this.answer(message.id, () => this.call(message.call));
                 return;
             case 'run-claude':
-                void this.answer(message.id, () => this.runClaude(message.args, message.timeoutMs, message.engineToken));
+                void this.answer(message.id, () => this.runClaude(message));
                 return;
             case 'spawn':
                 this.spawn(message);
@@ -214,11 +214,11 @@ export class WorkerExecutor {
         }
     }
 
-    private async runClaude(args: string[], timeoutMs: number, engineToken?: string): Promise<{ stdout: string; stderr: string }> {
-        const { stdout, stderr } = await execFileAsync(this.claudeCommand, args, {
+    private async runClaude(message: Extract<ToWorker, { type: 'run-claude' }>): Promise<{ stdout: string; stderr: string }> {
+        const { stdout, stderr } = await execFileAsync(this.claudeCommand, message.args, {
             cwd: '/',
-            timeout: timeoutMs,
-            env: engineEnvironment({}, this.env, engineToken),
+            timeout: message.timeoutMs,
+            env: engineEnvironment({}, this.env, message.engineToken, message.engineTokenVariable),
         });
         return { stdout, stderr };
     }
@@ -239,7 +239,7 @@ export class WorkerExecutor {
         // spawn starts, and the name Wilson uses for it means nothing here.
         const child = spawn(this.claudeCommand, message.args, {
             ...(message.cwd && { cwd: message.cwd }),
-            env: engineEnvironment(message.env, this.env, message.engineToken),
+            env: engineEnvironment(message.env, this.env, message.engineToken, message.engineTokenVariable),
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         this.processes.set(message.id, child);

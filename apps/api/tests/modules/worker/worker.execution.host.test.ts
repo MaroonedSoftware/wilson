@@ -140,7 +140,11 @@ describe('WorkerExecutionHost when the worker goes away', () => {
 
         /** Start the engine, end its stdin, and collect what it printed: the token it saw, then `got:` lines. */
         const runEngine = async (assigned: () => Promise<string | undefined>, env: Record<string, string> = {}): Promise<string> => {
-            const engine = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], assigned).spawnClaude({
+            const account = async () => {
+                const token = await assigned();
+                return { name: 'assigned', ...(token !== undefined && { token }) };
+            };
+            const engine = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], account).spawnClaude({
                 command: 'claude',
                 args: [],
                 cwd: root,
@@ -188,7 +192,10 @@ describe('WorkerExecutionHost when the worker goes away', () => {
         });
 
         it('passes the probe’s sign-in check with it', async () => {
-            const probing = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], async () => 'assigned-token');
+            const probing = new WorkerExecutionHost(tokenServer.connections.get('token-vm')!, [], async () => ({
+                name: 'assigned',
+                token: 'assigned-token',
+            }));
 
             await probing.runClaude(['auth', 'status'], 5_000);
 

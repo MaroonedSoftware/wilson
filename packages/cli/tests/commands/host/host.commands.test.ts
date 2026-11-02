@@ -9,6 +9,7 @@ const { default: tokenCommand } = await import('#src/commands/host/token.command
 const { default: hostEngineTokenCommand } = await import('#src/commands/host/engine-token.command.js');
 const { default: engineTokenSetCommand } = await import('#src/commands/engine-token/set.command.js');
 const { default: engineTokenListCommand } = await import('#src/commands/engine-token/list.command.js');
+const { default: engineTokenUpdateCommand } = await import('#src/commands/engine-token/update.command.js');
 const { terminalIo } = await import('#src/sign.in.js');
 
 type Handler<Opts> = (opts: Opts, ctx: unknown, args: unknown[]) => Promise<number | void>;
@@ -259,7 +260,16 @@ describe('wilson host engine-token', () => {
 });
 
 describe('wilson engine-token', () => {
-    const summary = { name: 'pool-a', createdAt: '2026-10-31T10:00:00Z', updatedAt: '2026-10-31T11:00:00Z', hosts: ['unraid-vm'] };
+    const summary = {
+        name: 'pool-a',
+        provider: 'anthropic',
+        kind: 'subscription',
+        priority: 0,
+        pooled: false,
+        createdAt: '2026-10-31T10:00:00Z',
+        updatedAt: '2026-10-31T11:00:00Z',
+        hosts: ['unraid-vm'],
+    };
 
     it('reads the token from stdin, sends it in the body, and never prints it', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(summary));
@@ -277,12 +287,71 @@ describe('wilson engine-token', () => {
         readStdin.mockRestore();
     });
 
+    it('sends the provider, kind and priority it is given', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(summary));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin').mockResolvedValue('secret-value');
+        const { ctx } = buildCtx();
+
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ provider: 'openai', kind: 'api_key', priority: 2 }, ctx, ['pool-a']);
+
+        expect(sentBody()).toEqual({ token: 'secret-value', provider: 'openai', kind: 'api_key', priority: 2 });
+        readStdin.mockRestore();
+    });
+
+    it('joins and leaves the pool only when told to', async () => {
+        fetchMock.mockResolvedValue(jsonResponse(summary));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin').mockResolvedValue('secret-value');
+        const { ctx } = buildCtx();
+
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ pool: true }, ctx, ['pool-a']);
+        expect(sentBody()).toEqual({ token: 'secret-value', pooled: true });
+
+        fetchMock.mockClear();
+        fetchMock.mockResolvedValue(jsonResponse(summary));
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ leavePool: true }, ctx, ['pool-a']);
+        expect(sentBody()).toEqual({ token: 'secret-value', pooled: false });
+
+        readStdin.mockRestore();
+    });
+
+    /** Answer the list and the limits by URL, since the command asks for both at once. */
+    const answerList = (limits: unknown[]) =>
+        fetchMock.mockImplementation(async (url: unknown) => jsonResponse(String(url).includes('/api/engine-limits') ? limits : [summary]));
+
     it('lists names and the hosts assigned each', async () => {
-        fetchMock.mockResolvedValueOnce(jsonResponse([summary]));
+        answerList([]);
         const { ctx, logger } = buildCtx();
 
         await (engineTokenListCommand.run as unknown as Handler<object>)({}, ctx, []);
 
-        expect(String(logger.info.mock.calls[0]?.[0])).toBe('pool-a  saved 2026-10-31T11:00:00Z  assigned to unraid-vm');
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe(
+            'pool-a  anthropic subscription  priority 0  saved 2026-10-31T11:00:00Z  assigned to unraid-vm',
+        );
+    });
+
+    it('shows each limit in force, including those of a sign-in with no saved token', async () => {
+        answerList([
+            { account: 'pool-a', limitType: 'five_hour', resetsAt: '2026-11-02T20:00:00Z' },
+            { account: 'worker:vm', limitType: 'seven_day', resetsAt: '2026-11-05T20:00:00Z' },
+        ]);
+        const { ctx, logger } = buildCtx();
+
+        await (engineTokenListCommand.run as unknown as Handler<object>)({}, ctx, []);
+
+        expect(String(logger.info.mock.calls[0]?.[0])).toContain('five_hour limit until 2026-11-02T20:00:00Z');
+        expect(String(logger.info.mock.calls[1]?.[0])).toBe('worker:vm  seven_day limit until 2026-11-05T20:00:00Z');
+    });
+
+    it('updates without asking for the token', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ...summary, pooled: true, priority: 2 }));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin');
+        const { ctx, logger } = buildCtx();
+
+        await (engineTokenUpdateCommand.run as unknown as Handler<object>)({ pool: true, priority: 2 }, ctx, ['pool-a']);
+
+        expect(readStdin).not.toHaveBeenCalled();
+        expect(sentBody()).toEqual({ priority: 2, pooled: true });
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe('pool-a: priority 2, pooled');
+        readStdin.mockRestore();
     });
 });

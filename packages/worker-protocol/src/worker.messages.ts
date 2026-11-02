@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ENGINE_CREDENTIAL_VARIABLES } from './worker.env.js';
 
 /**
  * The messages a worker and Wilson exchange over the worker connection: one WebSocket the worker opens
@@ -12,7 +13,7 @@ import { z } from 'zod';
  * Bump {@link WORKER_PROTOCOL_VERSION} for any change a worker built against the old one would
  * misread. Wilson refuses a worker whose `hello` names another version, rather than guessing.
  */
-export const WORKER_PROTOCOL_VERSION = 3;
+export const WORKER_PROTOCOL_VERSION = 4;
 
 /** The path the worker connects to, on the API's own origin. */
 export const WORKER_CONNECT_PATH = '/api/workers/connect';
@@ -118,6 +119,7 @@ export const ToWorker = z.discriminatedUnion('type', [
      * its own `PATH` and the rest. `engineToken` is the one this host is assigned, for this process
      * alone, here and not in `welcome` so that a worker keeps no token between engines and a replaced
      * one needs no reconnect. Absent, the worker's own engine token is used, if it has one.
+     * `engineTokenVariable` is what to set it as, a subscription's token when absent.
      */
     z.object({
         type: z.literal('spawn'),
@@ -127,6 +129,7 @@ export const ToWorker = z.discriminatedUnion('type', [
         cwd: z.string().optional(),
         env: z.record(z.string(), z.string()),
         engineToken: z.string().optional(),
+        engineTokenVariable: z.enum(ENGINE_CREDENTIAL_VARIABLES).optional(),
     }),
     /** Bytes for a spawned process's stdin, base64. */
     z.object({ type: z.literal('stdin'), id: z.string(), data: z.string() }),
@@ -142,6 +145,7 @@ export const ToWorker = z.discriminatedUnion('type', [
         args: z.array(z.string()),
         timeoutMs: z.number().int().positive(),
         engineToken: z.string().optional(),
+        engineTokenVariable: z.enum(ENGINE_CREDENTIAL_VARIABLES).optional(),
     }),
 ]);
 export type ToWorker = z.infer<typeof ToWorker>;

@@ -186,7 +186,16 @@ describe('the hosts page', () => {
         const worker: Host = { ...agentHost, name: 'unraid-vm', kind: 'worker', sshTarget: undefined, running: [] };
         vi.spyOn(wilson.hosts, 'listHosts').mockResolvedValue([worker, agentHost]);
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([
-            { name: 'pool-a', createdAt: DateTime.fromMillis(NOW), updatedAt: DateTime.fromMillis(NOW), hosts: [] },
+            {
+                name: 'pool-a',
+                provider: 'anthropic',
+                kind: 'subscription',
+                priority: 0,
+                pooled: false,
+                createdAt: DateTime.fromMillis(NOW),
+                updatedAt: DateTime.fromMillis(NOW),
+                hosts: [],
+            },
         ]);
         const assign = vi.spyOn(wilson.hosts, 'assignEngineToken').mockResolvedValue({ ...worker, engineToken: 'pool-a' });
         renderApp('/hosts');

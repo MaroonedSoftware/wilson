@@ -1,3 +1,4 @@
+import type { TreeSnapshot } from '#modules/worktree/worktree.manager.js';
 import { z } from 'zod';
 import type { RunTrace } from '#modules/agent/run.trace.js';
 
@@ -235,6 +236,8 @@ export interface StageOutcome {
     failures: string[];
     changedPaths: string[];
     scopeGrants: string[];
+    /** What was uncommitted when the verifier finished, which is what its verdict is about. */
+    verifiedTree?: TreeSnapshot;
     result?: unknown;
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
     /**

@@ -97,12 +97,23 @@ describe('CliStageAgent resolves the claude-config-dir setting into the engine e
 
     it('sets CLAUDE_CODE_OAUTH_TOKEN in the engine env when a token is saved', async () => {
         queryMock.mockReturnValue(emptyStream());
-        const engineTokens = { resolve: vi.fn(async () => 'saved-token') };
-        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, engineTokens as never);
+        const accounts = { local: vi.fn(async () => ({ name: 'local', token: 'saved-token' })) };
+        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, accounts as never);
 
         await agent.run(runInput(makeStage()) as never);
 
         expect(envFromCall().CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+    });
+
+    it('sets an API key account as ANTHROPIC_API_KEY, not as the subscription token', async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const accounts = { local: vi.fn(async () => ({ name: 'key', token: 'sk-ant-api', variable: 'ANTHROPIC_API_KEY' })) };
+        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, accounts as never);
+
+        await agent.run(runInput(makeStage()) as never);
+
+        expect(envFromCall().ANTHROPIC_API_KEY).toBe('sk-ant-api');
+        expect('CLAUDE_CODE_OAUTH_TOKEN' in envFromCall()).toBe(false);
     });
 
     it('carries no CLAUDE_CONFIG_DIR key at all when the setting resolves to undefined (unset)', async () => {

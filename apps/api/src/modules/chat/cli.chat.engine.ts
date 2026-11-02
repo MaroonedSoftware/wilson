@@ -2,7 +2,8 @@ import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { Injectable } from 'injectkit';
 import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
-import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import { describeUsageLimit, UsageLimitWatch } from '#modules/agent/usage.limit.js';
+import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { MAX_CHAT_STEPS } from './api.chat.engine.js';
 import type { ChatMessage } from './chat.message.repository.js';
@@ -41,12 +42,15 @@ const withTranscript = (history: ChatMessage[], text: string): string =>
 export class CliChatEngine extends ChatEngine {
     constructor(
         private readonly settings: SettingsStore,
-        private readonly engineTokens?: EngineTokenSettingService,
+        private readonly accounts?: EngineAccountsService,
     ) {
         super();
     }
 
     async turn({ thread, history, text, system, tools, model, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
+        const account = await this.accounts?.local();
+        if (account?.limit) throw new Error(describeUsageLimit(account.limit));
+        const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
         const server = createSdkMcpServer({
             name: CHAT_SERVER,
             tools: tools.map(chatTool =>
@@ -71,7 +75,7 @@ export class CliChatEngine extends ChatEngine {
                 strictMcpConfig: true,
                 includePartialMessages: true,
                 maxTurns: MAX_CHAT_STEPS,
-                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), await this.engineTokens?.resolve()),
+                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), account?.token, account?.variable),
                 ...(thread.engineSessionId ? { resume: thread.engineSessionId } : {}),
             },
         });
@@ -80,6 +84,7 @@ export class CliChatEngine extends ChatEngine {
         let written = '';
         let sessionId: string | undefined;
         for await (const message of stream) {
+            usageWatch.observe(message);
             if ('session_id' in message && message.session_id) sessionId = message.session_id;
             if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
                 streamed += message.event.delta.text;
@@ -87,6 +92,10 @@ export class CliChatEngine extends ChatEngine {
             } else if (message.type === 'assistant') {
                 written += message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
             } else if (message.type === 'result') {
+                if (usageWatch.limit) {
+                    await this.accounts?.recordLimit(usageWatch.limit);
+                    throw new Error(describeUsageLimit(usageWatch.limit));
+                }
                 if (message.subtype !== 'success')
                     throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
                 break;

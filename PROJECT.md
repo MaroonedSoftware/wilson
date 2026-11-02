@@ -694,6 +694,13 @@ in files the card had not touched. A card that adds a contract operation or an a
 route should say so in its plan, name the generated file, and treat `pnpm build`
 passing — `tsc` included — as the thing that proves it.
 
+**The last look before a commit.** The write tool stops the writes it sees, and an engine or a
+command can write without it. So before a passing stage commits, whichever engine ran it, the
+dispatcher checks everything uncommitted against that stage's scope, and compares the tree with a
+snapshot taken when the verifier finished. A path outside scope, or anything changed since the
+verifier finished, fails the stage and commits nothing. The configured test report is exempt from the scope check, being the
+runner's own output.
+
 When an agent genuinely needs a file outside scope, it cannot write it. It calls a
 `request_scope` tool with the path and a reason, and the project's
 `scope_violation` policy decides:
@@ -1215,7 +1222,15 @@ only when retrying cannot help.
   rest and nothing more.
 - **Worker engine tokens.** Wilson holds any number of named tokens in `wilson.engine_tokens`, encrypted
   under the same key, and each worker host is assigned one, or none to use the worker's own
-  (`wilson engine-token`, the Settings and Hosts pages). None of it is readable through the API or
+  (`wilson engine-token`, the Settings and Hosts pages). Each records its provider, its kind
+  (`subscription` or `api_key`) and a priority, but only an Anthropic token can be assigned or pooled,
+  since the engine is `claude`: a subscription's token reaches it as `CLAUDE_CODE_OAUTH_TOKEN` and an
+  API key as `ANTHROPIC_API_KEY`. A token can also join
+  the pool (`wilson engine-token update <name> --pool`): an engine with no token assigned, here or on
+  a worker, takes the first pooled token with no usage limit in force, lowest priority first. Wilson
+  reads the engine's rate limit events, keeps what each account hit in `wilson.engine_limits`, and
+  holds a stage stopped by a limit through the interruption path: it is sent again at once on the
+  next free account, resuming its session, or when the soonest limit resets. None of it is readable through the API or
   reachable by MCP, and the assignment is an operation of its own so that it stays out of agents'
   reach too. Each engine start reads the assignment again and sends the token in that one `spawn`
   or `run-claude` message, not in `welcome`, so a replaced token needs no reconnect and an idle worker

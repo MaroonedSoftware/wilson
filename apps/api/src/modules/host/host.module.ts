@@ -2,6 +2,8 @@ import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { optionalConfigString } from '#shared/require.config.js';
+import { EngineAccountsService } from './engine.accounts.service.js';
+import { EngineLimitRepository } from './engine.limit.repository.js';
 import { EngineTokenRepository } from './engine.token.repository.js';
 import { EngineTokensService } from './engine.tokens.service.js';
 import { HostConnector } from './host.connector.js';
@@ -33,7 +35,7 @@ export const HostModule: ServerKitModule = {
             .useFactory(
                 c =>
                     new HostConnector('ssh', optionalConfigString(config, 'REMOTE_CLAUDE_CODE_OAUTH_TOKEN'), c.get(WorkerConnections), hostName =>
-                        c.get(EngineTokensService).forHost(hostName),
+                        c.get(EngineAccountsService).forHost(hostName),
                     ),
             )
             .asSingleton();
@@ -42,6 +44,8 @@ export const HostModule: ServerKitModule = {
         registry.register(HostPlacer).useClass(HostPlacer).asTransient();
         registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();
         registry.register(EngineTokenRepository).useClass(EngineTokenRepository).asTransient();
+        registry.register(EngineLimitRepository).useClass(EngineLimitRepository).asTransient();
         registry.register(EngineTokensService).useClass(EngineTokensService).asTransient();
+        registry.register(EngineAccountsService).useClass(EngineAccountsService).asTransient();
     },
 };

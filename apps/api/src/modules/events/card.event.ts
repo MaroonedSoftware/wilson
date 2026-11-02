@@ -18,7 +18,9 @@ export type CardEventType =
     // a `stage.dispatched` is what that attempt could resume from.
     | 'stage.engine-session'
     // Carries `usage`: a daemon shutdown stopped the stage, which says nothing about the card, so
-    // this is neither a pass nor a failure. The stage is sent again without spending a retry.
+    // this is neither a pass nor a failure. The stage is sent again without spending a retry. Also
+    // carries `usageLimit` and `heldUntil` when it was the account's usage limit that stopped it
+    // instead, and the stage is sent again at `heldUntil`.
     | 'stage.interrupted'
     | 'stage.passed'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,

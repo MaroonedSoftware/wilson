@@ -1,13 +1,25 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
-import { EngineTokenSummary, PutEngineTokenRequest } from '../generated/engine.tokens.js';
+import { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../generated/engine.tokens.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
  * generated from [engine.tokens.ck](../../data/contracts/engine.tokens.ck)
  */
 export const EngineTokensRouter = ServerKitRouter();
+
+/**
+ * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `GET /api/engine-limits`
+ */
+EngineTokensRouter.get('/api/engine-limits', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(EngineTokensService);
+    const result: EngineLimit[] = await service.limitsInForce();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
 
 /**
  * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `GET /api/engine-tokens`
@@ -38,6 +50,28 @@ EngineTokensRouter.put('/api/engine-tokens/:name', requirePolicy({ policy: 'wils
 
     const service = ctx.container.get(EngineTokensService);
     const result: EngineTokenSummary = await service.put(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * Change what is recorded about a saved token, keeping the token and what it has hit.
+ * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `PATCH /api/engine-tokens/{name}`
+ */
+EngineTokensRouter.patch('/api/engine-tokens/:name', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, UpdateEngineTokenRequest);
+
+    const service = ctx.container.get(EngineTokensService);
+    const result: EngineTokenSummary = await service.update(name, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

@@ -5,7 +5,7 @@ import type { ChatMessage } from '#modules/chat/chat.message.repository.js';
 import type { ChatThread } from '#modules/chat/chat.thread.repository.js';
 import type { ChatTool } from '#modules/chat/chat.tools.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
-import type { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import type { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 
 /**
  * `query` is mocked, as in `plan.session.agent.test.ts`: what is under test is the call this engine
@@ -141,9 +141,9 @@ describe('CliChatEngine', () => {
 
     it('signs the engine in with a saved token', async () => {
         engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
-        const engineTokens = { resolve: async () => 'saved-token' } as unknown as EngineTokenSettingService;
+        const accounts = { local: async () => ({ name: 'local', token: 'saved-token' }) } as unknown as EngineAccountsService;
 
-        await new CliChatEngine(settings, engineTokens).turn({
+        await new CliChatEngine(settings, accounts).turn({
             thread: thread(),
             history: [],
             text: 'what is in review?',

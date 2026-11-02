@@ -24,7 +24,7 @@ import { planSessions } from '#modules/plan/plan.session.registry.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
-import type { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import type { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} } as unknown as Logger;
@@ -1044,8 +1044,8 @@ describe('PlanService', () => {
 
         it('passes a saved engine token to the new PlanSessionAgent', async () => {
             const { board, config, worktrees } = await freshEnv();
-            const engineTokens = { resolve: vi.fn(async () => 'saved-token') } as unknown as EngineTokenSettingService;
-            const service = new PlanService(board, config, worktrees, db, stageConfigs, undefined, undefined, engineTokens);
+            const accounts = { local: vi.fn(async () => ({ name: 'local', token: 'saved-token' })) } as unknown as EngineAccountsService;
+            const service = new PlanService(board, config, worktrees, db, stageConfigs, undefined, undefined, accounts);
             const id = randomUUID();
             try {
                 await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');

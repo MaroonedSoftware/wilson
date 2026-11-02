@@ -70,4 +70,15 @@ describe('inheritedEnvironment', () => {
             SECRET: 'worker-only',
         });
     });
+
+    it('sets an assigned API key as one, dropping the worker’s own token so the engine has one sign-in', () => {
+        const env = engineEnvironment({ ANTHROPIC_API_KEY: 'from-wilson' }, own, 'assigned-key', 'ANTHROPIC_API_KEY');
+
+        expect(env.ANTHROPIC_API_KEY).toBe('assigned-key');
+        expect(env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN');
+    });
+
+    it('never forwards an API key Wilson sent in env', () => {
+        expect(engineEnvironment({ ANTHROPIC_API_KEY: 'from-wilson' }, {})).toEqual({});
+    });
 });

@@ -1,3 +1,5 @@
+import type { EngineCredentialVariable } from '@wilson/worker-protocol';
+import type { UsageLimit } from '#modules/agent/usage.limit.js';
 import type { ChildProcess } from 'node:child_process';
 
 /**
@@ -68,6 +70,12 @@ export interface ExecutionHost {
     runClaude?(args: string[], timeoutMs: number): Promise<ExecResult>;
 
     /**
+     * Which account an engine started here now signs in as. Absent on a host whose engines sign in as
+     * this machine's do.
+     */
+    engineAccount?(): Promise<EngineAccount>;
+
+    /**
      * Clone `url` to `path` on this host, reading it with `token`, which is not kept there. Present on
      * a host that can make its own clones; elsewhere a clone is the operator's to put in place.
      */
@@ -80,6 +88,21 @@ export interface ClaudeSpawnOptions {
     args: string[];
     cwd?: string;
     env: { [key: string]: string | undefined };
+    /** The account to sign in as, when the caller has already chosen one. Left out, the host asks for itself. */
+    account?: EngineAccount;
+}
+
+/**
+ * Who an engine signs in as. `name` is what a limit or a run is recorded against, and is the token's
+ * own name where there is one. No `token` means the sign-in that machine was set up with.
+ */
+export interface EngineAccount {
+    name: string;
+    token?: string;
+    /** What to set `token` as: a subscription's token when absent. */
+    variable?: EngineCredentialVariable;
+    /** Set when this account has hit a usage limit that has not reset, so starting an engine would only be refused. */
+    limit?: UsageLimit;
 }
 
 export interface HostStat {
