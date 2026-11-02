@@ -3,7 +3,7 @@ import { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
-import { parseStages, StageConfigError, type ProjectStages } from './stage.config.js';
+import { parseStages, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
 
 /** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
@@ -61,14 +61,15 @@ export abstract class StageConfigStore {
 }
 
 /**
- * The last successfully parsed config per project, with the row id it was parsed from.
+ * The last successfully parsed config per project, with the row ids it was parsed from.
  *
  * `load` runs on every dispatch twice over (`StageDispatcher.run` and `CardStageJob.runStage`), on
  * every poller tick and from several API routes, and a parse is a YAML parse, a zod validation and a
- * route check of a document that changes only when a person saves it. The row's id is the cache key:
- * every save is a new row with a higher id, so "the newest id is the one I parsed" is exactly "the
- * document has not changed". One cheap `SELECT id, yaml` per call replaces the `stat` the file
- * cache used, and the frozen object is shared across callers the same way.
+ * route check of a document that changes only when a person saves it. The ids are the cache key:
+ * every save is a new row with a higher id, on `wilson.stage_configs` and `wilson.stage_routing`
+ * alike, so "the newest ids are the ones I parsed" is exactly "nothing has changed". Two cheap
+ * `SELECT`s per call replace the `stat` the file cache used, and the frozen object is shared across
+ * callers the same way.
  *
  * Only successful parses are stored: an invalid document must keep throwing on every call, since the
  * operator fixing it is exactly the case that needs the next call to see the fix.
@@ -101,11 +102,14 @@ export class PostgresStageConfigStore extends StageConfigStore {
             );
         }
 
-        const id = String(row.id);
+        const rows = await this.currentRouting();
+        const newestRouting = rows.reduce((newest, { id }) => (BigInt(id) > newest ? BigInt(id) : newest), 0n);
+        const id = `${row.id}:${newestRouting}`;
         const cached = parsedByProject.get(project);
         if (cached && cached.id === id) return cached.value;
 
-        const value = parseStages(row.yaml, `stage config ${id}`);
+        const routing = new Map(rows.map(({ stage, adapter, provider, model }) => [stage, { adapter, provider, model } as StageRouting]));
+        const value = parseStages(row.yaml, `stage config ${row.id}`, routing);
         parsedByProject.set(project, { id, value });
         return value;
     }
@@ -135,6 +139,18 @@ export class PostgresStageConfigStore extends StageConfigStore {
             .limit(limit)
             .execute();
         return rows.map(row => ({ id: String(row.id), message: row.message, createdAt: row.createdAt }));
+    }
+
+    /** The newest `wilson.stage_routing` row for each of the current project's stages. */
+    private currentRouting() {
+        return this.db
+            .selectFrom('wilson.stageRouting')
+            .distinctOn('stage')
+            .select(['id', 'stage', 'adapter', 'provider', 'model'])
+            .where('project', '=', this.config.project)
+            .orderBy('stage')
+            .orderBy('id', 'desc')
+            .execute();
     }
 
     /** The current project's newest row — its current config. */

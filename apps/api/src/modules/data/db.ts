@@ -309,6 +309,17 @@ export interface WilsonStageConfigs {
   yaml: string;
 }
 
+export interface WilsonStageRouting {
+  adapter: string;
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  message: string;
+  model: string;
+  project: string;
+  provider: string;
+  stage: string;
+}
+
 export interface WilsonPushDevices {
   accountId: string;
   createdAt: Generated<DateTime>;
@@ -347,4 +358,5 @@ export interface DB {
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.stageConfigs": WilsonStageConfigs;
+  "wilson.stageRouting": WilsonStageRouting;
 }

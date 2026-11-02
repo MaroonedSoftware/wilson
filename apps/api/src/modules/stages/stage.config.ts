@@ -345,6 +345,29 @@ const deepFreeze = <T>(value: T): T => {
     return value;
 };
 
+/** The part of a stage kept in `wilson.stage_routing` rather than in the document. */
+export type StageRouting = Pick<StageConfig, 'adapter' | 'provider' | 'model'>;
+
+/**
+ * Lay each stage's routing over the document, before validation.
+ *
+ * Before, not after, so a row passes through the same schema a document's own values do, and a stage
+ * with neither fails the same way a document missing `model` always has. A row for a stage the
+ * document no longer has is left unused: it is history, and is live again if that stage comes back.
+ */
+const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouting>): unknown => {
+    if (routing.size === 0 || typeof document !== 'object' || document === null) return document;
+    const { stages } = document as { stages?: unknown };
+    if (!Array.isArray(stages)) return document;
+    return {
+        ...document,
+        stages: stages.map(stage => {
+            const row = routing.get((stage as { name?: string } | null)?.name ?? '');
+            return row ? { ...stage, ...row } : stage;
+        }),
+    };
+};
+
 /**
  * Parse and validate one stage config document.
  *
@@ -356,9 +379,10 @@ const deepFreeze = <T>(value: T): T => {
  * schema change is refused when it is read. Pure, so a test can hand it a string.
  *
  * `source` names the document in the error — a row id, or the file a seed read — the way the path
- * did when this read `stages.yaml`.
+ * did when this read `stages.yaml`. `routing` holds the project's `wilson.stage_routing` rows by
+ * stage name, and each one wins over the document's own values.
  */
-export const parseStages = (raw: string, source = 'stage config'): ProjectStages => {
+export const parseStages = (raw: string, source = 'stage config', routing: ReadonlyMap<string, StageRouting> = new Map()): ProjectStages => {
     let document: unknown;
     try {
         document = parseYaml(raw);
@@ -366,7 +390,7 @@ export const parseStages = (raw: string, source = 'stage config'): ProjectStages
         throw new StageConfigError('config-invalid', `${source} is not valid YAML: ${(err as Error).message}`);
     }
 
-    const parsed = ProjectStagesSchema.safeParse(document);
+    const parsed = ProjectStagesSchema.safeParse(applyRouting(document, routing));
     if (!parsed.success) {
         throw new StageConfigError(
             'config-invalid',

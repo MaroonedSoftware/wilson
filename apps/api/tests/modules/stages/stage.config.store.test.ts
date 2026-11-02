@@ -57,6 +57,41 @@ describe('PostgresStageConfigStore', () => {
         await seedStageConfig(db, project, VALID);
     });
 
+    const route = (stage: string, model: string, adapter = 'cli', provider = 'anthropic') =>
+        db.insertInto('wilson.stageRouting').values({ project, stage, adapter, provider, model, message: 'test' }).execute();
+
+    it('leaves the document alone when a project has no routing rows', async () => {
+        const stage = findStage(await store.load(), 'implementing');
+        expect(stage).toMatchObject({ adapter: 'api', provider: 'anthropic', model: 'claude-opus' });
+    });
+
+    it('lets a routing row win over the document, and the newest row win over older ones', async () => {
+        await route('implementing', 'claude-haiku');
+        await route('implementing', 'grok-5', 'api', 'xai');
+
+        const stage = findStage(await store.load(), 'implementing');
+        expect(stage).toMatchObject({ adapter: 'api', provider: 'xai', model: 'grok-5' });
+    });
+
+    it('sees a routing change straight after a cached load', async () => {
+        await store.load();
+        await route('implementing', 'claude-haiku');
+
+        expect(findStage(await store.load(), 'implementing').model).toBe('claude-haiku');
+    });
+
+    it('ignores a row for a stage the document does not have', async () => {
+        await route('retired', 'claude-haiku');
+
+        expect((await store.load()).stages.map(stage => stage.name)).toEqual(['implementing']);
+    });
+
+    it('refuses a routing row the schema would refuse from a document', async () => {
+        await route('implementing', 'whatever', 'api', 'not-a-provider');
+
+        await expect(store.load()).rejects.toThrow(/stages\.0\.provider/);
+    });
+
     it('returns the very same object on a repeat load of an unchanged config', async () => {
         const first = await store.load();
         const second = await store.load();
