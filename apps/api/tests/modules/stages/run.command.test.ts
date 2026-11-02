@@ -111,6 +111,28 @@ describe('runConfiguredCommand environment', () => {
         if (scriptDir) rmSync(scriptDir, { recursive: true, force: true });
     });
 
+    it("keeps a failing command's own output when Node's warnings would have filled the tail", async () => {
+        scriptDir = mkdtempSync(join(tmpdir(), 'node-warning-noise-'));
+        const scriptPath = join(scriptDir, 'noisy.js');
+        writeFileSync(
+            scriptPath,
+            [
+                "console.error('the real error');",
+                'for (let pid = 0; pid < 200; pid++) {',
+                '    console.error(`(node:${pid}) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.`);',
+                "    console.error('(Use `node --trace-warnings ...` to show where the warning was created)');",
+                '}',
+                'process.exit(1);',
+            ].join('\n'),
+        );
+
+        const failure = await runConfiguredCommand(tmpdir(), `node ${scriptPath}`);
+
+        expect(failure!.reason).toContain('the real error');
+        expect(failure!.reason).not.toContain('ExperimentalWarning');
+        expect(failure!.reason).not.toContain('--trace-warnings');
+    });
+
     it('does not hand a non-allowlisted variable to the child process', async () => {
         process.env[SECRET_KEY] = 'this-must-not-leak';
 

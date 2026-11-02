@@ -45,6 +45,20 @@ export const scrubbedEnv = (port?: number): NodeJS.ProcessEnv => {
     return env;
 };
 
+/** The two lines Node prints for an experimental feature, once per process. */
+const NODE_WARNING = /^\(node:\d+\) ExperimentalWarning: |^\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)$/;
+
+/**
+ * A failed command's output without Node's experimental-feature warnings. Only the tail of that
+ * output is kept, and a suite prints a pair of these per worker: on card 0007's refused merge they
+ * were all that was left of it.
+ */
+const withoutNodeWarnings = (output: string): string =>
+    output
+        .split('\n')
+        .filter(line => !NODE_WARNING.test(line))
+        .join('\n');
+
 /**
  * Run a configured command in a worktree, without a shell.
  *
@@ -82,7 +96,7 @@ export const runConfiguredCommand = async (
     } catch (err) {
         const e = err as ExecFailure;
         if (e.killed) return { reason: `\`${command}\` timed out` };
-        const output = [e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n').slice(-4000);
+        const output = withoutNodeWarnings([e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n')).slice(-4000);
         return { reason: `\`${command}\` failed (exit ${e.code ?? 'unknown'})\n${output}` };
     }
 };
