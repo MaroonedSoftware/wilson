@@ -325,7 +325,15 @@ last step, on what its interrupted runs left of the stage's time, steps and inpu
 cannot find the session, a new one starts in the same tree, told what it has inherited. Nothing is
 verified until the stage finishes, so a resumed run is held to the same exit condition as any other.
 
-**Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
+**So a deploy does not have to wait.** A restart costs a running `cli` stage a pause of about a minute
+rather than its work: a 2026-11-02 run against a real engine stopped in under a second, resumed the same
+session, re-ran the tool the restart killed, and passed with no retry spent. Placed stages have not been
+through this against a real worker yet.
+
+**Drain when a restart must not interrupt anything.** That is a deploy that changes what a running stage
+depends on (its tools, its result contract, or how a resumed run behaves), one where a command stage,
+an `api` stage or a plan draft is running, since those are not resumed, and any restart until placed
+stages have been proven. `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage
 directly. The drain is enforced where every stage arrives, as a pre-dispatch check
 (`holdWhileDraining`): a job that would have dispatched is sent again for 30 seconds later and hands
