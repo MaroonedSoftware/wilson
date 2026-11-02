@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { DateTime } from 'luxon';
@@ -6,7 +5,8 @@ import { httpError } from '@maroonedsoftware/errors';
 import { Logger } from '@maroonedsoftware/logger';
 import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { EventLog } from '#modules/events/event.log.js';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
+import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
@@ -41,11 +41,17 @@ import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
 import { withFindings } from './append.findings.js';
-import { git } from './git.js';
+import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
+
+/**
+ * What {@link BoardWriteService}'s merge check found. `unproven` means the suite never ran, so the
+ * refusal says nothing about the card.
+ */
+type MergeProof = { ok: true } | { ok: false; reason: string; unproven?: boolean };
 
 /**
  * The board's write surface — the service the generated `/api/cards*` `post`/`patch` handlers bind
@@ -77,6 +83,9 @@ export class BoardWriteService {
         private readonly runningCards: RunningCards,
         private readonly settings: SettingsStore,
         private readonly stageConfigs: StageConfigStore,
+        // Optional as `StageDispatcher`'s own is: a test that constructs this class directly gets
+        // the merge check on this machine, which is where it ran before hosts existed.
+        private readonly placer?: HostPlacer,
     ) {}
 
     /**
@@ -725,7 +734,9 @@ export class BoardWriteService {
 
         const proof = await this.proveMerge(id, mergeCommit);
         if (!proof.ok) {
-            const reason = `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
+            const reason = proof.unproven
+                ? `could not prove the merge of ${branch} into ${targetRef}: ${proof.reason}`
+                : `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
             await this.flagMergeFailure(id, card.frontmatter.stage, reason);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
         }
@@ -835,35 +846,55 @@ export class BoardWriteService {
      * unconditionally, pass or fail, so neither lingers the way the card's own worktree and branch
      * (left alone throughout this method — see Constraints) must: {@link PlanService.close} deletes
      * its own throwaway branch the same way after reclaiming that session's worktree.
+     *
+     * The suite runs where the `testing` stage's own `placement` says, so the merge is proved on the
+     * kind of machine that passed the card, not whichever one the daemon is on: `HostPlacer.place`
+     * decides, exactly as `StageDispatcher.run` asks it to, and a `local` stage stays here. When
+     * nowhere can take it the merge is unproven, not failed, because nothing has been said about the
+     * card. A slot is held for the run, keyed to the card, and given back however the run ends. A
+     * card in `ready` has no job behind it, so `LeaseService` reads that slot as orphaned if another
+     * stage wants it: the cost of losing that race is one more suite on the host for a while.
      */
-    private async proveMerge(id: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+    private async proveMerge(id: string, mergeCommit: string): Promise<MergeProof> {
         const stages = await this.stageConfigs.load();
         const stage = findStage(stages, 'testing');
 
+        const placed = this.placer ? await this.placer.place(this.boardConfig.project, id, stage) : undefined;
+        if (placed instanceof NoHostAvailable) return { ok: false, reason: placed.message, unproven: true };
+
         const scratchId = `${id}-merge-check`;
         const scratchBranch = `card/${id}-merge-check`;
-        const worktree = await this.worktrees.create(scratchId, scratchBranch, mergeCommit);
-
         try {
-            if (stage.setupCommand) {
-                const setupCommand = stage.setupCommand;
-                const setup = await pnpmStoreLock.run(
-                    `${id} merge-check setup`,
-                    message => this.logger.info(message),
-                    () => runConfiguredCommand(worktree.path, setupCommand),
-                );
-                if (setup) return { ok: false, reason: `setup failed: ${setup.reason}` };
+            const worktree = await this.worktrees.create(scratchId, scratchBranch, mergeCommit, placed);
+            const host = worktreeHost(worktree);
+
+            try {
+                if (stage.setupCommand) {
+                    const setupCommand = stage.setupCommand;
+                    const setup = await pnpmStoreLock.run(
+                        `${id} merge-check setup`,
+                        message => this.logger.info(message),
+                        () => runConfiguredCommand(worktree.path, setupCommand, undefined, undefined, host),
+                    );
+                    if (setup) return { ok: false, reason: `setup failed: ${setup.reason}` };
+                }
+
+                if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
+
+                const run = await runConfiguredCommand(worktree.path, stage.testCommand, undefined, undefined, host);
+                if (!run) return { ok: true };
+
+                return await this.judgeFailedMergeSuite(id, worktree, stage, run);
+            } finally {
+                await this.worktrees.reclaim(scratchId, placed);
+                await gitOn(host, placed?.codeRoot ?? this.boardConfig.codeRoot, ['branch', '-D', scratchBranch]).catch(() => undefined);
             }
-
-            if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
-
-            const run = await runConfiguredCommand(worktree.path, stage.testCommand);
-            if (!run) return { ok: true };
-
-            return await this.judgeFailedMergeSuite(id, worktree.path, stage, run);
         } finally {
-            await this.worktrees.reclaim(scratchId);
-            await git(this.boardConfig.codeRoot, ['branch', '-D', scratchBranch]).catch(() => undefined);
+            if (placed) {
+                await this.placer?.releaseSlot(placed.slotKey, this.boardConfig.project, id).catch(err => {
+                    this.logger.warn(`could not release ${id}'s ${placed.slotKey}: ${(err as Error).message}`);
+                });
+            }
         }
     }
 
@@ -884,20 +915,21 @@ export class BoardWriteService {
      * 'merge-check'` distinguishing it in the card's history from a `test.flaky` event
      * `TestingVerifier` itself might have appended.
      */
-    private async judgeFailedMergeSuite(
-        id: string,
-        worktreePath: string,
-        stage: StageConfig,
-        run: CommandFailure,
-    ): Promise<{ ok: true } | { ok: false; reason: string }> {
-        const report = await this.readTestReport(worktreePath, stage.testReportPath);
+    private async judgeFailedMergeSuite(id: string, worktree: Worktree, stage: StageConfig, run: CommandFailure): Promise<MergeProof> {
+        const report = await this.readTestReport(worktree, stage.testReportPath);
         // Before anything else: `proveMerge` deletes this worktree, report and all, however this ends.
-        const archived = await this.archiveTestReport(id, worktreePath, stage.testReportPath);
+        const archived = await this.archiveTestReport(id, worktree, stage.testReportPath);
         const failing = report?.failing ?? [];
         if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: redRunDetail(report, run, archived) };
 
         const files = [...new Set(failing.map(test => test.file))];
-        const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
+        const rerun = await runConfiguredCommand(
+            worktree.path,
+            `${stage.testCommand} ${files.join(' ')}`,
+            undefined,
+            undefined,
+            worktreeHost(worktree),
+        );
         if (rerun) return { ok: false, reason: redRunDetail(report, run, archived) };
 
         await this.eventLog.append({
@@ -922,10 +954,10 @@ export class BoardWriteService {
      * happens.
      */
     /** Best effort, as `TestingVerifier.archiveReport` is: a refused merge stays refused either way. */
-    private async archiveTestReport(id: string, worktreePath: string, testReportPath: string | undefined): Promise<string | undefined> {
+    private async archiveTestReport(id: string, worktree: Worktree, testReportPath: string | undefined): Promise<string | undefined> {
         if (!testReportPath) return undefined;
         try {
-            const raw = await readFile(join(worktreePath, testReportPath), 'utf8');
+            const raw = await worktreeHost(worktree).readFile(join(worktree.path, testReportPath));
             return await archiveTestReport(this.boardConfig.runRoot, id, 'merge-check', raw);
         } catch (err) {
             this.logger.warn(`could not archive ${id}'s merge-check report: ${(err as Error).message}`);
@@ -933,12 +965,14 @@ export class BoardWriteService {
         }
     }
 
-    private async readTestReport(worktreePath: string, testReportPath: string | undefined) {
+    private async readTestReport(worktree: Worktree, testReportPath: string | undefined) {
         if (!testReportPath) return undefined;
-        const raw = await readFile(join(worktreePath, testReportPath), 'utf8').catch(() => undefined);
+        const raw = await worktreeHost(worktree)
+            .readFile(join(worktree.path, testReportPath))
+            .catch(() => undefined);
         if (raw === undefined) return undefined;
         try {
-            return parseTestReport(raw, worktreePath);
+            return parseTestReport(raw, worktree.path);
         } catch {
             return undefined;
         }

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { buildTestServerConfig } from '#tests/support/test.config.js';
+import { testDbConnection } from '#tests/support/test.db.js';
 
 /**
  * Card 0112 added `buildTestServerConfig` so `container.setup.test.ts` could build the real
@@ -14,18 +15,38 @@ import { buildTestServerConfig } from '#tests/support/test.config.js';
  * `configNumber`), not by re-implementing what `AppConfig.get` already does.
  */
 describe('buildTestServerConfig', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it('supplies every key a module setup hook requires, through the real buildConfig/dotenv pipeline', async () => {
         const config = await buildTestServerConfig();
 
         // DataModule / JobsModule's dbConfig.
-        expect(requireConfigString(config, 'DATABASE_HOST')).toBe('localhost');
-        expect(configNumber(config, 'DATABASE_PORT')).toBe(15533);
-        expect(requireConfigString(config, 'DATABASE_USER')).toBe('postgres');
-        expect(requireConfigString(config, 'DATABASE_PASSWORD')).toBe('postgres');
-        expect(requireConfigString(config, 'DATABASE_NAME')).toBe('wilson_test');
+        const database = testDbConnection();
+        expect(requireConfigString(config, 'DATABASE_HOST')).toBe(database.host);
+        expect(configNumber(config, 'DATABASE_PORT')).toBe(database.port);
+        expect(requireConfigString(config, 'DATABASE_USER')).toBe(database.user);
+        expect(requireConfigString(config, 'DATABASE_PASSWORD')).toBe(database.password);
+        expect(requireConfigString(config, 'DATABASE_NAME')).toBe(database.database);
 
         // BoardModule's codeRoot.
         expect(requireConfigString(config, 'PROJECT_CODE_ROOT')).toBe('/tmp/wilson-container-test/code');
+    });
+
+    /**
+     * `BoardModule.setup` connects with these values, so a fixture that kept its own would be
+     * refused on a deployment whose test database is not on `localhost`, which is what happened to
+     * three tests in Tower's container (`ECONNREFUSED 127.0.0.1:15533`).
+     */
+    it('names the database TEST_DATABASE_* points the suite at', async () => {
+        vi.stubEnv('TEST_DATABASE_HOST', '172.17.0.1');
+        vi.stubEnv('TEST_DATABASE_PORT', '25533');
+
+        const config = await buildTestServerConfig();
+
+        expect(requireConfigString(config, 'DATABASE_HOST')).toBe('172.17.0.1');
+        expect(configNumber(config, 'DATABASE_PORT')).toBe(25533);
     });
 
     /**
@@ -40,7 +61,7 @@ describe('buildTestServerConfig', () => {
         const [first, second] = await Promise.all([buildTestServerConfig(), buildTestServerConfig()]);
 
         expect(first).not.toBe(second);
-        expect(requireConfigString(first, 'DATABASE_NAME')).toBe('wilson_test');
-        expect(requireConfigString(second, 'DATABASE_NAME')).toBe('wilson_test');
+        expect(requireConfigString(first, 'DATABASE_NAME')).toBe(testDbConnection().database);
+        expect(requireConfigString(second, 'DATABASE_NAME')).toBe(testDbConnection().database);
     });
 });
