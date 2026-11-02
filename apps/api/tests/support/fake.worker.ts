@@ -14,6 +14,7 @@ export const workerRow = (name: string, projects: HostRow['projects'] = []): Hos
     slots: 1,
     enabled: true,
     draining: false,
+    isolated: false,
     commandEnv: [],
     projects,
     running: [],

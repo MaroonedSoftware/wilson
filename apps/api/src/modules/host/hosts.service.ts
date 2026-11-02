@@ -2,7 +2,14 @@ import { isAbsolute, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { ProjectRepository } from '#modules/board/project.repository.js';
-import type { CreateHostRequest, Host, PutHostProjectRequest, PutHostSshTargetRequest, UpdateHostRequest } from '../../generated/hosts.js';
+import type {
+    CreateHostRequest,
+    Host,
+    PutHostProjectRequest,
+    PutHostIsolatedRequest,
+    PutHostSshTargetRequest,
+    UpdateHostRequest,
+} from '../../generated/hosts.js';
 import { HostRepository, type HostPatch, type HostRow } from './host.repository.js';
 
 /** The range `wilson.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
@@ -77,6 +84,16 @@ export class HostsService {
         return this.get(name);
     }
 
+    /**
+     * Say whether a host may run a stage marked `isolated`. Separate from {@link update} because it is
+     * gated by step-up (`hosts.ck`). Refuses an unregistered name with 404.
+     */
+    async setIsolated(name: string, request: PutHostIsolatedRequest): Promise<Host> {
+        await this.require(name);
+        await this.hosts.update(name, { isolated: request.isolated });
+        return this.get(name);
+    }
+
     /** Change a host's slots or switches. Refuses an unregistered name with 404. */
     async update(name: string, request: UpdateHostRequest): Promise<Host> {
         const patch: HostPatch = {};
@@ -146,6 +163,7 @@ export const toHost = (row: HostRow): Host => ({
     slots: row.slots,
     enabled: row.enabled,
     draining: row.draining,
+    isolated: row.isolated,
     ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
     commandEnv: row.commandEnv,
     ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),

@@ -69,6 +69,12 @@ export const StageConfigSchema = z
          */
         placement: z.enum(['local', 'any', 'remote']).default('local'),
         /**
+         * Runs only on a host an operator has vouched for as isolated (`wilson host isolated`), for a
+         * stage whose engine cannot be relied on to keep it inside its worktree. Needs `placement:
+         * remote` and a worktree, since this machine is never isolated: everything here is within reach.
+         */
+        isolated: z.boolean().optional(),
+        /**
          * Globs this stage may write on top of the card's own "Files in scope".
          *
          * A card's scope is written for the stage that implements it. The testing stage's whole job is
@@ -250,6 +256,20 @@ export const StageConfigSchema = z
         maxKickbacks: z.number().int().min(0).default(3),
     })
     .superRefine((stage, ctx) => {
+        if (stage.isolated && stage.placement !== 'remote') {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['isolated'],
+                message: `an isolated stage must have placement: remote, not ${stage.placement}, since this machine is not isolated`,
+            });
+        }
+        if (stage.isolated && stage.worktree === 'none') {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['isolated'],
+                message: 'an isolated stage needs a worktree: with worktree: none it would run on this machine',
+            });
+        }
         // Only an *explicit* value is rejected. An idle window at or above the wall clock can never
         // fire first, which is dead config that reads like a working guard — the same class of
         // mistake `assertRoutesResolve` exists to catch for routes. The resolved default below can

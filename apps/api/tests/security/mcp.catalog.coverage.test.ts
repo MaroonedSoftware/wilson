@@ -56,6 +56,7 @@ describe('the operation catalog', () => {
                 'PUT /api/hosts/{name}/ssh-target',
                 'POST /api/hosts/{name}/worker-token',
                 'PUT /api/hosts/{name}/engine-token',
+                'PUT /api/hosts/{name}/isolated',
             ]),
         );
         expect(stepUp.filter(route => catalog.has(route))).toEqual([]);

@@ -18,9 +18,9 @@ options {
 # or a `manage` API key satisfies, and every `get` lowers it to `wilson.view`, which any session
 # or key does. Anything without a credential gets 401 before a handler runs.
 #
-# Four operations raise it to `wilson.step.up`, which no API key satisfies: registering a host,
-# changing its SSH target, minting its worker token, and assigning it an engine token. Each decides
-# which machine receives a card's repository and an engine's credentials, so a leaked `manage` key
+# Five operations raise it to `wilson.step.up`, which no API key satisfies: registering a host,
+# changing its SSH target, minting its worker token, assigning it an engine token, and vouching that
+# it is isolated. Each decides which machine receives a card's repository and an engine's credentials, so a leaked `manage` key
 # must not be able to point them at a machine of its own (PROJECT.md, Authentication: Factors). They
 # stay out of the operation catalog for the same reason, and the CLI asks for the password.
 #
@@ -85,6 +85,9 @@ contract Host: {
     slots: int
     enabled: boolean
     draining: boolean
+    # An operator's word that this host keeps a stage from everything but its own work. Only a host
+    # with this set runs a stage marked `isolated`. Nothing checks it: it is not something a probe can test.
+    isolated: boolean
     # Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe
     # adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.
     lifetimeMinutes?: int
@@ -146,6 +149,10 @@ contract UpdateHostRequest: {
 contract PutHostSshTargetRequest: {
     # What `ssh` connects to.
     sshTarget: string
+}
+
+contract PutHostIsolatedRequest: {
+    isolated: boolean
 }
 
 contract PutHostEngineTokenRequest: {
@@ -243,6 +250,33 @@ operation /api/hosts/{name}: {
 # Where the daemon reaches an `ssh` host. An operation of its own, not a field on
 # `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
 # engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+# Which machines may run a stage marked `isolated` follows this value, and a stage marked that way
+# relies on it for what its engine's own controls cannot promise, so changing it needs a step-up an
+# agent cannot give, in both directions.
+operation /api/hosts/{name}/isolated: {
+    params: {
+        name: string
+    }
+    put: {
+        name: Set host isolated
+        mcp: exclude # Step-up: this says which machines may run an isolated stage
+        sdk: setHostIsolated
+        service: HostsService.setIsolated
+        security: {
+            policy: wilson.step.up
+        }
+        request: {
+            application/json: PutHostIsolatedRequest
+        }
+        response: {
+            200: {
+                application/json: Host
+            }
+            404:
+        }
+    }
+}
+
 operation /api/hosts/{name}/ssh-target: {
     params: {
         name: string

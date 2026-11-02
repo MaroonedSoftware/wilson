@@ -41,6 +41,7 @@ import engineTokenSetCommand from './commands/engine-token/set.command.js';
 import engineTokenUpdateCommand from './commands/engine-token/update.command.js';
 import hostAddCommand from './commands/host/add.command.js';
 import hostEngineTokenCommand from './commands/host/engine-token.command.js';
+import hostIsolatedCommand from './commands/host/isolated.command.js';
 import hostListCommand from './commands/host/list.command.js';
 import hostProbeCommand from './commands/host/probe.command.js';
 import hostRemoveCommand from './commands/host/remove.command.js';
@@ -119,6 +120,7 @@ const app = await createCliApp({
         reg(['host', 'unserve'], hostUnserveCommand),
         reg(['host', 'token'], hostTokenCommand),
         reg(['host', 'engine-token'], hostEngineTokenCommand),
+        reg(['host', 'isolated'], hostIsolatedCommand),
         reg(['engine-token', 'list'], engineTokenListCommand),
         reg(['engine-token', 'set'], engineTokenSetCommand),
         reg(['engine-token', 'update'], engineTokenUpdateCommand),

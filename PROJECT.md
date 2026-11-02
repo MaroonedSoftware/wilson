@@ -292,6 +292,11 @@ There are two kinds of host, fixed when one is registered:
   (`wilson host engine-token`), sent with each engine start and kept by the worker for no longer than
   that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`.
 
+A stage marked `isolated` runs only on a host an operator has vouched for (`wilson host isolated`,
+behind step-up), never on this machine, and waits when there is none. It is for an engine that cannot
+be relied on to keep a stage inside its worktree. The flag is an operator's word about the machine,
+such as a container worker with nothing else inside, since no probe can test it.
+
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
 worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the
 same machine as model-written code, which is the board readable from a worktree: exactly what

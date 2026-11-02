@@ -58,6 +58,8 @@ export interface HostRow {
     slots: number;
     enabled: boolean;
     draining: boolean;
+    /** An operator's word that it keeps a stage from everything but its own work. */
+    isolated: boolean;
     /** Minutes it runs after boot before it stops by itself; absent when it has no known end. */
     lifetimeMinutes?: number;
     /** Variables the host's own environment supplies to configured commands there. */
@@ -79,7 +81,7 @@ export interface HostRow {
  * The columns `update` may set; the probe's own columns are written only by `recordProbe`.
  * `lifetimeMinutes: null` clears it, the one place "explicitly emptied" differs from "left alone".
  */
-export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining' | 'commandEnv'>> & {
+export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' | 'draining' | 'isolated' | 'commandEnv'>> & {
     lifetimeMinutes?: number | null;
     projectsRoot?: string | null;
 };
@@ -247,6 +249,7 @@ type HostSelection = {
     slots: number;
     enabled: boolean;
     draining: boolean;
+    isolated: boolean;
     probedAt?: DateTime | null;
     probeOk?: boolean | null;
     probeDetail?: string | null;
@@ -267,6 +270,7 @@ const toRow = (host: HostSelection, projects: HostProjectRow[], slots: SlotLease
     slots: host.slots,
     enabled: host.enabled,
     draining: host.draining,
+    isolated: host.isolated,
     ...(host.lifetimeMinutes && { lifetimeMinutes: host.lifetimeMinutes }),
     commandEnv: host.commandEnv,
     ...(host.projectsRoot && { projectsRoot: host.projectsRoot }),

@@ -15,7 +15,7 @@ public sealed class HostRulesTests
         SshTarget = kind == HostKind.Ssh ? "agent-1.local" : null,
         Slots = 2,
         Enabled = enabled,
-        Draining = draining,
+        Draining = draining, Isolated = false,
         CommandEnv = [],
         Projects = [],
         Running = [],

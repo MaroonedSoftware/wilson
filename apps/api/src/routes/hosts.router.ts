@@ -9,6 +9,7 @@ import {
     Host,
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
+    PutHostIsolatedRequest,
     PutHostProjectRequest,
     PutHostSshTargetRequest,
     UpdateHostRequest,
@@ -110,6 +111,30 @@ HostsRouter.delete('/api/hosts/:name', requirePolicy({ policy: 'wilson.manage' }
  * Where the daemon reaches an `ssh` host. An operation of its own, not a field on
  * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
  * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+ * Which machines may run a stage marked `isolated` follows this value, and a stage marked that way
+ * relies on it for what its engine's own controls cannot promise, so changing it needs a step-up an
+ * agent cannot give, in both directions.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/isolated`
+ */
+HostsRouter.put('/api/hosts/:name/isolated', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, PutHostIsolatedRequest);
+
+    const service = ctx.container.get(HostsService);
+    const result: Host = await service.setIsolated(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
  * from [hosts.ck](../../data/contracts/hosts.ck) `PUT /api/hosts/{name}/ssh-target`
  */
 HostsRouter.put('/api/hosts/:name/ssh-target', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {

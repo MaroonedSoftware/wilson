@@ -16,6 +16,24 @@ const minimalStage = {
     onFail: 'implementing',
 };
 
+describe('StageConfigSchema isolated', () => {
+    it('is off by default', () => {
+        expect(StageConfigSchema.parse(minimalStage).isolated).toBeUndefined();
+    });
+
+    it('allows a remote stage with a worktree', () => {
+        expect(StageConfigSchema.parse({ ...minimalStage, isolated: true, placement: 'remote' }).isolated).toBe(true);
+    });
+
+    it.each(['local', 'any'])('refuses placement: %s, either of which could run it on this machine', placement => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, isolated: true, placement })).toThrow(/placement: remote/);
+    });
+
+    it('refuses worktree: none, which always runs on this machine', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, isolated: true, placement: 'remote', worktree: 'none' })).toThrow(/needs a worktree/);
+    });
+});
+
 describe('StageConfigSchema budget fields', () => {
     it('defaults maxInputTokens to 15,000,000 when omitted', () => {
         const stage = StageConfigSchema.parse(minimalStage);

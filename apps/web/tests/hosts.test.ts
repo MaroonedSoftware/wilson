@@ -51,6 +51,7 @@ const agentHost: Host = {
     slots: 2,
     enabled: true,
     draining: false,
+    isolated: false,
     lifetimeMinutes: 720,
     commandEnv: ['GITHUB_TOKEN'],
     projects: [{ project: 'tga', codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' }],

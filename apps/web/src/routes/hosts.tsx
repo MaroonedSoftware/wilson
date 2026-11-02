@@ -33,6 +33,11 @@ function StateBadge({ host }: { host: Host }) {
     return <Badge color="green">enabled</Badge>;
 }
 
+/** Marks a host stages marked `isolated` may run on. Set with `wilson host isolated`, which asks for the password. */
+function IsolatedBadge({ host }: { host: Host }) {
+    return host.isolated ? <Badge color="blue">isolated</Badge> : undefined;
+}
+
 /** The last probe's verdict, with its detail on hover. */
 function ProbeBadge({ host, now }: { host: Host; now: number }) {
     const probe = host.probe;
@@ -82,6 +87,7 @@ function HostPanel({ host, projects, engineTokens, now }: { host: Host; projects
                         <Group gap="xs">
                             <Title order={4}>{host.name}</Title>
                             <StateBadge host={host} />
+                            <IsolatedBadge host={host} />
                             <ProbeBadge host={host} now={now} />
                         </Group>
                         <Text size="sm" c="dimmed">

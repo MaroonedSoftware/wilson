@@ -3,6 +3,7 @@ import type {
     Host,
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
+    PutHostIsolatedRequest,
     PutHostProjectRequest,
     PutHostSshTargetRequest,
     UpdateHostRequest,
@@ -60,11 +61,24 @@ export class HostsClient {
     }
 
     /**
-     * @name Set host SSH target
+     * @name Set host isolated
      * @description Where the daemon reaches an `ssh` host. An operation of its own, not a field on
      * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
      * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+     * Which machines may run a stage marked `isolated` follows this value, and a stage marked that way
+     * relies on it for what its engine's own controls cannot promise, so changing it needs a step-up an
+     * agent cannot give, in both directions.
      */
+    async setHostIsolated(name: string, body: PutHostIsolatedRequest): Promise<Host> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/isolated`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveHost(await parseJson<Host>(result));
+    }
+
+    /** @name Set host SSH target */
     async setHostSshTarget(name: string, body: PutHostSshTargetRequest): Promise<Host> {
         const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/ssh-target`, {
             method: 'PUT',

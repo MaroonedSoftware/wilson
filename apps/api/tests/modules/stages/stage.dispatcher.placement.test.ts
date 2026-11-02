@@ -63,7 +63,7 @@ stages:
 const build = async (
     place: HostPlacer['place'],
     createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>,
-    options: { passes?: boolean; alive?: boolean; localBusy?: boolean; interrupted?: boolean } = {},
+    options: { passes?: boolean; alive?: boolean; localBusy?: boolean; interrupted?: boolean; stages?: string } = {},
 ) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-placement-'));
     const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
@@ -128,7 +128,7 @@ const build = async (
 
     const dispatcher = new StageDispatcher(
         config,
-        new StaticStageConfigStore(STAGES),
+        new StaticStageConfigStore(options.stages ?? STAGES),
         board,
         worktrees as unknown as WorktreeManager,
         agents,
@@ -194,6 +194,31 @@ describe('StageDispatcher placement', () => {
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'stage.placed', payload: { host: 'agent-3', slot: 'host:agent-3:slot:1' } }),
         );
+    });
+
+    describe('an isolated stage', () => {
+        const ISOLATED = STAGES.replace('placement: any', 'placement: remote\n    isolated: true');
+
+        it('never runs on this machine, even if placement comes back empty', async () => {
+            const { dispatcher, worktrees, placer } = await build(async () => undefined, undefined, { stages: ISOLATED });
+
+            const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
+
+            expect(classifyDispatchFailure(error)).toMatchObject({ kind: 'defer' });
+            expect((error as Error).message).toContain('is isolated');
+            expect(worktrees.create).not.toHaveBeenCalled();
+            expect(placer.takeLocalSlot).not.toHaveBeenCalled();
+        });
+
+        it('tells the placer it is isolated, and runs where it is placed', async () => {
+            const placement = placementOn(new MemoryHost());
+            const { dispatcher, placer } = await build(async () => placement, undefined, { stages: ISOLATED });
+
+            const outcome = await dispatcher.run('0001', 'implementing');
+
+            expect(outcome.passed).toBe(true);
+            expect(placer.place).toHaveBeenCalledWith(expect.any(String), '0001', expect.objectContaining({ isolated: true }), undefined);
+        });
     });
 
     describe('the last look before committing', () => {
