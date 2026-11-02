@@ -152,6 +152,11 @@ shows neither there. Add a section's link in the same commit as its page, never 
 The header's appearance button steps through System, Light and Dark. `DesktopSettings.Appearance`
 keeps it across a change of server, and `ShellViewModel.StartAsync` applies it before the first page.
 
+## Projects
+
+`ProjectsViewModel` is `routes/projects.index.tsx`, names only, and pressing one opens its board through
+`ShellViewModel.ShowProject`. The board's own project menu is the web header's `ProjectSwitcher`.
+
 ## Feed activity
 
 `CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
@@ -241,6 +246,8 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, projects: with `tools/Walk`, the page and a real press on a project opening its board.
 
 2026-11-02, planning: with `tools/Walk`, a real drag selecting a passage in the preview, a comment
 anchored and marked, a rewrite leaving it outdated, resolving it, the changes shown before a save and

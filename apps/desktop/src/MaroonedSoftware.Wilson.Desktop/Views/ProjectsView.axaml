@@ -1,0 +1,24 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:sys="using:System"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ProjectsView"
+    x:DataType="vm:ProjectsViewModel"
+    x:Name="Root">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Classes="title" Text="Projects" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Projects}" MaxWidth="560" HorizontalAlignment="Left" MinWidth="320">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="sys:String">
+                        <Button Classes="tile" Margin="0,0,0,6" Content="{Binding}" Command="{Binding #Root.((vm:ProjectsViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

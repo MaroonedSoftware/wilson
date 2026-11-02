@@ -16,6 +16,7 @@
     </NativeMenu.Menu>
 
     <Application.DataTemplates>
+        <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
         <DataTemplate DataType="vm:CardViewModel"><views:CardView /></DataTemplate>

@@ -69,6 +69,7 @@ internal static class Steps
         await walk.UntilAsync("columns", () => board.Columns.Count > 0);
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
+        await ProjectsAsync(walk, board);
         await FilterAsync(walk, board);
         await ToolActivityAsync(walk, board);
 
@@ -81,6 +82,19 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
+    private static async Task ProjectsAsync(Walker walk, BoardViewModel board)
+    {
+        walk.Shell.ShowProjectsCommand.Execute(null);
+        var projects = walk.Page<ProjectsViewModel>();
+        await walk.UntilAsync("the projects listed, under Projects", () => projects.Projects.Count > 0 && walk.Shell.OnProjects);
+        walk.Shot("03-projects");
+        walk.Click(walk.Center(projects.Projects[0]));
+        await walk.UntilAsync("a project opening its board", () => walk.Shell.Page == board && board.Project == projects.Projects[0]);
+        await walk.UntilAsync("that board live", () => board.Live);
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>Round all three, ending where it began, as the file records each.</summary>

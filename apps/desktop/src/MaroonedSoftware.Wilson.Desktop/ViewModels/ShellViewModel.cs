@@ -17,11 +17,13 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private DesktopSettings _settings = DesktopSettings.Load(settingsPath);
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
+    private ProjectsViewModel? _projects;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
     [NotifyPropertyChangedFor(nameof(OnChat))]
     [NotifyPropertyChangedFor(nameof(OnBoard))]
+    [NotifyPropertyChangedFor(nameof(OnProjects))]
     [NotifyPropertyChangedFor(nameof(Feed))]
     private PageViewModel? _page;
 
@@ -43,6 +45,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public bool OnChat => Section is ThreadsViewModel;
 
     public bool OnBoard => Section is BoardViewModel;
+
+    public bool OnProjects => Section is ProjectsViewModel;
 
     public IFollowsFeed? Feed => Page as IFollowsFeed;
 
@@ -88,6 +92,19 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     [RelayCommand]
     public void ShowBoard() => Go(_board ??= new BoardViewModel(this));
+
+    [RelayCommand]
+    public void ShowProjects() => Go(_projects ??= new ProjectsViewModel(this));
+
+    /// <summary>A project's board, chosen from the projects page.</summary>
+    public void ShowProject(string project)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(project);
+
+        RememberProject(project);
+        _board?.Choose(project);
+        ShowBoard();
+    }
 
     public void Push(PageViewModel page)
     {
@@ -167,8 +184,10 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     {
         _chat?.Dispose();
         _board?.Dispose();
+        _projects?.Dispose();
         _chat = null;
         _board = null;
+        _projects = null;
         Replace(new SignInViewModel(this));
     }
 

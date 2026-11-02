@@ -136,6 +136,19 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
 
+    /// <summary>Another project, while the board is not in front. Showing it reads that project.</summary>
+    public void Choose(string project)
+    {
+        if (Projects.Contains(project) && project != Project)
+        {
+            _choosing = true;
+            Project = project;
+            _choosing = false;
+            Columns.Clear();
+            Live = false;
+        }
+    }
+
     /// <summary>Folds a column or opens it, and remembers that for this project.</summary>
     [RelayCommand]
     public void ToggleCollapsed(BoardColumn column)
