@@ -123,7 +123,7 @@ export class WorkerExecutionHost implements ExecutionHost {
         const env = { ...options.env };
         delete env[ENGINE_TOKEN_VARIABLE];
         const started = (options.account ? Promise.resolve(options.account) : this.engineAccount()).then(
-            ({ token: engineToken }) =>
+            ({ token: engineToken, variable: engineTokenVariable }) =>
                 this.connection.stream(
                     id,
                     {
@@ -134,6 +134,7 @@ export class WorkerExecutionHost implements ExecutionHost {
                         ...(options.cwd && { cwd: options.cwd }),
                         env: definedEnv(env),
                         ...(engineToken !== undefined && { engineToken }),
+                        ...(engineToken !== undefined && engineTokenVariable !== undefined && { engineTokenVariable }),
                     },
                     message => engine.receive(message),
                 ),
@@ -147,7 +148,7 @@ export class WorkerExecutionHost implements ExecutionHost {
     }
 
     async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
-        return this.connection.runClaude(args, timeoutMs, (await this.engineAccount()).token);
+        return this.connection.runClaude(args, timeoutMs, await this.engineAccount());
     }
 
     async cloneRepository(url: string, path: string, token: string): Promise<void> {

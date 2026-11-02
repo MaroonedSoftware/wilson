@@ -75,7 +75,7 @@ export class CliChatEngine extends ChatEngine {
                 strictMcpConfig: true,
                 includePartialMessages: true,
                 maxTurns: MAX_CHAT_STEPS,
-                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), account?.token),
+                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), account?.token, account?.variable),
                 ...(thread.engineSessionId ? { resume: thread.engineSessionId } : {}),
             },
         });

@@ -1,6 +1,7 @@
 import { Injectable } from 'injectkit';
 import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import { httpError } from '@maroonedsoftware/errors';
+import { ENGINE_TOKEN_VARIABLE, type EngineCredentialVariable } from '@wilson/worker-protocol';
 import { requireEngineToken } from '#modules/settings/engine.token.setting.service.js';
 import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
@@ -16,10 +17,13 @@ const TOKEN_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const MAX_PRIORITY = 1000;
 
 /**
- * Whether a host's engine can sign in with this: it arrives as `CLAUDE_CODE_OAUTH_TOKEN`, so only an
- * Anthropic subscription's token can.
+ * Whether an engine can sign in with this. It runs `claude`, so only an Anthropic token can, set as
+ * {@link credentialVariable} says.
  */
-const signsInEngines = ({ provider, kind }: { provider: string; kind: string }): boolean => provider === 'anthropic' && kind === 'subscription';
+const signsInEngines = ({ provider }: { provider: string }): boolean => provider === 'anthropic';
+
+/** What an engine is given a token as: a subscription's own variable, or the API key's. */
+const credentialVariable = (kind: string): EngineCredentialVariable => (kind === 'api_key' ? 'ANTHROPIC_API_KEY' : ENGINE_TOKEN_VARIABLE);
 
 /**
  * The named engine tokens behind `/api/engine-tokens` (`engine.tokens.ck`), encrypted under the same
@@ -99,7 +103,7 @@ export class EngineTokensService {
         }
         if (!signsInEngines(token)) {
             throw httpError(400).withDetails({
-                reason: `a host's engines can only sign in with an Anthropic subscription token, and "${request.name}" is not one`,
+                reason: `a host's engines can only sign in with an Anthropic token, and "${request.name}" is not one`,
             });
         }
         await this.hosts.setEngineToken(hostName, request.name);
@@ -116,21 +120,23 @@ export class EngineTokensService {
     async forHost(hostName: string): Promise<EngineAccount | undefined> {
         const name = (await this.hosts.find(hostName))?.engineToken;
         if (name === undefined) return undefined;
+        const saved = await this.find(name);
         const token = await this.resolve(name);
-        return token === undefined ? undefined : { name, token };
+        return token === undefined || !saved ? undefined : { name, token, variable: credentialVariable(saved.kind) };
     }
 
     /**
-     * The tokens Wilson may choose between, in the order to try them: lowest priority first, then by
+     * The tokens Wilson may choose between, in the order to try them. An API key is one of them like any
+     * other, so give it the highest priority number to keep it for when every subscription is limited: lowest priority first, then by
      * name, so the choice is the same every time it is made.
      */
     async pool(): Promise<EngineAccount[]> {
         const pooled = (await this.tokens.list()).filter(token => token.pooled && signsInEngines(token));
         pooled.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
         const accounts: EngineAccount[] = [];
-        for (const { name } of pooled) {
+        for (const { name, kind } of pooled) {
             const token = await this.resolve(name);
-            if (token !== undefined) accounts.push({ name, token });
+            if (token !== undefined) accounts.push({ name, token, variable: credentialVariable(kind) });
         }
         return accounts;
     }
@@ -156,7 +162,7 @@ export class EngineTokensService {
         const saved = await this.find(name);
         if (saved && saved.hosts.length > 0 && !signsInEngines({ ...saved, ...account })) {
             throw httpError(400).withDetails({
-                reason: `"${name}" is assigned to ${saved.hosts.join(', ')}, whose engines can only sign in with an Anthropic subscription token`,
+                reason: `"${name}" is assigned to ${saved.hosts.join(', ')}, whose engines can only sign in with an Anthropic token`,
             });
         }
     }

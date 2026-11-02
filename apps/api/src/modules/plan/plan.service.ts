@@ -292,6 +292,7 @@ export class PlanService {
                 model,
                 configDir,
                 engineToken: account?.token,
+                engineTokenVariable: account?.variable,
                 account: account?.name,
                 onUsageLimit: limit => void this.accounts?.recordLimit(limit).catch(() => undefined),
             },

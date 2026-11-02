@@ -14,6 +14,13 @@ export const PASSED_THROUGH_ENV = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPD
 /** The variable `claude` signs in with when it is set, as `claude setup-token` documents. */
 export const ENGINE_TOKEN_VARIABLE = 'CLAUDE_CODE_OAUTH_TOKEN';
 
+/**
+ * The variables an assigned token may be set as: a subscription's token, or an API key billed per
+ * token. A list rather than any name, so what Wilson sends can only ever set a credential.
+ */
+export const ENGINE_CREDENTIAL_VARIABLES = [ENGINE_TOKEN_VARIABLE, 'ANTHROPIC_API_KEY'] as const;
+export type EngineCredentialVariable = (typeof ENGINE_CREDENTIAL_VARIABLES)[number];
+
 /** The variable the worker program connects to Wilson with. */
 export const WORKER_TOKEN_VARIABLE = 'WILSON_WORKER_TOKEN';
 
@@ -60,19 +67,25 @@ export const inheritedEnvironment = (own: Env): Env => {
 
 /**
  * The environment for the engine: the SDK's own variables from `sent` and nothing else of Wilson's,
- * the passthrough names from the worker, and `assigned`, the token Wilson gave this process, or else
- * the worker's own. A token in `sent` is dropped: only the host's assignment decides, so the token an
- * engine on Wilson's own machine uses can never sign in an engine here.
+ * the passthrough names from the worker, and `assigned`, the token Wilson gave this process as
+ * `variable`, or else the worker's own token. A token in `sent` is dropped: only the host's assignment
+ * decides, so the token an engine on Wilson's own machine uses can never sign in an engine here. The
+ * worker's own token is dropped too when one is assigned, so the engine has one sign-in to choose.
  */
-export const engineEnvironment = (sent: Env, own: Env, assigned?: string): Record<string, string> => {
+export const engineEnvironment = (
+    sent: Env,
+    own: Env,
+    assigned?: string,
+    variable: EngineCredentialVariable = ENGINE_TOKEN_VARIABLE,
+): Record<string, string> => {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(sent)) {
-        if (value === undefined || key === ENGINE_TOKEN_VARIABLE) continue;
+        if (value === undefined || (ENGINE_CREDENTIAL_VARIABLES as readonly string[]).includes(key)) continue;
         if (ENGINE_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
     return {
         ...env,
-        ...pick(own, [...PASSED_THROUGH_ENV, ENGINE_TOKEN_VARIABLE]),
-        ...(assigned !== undefined && { [ENGINE_TOKEN_VARIABLE]: assigned }),
+        ...pick(own, assigned === undefined ? [...PASSED_THROUGH_ENV, ENGINE_TOKEN_VARIABLE] : PASSED_THROUGH_ENV),
+        ...(assigned !== undefined && { [variable]: assigned }),
     };
 };

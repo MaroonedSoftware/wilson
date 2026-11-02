@@ -1,3 +1,4 @@
+import type { EngineCredentialVariable } from '@wilson/worker-protocol';
 import type { UsageLimit } from '#modules/agent/usage.limit.js';
 import type { ChildProcess } from 'node:child_process';
 
@@ -98,6 +99,8 @@ export interface ClaudeSpawnOptions {
 export interface EngineAccount {
     name: string;
     token?: string;
+    /** What to set `token` as: a subscription's token when absent. */
+    variable?: EngineCredentialVariable;
     /** Set when this account has hit a usage limit that has not reset, so starting an engine would only be refused. */
     limit?: UsageLimit;
 }

@@ -1216,8 +1216,9 @@ only when retrying cannot help.
 - **Worker engine tokens.** Wilson holds any number of named tokens in `wilson.engine_tokens`, encrypted
   under the same key, and each worker host is assigned one, or none to use the worker's own
   (`wilson engine-token`, the Settings and Hosts pages). Each records its provider, its kind
-  (`subscription` or `api_key`) and a priority, but only an Anthropic subscription's token can be
-  assigned, since a host's engine receives it as `CLAUDE_CODE_OAUTH_TOKEN`. A token can also join
+  (`subscription` or `api_key`) and a priority, but only an Anthropic token can be assigned or pooled,
+  since the engine is `claude`: a subscription's token reaches it as `CLAUDE_CODE_OAUTH_TOKEN` and an
+  API key as `ANTHROPIC_API_KEY`. A token can also join
   the pool (`wilson engine-token update <name> --pool`): an engine with no token assigned, here or on
   a worker, takes the first pooled token with no usage limit in force, lowest priority first. Wilson
   reads the engine's rate limit events, keeps what each account hit in `wilson.engine_limits`, and

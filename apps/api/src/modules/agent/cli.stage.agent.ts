@@ -1,3 +1,4 @@
+import { ENGINE_TOKEN_VARIABLE, type EngineCredentialVariable } from '@wilson/worker-protocol';
 import { dirname, isAbsolute, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
@@ -93,18 +94,22 @@ const ENGINE_PASSED_THROUGH_PREFIXES = ['LC_', 'CLAUDE_CODE_', 'TEST_DATABASE_']
  * and pass the result in, the same way they already resolve everything else this function does not
  * know about on its own.
  *
- * `engineToken`, when given, is set as `CLAUDE_CODE_OAUTH_TOKEN`, over one this process already has,
+ * `engineToken`, when given, is set as `variable` (`CLAUDE_CODE_OAUTH_TOKEN` unless it is an API key), over one this process already has,
  * which the prefix above would otherwise pass through. The engine signs in with a token ahead of
  * anything under `CLAUDE_CONFIG_DIR`. Left `undefined`, the environment's own token, if any, stands.
  */
-export const subscriptionEnv = (configDir?: string, engineToken?: string): NodeJS.ProcessEnv => {
+export const subscriptionEnv = (
+    configDir?: string,
+    engineToken?: string,
+    variable: EngineCredentialVariable = ENGINE_TOKEN_VARIABLE,
+): NodeJS.ProcessEnv => {
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (value === undefined) continue;
         if (ENGINE_PASSED_THROUGH.includes(key) || ENGINE_PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
     if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
-    if (engineToken !== undefined) env.CLAUDE_CODE_OAUTH_TOKEN = engineToken;
+    if (engineToken !== undefined) env[variable] = engineToken;
     return env;
 };
 
@@ -622,7 +627,7 @@ export class CliStageAgent extends StageAgent {
                 // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
-                env: subscriptionEnv(configDir, hostAccount ? undefined : account?.token),
+                env: subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
                 // A worktree on another machine needs the engine there too: its built-in tools read
                 // and write the tree directly. The host starts `claude` from its own PATH, and the
                 // SDK's callbacks above still run here, over the same stdio. A host with no

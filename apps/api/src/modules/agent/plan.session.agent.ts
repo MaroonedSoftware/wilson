@@ -1,3 +1,4 @@
+import type { EngineCredentialVariable } from '@wilson/worker-protocol';
 import { LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -61,6 +62,8 @@ export interface PlanSessionOptions {
     /** The engine token saved in the settings, or `undefined` when there is none. Resolved by the
      * caller for the same reason as {@link PlanSessionOptions.configDir}. */
     engineToken?: string;
+    /** What to set `engineToken` as: a subscription's token when absent. */
+    engineTokenVariable?: EngineCredentialVariable;
     /** The name of the account `engineToken` belongs to, for what {@link PlanSessionOptions.onUsageLimit} reports. */
     account?: string;
     /** Called when a turn ends with the account having hit a usage limit. */
@@ -112,7 +115,7 @@ export class PlanSessionAgent {
                 // `~/.claude` (settings, MCP servers) at the moment it runs.
                 settingSources: [],
                 strictMcpConfig: true,
-                env: subscriptionEnv(options.configDir, options.engineToken),
+                env: subscriptionEnv(options.configDir, options.engineToken, options.engineTokenVariable),
                 ...(options.resume ? { resume: options.resume } : {}),
             },
         });

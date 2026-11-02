@@ -100,22 +100,23 @@ describe('EngineTokensService', () => {
         await expect(tokens.update(name, { provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('offers only pooled Anthropic subscription tokens, by priority and then name', async () => {
+    it('offers only pooled Anthropic tokens, by priority and then name, each with what to set it as', async () => {
         const prefix = uniqueName();
         const named = (suffix: string) => `${prefix}-${suffix}`;
         await tokens.put(named('b'), { token: 'b', pooled: true, priority: 900 });
         await tokens.put(named('a'), { token: 'a', pooled: true, priority: 900 });
         await tokens.put(named('c'), { token: 'c', pooled: true, priority: 800 });
         await tokens.put(named('out'), { token: 'out', priority: 800 });
-        await tokens.put(named('key'), { token: 'key', pooled: true, kind: 'api_key' });
+        await tokens.put(named('key'), { token: 'key', pooled: true, kind: 'api_key', priority: 1000 });
         await tokens.put(named('other'), { token: 'other', pooled: true, provider: 'openai' });
 
         const pool = (await tokens.pool()).filter(account => account.name.startsWith(prefix));
 
         expect(pool).toEqual([
-            { name: named('c'), token: 'c' },
-            { name: named('a'), token: 'a' },
-            { name: named('b'), token: 'b' },
+            { name: named('c'), token: 'c', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('a'), token: 'a', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('b'), token: 'b', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+            { name: named('key'), token: 'key', variable: 'ANTHROPIC_API_KEY' },
         ]);
         for (const suffix of ['a', 'b', 'c', 'out', 'key', 'other']) await tokens.remove(named(suffix));
     });
@@ -218,14 +219,22 @@ describe('EngineTokensService', () => {
     });
 
     it('refuses with 400 to assign a token a host engine cannot sign in with', async () => {
-        const [host, other, key] = [uniqueName(), uniqueName(), uniqueName()];
+        const [host, other] = [uniqueName(), uniqueName()];
         await hosts.create({ name: host, kind: 'worker', slots: 1 });
         await tokens.put(other, { token: 'value', provider: 'openai' });
-        await tokens.put(key, { token: 'value', kind: 'api_key' });
 
         await expect(tokens.assign(host, { name: other })).rejects.toMatchObject({ statusCode: 400 });
-        await expect(tokens.assign(host, { name: key })).rejects.toMatchObject({ statusCode: 400 });
         expect((await hosts.find(host))?.engineToken).toBeUndefined();
+    });
+
+    it('assigns an Anthropic API key, to be set as one', async () => {
+        const [host, key] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(key, { token: 'sk-ant-api', kind: 'api_key' });
+
+        await tokens.assign(host, { name: key });
+
+        await expect(tokens.forHost(host)).resolves.toEqual({ name: key, token: 'sk-ant-api', variable: 'ANTHROPIC_API_KEY' });
     });
 
     it('refuses with 400 to turn an assigned token into one its host cannot use, keeping the saved one', async () => {
@@ -235,7 +244,6 @@ describe('EngineTokensService', () => {
         await tokens.assign(host, { name });
 
         await expect(tokens.put(name, { token: 'other', provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
-        await expect(tokens.put(name, { token: 'other', kind: 'api_key' })).rejects.toMatchObject({ statusCode: 400 });
         await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'value' });
 
         expect(await tokens.put(name, { token: 'rotated', priority: 3 })).toMatchObject({ priority: 3, hosts: [host] });
