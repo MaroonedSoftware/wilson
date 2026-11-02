@@ -19,6 +19,7 @@
         <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
+        <DataTemplate DataType="vm:SettingsViewModel"><views:SettingsView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
@@ -196,6 +197,9 @@
             <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
             <Setter Property="CornerRadius" Value="10" />
         </Style>
+        <Style Selector="Button.flag.draining /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Caution}" />
+        </Style>
         <Style Selector="Button.chip">
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="12,5" />
@@ -254,6 +258,13 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="3" />
             <Setter Property="Padding" Value="5,1" />
+        </Style>
+        <Style Selector="TextBlock.heading">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.good">
+            <Setter Property="Foreground" Value="{DynamicResource Good}" />
         </Style>
         <Style Selector="TextBlock.quiet.good">
             <Setter Property="Foreground" Value="{DynamicResource Good}" />

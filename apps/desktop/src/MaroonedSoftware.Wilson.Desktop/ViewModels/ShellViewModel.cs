@@ -6,19 +6,26 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
+using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
+using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 /// <summary>The window's one job: which page is in front, and which server it is talking to.</summary>
 public sealed partial class ShellViewModel(ISecretStore store, string settingsPath) : ObservableObject, IDisposable
 {
+    private static readonly TimeSpan DrainingReading = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan IdleReading = TimeSpan.FromSeconds(60);
+
     private readonly Stack<PageViewModel> _behind = new();
     private DesktopSettings _settings = DesktopSettings.Load(settingsPath);
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
     private ProjectsViewModel? _projects;
     private HostsViewModel? _hosts;
+    private SettingsViewModel? _settingsPage;
+    private CancellationTokenSource? _watchingDrain;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
@@ -26,6 +33,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     [NotifyPropertyChangedFor(nameof(OnBoard))]
     [NotifyPropertyChangedFor(nameof(OnProjects))]
     [NotifyPropertyChangedFor(nameof(OnHosts))]
+    [NotifyPropertyChangedFor(nameof(OnSettings))]
     [NotifyPropertyChangedFor(nameof(Feed))]
     private PageViewModel? _page;
 
@@ -35,6 +43,12 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     /// <summary>"n needs human" for the project in hand, or nothing at none, as an always-on "0" is noise.</summary>
     [ObservableProperty]
     private string? _flagged;
+
+    /// <summary>Shown on every page while draining, as a board left draining looks healthy while starting nothing.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DrainBadge))]
+    [NotifyPropertyChangedFor(nameof(DrainLine))]
+    private DrainStatus? _drain;
 
     /// <summary>Absent where nothing checks for updates, such as in tools/Walk.</summary>
     public UpdateViewModel? Updates { get; init; }
@@ -55,6 +69,12 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public bool OnProjects => Section is ProjectsViewModel;
 
     public bool OnHosts => Section is HostsViewModel;
+
+    public bool OnSettings => Section is SettingsViewModel;
+
+    public string? DrainBadge => Drain is { } status ? SettingsRules.DrainBadge(status) : null;
+
+    public string? DrainLine => Drain is { } status ? SettingsRules.DrainLine(status) : null;
 
     public IFollowsFeed? Feed => Page as IFollowsFeed;
 
@@ -127,6 +147,9 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     [RelayCommand]
     public void ShowHosts() => Go(_hosts ??= new HostsViewModel(this));
+
+    [RelayCommand]
+    public void ShowSettings() => Go(_settingsPage ??= new SettingsViewModel(this));
 
     /// <summary>A project just made: the board learns of it and shows it.</summary>
     public async Task ProjectAddedAsync(string project)
@@ -219,8 +242,43 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     public void Dispose()
     {
+        StopWatchingDrain();
         Page?.Hidden();
         Connection?.Dispose();
+    }
+
+    /// <summary>Often while draining, as that is when someone is waiting for it to be safe. A key that may not read it simply shows nothing.</summary>
+    private async Task WatchDrainAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    Drain = await Connection!.Sdk.Settings.GetDrainStatusAsync(cancellationToken);
+                }
+                catch (HttpRequestException failure)
+                {
+                    Trace.WriteLine($"drain: {failure.Message}");
+                    Drain = null;
+                }
+
+                await Task.Delay(Drain?.Draining == true ? DrainingReading : IdleReading, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Signing out is how the watch ends.
+        }
+    }
+
+    private void StopWatchingDrain()
+    {
+        _watchingDrain?.Cancel();
+        _watchingDrain?.Dispose();
+        _watchingDrain = null;
+        Drain = null;
     }
 
     /// <summary>Away from the board nothing is following the feed, so the header's count is read on each change of page.</summary>
@@ -244,14 +302,17 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private void ShowSignIn()
     {
         Flagged = null;
+        StopWatchingDrain();
         _chat?.Dispose();
         _board?.Dispose();
         _projects?.Dispose();
         _hosts?.Dispose();
+        _settingsPage?.Dispose();
         _chat = null;
         _board = null;
         _projects = null;
         _hosts = null;
+        _settingsPage = null;
         Replace(new SignInViewModel(this));
     }
 
@@ -288,6 +349,12 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Page = page;
         CanGoBack = _behind.Count > 0;
         page.Shown();
+        if (SignedIn && _watchingDrain is null)
+        {
+            _watchingDrain = new CancellationTokenSource();
+            _ = WatchDrainAsync(_watchingDrain.Token);
+        }
+
         if (SignedIn && page is not BoardViewModel)
         {
             _ = ReadFlaggedAsync();

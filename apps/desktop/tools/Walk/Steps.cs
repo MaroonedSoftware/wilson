@@ -97,6 +97,76 @@ internal static class Steps
     private static async Task AdminAsync(Walker walk)
     {
         await HostsAsync(walk);
+        await SettingsAsync(walk);
+    }
+
+    /// <summary>
+    /// Real writes on the throwaway API, each put back. Auto-mode is only flipped under a drain, because
+    /// that API's poller is off so that nothing it holds ever starts work.
+    /// </summary>
+    private static async Task SettingsAsync(Walker walk)
+    {
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var settings = walk.Page<SettingsViewModel>();
+        await walk.UntilAsync("the settings read", () => settings.AutoMode.Loaded && settings.Drain.Loaded && settings.PollInterval.Loaded && settings.Facts.Count == 5 && settings.Webhook is not null);
+        await walk.UntilAsync("the header marking Settings", () => walk.Shell.OnSettings);
+        walk.Shot("12-settings");
+
+        settings.Drain.On = true;
+        await walk.UntilAsync("a drain, in the header too", () => walk.Shell.DrainBadge is not null && settings.Drain.Idle);
+        Console.WriteLine($"     {walk.Shell.DrainBadge}: {walk.Shell.DrainLine}");
+        walk.Shot("12-settings-drain");
+        walk.Shell.ShowHostsCommand.Execute(null);
+        await walk.UntilAsync("the header's drain on another page", () => walk.Shell.Page is HostsViewModel && walk.Shell.DrainBadge is not null);
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        await walk.UntilAsync("the settings kept", () => walk.Shell.Page == settings);
+
+        settings.AutoMode.On = true;
+        await walk.UntilAsync("auto-mode on", () => settings.AutoMode.Idle && settings.AutoMode.On);
+        settings.AutoMode.On = false;
+        await walk.UntilAsync("auto-mode off again", () => settings.AutoMode.Idle && !settings.AutoMode.On);
+        settings.Drain.On = false;
+        await walk.UntilAsync("the drain lifted, and gone from the header", () => settings.Drain.Idle && walk.Shell.DrainBadge is null);
+
+        var split = settings.AutoSplit.On;
+        settings.AutoSplit.On = !split;
+        await walk.UntilAsync("auto-split changed", () => settings.AutoSplit.Idle && settings.AutoSplit.On != split);
+        settings.AutoSplit.On = split;
+        await walk.UntilAsync("auto-split put back", () => settings.AutoSplit.Idle && settings.AutoSplit.On == split);
+
+        var interval = settings.PollInterval.Stored;
+        settings.PollInterval.Draft = 1;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an interval refused and put back", () => settings.PollInterval.Error is not null && settings.PollInterval.Draft == interval);
+        Console.WriteLine($"     refused: {settings.PollInterval.Error}");
+        settings.PollInterval.Draft = 12_000;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an interval saved", () => settings.PollInterval.Stored == 12_000 && !settings.PollInterval.Dirty);
+        settings.PollInterval.Draft = interval;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the interval put back", () => settings.PollInterval.Stored == interval);
+
+        var slots = settings.LocalSlots.Stored;
+        settings.LocalSlots.Draft = slots == 1 ? 2 : 1;
+        await settings.LocalSlots.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("local slots saved", () => settings.LocalSlots.Stored != slots);
+        settings.LocalSlots.Draft = slots;
+        await settings.LocalSlots.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("local slots put back", () => settings.LocalSlots.Stored == slots);
+
+        settings.WebhookDraft = "http://localhost:9/hook";
+        settings.BaseUrlDraft = "http://not checked";
+        await settings.SaveWebhookCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a webhook refused, the attempt kept", () => settings.WebhookError is not null && settings.WebhookDraft == "http://localhost:9/hook" && settings.WebhookStillSaved is not null);
+        Console.WriteLine($"     refused: {settings.WebhookError}");
+        walk.Shot("12-settings-refused");
+        settings.WebhookDraft = "https://example.com/hook";
+        settings.BaseUrlDraft = "not checked at all";
+        await settings.SaveWebhookCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a webhook saved, and the base URL as typed", () => settings.Webhook?.BaseUrl == "not checked at all" && settings.WebhookError is null);
+
+        // The API answers 500 to a null in this request (`SettingsStore.set` of undefined), in the web app too, so this goes by hand.
+        Walker.Sql("delete from wilson.settings where key in ('notify-webhook-url', 'notify-base-url')");
     }
 
     /// <summary>

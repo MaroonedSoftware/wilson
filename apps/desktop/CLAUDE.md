@@ -134,8 +134,8 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects and hosts. Not here yet, so these still need the web app: onboarding,
-passkeys and settings.
+planning, chat, the diff, projects, hosts and the runner's settings. Not here yet, so these still need
+the web app: onboarding, passkeys, and the engine, GitHub and security settings.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -172,6 +172,17 @@ as many events as are showing, so one from the feed does not take back what Show
 `HostsViewModel` is `routes/hosts.tsx` and `HostRules` its wording. The feed says nothing of hosts, so the
 page reads every ten seconds, and panels are kept by name across a read, as a redraw would lose a form
 half filled in or close a menu. As on the web, there is no minting of a worker's token: `wilson host` does that.
+
+## Settings
+
+`SettingsViewModel` is `routes/settings.tsx`, without its "back to the board" link, which the header
+replaces. `SettingControls.cs` holds its three shapes, each with the web control's rule about a refusal:
+`SwitchSetting` shows what came back, `NumberSetting` puts the stored value back, and `TextSetting` keeps
+the attempt beside what is really stored. `ShellViewModel.Drain` is `lib/drain.ts`: read every five seconds
+while draining and every minute otherwise, from sign-in on, for the header's badge on every page.
+
+The API answers 500 to `PUT` notify-webhook with either field null, in the web app too, as `SettingsStore.set`
+hands undefined to the query. So a notification URL cannot be cleared from either client yet.
 
 ## Feed activity
 
@@ -262,6 +273,11 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, runner settings: with `tools/Walk`, each read and written and put back on the throwaway API, a
+drain reaching the header on another page, an interval refused and a webhook refused keeping the attempt.
+Auto-mode was flipped only under a drain, as that API must never start work. Draining with a stage running
+was not seen, as nothing runs a stage there.
 
 2026-11-02, hosts: with `tools/Walk`, registering, a taken name refused, drain, disable, serving a project,
 a real probe failing, an engine token assigned to a worker, and removing after being asked. A running slot

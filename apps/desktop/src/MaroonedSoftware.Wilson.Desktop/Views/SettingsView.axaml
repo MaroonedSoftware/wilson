@@ -1,0 +1,103 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.SettingsView"
+    x:DataType="vm:SettingsViewModel">
+    <UserControl.DataTemplates>
+        <DataTemplate DataType="vm:SwitchSetting">
+            <StackPanel Spacing="4">
+                <DockPanel IsVisible="{Binding Loaded}">
+                    <ToggleSwitch DockPanel.Dock="Left" IsChecked="{Binding On}" IsEnabled="{Binding Idle}" OnContent="" OffContent="" VerticalAlignment="Top" AutomationProperties.Name="{Binding Label}" />
+                    <StackPanel Spacing="1" Margin="4,0,0,0">
+                        <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Label}" />
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Description}" />
+                    </StackPanel>
+                </DockPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:NumberSetting">
+            <StackPanel Spacing="4">
+                <StackPanel Spacing="4" IsVisible="{Binding Loaded}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Label}" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Description}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <NumericUpDown Value="{Binding Draft}" Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Increment="{Binding Step}" FormatString="0" Width="180" IsEnabled="{Binding Idle}" />
+                        <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding Dirty}" />
+                    </StackPanel>
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.DataTemplates>
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12" MaxWidth="720" HorizontalAlignment="Left" MinWidth="560">
+            <TextBlock Classes="title" Text="Settings" />
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Auto-mode" />
+                    <ContentControl Content="{Binding AutoMode}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Drain" />
+                    <ContentControl Content="{Binding Drain}" />
+                    <TextBlock FontSize="13" Classes.good="{Binding Shell.Drain.SafeToRestart, FallbackValue=False}" TextWrapping="Wrap" Text="{Binding Shell.DrainLine}" IsVisible="{Binding Shell.DrainLine, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Auto-split" />
+                    <ContentControl Content="{Binding AutoSplit}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Poll interval" />
+                    <ContentControl Content="{Binding PollInterval}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="heading" Text="Stage concurrency" />
+                    <ContentControl Content="{Binding Concurrency}" />
+                    <ContentControl Content="{Binding LocalSlots}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="heading" Text="Notifications" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="These carry different risk. The webhook URL is a destination this daemon sends a request to, so the server checks it (https only, and not an address that resolves somewhere private) both when it is saved and again every time it is used, and refuses anything that fails. The base URL only appears as a link inside that request's payload. Nothing here ever fetches it, so it is saved exactly as typed." />
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Webhook URL" Margin="0,4,0,0" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Where notifications are sent. Checked by the server on save and on every use. A refused value is never stored." />
+                    <TextBox Text="{Binding WebhookDraft}" PlaceholderText="https://example.com/hook" IsEnabled="{Binding WebhookIdle}" />
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Base URL" Margin="0,4,0,0" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="A link back to this board, included in the notification payload. Not validated: it is never a destination this daemon contacts." />
+                    <TextBox Text="{Binding BaseUrlDraft}" PlaceholderText="https://board.example" IsEnabled="{Binding WebhookIdle}" />
+                    <Button Content="Save" Command="{Binding SaveWebhookCommand}" IsEnabled="{Binding WebhookDirty}" HorizontalAlignment="Left" />
+                    <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding WebhookError}" IsVisible="{Binding WebhookError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <SelectableTextBlock Classes="quiet" Text="{Binding WebhookStillSaved}" IsVisible="{Binding WebhookStillSaved, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="heading" Text="Deployment" />
+                    <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding DeploymentError}" IsVisible="{Binding DeploymentError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <ItemsControl ItemsSource="{Binding Facts}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DeploymentFact">
+                                <DockPanel Margin="0,0,0,3">
+                                    <TextBlock DockPanel.Dock="Left" Classes="quiet" Width="100" Text="{Binding Label}" VerticalAlignment="Center" />
+                                    <SelectableTextBlock Classes="mono" Classes.quiet="{Binding Topology}" Text="{Binding Value}" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Code and worktree roots are environment-only: set at deploy time, not editable here. Changing them out from under a running daemon is a redeploy, not a setting." />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
