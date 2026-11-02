@@ -1108,6 +1108,40 @@ Wilson has no Redis, so there is nothing else to leave out.
   `/data/secrets` on first boot and it listens on loopback only. `slim` refuses to start without one.
 - **`slim` has no backup.** Backing up a database you brought is yours to arrange.
 
+### Following GitHub `main`
+
+A deployment's image and its project clone move separately: deploying replaces the image and leaves
+`/projects/<name>` where it was, and cards are cut from that clone. While dry run is on, a Wilson
+merge lands on `dry-run-integration` and never on `main`, so nothing moves the clone but an operator.
+GitHub's `main` is the only place `main` changes, and a clone's `main` only ever fast-forwards.
+
+To bring a clone up to date, drain first, then run git inside the container as its own user. Root on
+the host would leave root-owned files in the clone:
+
+```sh
+docker exec -u 99:100 wilson git -C /projects/wilson fetch origin
+docker exec -u 99:100 wilson git -C /projects/wilson merge --ff-only origin/main
+docker exec -u 99:100 wilson git -C /projects/wilson branch -f dry-run-integration main
+```
+
+Resetting `dry-run-integration` drops any rehearsal that has not reached GitHub, so land those first.
+A refused fast-forward means `main` holds something GitHub does not: find out what before going on.
+Never run `git worktree prune` from the host, where worktrees under `/data` look prunable but are not.
+
+A card in `ready` reaches GitHub as a pull request, from a machine that can push, since the stack
+holds no forge write credential:
+
+1. Copy the branch off the clone with `git bundle create - <branch> ^<base>` and fetch the bundle.
+2. Rebase it onto `main`, resolving any conflict, and run the suite. A migration whose version is
+   not newer than everything on `main` gets a new one, because dbmate tracks only the version.
+3. Open the pull request and merge it once CI passes.
+4. Fast-forward the clone as above, then run `wilson card move <id> merged`, which reclaims the
+   card's worktree.
+
+Test databases keep the versions of every branch that ran against them. A wipe is needed when an
+applied migration file changes under the same version, since dbmate will not apply it again. While
+drained, drop and recreate `wilson_test` on each, and the next suite migrates it.
+
 ### Workers
 
 A worker is `apps/worker` on a machine kept for it, set up as `apps/worker/README.md` describes:
