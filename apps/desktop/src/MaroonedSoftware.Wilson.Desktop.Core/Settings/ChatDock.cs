@@ -9,7 +9,7 @@ public enum ChatDockPosition
     Bottom,
 }
 
-/// <summary>`lib/chat.dock.ts`: whether the dock is open, where it sits and how big it is, so it comes back the way it was left.</summary>
+/// <summary>`lib/chat.dock.ts`, except that it starts open: whether the dock is open, where it sits and how big it is, so it comes back the way it was left.</summary>
 public sealed record ChatDock
 {
     public const int MinWidth = 320;
@@ -17,7 +17,14 @@ public sealed record ChatDock
     public const int MinHeight = 200;
     public const int MaxHeight = 640;
 
-    public bool Open { get; init; }
+    /// <summary>
+    /// Only a person closing it does this, so the chat follows them off the home page until then. Stored in
+    /// place of an `Open`, which every older file holds as false whether or not anyone chose that.
+    /// </summary>
+    public bool Closed { get; init; }
+
+    [JsonIgnore]
+    public bool Open => !Closed;
 
     [JsonConverter(typeof(JsonStringEnumConverter<ChatDockPosition>))]
     public ChatDockPosition Position { get; init; }

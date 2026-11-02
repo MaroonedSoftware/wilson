@@ -13,7 +13,7 @@ namespace Walk;
 /// <summary>The flows, in the order a person would meet them.</summary>
 internal static class Steps
 {
-    public static async Task RunAsync(Walker walk, string origin, string email, string password, bool adminOnly = false)
+    public static async Task RunAsync(Walker walk, string origin, string email, string password, string? only = null)
     {
         await walk.UntilAsync("the sign-in page, under no header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
         var signIn = walk.Page<SignInViewModel>();
@@ -64,7 +64,14 @@ internal static class Steps
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
         var signedIn = DateTime.UtcNow;
-        if (adminOnly)
+        if (only == "dock")
+        {
+            await DockByDefaultAsync(walk);
+            await DockAsync(walk);
+            return;
+        }
+
+        if (only == "admin")
         {
             await AdminAsync(walk);
             await SecurityAsync(walk, email, password, signedIn);
@@ -140,6 +147,35 @@ internal static class Steps
         await HostsAsync(walk);
         await SettingsAsync(walk);
         await DockAsync(walk);
+    }
+
+    /// <summary>A first run, on a file that has never had the dock touched: chat fills the home page and is a sidebar everywhere else.</summary>
+    private static async Task DockByDefaultAsync(Walker walk)
+    {
+        var home = walk.Page<ThreadsViewModel>();
+        await walk.UntilAsync("no dock on the home page", () => walk.Shell.RightDock is null && walk.Shell.BottomDock is null);
+
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("the same chat as a sidebar on the board", () => walk.Shell.RightDock?.Home == home && home.Chat is not null);
+        await walk.UntilAsync("the board live beside it", () => walk.Shell.Feed?.Live == true, 20);
+        walk.Shot("14-dock-by-default-board");
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        await walk.UntilAsync("still a sidebar on settings", () => walk.Shell.RightDock is not null);
+        walk.Shot("14-dock-by-default-settings");
+
+        walk.Shell.ShowChatCommand.Execute(null);
+        await walk.UntilAsync("the home page again, with no dock", () => walk.Shell.Page == home && walk.Shell.RightDock is null);
+        walk.Shot("14-dock-by-default-home");
+
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("the sidebar back", () => walk.Shell.RightDock is not null);
+        await walk.UntilAsync("the board live again", () => walk.Shell.Feed?.Live == true, 20);
+        walk.Chord(PhysicalKey.J, RawInputModifiers.Meta);
+        await walk.UntilAsync("closed by Cmd+J, kept", () => walk.Shell.RightDock is null && walk.Settings().Dock.Closed);
+        walk.Shell.ShowChatCommand.Execute(null);
+        await walk.UntilAsync("home", () => walk.Shell.Page == home);
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("staying closed across pages", () => walk.Shell.OnBoard && walk.Shell.RightDock is null);
     }
 
     /// <summary>The chat beside a page: by the real shortcut and a real drag, one real turn, and the same model on the home page.</summary>
