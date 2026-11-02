@@ -1,0 +1,31 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.StepUpView"
+    x:DataType="vm:StepUpViewModel">
+    <UserControl.KeyBindings>
+        <KeyBinding Gesture="Escape" Command="{Binding CancelCommand}" />
+    </UserControl.KeyBindings>
+    <Border Background="#80000000">
+        <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="380" Padding="18" CornerRadius="6" Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="title" FontSize="18" Text="Confirm it's you" />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="This change needs you to sign in again." />
+                <StackPanel Spacing="6" IsVisible="{Binding AsksPassword}">
+                    <TextBox x:Name="EmailBox" Text="{Binding Email}" PlaceholderText="you@example.com" IsEnabled="{Binding Idle}" />
+                    <TextBox x:Name="PasswordBox" Text="{Binding Password}" PasswordChar="•" PlaceholderText="Password" IsEnabled="{Binding Idle}" />
+                </StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding NeedsCode}">
+                    <TextBlock Classes="quiet" Text="The code from your authenticator app." />
+                    <TextBox x:Name="CodeBox" Text="{Binding Code}" PlaceholderText="123456" IsEnabled="{Binding Idle}" />
+                </StackPanel>
+                <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                    <Button Classes="ghost" Content="Cancel" Command="{Binding CancelCommand}" />
+                    <Button Classes="primary" Content="Continue" Command="{Binding SubmitCommand}" IsDefault="True" IsEnabled="{Binding Idle}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
+</UserControl>

@@ -4,6 +4,7 @@
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ShellView"
     x:DataType="vm:ShellViewModel">
+    <Panel>
     <DockPanel>
         <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" Padding="16,6" IsVisible="{Binding Updates.Visible, FallbackValue=False}">
             <DockPanel>
@@ -34,4 +35,6 @@
         </Border>
         <ContentControl Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
     </DockPanel>
+    <ContentControl Content="{Binding StepUp}" IsVisible="{Binding StepUp, Converter={x:Static ObjectConverters.IsNotNull}}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+    </Panel>
 </UserControl>

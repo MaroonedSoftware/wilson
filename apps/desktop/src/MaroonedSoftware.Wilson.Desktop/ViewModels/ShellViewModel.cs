@@ -26,6 +26,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private HostsViewModel? _hosts;
     private SettingsViewModel? _settingsPage;
     private CancellationTokenSource? _watchingDrain;
+    private TaskCompletionSource<bool>? _steppingUp;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
@@ -49,6 +50,10 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     [NotifyPropertyChangedFor(nameof(DrainBadge))]
     [NotifyPropertyChangedFor(nameof(DrainLine))]
     private DrainStatus? _drain;
+
+    /// <summary>"Confirm it's you", over whatever page asked. Never open without something waiting on it.</summary>
+    [ObservableProperty]
+    private StepUpViewModel? _stepUp;
 
     /// <summary>Absent where nothing checks for updates, such as in tools/Walk.</summary>
     public UpdateViewModel? Updates { get; init; }
@@ -110,6 +115,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
         Connection = new ServerConnection(origin, store);
         Connection.Session.SessionEnded += (_, _) => Dispatcher.UIThread.Post(ShowSignIn);
+        Connection.Session.StepUp = AskStepUpAsync;
         Remember(_settings.Origin == origin ? _settings : _settings with { Origin = origin, Project = null, Thread = null, Collapsed = new Dictionary<string, IReadOnlyList<string>>() });
         return Connection;
     }
@@ -247,6 +253,25 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
     }
 
+    /// <summary>Requests refused together share one question, as one new session answers them all.</summary>
+    private Task<bool> AskStepUpAsync(CancellationToken cancellationToken) => Dispatcher.UIThread.InvokeAsync(() =>
+    {
+        if (_steppingUp is null)
+        {
+            _steppingUp = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StepUp = new StepUpViewModel(Connection!.Session, FinishStepUp);
+        }
+
+        return _steppingUp.Task.WaitAsync(cancellationToken);
+    });
+
+    private void FinishStepUp(bool confirmed)
+    {
+        StepUp = null;
+        _steppingUp?.TrySetResult(confirmed);
+        _steppingUp = null;
+    }
+
     /// <summary>Often while draining, as that is when someone is waiting for it to be safe. A key that may not read it simply shows nothing.</summary>
     private async Task WatchDrainAsync(CancellationToken cancellationToken)
     {
@@ -302,6 +327,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private void ShowSignIn()
     {
         Flagged = null;
+        FinishStepUp(false);
         StopWatchingDrain();
         _chat?.Dispose();
         _board?.Dispose();

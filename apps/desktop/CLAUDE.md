@@ -31,6 +31,9 @@ Everything in `apps/android/CLAUDE.md` under that heading applies here. Beyond i
   `WWW-Authenticate` (`ApiError.RefusesRefresh`), the Android app's rule. Everything else is `Unavailable`.
 - Refresh tokens are single-use and a replay revokes the family, so a refresh is single-flight.
 - A passkey cannot be answered here. An account with no authenticator gets `SignInResult.PasskeyOnly`.
+- A 403 naming `step_up_required` is `lib/session.ts`'s, in `SessionHandler`: it asks `SessionManager.StepUp`,
+  which is `StepUpViewModel` over the page, and replays the request with the new session. Cancelling leaves
+  it refused. With an authenticator enrolled a password alone does not satisfy it, hence the code step.
 - The shared `HttpClient` has no timeout: a merge runs the suite before answering, and streams never
   end. So each call that needs a limit brings its own, as the token requests do.
 

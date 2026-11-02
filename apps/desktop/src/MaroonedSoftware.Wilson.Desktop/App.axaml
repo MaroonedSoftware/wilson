@@ -20,6 +20,7 @@
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
         <DataTemplate DataType="vm:SettingsViewModel"><views:SettingsView /></DataTemplate>
+        <DataTemplate DataType="vm:StepUpViewModel"><views:StepUpView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>

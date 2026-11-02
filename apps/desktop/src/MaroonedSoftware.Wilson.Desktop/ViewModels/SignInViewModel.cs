@@ -129,7 +129,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
             }
             else
             {
-                Error = Words(result);
+                Error = SignInWords.Of(result, NeedsCode);
             }
         }
         finally
@@ -145,14 +145,5 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
         ServerProbeResult.NotWilson => "Something answered at that address, but it is not a Wilson server.",
         ServerProbeResult.Untrusted => "This Mac does not trust that server's certificate. Add its certificate authority to the system keychain, mark it trusted, and try again.",
         _ => "Nothing answered at that address. Check the server is running.",
-    };
-
-    private string? Words(SignInResult result) => result switch
-    {
-        SignInResult.Refused => NeedsCode ? "That code was not accepted. Check your authenticator and try the next one." : "Wrong email or password.",
-        SignInResult.TooManyAttempts => "Too many wrong attempts. Wait five minutes and try again.",
-        SignInResult.PasskeyOnly => "This account's second factor is a passkey, which works only in the web app. Add an authenticator there to sign in here.",
-        SignInResult.Unavailable unavailable => unavailable.Message ?? "Could not reach the server.",
-        _ => null,
     };
 }
