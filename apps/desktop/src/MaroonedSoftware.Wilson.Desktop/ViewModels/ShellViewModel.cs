@@ -250,7 +250,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     {
         if (CanDock)
         {
-            Remember(_settings with { Dock = _settings.Dock with { Open = !_settings.Dock.Open } });
+            Remember(_settings with { Dock = _settings.Dock with { Closed = !_settings.Dock.Closed } });
             SyncDock();
         }
     }

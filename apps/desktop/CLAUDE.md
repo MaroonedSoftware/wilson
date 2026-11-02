@@ -52,7 +52,8 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
+session must age for a step-up, so a whole walk's end is that wait too. `dock` walks only the chat dock, and is
+the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
 this for the findings step, which brings its own card.
@@ -233,7 +234,9 @@ brand's SVGs cut it out with a mask, so it only suits a solid backing.
 
 ## The chat dock
 
-`ChatDockViewModel` is `ChatDock.tsx` and `ChatDock` is `lib/chat.dock.ts`, kept in `DesktopSettings`. It is the
+`ChatDockViewModel` is `ChatDock.tsx` and `ChatDock` is `lib/chat.dock.ts`, kept in `DesktopSettings`. Unlike the
+web app's, it starts open, so chat fills the home page and is a sidebar on every other page until someone closes it.
+That is stored as `Closed`, because every older file says `Open: false` whether or not anyone chose it. It is the
 chat page's own `ThreadsViewModel` beside another page, so there is one conversation: `ShellViewModel.SyncDock`
 shows that page while the dock is open, as a page follows its stream only while shown, and hides it again
 unless it has come to the front itself. Cmd+J sits on the window, as nothing need have the focus, and does
@@ -291,6 +294,11 @@ neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests
 2026-11-02, the chat dock: with `tools/Walk`, the shortcut through headless input, a drag resizing it and
 stopping at the limit, a real turn in the dock, moving it, the picker, the home page showing the same chat,
 Cmd+J doing nothing there, and each kept in the settings file. Arrow keys on the handle were not walked.
+
+2026-11-02, the chat as a sidebar: with `tools/Walk -- ... dock`, on a file that never touched the dock, no dock on
+the home page, the same chat beside the board and settings, the board live beside it, Cmd+J closing it for good, and
+the drags above. The turn came back as the login's usage-limit message, so a full answer in the sidebar, and leaving
+the home page in the middle of one, were not seen. An older file opening it is in `ChatDockTests` only.
 
 2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
 empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the
