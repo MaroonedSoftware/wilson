@@ -77,7 +77,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
         Connection = new ServerConnection(origin, store);
         Connection.Session.SessionEnded += (_, _) => Dispatcher.UIThread.Post(ShowSignIn);
-        Remember(_settings.Origin == origin ? _settings : _settings with { Origin = origin, Project = null, Thread = null });
+        Remember(_settings.Origin == origin ? _settings : _settings with { Origin = origin, Project = null, Thread = null, Collapsed = new Dictionary<string, IReadOnlyList<string>>() });
         return Connection;
     }
 
@@ -131,6 +131,9 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     }
 
     public void RememberProject(string project) => Remember(_settings with { Project = project });
+
+    public void RememberCollapsed(string project, IReadOnlyList<string> stages) =>
+        Remember(_settings with { Collapsed = new Dictionary<string, IReadOnlyList<string>>(_settings.Collapsed) { [project] = stages } });
 
     public void RememberThread(string? thread) => Remember(_settings with { Thread = thread });
 

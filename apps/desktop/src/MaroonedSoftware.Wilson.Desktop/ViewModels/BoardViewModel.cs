@@ -14,6 +14,8 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 {
     public CardSummary Card => card;
 
+    public CardFace? Face { get; } = BoardRules.Face(card);
+
     public string? Flag => flag;
 
     public string? Blocked => blocked;
@@ -58,6 +60,13 @@ public sealed partial class BoardColumn(string name, IReadOnlyList<BoardTile> ca
 
     public string Count { get; } = cards.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>"n flagged", or nothing when none are.</summary>
+    public string? Flagged { get; } = cards.Count(tile => tile.Card.NeedsHuman) is var flagged and > 0 ? $"{flagged} flagged" : null;
+
+    /// <summary>Folded to a rail. It is still somewhere to drop a card.</summary>
+    [ObservableProperty]
+    private bool _collapsed;
+
     /// <summary>Where a card held over it would go.</summary>
     [ObservableProperty]
     private bool _target;
@@ -75,7 +84,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     private IReadOnlyList<string> _order = [];
     private CancellationTokenSource? _settling;
     private bool _choosing;
-    private bool _dragging;
+    private bool _held;
     private bool _drawOwed;
     private bool _unread;
     private string? _moving;
@@ -127,13 +136,30 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
 
-    /// <summary>Holds a card. Nothing redraws under the pointer until it lets go.</summary>
-    public void BeginDrag(BoardTile tile)
+    /// <summary>Folds a column or opens it, and remembers that for this project.</summary>
+    [RelayCommand]
+    public void ToggleCollapsed(BoardColumn column)
     {
-        ArgumentNullException.ThrowIfNull(tile);
+        ArgumentNullException.ThrowIfNull(column);
 
-        _dragging = true;
-        tile.Dragged = true;
+        if (Project is { } project)
+        {
+            shell.RememberCollapsed(project, BoardRules.ToggleCollapsed(Collapsed(project), column.Name));
+            column.Collapsed = !column.Collapsed;
+        }
+    }
+
+    /// <summary>A press on a card. Redrawing under it now would replace the button before its click lands.</summary>
+    public void Hold() => _held = true;
+
+    /// <summary>The press is over, one way or another, so what waited for it can draw.</summary>
+    public void LetGo()
+    {
+        _held = false;
+        if (_drawOwed)
+        {
+            Draw();
+        }
     }
 
     /// <summary>Marks the column a card held over `over`, a column or a card, would go to.</summary>
@@ -164,7 +190,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
         Hover(tile, null);
         tile.Dragged = false;
-        _dragging = false;
+        _held = false;
         switch (BoardRules.Drop(tile.Card.Id, over, _order, _shown))
         {
             case BoardDrop.Move move:
@@ -394,7 +420,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     private void Draw()
     {
-        if (_dragging)
+        if (_held)
         {
             _drawOwed = true;
             return;
@@ -404,18 +430,21 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         Columns.Clear();
         var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
         _shown = cards;
+        var collapsed = Project is { } project ? Collapsed(project) : [];
         foreach (var stage in _order)
         {
             var inStage = BoardRules.Sorted(stage, cards.Where(card => card.Stage == stage));
             if (!FlaggedOnly || inStage.Count > 0)
             {
-                Columns.Add(new BoardColumn(stage, [.. inStage.Select(Tile)]));
+                Columns.Add(new BoardColumn(stage, [.. inStage.Select(Tile)]) { Collapsed = collapsed.Contains(stage) });
             }
         }
 
         Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
         Tick();
     }
+
+    private IReadOnlyList<string> Collapsed(string project) => shell.Settings.Collapsed.GetValueOrDefault(project) ?? [];
 
     private BoardTile Tile(CardSummary card)
     {

@@ -211,22 +211,41 @@ internal static class Steps
         BoardTile Tile() => board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Title == title);
         BoardColumn Column(string name) => board.Columns.First(column => column.Name == name);
 
-        // Connecting replays every card and redraws the board once, which would pull a tile from under a press.
-        async Task BackToSettledBoardAsync()
+        async Task BackToBoardAsync()
         {
             walk.Shell.Back();
             await walk.UntilAsync("back on the board, live", () => walk.Shell.Page == board && board.Live);
-            await Task.Delay(TimeSpan.FromSeconds(1));
         }
 
         walk.Click(walk.Center(Tile()));
         await walk.UntilAsync("a click opening the card", () => walk.Shell.Page is CardViewModel);
-        await BackToSettledBoardAsync();
+        await BackToBoardAsync();
 
         var start = walk.Center(Tile());
         walk.Drag(start, start + new Point(3, 2));
         await walk.UntilAsync("a small slip still opening the card", () => walk.Shell.Page is CardViewModel);
-        await BackToSettledBoardAsync();
+        await BackToBoardAsync();
+
+        // A re-read landing during a press is what the feed does at any moment.
+        var pressed = walk.Center(Tile());
+        walk.Down(pressed);
+        await board.RefreshCommand.ExecuteAsync(null);
+        walk.Up(pressed);
+        await walk.UntilAsync("a click surviving a re-read during its press", () => walk.Shell.Page is CardViewModel);
+        await BackToBoardAsync();
+
+        var stage = Tile().Card.Stage;
+        var picked = walk.Center(Tile());
+        var over = walk.Center(Column("merged"));
+        walk.Down(picked);
+        walk.MoveTo(picked + new Point(20, 0));
+        walk.MoveTo(over);
+        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("merged").Target);
+        walk.Press(Key.Escape, PhysicalKey.Escape);
+        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("merged").Target);
+        walk.Up(over);
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
 
         // The server allows nearly any move, so a refusal needs a card gone from under its tile: a row of the walk's own.
         Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9998', 'Walked away', 'parking-lot', '' from wilson.cards limit 1");
@@ -244,9 +263,17 @@ internal static class Steps
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("another of the walk's own", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9999")));
         var across = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9999");
+        board.ToggleCollapsedCommand.Execute(Column("implementing"));
+        board.ToggleCollapsedCommand.Execute(Column("merged"));
+        await walk.UntilAsync("columns folded and remembered", () => walk.Settings().Collapsed[board.Project!].Contains("merged"));
+        walk.Shot("04b-board-collapsed");
         walk.Drag(walk.Center(across), walk.Center(Column("implementing")), "04c-board-dragging");
         await walk.UntilAsync("the drop moving the card", () => board.Columns.First(column => column.Name == "implementing").Cards.Any(tile => tile.Card.Id == "9999"));
         walk.Shot("04d-board-dropped");
+        await walk.UntilAsync("a redraw keeping them folded", () => Column("merged").Collapsed);
+        board.ToggleCollapsedCommand.Execute(Column("implementing"));
+        board.ToggleCollapsedCommand.Execute(Column("merged"));
+        await walk.UntilAsync("the columns open again", () => walk.Settings().Collapsed[board.Project!].Count == 0);
         Walker.Sql("delete from wilson.card_versions where card_id = '9999'; delete from wilson.cards where id = '9999'");
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the walk's own card gone", () => board.Columns.All(column => column.Cards.All(tile => tile.Card.Id != "9999")));

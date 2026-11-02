@@ -16,6 +16,24 @@ public class BoardRulesTests
         Assert.Equal(["parking-lot", "plan", "build", "merged", "retired"], BoardRules.ColumnOrder(columns, [Card("1", "retired"), Card("2", "plan")]));
     }
 
+    [Theory]
+    [InlineData("parking-lot", false, CardFace.Parked)]
+    [InlineData("poisoned", false, CardFace.Poisoned)]
+    [InlineData("merged", false, CardFace.Passed)]
+    [InlineData("merged", true, CardFace.NeedsHuman)]
+    [InlineData("implementing", false, null)]
+    public void AFaceSaysOnlyWhatTheRecordSays(string stage, bool flagged, CardFace? face) =>
+        Assert.Equal(face, BoardRules.Face(Card("1", stage, flagged)));
+
+    [Fact]
+    public void CollapsingFlipsOneStage()
+    {
+        var collapsed = BoardRules.ToggleCollapsed(["gone", "plan"], "build");
+
+        Assert.Equal(["gone", "plan", "build"], collapsed);
+        Assert.Equal(["gone", "build"], BoardRules.ToggleCollapsed(collapsed, "plan"));
+    }
+
     [Fact]
     public void FlaggedCardsLead() =>
         Assert.Equal(["2", "1", "3"], BoardRules.Sorted("build", [Card("3", "build"), Card("1", "build"), Card("2", "build", flagged: true)]).Select(card => card.Id));

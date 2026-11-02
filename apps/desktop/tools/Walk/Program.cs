@@ -214,6 +214,26 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>A press that stays down, for what happens during one.</summary>
+    public void Down(Point at)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(at);
+        window.MouseDown(at, MouseButton.Left);
+    }
+
+    public void MoveTo(Point at)
+    {
+        window.MouseMove(at);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    public void Up(Point at)
+    {
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>A press, a move in steps, and a release, shooting the middle of the drag if named.</summary>
     public void Drag(Point from, Point to, string? shot = null)
     {

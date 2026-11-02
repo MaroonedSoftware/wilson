@@ -17,6 +17,17 @@ public abstract record BoardDrop
     public sealed record Reorder(string? BeforeId, string? AfterId, IReadOnlyList<string> Order) : BoardDrop;
 }
 
+/// <summary>`brand/states/*.svg`'s six faces, one-for-one.</summary>
+public enum CardFace
+{
+    Parked,
+    Running,
+    Passed,
+    KickedBack,
+    NeedsHuman,
+    Poisoned,
+}
+
 /// <summary>What the board decides without a window. The same rules as the web board and the Android app.</summary>
 public static class BoardRules
 {
@@ -45,6 +56,28 @@ public static class BoardRules
         stage == ParkingLot
             ? [.. cards.OrderBy(card => card.Position ?? long.MaxValue).ThenBy(card => card.Id, StringComparer.Ordinal)]
             : [.. cards.OrderByDescending(card => card.NeedsHuman).ThenBy(card => card.Id, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// The face a tile wears, only where the card's record alone says it. Nothing on the wire says a
+    /// job is working a card right now, so running is never claimed.
+    /// </summary>
+    public static CardFace? Face(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        return card switch
+        {
+            { NeedsHuman: true } => CardFace.NeedsHuman,
+            { Stage: ParkingLot } => CardFace.Parked,
+            { Stage: "poisoned" } => CardFace.Poisoned,
+            { Stage: Merged } => CardFace.Passed,
+            _ => null,
+        };
+    }
+
+    /// <summary>A stage folded if open and open if folded. A stage the config dropped stays listed, as it may come back.</summary>
+    public static IReadOnlyList<string> ToggleCollapsed(IReadOnlyList<string> collapsed, string stage) =>
+        collapsed.Contains(stage) ? [.. collapsed.Where(entry => entry != stage)] : [.. collapsed, stage];
 
     /// <summary>The filter box: a card's id or title holding the text, in any case. Nothing typed matches everything.</summary>
     public static bool Matches(CardSummary card, string? filter)

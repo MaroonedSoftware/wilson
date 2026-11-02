@@ -2,6 +2,41 @@ using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Tests.Settings;
 
+public class DesktopSettingsCollapsedTests
+{
+    [Fact]
+    public void CollapsedColumnsSurviveASave()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        try
+        {
+            new DesktopSettings { Collapsed = new Dictionary<string, IReadOnlyList<string>> { ["wilson"] = ["merged"] } }.Save(path);
+
+            Assert.Equal(["merged"], DesktopSettings.Load(path).Collapsed["wilson"]);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AnOlderFileHasNothingCollapsed()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        try
+        {
+            File.WriteAllText(path, """{"Origin":"http://tower"}""");
+
+            Assert.Empty(DesktopSettings.Load(path).Collapsed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+}
+
 public class DesktopSettingsTests
 {
     [Fact]

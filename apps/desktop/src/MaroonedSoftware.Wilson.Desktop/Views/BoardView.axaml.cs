@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 
@@ -21,6 +22,7 @@ public partial class BoardView : UserControl
     private BoardTile? _held;
     private Point _from;
     private bool _dragging;
+    private IPointer? _pointer;
 
     public BoardView()
     {
@@ -33,6 +35,31 @@ public partial class BoardView : UserControl
 
     private BoardViewModel? Board => DataContext as BoardViewModel;
 
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        TopLevel.GetTopLevel(this)?.AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        TopLevel.GetTopLevel(this)?.RemoveHandler(KeyDownEvent, OnKey);
+    }
+
+    /// <summary>Escape puts a held card back: a drop on nothing, with the press still to come up.</summary>
+    private void OnKey(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _dragging && _held is { } tile && Board is { } board)
+        {
+            var pointer = _pointer;
+            Reset();
+            pointer?.Capture(null);
+            e.Handled = true;
+            _ = board.EndDragAsync(tile, null);
+        }
+    }
+
     private void OnPressed(object? sender, PointerPressedEventArgs e)
     {
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
@@ -42,6 +69,7 @@ public partial class BoardView : UserControl
         {
             _held = tile;
             _from = e.GetPosition(this);
+            Board?.Hold();
         }
     }
 
@@ -62,7 +90,8 @@ public partial class BoardView : UserControl
 
             _dragging = true;
             e.Pointer.Capture(this);
-            board.BeginDrag(tile);
+            _pointer = e.Pointer;
+            tile.Dragged = true;
             GhostId.Text = tile.Card.Id;
             GhostTitle.Text = tile.Card.Title;
             Ghost.IsVisible = true;
@@ -87,6 +116,11 @@ public partial class BoardView : UserControl
             e.Pointer.Capture(null);
             _ = board.EndDragAsync(tile, over);
         }
+        else if (tile is not null)
+        {
+            // After the button has had the release, as the click is what the wait was for.
+            Dispatcher.UIThread.Post(() => Board?.LetGo());
+        }
     }
 
     /// <summary>The app losing the pointer mid-drag is a drop on nothing.</summary>
@@ -99,12 +133,17 @@ public partial class BoardView : UserControl
         {
             _ = board.EndDragAsync(tile, null);
         }
+        else if (tile is not null)
+        {
+            Board?.LetGo();
+        }
     }
 
     private void Reset()
     {
         _held = null;
         _dragging = false;
+        _pointer = null;
         Ghost.IsVisible = false;
     }
 

@@ -37,6 +37,8 @@
             <StreamGeometry x:Key="IconPlus">M12 5V19M5 12H19</StreamGeometry>
             <StreamGeometry x:Key="IconDots">M5 12H5.01M12 12H12.01M19 12H19.01</StreamGeometry>
             <StreamGeometry x:Key="IconBolt">M13 3V10H19L11 21V14H5L13 3Z</StreamGeometry>
+            <StreamGeometry x:Key="IconRailClose">M15 6L9 12L15 18</StreamGeometry>
+            <StreamGeometry x:Key="IconRailOpen">M9 6L15 12L9 18</StreamGeometry>
             <StreamGeometry x:Key="IconAlert">M12 9V13M12 16H12.01M10.4 3.6L2.3 17.1C1.6 18.4 2.4 20 3.9 20H20.1C21.6 20 22.4 18.4 21.7 17.1L13.6 3.6C12.9 2.4 11.1 2.4 10.4 3.6Z</StreamGeometry>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">

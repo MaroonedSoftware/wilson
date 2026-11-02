@@ -17,6 +17,9 @@ public sealed record DesktopSettings
     [JsonConverter(typeof(JsonStringEnumConverter<Appearance>))]
     public Appearance Appearance { get; init; }
 
+    /// <summary>The columns folded away on each project's board.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Collapsed { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
+
     /// <summary>`~/Library/Application Support/Wilson/settings.json`.</summary>
     public static string DefaultPath() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Wilson", "settings.json");
