@@ -19,7 +19,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private static readonly TimeSpan IdleReading = TimeSpan.FromSeconds(60);
 
     private readonly Stack<PageViewModel> _behind = new();
-    private DesktopSettings _settings = DesktopSettings.Load(settingsPath);
+    private DesktopSettings _settings = HeldDock(DesktopSettings.Load(settingsPath));
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
     private ProjectsViewModel? _projects;
@@ -27,6 +27,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private SettingsViewModel? _settingsPage;
     private CancellationTokenSource? _watchingDrain;
     private TaskCompletionSource<bool>? _steppingUp;
+    private ChatDockViewModel? _dock;
+    private bool _dockFollowing;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
@@ -66,6 +68,17 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public Appearance Appearance => _settings.Appearance;
 
     public bool SignedIn => Page is not (null or SignInViewModel);
+
+    /// <summary>On every page but chat itself, as the web app's header has it.</summary>
+    public bool CanDock => SignedIn && Page is not ThreadsViewModel;
+
+    public bool DockOpen => _settings.Dock.Open;
+
+    public ChatDockViewModel? RightDock => CanDock && DockOpen && _settings.Dock.Position == ChatDockPosition.Right ? _dock : null;
+
+    public ChatDockViewModel? BottomDock => CanDock && DockOpen && _settings.Dock.Position == ChatDockPosition.Bottom ? _dock : null;
+
+    public ChatDock Dock => _settings.Dock;
 
     public bool OnChat => Section is ThreadsViewModel;
 
@@ -231,6 +244,33 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         ShowSignIn();
     }
 
+    /// <summary>Ctrl or Cmd+J, which does nothing on chat, where the dock has no place.</summary>
+    [RelayCommand]
+    public void ToggleDock()
+    {
+        if (CanDock)
+        {
+            Remember(_settings with { Dock = _settings.Dock with { Open = !_settings.Dock.Open } });
+            SyncDock();
+        }
+    }
+
+    public void MoveDock(ChatDockPosition position)
+    {
+        Remember(_settings with { Dock = _settings.Dock with { Position = position } });
+        SyncDock();
+    }
+
+    /// <summary>During a drag, so nothing is written until it ends.</summary>
+    public void ResizeDock(int? width = null, int? height = null)
+    {
+        var dock = _settings.Dock;
+        _settings = _settings with { Dock = (dock with { Width = width ?? dock.Width, Height = height ?? dock.Height }).Held() };
+        OnPropertyChanged(nameof(Dock));
+    }
+
+    public void KeepDockSize() => Remember(_settings);
+
     [RelayCommand]
     public void NextAppearance()
     {
@@ -251,6 +291,39 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         StopWatchingDrain();
         Page?.Hidden();
         Connection?.Dispose();
+    }
+
+    /// <summary>
+    /// The dock shows the chat page's own model: one conversation, wherever it is drawn. The page follows
+    /// its stream only while shown, so with the dock open the shell shows it, and hides it again unless it
+    /// has since come to the front itself.
+    /// </summary>
+    private void SyncDock()
+    {
+        if (CanDock && DockOpen)
+        {
+            _chat ??= new ThreadsViewModel(this);
+            _dock ??= new ChatDockViewModel(this, _chat);
+            if (!_dockFollowing)
+            {
+                _dockFollowing = true;
+                _chat.Shown();
+            }
+        }
+        else if (_dockFollowing)
+        {
+            _dockFollowing = false;
+            if (Page != _chat)
+            {
+                _chat?.Hidden();
+            }
+        }
+
+        OnPropertyChanged(nameof(CanDock));
+        OnPropertyChanged(nameof(DockOpen));
+        OnPropertyChanged(nameof(RightDock));
+        OnPropertyChanged(nameof(BottomDock));
+        OnPropertyChanged(nameof(Dock));
     }
 
     /// <summary>Requests refused together share one question, as one new session answers them all.</summary>
@@ -329,6 +402,9 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Flagged = null;
         FinishStepUp(false);
         StopWatchingDrain();
+        _dockFollowing = false;
+        _dock?.Dispose();
+        _dock = null;
         _chat?.Dispose();
         _board?.Dispose();
         _projects?.Dispose();
@@ -341,6 +417,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         _settingsPage = null;
         Replace(new SignInViewModel(this));
     }
+
+    private static DesktopSettings HeldDock(DesktopSettings settings) => settings with { Dock = settings.Dock.Held() };
 
     private void Draw()
     {
@@ -381,6 +459,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
             _ = WatchDrainAsync(_watchingDrain.Token);
         }
 
+        SyncDock();
         if (SignedIn && page is not BoardViewModel)
         {
             _ = ReadFlaggedAsync();

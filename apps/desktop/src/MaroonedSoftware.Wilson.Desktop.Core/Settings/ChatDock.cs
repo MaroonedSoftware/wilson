@@ -1,0 +1,37 @@
+using System.Text.Json.Serialization;
+
+namespace MaroonedSoftware.Wilson.Desktop.Core.Settings;
+
+/// <summary>Where the chat docks beside a page.</summary>
+public enum ChatDockPosition
+{
+    Right,
+    Bottom,
+}
+
+/// <summary>`lib/chat.dock.ts`: whether the dock is open, where it sits and how big it is, so it comes back the way it was left.</summary>
+public sealed record ChatDock
+{
+    public const int MinWidth = 320;
+    public const int MaxWidth = 720;
+    public const int MinHeight = 200;
+    public const int MaxHeight = 640;
+
+    public bool Open { get; init; }
+
+    [JsonConverter(typeof(JsonStringEnumConverter<ChatDockPosition>))]
+    public ChatDockPosition Position { get; init; }
+
+    /// <summary>Docked on the right, in pixels.</summary>
+    public int Width { get; init; } = 420;
+
+    /// <summary>Docked at the bottom, in pixels.</summary>
+    public int Height { get; init; } = 320;
+
+    /// <summary>The same dock held within its limits, for a size dragged or read from a file.</summary>
+    public ChatDock Held() => this with
+    {
+        Width = Math.Clamp(Width, MinWidth, MaxWidth),
+        Height = Math.Clamp(Height, MinHeight, MaxHeight),
+    };
+}

@@ -21,6 +21,7 @@
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
         <DataTemplate DataType="vm:SettingsViewModel"><views:SettingsView /></DataTemplate>
         <DataTemplate DataType="vm:StepUpViewModel"><views:StepUpView /></DataTemplate>
+        <DataTemplate DataType="vm:ChatDockViewModel"><views:ChatDockView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
@@ -43,6 +44,10 @@
             <StreamGeometry x:Key="IconPlus">M12 5V19M5 12H19</StreamGeometry>
             <StreamGeometry x:Key="IconDots">M5 12H5.01M12 12H12.01M19 12H19.01</StreamGeometry>
             <StreamGeometry x:Key="IconBolt">M13 3V10H19L11 21V14H5L13 3Z</StreamGeometry>
+            <StreamGeometry x:Key="IconDockBottom">M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18ZM4 15H20</StreamGeometry>
+            <StreamGeometry x:Key="IconDockRight">M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18ZM15 4V20</StreamGeometry>
+            <StreamGeometry x:Key="IconMaximize">M4 8V6A2 2 0 0 1 6 4H8M16 4H18A2 2 0 0 1 20 6V8M20 16V18A2 2 0 0 1 18 20H16M8 20H6A2 2 0 0 1 4 18V16</StreamGeometry>
+            <StreamGeometry x:Key="IconClose">M18 6L6 18M6 6L18 18</StreamGeometry>
             <StreamGeometry x:Key="IconRailClose">M15 6L9 12L15 18</StreamGeometry>
             <StreamGeometry x:Key="IconRailOpen">M9 6L15 12L9 18</StreamGeometry>
             <StreamGeometry x:Key="IconAlert">M12 9V13M12 16H12.01M10.4 3.6L2.3 17.1C1.6 18.4 2.4 20 3.9 20H20.1C21.6 20 22.4 18.4 21.7 17.1L13.6 3.6C12.9 2.4 11.1 2.4 10.4 3.6Z</StreamGeometry>
@@ -291,6 +296,12 @@
         <Style Selector="Button.danger.confirming /template/ ContentPresenter#PART_ContentPresenter, Button.danger.confirming:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Flag}" />
             <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
+        </Style>
+        <Style Selector="Border.dock-handle">
+            <Setter Property="Background" Value="{DynamicResource Line}" />
+        </Style>
+        <Style Selector="Border.dock-handle:pointerover, Border.dock-handle:focus">
+            <Setter Property="Background" Value="{DynamicResource Quiet}" />
         </Style>
         <Style Selector="Border.badge">
             <Setter Property="Background" Value="{DynamicResource Panel}" />

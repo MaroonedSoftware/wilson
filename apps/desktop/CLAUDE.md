@@ -235,6 +235,14 @@ Redraws wait from the press, not the drag: replacing a button under a press woul
 column is still somewhere to drop. `StateIcon` strokes the face in the colour behind it, since the
 brand's SVGs cut it out with a mask, so it only suits a solid backing.
 
+## The chat dock
+
+`ChatDockViewModel` is `ChatDock.tsx` and `ChatDock` is `lib/chat.dock.ts`, kept in `DesktopSettings`. It is the
+chat page's own `ThreadsViewModel` beside another page, so there is one conversation: `ShellViewModel.SyncDock`
+shows that page while the dock is open, as a page follows its stream only while shown, and hides it again
+unless it has come to the front itself. Cmd+J sits on the window, as nothing need have the focus, and does
+nothing on chat. A resize is written when the drag ends, not on each move. There is no phone drawer here.
+
 ## Chat follows the web app
 
 `Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
@@ -283,6 +291,10 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, the chat dock: with `tools/Walk`, the shortcut through headless input, a drag resizing it and
+stopping at the limit, a real turn in the dock, moving it, the picker, the home page showing the same chat,
+Cmd+J doing nothing there, and each kept in the settings file. Arrow keys on the handle were not walked.
 
 2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
 empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the

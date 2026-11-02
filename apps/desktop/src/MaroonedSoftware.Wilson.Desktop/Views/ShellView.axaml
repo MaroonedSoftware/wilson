@@ -24,6 +24,7 @@
                 <Button Classes="section" Classes.current="{Binding OnHosts}" Content="Hosts" Command="{Binding ShowHostsCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnSettings}" Content="Settings" Command="{Binding ShowSettingsCommand}" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding SignOutCommand}" VerticalAlignment="Center" />
+                <ToggleButton DockPanel.Dock="Right" Content="Dock" IsChecked="{Binding DockOpen, Mode=OneWay}" Command="{Binding ToggleDockCommand}" IsVisible="{Binding CanDock}" ToolTip.Tip="The chat beside this page (Cmd+J)" AutomationProperties.Name="Chat dock" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="{Binding Appearance}" Command="{Binding NextAppearanceCommand}" ToolTip.Tip="Appearance: press for the next" AutomationProperties.Name="Appearance" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="Activity" Command="{Binding ShowActivityCommand}" IsVisible="{Binding Feed, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding Feed.RefreshCommand, FallbackValue={x:Null}}" IsVisible="{Binding Feed, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
@@ -33,7 +34,17 @@
                 <Button DockPanel.Dock="Right" Classes="flag" Content="{Binding Flagged}" Command="{Binding ShowFlaggedCommand}" IsVisible="{Binding Flagged, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
             </DockPanel>
         </Border>
-        <ContentControl Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+        <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
+            <ContentControl Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+            <DockPanel Grid.Column="1" Width="{Binding Dock.Width}" IsVisible="{Binding RightDock, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Border x:Name="RightHandle" DockPanel.Dock="Left" Classes="dock-handle" Width="6" Cursor="SizeWestEast" Focusable="True" AutomationProperties.Name="Resize the chat" />
+                <ContentControl Content="{Binding RightDock}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+            </DockPanel>
+            <DockPanel Grid.Row="1" Grid.ColumnSpan="2" Height="{Binding Dock.Height}" IsVisible="{Binding BottomDock, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Border x:Name="BottomHandle" DockPanel.Dock="Top" Classes="dock-handle" Height="6" Cursor="SizeNorthSouth" Focusable="True" AutomationProperties.Name="Resize the chat" />
+                <ContentControl Content="{Binding BottomDock}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+            </DockPanel>
+        </Grid>
     </DockPanel>
     <ContentControl Content="{Binding StepUp}" IsVisible="{Binding StepUp, Converter={x:Static ObjectConverters.IsNotNull}}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
     </Panel>

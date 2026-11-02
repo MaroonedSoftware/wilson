@@ -246,6 +246,23 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         window.KeyReleaseQwerty(physical, RawInputModifiers.None);
     }
 
+    /// <summary>A shortcut, as the window would receive it, whatever has the focus.</summary>
+    public void Chord(PhysicalKey physical, RawInputModifiers modifiers)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.KeyPressQwerty(physical, modifiers);
+        window.KeyReleaseQwerty(physical, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The middle of the control of that name.</summary>
+    public Point CenterOf(string name)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var control = window.GetVisualDescendants().OfType<Control>().First(found => found.Name == name);
+        return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
+    }
+
     /// <summary>The middle of whatever a view drew for `model`, in the window's coordinates.</summary>
     public Point Center(object model)
     {

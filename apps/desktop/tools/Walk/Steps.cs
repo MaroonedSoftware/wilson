@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Styling;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
@@ -138,6 +139,60 @@ internal static class Steps
     {
         await HostsAsync(walk);
         await SettingsAsync(walk);
+        await DockAsync(walk);
+    }
+
+    /// <summary>The chat beside a page: by the real shortcut and a real drag, one real turn, and the same model on the home page.</summary>
+    private static async Task DockAsync(Walker walk)
+    {
+        await walk.UntilAsync("on a page that takes the dock", () => walk.Shell.CanDock && !walk.Shell.DockOpen);
+        walk.Chord(PhysicalKey.J, RawInputModifiers.Meta);
+        await walk.UntilAsync("the dock open on the right by Cmd+J", () => walk.Shell.RightDock is { Home.Chat: not null } && walk.Settings().Dock.Open);
+        var dock = walk.Shell.RightDock!;
+        await walk.UntilAsync("the chats in its picker", () => dock.Home.Threads.Count > 0 || dock.Home.NoChats);
+        walk.Shot("14-dock-right");
+
+        var width = walk.Shell.Dock.Width;
+        var handle = walk.CenterOf("RightHandle");
+        walk.Drag(handle, handle - new Point(120, 0));
+        await walk.UntilAsync("a drag widening it, kept", () => walk.Shell.Dock.Width > width + 100 && walk.Settings().Dock.Width == walk.Shell.Dock.Width);
+        walk.Drag(walk.CenterOf("RightHandle"), new Point(1100, 300));
+        await walk.UntilAsync("a drag stopped at the limit", () => walk.Shell.Dock.Width == ChatDock.MinWidth);
+
+        dock.Home.NewChatCommand.Execute(null);
+        var chat = dock.Home.Chat!;
+        chat.Composer = "Say hello in three words.";
+        await chat.SendCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a real turn answered in the dock", () => chat.Entries.OfType<AnswerEntry>().Any(), 120);
+        await walk.UntilAsync("that chat picked", () => dock.Picked?.Id == chat.Id);
+        walk.Shot("14-dock-turn");
+
+        dock.MoveCommand.Execute(null);
+        await walk.UntilAsync("the dock at the bottom, kept", () => walk.Shell.BottomDock is not null && walk.Shell.RightDock is null && walk.Settings().Dock.Position == ChatDockPosition.Bottom);
+        walk.Shot("14-dock-bottom");
+        var height = walk.Shell.Dock.Height;
+        var bar = walk.CenterOf("BottomHandle");
+        walk.Drag(bar, bar - new Point(0, 100));
+        await walk.UntilAsync("a drag raising it", () => walk.Shell.Dock.Height > height + 80);
+
+        if (dock.Home.Threads.FirstOrDefault(thread => thread.Id != chat.Id) is { } other)
+        {
+            dock.Picked = other;
+            await walk.UntilAsync("another chat from the picker", () => dock.Home.Chat?.Id == other.Id);
+            dock.Picked = dock.Home.Threads.First(thread => thread.Id == chat.Id);
+            await walk.UntilAsync("that chat back", () => dock.Home.Chat?.Id == chat.Id);
+        }
+
+        var open = dock.Home.Chat;
+        dock.OpenAsHomeCommand.Execute(null);
+        await walk.UntilAsync("the home page showing the same chat, with no dock", () => walk.Shell.Page is ThreadsViewModel page && page.Chat == open && walk.Shell.BottomDock is null);
+        walk.Chord(PhysicalKey.J, RawInputModifiers.Meta);
+        await walk.UntilAsync("Cmd+J doing nothing on chat", () => walk.Shell.DockOpen);
+        walk.Shell.ShowHostsCommand.Execute(null);
+        await walk.UntilAsync("the dock back on another page", () => walk.Shell.BottomDock is not null);
+        walk.Shell.BottomDock!.MoveCommand.Execute(null);
+        walk.Shell.RightDock!.CloseCommand.Execute(null);
+        await walk.UntilAsync("the dock closed, kept", () => walk.Shell.RightDock is null && !walk.Settings().Dock.Open);
     }
 
     /// <summary>
