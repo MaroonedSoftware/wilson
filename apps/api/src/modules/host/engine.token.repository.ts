@@ -11,6 +11,7 @@ export interface EngineTokenAccount {
     provider: EngineTokenProvider;
     kind: EngineTokenKind;
     priority: number;
+    pooled: boolean;
 }
 
 /** A saved token as it may be shown: `ciphertext` stays behind {@link EngineTokenRepository.ciphertext}. */
@@ -31,7 +32,7 @@ export class EngineTokenRepository {
     async list(): Promise<EngineTokenRow[]> {
         const tokens = await this.db
             .selectFrom('wilson.engineTokens')
-            .select(['name', 'provider', 'kind', 'priority', 'createdAt', 'updatedAt'])
+            .select(['name', 'provider', 'kind', 'priority', 'pooled', 'createdAt', 'updatedAt'])
             .orderBy('name')
             .execute();
         const hosts = await this.db

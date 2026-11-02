@@ -77,6 +77,26 @@ describe('EngineTokensService', () => {
         await expect(tokens.put(uniqueName(), { token: 'fine', priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('offers only pooled Anthropic subscription tokens, by priority and then name', async () => {
+        const prefix = uniqueName();
+        const named = (suffix: string) => `${prefix}-${suffix}`;
+        await tokens.put(named('b'), { token: 'b', pooled: true, priority: 900 });
+        await tokens.put(named('a'), { token: 'a', pooled: true, priority: 900 });
+        await tokens.put(named('c'), { token: 'c', pooled: true, priority: 800 });
+        await tokens.put(named('out'), { token: 'out', priority: 800 });
+        await tokens.put(named('key'), { token: 'key', pooled: true, kind: 'api_key' });
+        await tokens.put(named('other'), { token: 'other', pooled: true, provider: 'openai' });
+
+        const pool = (await tokens.pool()).filter(account => account.name.startsWith(prefix));
+
+        expect(pool).toEqual([
+            { name: named('c'), token: 'c' },
+            { name: named('a'), token: 'a' },
+            { name: named('b'), token: 'b' },
+        ]);
+        for (const suffix of ['a', 'b', 'c', 'out', 'key', 'other']) await tokens.remove(named(suffix));
+    });
+
     it('forgets the limits of a token that is replaced or removed, and only that token', async () => {
         const limits = new EngineLimitRepository(db);
         const [first, second] = [uniqueName(), uniqueName()];

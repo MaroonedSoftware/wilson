@@ -191,6 +191,7 @@ describe('the hosts page', () => {
                 provider: 'anthropic',
                 kind: 'subscription',
                 priority: 0,
+                pooled: false,
                 createdAt: DateTime.fromMillis(NOW),
                 updatedAt: DateTime.fromMillis(NOW),
                 hosts: [],

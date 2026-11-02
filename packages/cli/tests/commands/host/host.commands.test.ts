@@ -264,6 +264,7 @@ describe('wilson engine-token', () => {
         provider: 'anthropic',
         kind: 'subscription',
         priority: 0,
+        pooled: false,
         createdAt: '2026-10-31T10:00:00Z',
         updatedAt: '2026-10-31T11:00:00Z',
         hosts: ['unraid-vm'],
@@ -293,6 +294,22 @@ describe('wilson engine-token', () => {
         await (engineTokenSetCommand.run as unknown as Handler<object>)({ provider: 'openai', kind: 'api_key', priority: 2 }, ctx, ['pool-a']);
 
         expect(sentBody()).toEqual({ token: 'secret-value', provider: 'openai', kind: 'api_key', priority: 2 });
+        readStdin.mockRestore();
+    });
+
+    it('joins and leaves the pool only when told to', async () => {
+        fetchMock.mockResolvedValue(jsonResponse(summary));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin').mockResolvedValue('secret-value');
+        const { ctx } = buildCtx();
+
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ pool: true }, ctx, ['pool-a']);
+        expect(sentBody()).toEqual({ token: 'secret-value', pooled: true });
+
+        fetchMock.mockClear();
+        fetchMock.mockResolvedValue(jsonResponse(summary));
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ leavePool: true }, ctx, ['pool-a']);
+        expect(sentBody()).toEqual({ token: 'secret-value', pooled: false });
+
         readStdin.mockRestore();
     });
 

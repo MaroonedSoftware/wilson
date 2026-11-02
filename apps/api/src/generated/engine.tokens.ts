@@ -31,6 +31,9 @@ export const EngineTokenSummary = z.strictObject({
     priority: z
         .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
         .describe("Which of a provider's tokens comes first, lowest first."),
+    pooled: z
+        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+        .describe('Whether Wilson may choose this token for an engine with no token assigned.'),
     createdAt: _ZodDatetime,
     updatedAt: _ZodDatetime,
     hosts: z.array(z.string()).describe('The worker hosts assigned this token, name ascending.'),
@@ -43,12 +46,13 @@ export type EngineTokenSummary = z.infer<typeof EngineTokenSummary>;
 export const PutEngineTokenRequest = z.strictObject({
     token: z.string().describe('What `claude setup-token` prints.'),
     provider: EngineTokenProvider.optional().describe(
-        'Each of these keeps what is saved under this name when left out, or its default on a new name:\nanthropic, subscription and 0.',
+        'Each of these keeps what is saved under this name when left out, or its default on a new name:\nanthropic, subscription, 0 and not pooled.',
     ),
     kind: EngineTokenKind.optional(),
     priority: z
         .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
         .optional()
         .describe('0 to 1000.'),
+    pooled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
 });
 export type PutEngineTokenRequest = z.infer<typeof PutEngineTokenRequest>;

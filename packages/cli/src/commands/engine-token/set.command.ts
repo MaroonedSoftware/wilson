@@ -6,6 +6,8 @@ interface SetOpts {
     provider?: 'anthropic' | 'openai' | 'xai';
     kind?: 'subscription' | 'api_key';
     priority?: number;
+    pool?: boolean;
+    leavePool?: boolean;
 }
 
 /**
@@ -28,9 +30,15 @@ const command: CommandModule = {
             description: "Which of a provider's tokens comes first, lowest first, 0 to 1000 (default: as saved, or 0)",
             type: 'number',
         },
+        { flags: '--pool', description: 'Let Wilson choose this token for an engine with no token assigned', type: 'boolean' },
+        { flags: '--leave-pool', description: 'Stop Wilson choosing this token', type: 'boolean' },
     ],
     run: withApi<SetOpts>(async (opts, ctx, args, api) => {
         const name = String(args[0]);
+        if (opts.pool && opts.leavePool) {
+            ctx.logger.error('choose one of --pool and --leave-pool');
+            return 1;
+        }
         const token = process.stdin.isTTY
             ? await terminalIo.askSecret(`The token for ${name}, from \`claude setup-token\``)
             : await terminalIo.readStdin();
@@ -40,6 +48,8 @@ const command: CommandModule = {
             ...(opts.provider !== undefined && { provider: opts.provider }),
             ...(opts.kind !== undefined && { kind: opts.kind }),
             ...(opts.priority !== undefined && { priority: opts.priority }),
+            ...(opts.pool && { pooled: true }),
+            ...(opts.leavePool && { pooled: false }),
         });
         const hosts = saved.hosts.length > 0 ? ` ${saved.hosts.join(', ')} will use it from the next engine started there.` : '';
         ctx.logger.info(`${name} saved.${hosts}`);

@@ -26,6 +26,8 @@ contract EngineTokenSummary: {
     kind: EngineTokenKind
     # Which of a provider's tokens comes first, lowest first.
     priority: int
+    # Whether Wilson may choose this token for an engine with no token assigned.
+    pooled: boolean
     createdAt: datetime
     updatedAt: datetime
     # The worker hosts assigned this token, name ascending.
@@ -36,11 +38,12 @@ contract PutEngineTokenRequest: {
     # What `claude setup-token` prints.
     token: string
     # Each of these keeps what is saved under this name when left out, or its default on a new name:
-    # anthropic, subscription and 0.
+    # anthropic, subscription, 0 and not pooled.
     provider?: EngineTokenProvider
     kind?: EngineTokenKind
     # 0 to 1000.
     priority?: int
+    pooled?: boolean
 }
 
 operation /api/engine-tokens: {

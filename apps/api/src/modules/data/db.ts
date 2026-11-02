@@ -215,6 +215,7 @@ export interface WilsonEngineTokens {
   createdAt: Generated<DateTime>;
   kind: Generated<"subscription" | "api_key">;
   name: string;
+  pooled: Generated<boolean>;
   priority: Generated<number>;
   provider: Generated<"anthropic" | "openai" | "xai">;
   updatedAt: Generated<DateTime>;

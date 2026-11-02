@@ -479,6 +479,7 @@ describe('the engine token control', () => {
             provider: 'anthropic' as const,
             kind: 'subscription' as const,
             priority: 0,
+            pooled: false,
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
             hosts: ['unraid-vm'],

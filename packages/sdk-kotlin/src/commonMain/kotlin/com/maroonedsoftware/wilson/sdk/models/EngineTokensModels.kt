@@ -57,6 +57,8 @@ data class EngineTokenSummary(
     val kind: EngineTokenKind,
     /** Which of a provider's tokens comes first, lowest first. */
     val priority: Long,
+    /** Whether Wilson may choose this token for an engine with no token assigned. */
+    val pooled: Boolean,
     val createdAt: Instant,
     val updatedAt: Instant,
     /** The worker hosts assigned this token, name ascending. */
@@ -69,10 +71,11 @@ data class PutEngineTokenRequest(
     val token: String,
     /**
      * Each of these keeps what is saved under this name when left out, or its default on a new name:
-     * anthropic, subscription and 0.
+     * anthropic, subscription, 0 and not pooled.
      */
     val provider: EngineTokenProvider? = null,
     val kind: EngineTokenKind? = null,
     /** 0 to 1000. */
     val priority: Long? = null,
+    val pooled: Boolean? = null,
 )

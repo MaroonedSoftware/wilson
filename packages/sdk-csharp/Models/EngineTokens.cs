@@ -146,6 +146,10 @@ public sealed record EngineTokenSummary
     [JsonPropertyName("priority")]
     public required long Priority { get; init; }
 
+    /// <summary>Whether Wilson may choose this token for an engine with no token assigned.</summary>
+    [JsonPropertyName("pooled")]
+    public required bool Pooled { get; init; }
+
     [JsonPropertyName("createdAt")]
     public required DateTimeOffset CreatedAt { get; init; }
 
@@ -165,7 +169,7 @@ public sealed record PutEngineTokenRequest
 
     /// <summary>
     /// Each of these keeps what is saved under this name when left out, or its default on a new name:
-    /// anthropic, subscription and 0.
+    /// anthropic, subscription, 0 and not pooled.
     /// </summary>
     [JsonPropertyName("provider")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -179,4 +183,8 @@ public sealed record PutEngineTokenRequest
     [JsonPropertyName("priority")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Priority { get; init; }
+
+    [JsonPropertyName("pooled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Pooled { get; init; }
 }

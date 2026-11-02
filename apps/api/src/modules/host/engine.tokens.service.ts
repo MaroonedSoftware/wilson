@@ -112,6 +112,21 @@ export class EngineTokensService {
     }
 
     /**
+     * The tokens Wilson may choose between, in the order to try them: lowest priority first, then by
+     * name, so the choice is the same every time it is made.
+     */
+    async pool(): Promise<EngineAccount[]> {
+        const pooled = (await this.tokens.list()).filter(token => token.pooled && signsInEngines(token));
+        pooled.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+        const accounts: EngineAccount[] = [];
+        for (const { name } of pooled) {
+            const token = await this.resolve(name);
+            if (token !== undefined) accounts.push({ name, token });
+        }
+        return accounts;
+    }
+
+    /**
      * The token saved as `name`, or undefined when none is. Refuses a row that will not decrypt, for
      * the reason `EngineTokenSettingService.resolve` does.
      */
