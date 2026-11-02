@@ -135,7 +135,7 @@ the application menu runs the same check and also answers when there is nothing 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
-dragging cards, and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
+and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. A
 card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
 notifications.
@@ -158,6 +158,12 @@ keeps it across a change of server, and `ShellViewModel.StartAsync` applies it b
 folded into a card, which only a re-read changes. Each page following the feed has its own, because the
 desktop feed is per page. A tool event changes no card summary, so it updates a tile in place. A tile
 is never redrawn for one, or for the ten-second clock, as that would lose its column's scroll.
+
+## Dragging
+
+`BoardView.axaml.cs` draws a drag and `BoardRules.Drop` says what it means. A tile stays a `Button`, and
+capturing the pointer past eight pixels is what takes the press from it, so a click still opens the card.
+A move only asks: `BoardViewModel` never changes a card's stage, and no redraw lands while a card is held.
 
 ## Chat follows the web app
 
@@ -195,6 +201,12 @@ runs a stage there. The stale style was not seen on screen: five minutes is long
 
 2026-11-02, card tools: with `tools/Walk`, none said, then executed and denied calls arriving through the
 real feed. The merge with a fetched tail is proved in `ToolRowsTests`, not on screen.
+
+2026-11-02, dragging: with `tools/Walk`, by Avalonia's headless pointer input through the real views, a
+click and a three-pixel slip opening a card, the held tile, ghost and target column, a drop moving a card
+through the API, and a drop refused because the row had gone. The server allows nearly any move, so that
+refusal is the only one a walk can pose. Not seen: scrolling at the window's edge, a real trackpad, and
+losing the pointer mid-drag.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

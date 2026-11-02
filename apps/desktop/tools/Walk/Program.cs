@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MaroonedSoftware.Wilson.Desktop;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
@@ -152,6 +153,12 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     {
         var sql = $"with made as (insert into wilson.card_events (project, card_id, stage, type, payload) select project, id, '{stage}', '{type}', '{payload}'::jsonb from wilson.cards where id = '{card}' returning *) "
             + "select pg_notify('card_events', json_build_object('id', id::text, 'project', project, 'cardId', card_id, 'stage', stage, 'type', type)::text) from made";
+        Sql(sql);
+    }
+
+    /// <summary>Only ever the throwaway API's database, for what no request can pose.</summary>
+    public static void Sql(string sql)
+    {
         using var psql = Process.Start("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]);
         psql.WaitForExit();
     }
@@ -187,6 +194,46 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Dispatcher.UIThread.RunJobs();
         window.KeyPressQwerty(physical, RawInputModifiers.None);
         window.KeyReleaseQwerty(physical, RawInputModifiers.None);
+    }
+
+    /// <summary>The middle of whatever a view drew for `model`, in the window's coordinates.</summary>
+    public Point Center(object model)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var control = window.GetVisualDescendants().OfType<Control>().First(found => found.DataContext == model && found is Button or Border);
+        return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
+    }
+
+    /// <summary>A press and release in one place, through Avalonia's input like a person's.</summary>
+    public void Click(Point at)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(at);
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A press, a move in steps, and a release, shooting the middle of the drag if named.</summary>
+    public void Drag(Point from, Point to, string? shot = null)
+    {
+        const int Steps = 6;
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(from);
+        window.MouseDown(from, MouseButton.Left);
+        for (var step = 1; step <= Steps; step++)
+        {
+            window.MouseMove(from + ((to - from) * step / Steps));
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        if (shot is not null)
+        {
+            Shot(shot);
+        }
+
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
     }
 
     public void Shot(string name)

@@ -107,6 +107,22 @@ public class BoardRulesTests
         Assert.Equal(expected, BoardRules.AgeInStage(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddSeconds(seconds)));
 
     [Fact]
+    public void ADropOnAnotherColumnIsAMove() =>
+        Assert.Equal(new BoardDrop.Move("build"), BoardRules.Drop("1", "build", ["plan", "build"], [Card("1", "plan")]));
+
+    [Fact]
+    public void ADropOnACardMeansItsColumn() =>
+        Assert.Equal(new BoardDrop.Move("build"), BoardRules.Drop("1", "2", ["plan", "build"], [Card("1", "plan"), Card("2", "build")]));
+
+    [Theory]
+    [InlineData("plan")]
+    [InlineData("3")]
+    [InlineData("nowhere")]
+    [InlineData(null)]
+    public void ADropOnItsOwnColumnOrNothingStays(string? over) =>
+        Assert.Equal(new BoardDrop.Stay(), BoardRules.Drop("1", over, ["plan", "build"], [Card("1", "plan"), Card("3", "plan")]));
+
+    [Fact]
     public void AFeedEventNamesItsCard()
     {
         Assert.Equal("0123", BoardRules.FeedCardId("""{"correlationId":"0123"}"""));

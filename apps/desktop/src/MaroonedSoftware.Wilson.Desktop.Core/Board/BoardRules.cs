@@ -6,6 +6,14 @@ namespace MaroonedSoftware.Wilson.Desktop.Core.Board;
 /// <summary>How far a split origin has got.</summary>
 public sealed record SplitProgress(int Merged, int Total);
 
+/// <summary>What letting go of a card asks for.</summary>
+public abstract record BoardDrop
+{
+    public sealed record Stay : BoardDrop;
+
+    public sealed record Move(string Stage) : BoardDrop;
+}
+
 /// <summary>What the board decides without a window. The same rules as the web board and the Android app.</summary>
 public static class BoardRules
 {
@@ -84,6 +92,17 @@ public static class BoardRules
         }
 
         return [.. card.DependsOn.Where(id => !Finished(id))];
+    }
+
+    /// <summary>
+    /// What a drop means. `over` is a column or a card, and a card stands for the column it is in.
+    /// The server decides whether a move happens, so a drop only ever asks.
+    /// </summary>
+    public static BoardDrop Drop(string card, string? over, IReadOnlyList<string> order, IReadOnlyCollection<CardSummary> cards)
+    {
+        var source = cards.FirstOrDefault(other => other.Id == card)?.Stage;
+        var target = over is null ? null : order.Contains(over) ? over : cards.FirstOrDefault(other => other.Id == over)?.Stage;
+        return target is null || target == source ? new BoardDrop.Stay() : new BoardDrop.Move(target);
     }
 
     /// <summary>The events that change nothing a card summary carries. Named rather than matched, so an event type added later still reloads.</summary>

@@ -157,6 +157,7 @@ internal static class Steps
 
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
         await walk.UntilAsync("the new card on the board", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Title == title)));
+        await DragAsync(walk, board, title);
         var made = board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card).First(card => card.Title == title);
 
         board.OpenCard(made);
@@ -201,6 +202,54 @@ internal static class Steps
         await PlanningAsync(walk, card);
         walk.Shell.Back();
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
+    }
+
+    /// <summary>By pointer through Avalonia's own input: a press that opens, one that barely moves, a refused drop and a real one.</summary>
+    private static async Task DragAsync(Walker walk, BoardViewModel board, string title)
+    {
+        BoardTile Tile() => board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Title == title);
+        BoardColumn Column(string name) => board.Columns.First(column => column.Name == name);
+
+        // Connecting replays every card and redraws the board once, which would pull a tile from under a press.
+        async Task BackToSettledBoardAsync()
+        {
+            walk.Shell.Back();
+            await walk.UntilAsync("back on the board, live", () => walk.Shell.Page == board && board.Live);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        walk.Click(walk.Center(Tile()));
+        await walk.UntilAsync("a click opening the card", () => walk.Shell.Page is CardViewModel);
+        await BackToSettledBoardAsync();
+
+        var start = walk.Center(Tile());
+        walk.Drag(start, start + new Point(3, 2));
+        await walk.UntilAsync("a small slip still opening the card", () => walk.Shell.Page is CardViewModel);
+        await BackToSettledBoardAsync();
+
+        // The server allows nearly any move, so a refusal needs a card gone from under its tile: a row of the walk's own.
+        Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9998', 'Walked away', 'parking-lot', '' from wilson.cards limit 1");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the walk's own card", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9998")));
+        Walker.Sql("delete from wilson.cards where id = '9998'");
+        var gone = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9998");
+        walk.Drag(walk.Center(gone), walk.Center(Column("planning")));
+        await walk.UntilAsync("a drop refused in the server's words", () => board.Error is not null);
+        Console.WriteLine($"     onto planning: {board.Error}");
+        await walk.UntilAsync("the card gone after the re-read", () => board.Columns.All(column => column.Cards.All(tile => tile.Card.Id != "9998")));
+        walk.Shot("04b-board-drop-refused");
+
+        Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9999', 'Walked across', 'parking-lot', '' from wilson.cards limit 1");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("another of the walk's own", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9999")));
+        var across = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9999");
+        walk.Drag(walk.Center(across), walk.Center(Column("implementing")), "04c-board-dragging");
+        await walk.UntilAsync("the drop moving the card", () => board.Columns.First(column => column.Name == "implementing").Cards.Any(tile => tile.Card.Id == "9999"));
+        walk.Shot("04d-board-dropped");
+        Walker.Sql("delete from wilson.card_versions where card_id = '9999'; delete from wilson.cards where id = '9999'");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the walk's own card gone", () => board.Columns.All(column => column.Cards.All(tile => tile.Card.Id != "9999")));
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
     private static async Task ToolCallsAsync(Walker walk, CardViewModel card)

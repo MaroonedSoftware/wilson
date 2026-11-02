@@ -31,6 +31,14 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
     [ObservableProperty]
     private bool _stale;
 
+    /// <summary>Held by the pointer, so the card under it reads as still where it was.</summary>
+    [ObservableProperty]
+    private bool _dragged;
+
+    /// <summary>A move in flight: the card stays in its column until a re-read agrees it went.</summary>
+    [ObservableProperty]
+    private bool _pending;
+
     /// <summary>Reads the ages again. A line is absent rather than guessed.</summary>
     public void Tick(CardActivity? activity, DateTimeOffset now)
     {
@@ -42,9 +50,17 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 }
 
 /// <summary>One column of the board, as drawn.</summary>
-public sealed record BoardColumn(string Name, IReadOnlyList<BoardTile> Cards)
+public sealed partial class BoardColumn(string name, IReadOnlyList<BoardTile> cards) : ObservableObject
 {
-    public string Count { get; } = Cards.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public string Name => name;
+
+    public IReadOnlyList<BoardTile> Cards => cards;
+
+    public string Count { get; } = cards.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Where a card held over it would go.</summary>
+    [ObservableProperty]
+    private bool _target;
 }
 
 /// <summary>A project's cards, kept live from the feed for as long as the board is in front.</summary>
@@ -58,6 +74,10 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     private IReadOnlyList<string> _order = [];
     private CancellationTokenSource? _settling;
     private bool _choosing;
+    private bool _dragging;
+    private bool _drawOwed;
+    private bool _unread;
+    private string? _moving;
 
     public ObservableCollection<string> Projects { get; } = [];
 
@@ -105,6 +125,53 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
+
+    /// <summary>Holds a card. Nothing redraws under the pointer until it lets go.</summary>
+    public void BeginDrag(BoardTile tile)
+    {
+        ArgumentNullException.ThrowIfNull(tile);
+
+        _dragging = true;
+        tile.Dragged = true;
+    }
+
+    /// <summary>Marks the column a card held over `over`, a column or a card, would go to.</summary>
+    public void Hover(BoardTile tile, string? over)
+    {
+        ArgumentNullException.ThrowIfNull(tile);
+
+        var stage = BoardRules.Drop(tile.Card.Id, over, _order, _cards) is BoardDrop.Move move ? move.Stage : null;
+        foreach (var column in Columns)
+        {
+            column.Target = column.Name == stage;
+        }
+    }
+
+    /// <summary>
+    /// Lets go. A move only asks: nothing here changes a card's stage, so it stays where it was until
+    /// a re-read brings a board that agrees, and a refusal comes back in the server's own words.
+    /// </summary>
+    public async Task EndDragAsync(BoardTile tile, string? over)
+    {
+        ArgumentNullException.ThrowIfNull(tile);
+
+        Hover(tile, null);
+        tile.Dragged = false;
+        _dragging = false;
+        if (BoardRules.Drop(tile.Card.Id, over, _order, _cards) is BoardDrop.Move move)
+        {
+            _moving = tile.Card.Id;
+            tile.Pending = true;
+            await MoveAsync(tile.Card.Id, move.Stage);
+            _moving = null;
+            await LoadAsync(CancellationToken.None);
+        }
+
+        if (_drawOwed)
+        {
+            Draw();
+        }
+    }
 
     protected override async Task OnShownAsync(CancellationToken cancellationToken)
     {
@@ -200,6 +267,25 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         }
     }
 
+    private async Task MoveAsync(string card, string stage)
+    {
+        if (Project is not { } project || shell.Connection is not { } connection)
+        {
+            return;
+        }
+
+        try
+        {
+            using var sdk = connection.ForProject(project);
+            await sdk.Board.MoveCardAsync(card, new MoveCardRequest { Stage = stage });
+            Error = null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = $"Could not move the card: {ApiError.Reason(failure)}";
+        }
+    }
+
     private void Tick()
     {
         var now = DateTimeOffset.UtcNow;
@@ -249,17 +335,31 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
             _cards = cards;
             _order = BoardRules.ColumnOrder(columns, cards);
-            Error = null;
+            // Only a failure of its own: a refused drop stays said after the re-read that follows it.
+            if (_unread)
+            {
+                _unread = false;
+                Error = null;
+            }
+
             Draw();
         }
         catch (HttpRequestException failure)
         {
+            _unread = true;
             Error = $"Could not load the board: {ApiError.Reason(failure)}";
         }
     }
 
     private void Draw()
     {
+        if (_dragging)
+        {
+            _drawOwed = true;
+            return;
+        }
+
+        _drawOwed = false;
         Columns.Clear();
         var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
         foreach (var stage in _order)
@@ -284,6 +384,9 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
             card.NeedsHuman ? card.NeedsHumanReason ?? "Needs you" : null,
             blockedBy.Count > 0 ? $"blocked on {string.Join(", ", blockedBy)}" : null,
             blockedBy.Count == 0 && card.DependsOn.Count > 0 ? $"{card.DependsOn.Count} deps" : null,
-            pieces is null ? null : $"{pieces.Merged}/{pieces.Total} pieces");
+            pieces is null ? null : $"{pieces.Merged}/{pieces.Total} pieces")
+        {
+            Pending = card.Id == _moving,
+        };
     }
 }
