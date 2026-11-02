@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
@@ -458,5 +460,160 @@ public sealed partial class ChatEngineControl(Func<WilsonSdk> sdk) : ObservableO
         Engine = setting.Engine;
         Provider = setting.Provider;
         Model = setting.Model;
+    }
+}
+
+/// <summary>A second factor, as drawn.</summary>
+public sealed record FactorRow(string Id, string Name, SecurityControl Control);
+
+/// <summary>
+/// `SecurityControls.tsx`. Adding or removing a factor can meet the step-up, which `SessionHandler` handles
+/// under the request. A passkey is only listed and removed here: an app signed ad hoc cannot make one, so
+/// adding one opens the web app.
+/// </summary>
+public sealed partial class SecurityControl(ShellViewModel shell) : ObservableObject
+{
+    private AuthenticatorRegistration? _registration;
+
+    public ObservableCollection<FactorRow> Factors { get; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSetUp))]
+    private bool _hasAuthenticator;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSetUp))]
+    [NotifyPropertyChangedFor(nameof(Idle))]
+    private bool _busy;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSetUp))]
+    [NotifyPropertyChangedFor(nameof(NotEnrolling))]
+    private bool _enrolling;
+
+    [ObservableProperty]
+    private Bitmap? _qrCode;
+
+    [ObservableProperty]
+    private string? _secret;
+
+    [ObservableProperty]
+    private string? _code;
+
+    [ObservableProperty]
+    private string? _error;
+
+    public bool Idle => !Busy;
+
+    public bool NotEnrolling => !Enrolling;
+
+    public bool CanSetUp => !Busy && !Enrolling && !HasAuthenticator;
+
+    public async Task ReadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var factors = await shell.Connection!.Sdk.Factors.ListSecondFactorsAsync(cancellationToken);
+            Factors.Clear();
+            foreach (var factor in factors)
+            {
+                var kind = factor.Method == SecondFactorMethod.Passkey ? "Passkey" : "Authenticator app";
+                Factors.Add(new FactorRow(factor.Id, factor.Label is { Length: > 0 } label ? $"{kind} ({label})" : kind, this));
+            }
+
+            HasAuthenticator = factors.Any(factor => factor.Method == SecondFactorMethod.Authenticator);
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = $"Cannot load your second factors: {ApiError.Reason(failure)}";
+        }
+    }
+
+    [RelayCommand]
+    public async Task StartAsync()
+    {
+        Busy = true;
+        Error = null;
+        try
+        {
+            _registration = await shell.Connection!.Sdk.Factors.StartAuthenticatorAsync(new StartAuthenticatorRequest { Label = "wilson" });
+            Secret = _registration.Secret;
+            QrCode = DataUrl.Bytes(_registration.QrCode) is { } png ? new Bitmap(new MemoryStream(png)) : null;
+            Enrolling = true;
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = ApiError.Reason(failure);
+        }
+
+        Busy = false;
+    }
+
+    [RelayCommand]
+    public async Task VerifyAsync()
+    {
+        if (_registration is not { } registration)
+        {
+            return;
+        }
+
+        Busy = true;
+        Error = null;
+        try
+        {
+            await shell.Connection!.Sdk.Factors.VerifyAuthenticatorAsync(new VerifyAuthenticatorRequest { RegistrationId = registration.RegistrationId, Code = Code?.Trim() ?? string.Empty });
+            CancelEnrolling();
+            await ReadAsync(CancellationToken.None);
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = SignInWords.OfCode(failure);
+        }
+
+        Busy = false;
+    }
+
+    [RelayCommand]
+    public void CancelEnrolling()
+    {
+        Enrolling = false;
+        _registration = null;
+        Secret = null;
+        Code = null;
+        QrCode = null;
+    }
+
+    [RelayCommand]
+    public async Task RemoveAsync(FactorRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        Busy = true;
+        Error = null;
+        try
+        {
+            await shell.Connection!.Sdk.Factors.RemoveSecondFactorAsync(row.Id);
+            await ReadAsync(CancellationToken.None);
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = ApiError.Reason(failure);
+        }
+
+        Busy = false;
+    }
+
+    /// <summary>Settings in the web app, on the same server.</summary>
+    [RelayCommand]
+    public void AddPasskey()
+    {
+        try
+        {
+            using var opened = Process.Start(new ProcessStartInfo("open") { ArgumentList = { $"{shell.Connection!.Origin}/settings" } });
+        }
+        catch (System.ComponentModel.Win32Exception failure)
+        {
+            Error = failure.Message;
+        }
     }
 }

@@ -82,6 +82,7 @@ public sealed partial class SettingsViewModel : PageViewModel
         EngineToken = new EngineTokenControl(() => Sdk);
         WorkerTokens = new WorkerTokensControl(() => Sdk);
         ChatEngine = new ChatEngineControl(() => Sdk);
+        Security = new SecurityControl(shell);
     }
 
     public ShellViewModel Shell => _shell;
@@ -107,6 +108,8 @@ public sealed partial class SettingsViewModel : PageViewModel
     public TextSetting GitHubApp { get; }
 
     public ChatEngineControl ChatEngine { get; }
+
+    public SecurityControl Security { get; }
 
     public IReadOnlyList<DeploymentFact> Facts { get; private set; } = [];
 
@@ -190,6 +193,7 @@ public sealed partial class SettingsViewModel : PageViewModel
             WorkerTokens.ReadAsync(cancellationToken),
             GitHubApp.ReadAsync(cancellationToken),
             ChatEngine.ReadAsync(cancellationToken),
+            Security.ReadAsync(cancellationToken),
             ReadDeploymentAsync(cancellationToken));
         await EveryAsync(DrainReading, () => _ = ReadDrainQuietlyAsync(cancellationToken), cancellationToken);
     }

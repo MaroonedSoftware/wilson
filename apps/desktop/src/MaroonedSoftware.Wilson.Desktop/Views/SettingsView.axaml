@@ -97,6 +97,41 @@
                 <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </DataTemplate>
+        <DataTemplate DataType="vm:SecurityControl">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="A second factor makes signing in need your phone or a passkey as well as your password. This app and the CLI can use an authenticator app but not a passkey, so set one up too if you use either." />
+                <ItemsControl ItemsSource="{Binding Factors}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FactorRow">
+                            <DockPanel Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right" Classes="danger" Padding="8,3" Content="Remove" Command="{Binding Control.RemoveCommand}" CommandParameter="{Binding}" IsEnabled="{Binding Control.Idle}" />
+                                <TextBlock FontSize="13" Text="{Binding Name}" VerticalAlignment="Center" />
+                            </DockPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Spacing="8" IsVisible="{Binding Enrolling}">
+                    <TextBlock FontSize="13" Text="Scan this with your authenticator app, then enter the code it shows." />
+                    <Border Background="White" Padding="6" HorizontalAlignment="Left" CornerRadius="4">
+                        <Image Source="{Binding QrCode}" Width="180" Height="180" />
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Classes="quiet" Text="Can't scan it? Enter this key:" VerticalAlignment="Center" />
+                        <SelectableTextBlock Classes="mono" Text="{Binding Secret}" />
+                    </StackPanel>
+                    <TextBox Text="{Binding Code}" PlaceholderText="Code" Width="180" HorizontalAlignment="Left" IsEnabled="{Binding Idle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="Turn on" Command="{Binding VerifyCommand}" IsEnabled="{Binding Idle}" />
+                        <Button Classes="ghost" Content="Cancel" Command="{Binding CancelEnrollingCommand}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding NotEnrolling}">
+                    <Button Content="Set up an authenticator app" Command="{Binding StartCommand}" IsEnabled="{Binding CanSetUp}" IsVisible="{Binding !HasAuthenticator}" />
+                    <Button Classes="ghost" Content="Add a passkey in the web app" Command="{Binding AddPasskeyCommand}" />
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
     </UserControl.DataTemplates>
     <ScrollViewer>
         <StackPanel Margin="16" Spacing="12" MaxWidth="720" HorizontalAlignment="Left" MinWidth="560">
@@ -167,6 +202,12 @@
                 <StackPanel Spacing="8">
                     <TextBlock Classes="heading" Text="Chat" />
                     <ContentControl Content="{Binding ChatEngine}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Security" />
+                    <ContentControl Content="{Binding Security}" />
                 </StackPanel>
             </Border>
             <Border Classes="panel">

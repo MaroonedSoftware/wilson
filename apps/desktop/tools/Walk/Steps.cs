@@ -62,9 +62,11 @@ internal static class Steps
         Console.WriteLine($"     home: {home.Threads.Count} chats");
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
+        var signedIn = DateTime.UtcNow;
         if (adminOnly)
         {
             await AdminAsync(walk);
+            await SecurityAsync(walk, email, password, signedIn);
             return;
         }
 
@@ -88,6 +90,7 @@ internal static class Steps
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
         await ChatAsync(walk, home);
+        await SecurityAsync(walk, email, password, signedIn);
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
@@ -169,6 +172,82 @@ internal static class Steps
         Walker.Sql("delete from wilson.settings where key in ('notify-webhook-url', 'notify-base-url')");
 
         await EngineSettingsAsync(walk, settings);
+    }
+
+    /// <summary>
+    /// A real authenticator on the throwaway operator, enrolled behind a real step-up and answered with
+    /// real codes, then removed. Waits for the session to pass the five minutes the step-up allows. A
+    /// failure here leaves the operator with a factor: see `Walker.Sql`.
+    /// </summary>
+    private static async Task SecurityAsync(Walker walk, string email, string password, DateTime signedIn)
+    {
+        var old = signedIn.AddMinutes(5.2) - DateTime.UtcNow;
+        if (old > TimeSpan.Zero)
+        {
+            Console.WriteLine($"     waiting {old.TotalSeconds:F0}s for the session to need a step-up");
+            await Task.Delay(old);
+        }
+
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var settings = walk.Page<SettingsViewModel>();
+        var security = settings.Security;
+        await security.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("no factor yet", () => security.CanSetUp && security.Factors.Count == 0);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security");
+
+        _ = security.StartCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked, with the email filled in", () => walk.Shell.StepUp is { Email: not null });
+        var stepUp = walk.Shell.StepUp!;
+        stepUp.Password = "wrong";
+        await stepUp.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong password refused", () => stepUp.Error == "Wrong email or password." && walk.Shell.StepUp == stepUp);
+        walk.Shot("13-step-up");
+        stepUp.CancelCommand.Execute(null);
+        await walk.UntilAsync("cancelling leaving it refused", () => walk.Shell.StepUp is null && !security.Busy && security.Error is not null);
+        Console.WriteLine($"     cancelled: {security.Error}");
+
+        _ = security.StartCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked again", () => walk.Shell.StepUp is not null);
+        walk.Shell.StepUp!.Password = password;
+        await walk.Shell.StepUp.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the request replayed, and enrolment open", () => walk.Shell.StepUp is null && security.Enrolling && security.QrCode is not null && security.Secret is not null);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security-enrolling");
+
+        var secret = security.Secret!;
+        security.Code = "000000";
+        await security.VerifyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong code refused", () => security.Error is not null && security.Enrolling);
+        Console.WriteLine($"     refused: {security.Error}");
+        security.Code = Walker.Totp(secret);
+        await security.VerifyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an authenticator on", () => security.HasAuthenticator && !security.Enrolling && security.Factors.Count == 1);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security-on");
+
+        await walk.Shell.SignOutCommand.ExecuteAsync(null);
+        await walk.UntilAsync("signed out", () => walk.Shell.Page is SignInViewModel);
+        var signIn = walk.Page<SignInViewModel>();
+        signIn.Email = email;
+        signIn.Password = password;
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the code step for real", () => signIn.NeedsCode);
+        signIn.Code = "000000";
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong code refused at sign-in", () => signIn.Error is not null);
+
+        // A code answers once, and enrolling spent this period's.
+        await Task.Delay(TimeSpan.FromSeconds(31 - (DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 30)));
+        signIn.Code = Walker.Totp(secret);
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("signed in with a real code", () => walk.Shell.Page is ThreadsViewModel, 10);
+
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var again = walk.Page<SettingsViewModel>().Security;
+        await walk.UntilAsync("the authenticator listed", () => again.Factors.Count == 1);
+        await again.RemoveCommand.ExecuteAsync(again.Factors[0]);
+        await walk.UntilAsync("the authenticator removed", () => again.Factors.Count == 0 && !again.Busy && walk.Shell.StepUp is null);
     }
 
     /// <summary>Tokens made up for the walk, saved on the throwaway API and removed, so they sign nothing in.</summary>

@@ -202,6 +202,34 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Console.WriteLine($"ok   {what} ({shell.Page?.GetType().Name})");
     }
 
+    /// <summary>The code an authenticator app shows now, as RFC 6238 and the API's defaults have it.</summary>
+    public static string Totp(string secret)
+    {
+        const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        var key = new List<byte>();
+        var (buffer, bits) = (0, 0);
+        foreach (var letter in secret.TrimEnd('=').ToUpperInvariant())
+        {
+            buffer = (buffer << 5) | Alphabet.IndexOf(letter, StringComparison.Ordinal);
+            bits += 5;
+            if (bits >= 8)
+            {
+                bits -= 8;
+                key.Add((byte)(buffer >> bits));
+                buffer &= (1 << bits) - 1;
+            }
+        }
+
+        var counter = BitConverter.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
+        Array.Reverse(counter);
+#pragma warning disable CA5350 // SHA-1 is what RFC 6238 and the server use.
+        var hash = System.Security.Cryptography.HMACSHA1.HashData(key.ToArray(), counter);
+#pragma warning restore CA5350
+        var at = hash[^1] & 0xf;
+        var number = ((hash[at] & 0x7f) << 24) | (hash[at + 1] << 16) | (hash[at + 2] << 8) | hash[at + 3];
+        return (number % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     /// <summary>Text from the keyboard, into whatever has the focus, as a person's would arrive.</summary>
     public void Type(string text)
     {

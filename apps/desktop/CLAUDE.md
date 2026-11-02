@@ -137,8 +137,9 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects, hosts and settings other than security. Not here yet, so these still
-need the web app: onboarding, passkeys and second factors.
+planning, chat, the diff, projects, hosts and settings. Not here yet, so these still need the web app:
+onboarding, and making a passkey, which an app signed ad hoc cannot do. Settings lists and removes passkeys
+and opens the web app to add one.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -281,6 +282,12 @@ losing the pointer mid-drag.
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
 
+2026-11-02, security: with `tools/Walk`, on a real session past the five minutes, a real step-up refused,
+cancelled and answered with the request replayed, a real authenticator enrolled from its secret, wrong
+codes refused, a real sign-in with a code, and removing it. `Walker.Totp` stands in for the phone, so the
+QR code was seen and not scanned. A step-up answered with a code, and a passkey listed or removed, were not
+walked: the first needs the session to age again and the second needs a browser to make one.
+
 2026-11-02, engine settings: with `tools/Walk`, a config directory and a token refused, a made-up token
 saved and removed, a worker token listed and removed, an app id saved, and the chat engine saved and put
 back. No real token was used, so a sign-in with one was not tried, and the GitHub key's found state and a
@@ -340,7 +347,6 @@ icon's Quit and the app menu's Quit each ended the process.
 Not verified:
 
 - How the menu-bar icon looks, which was only checked as a PNG.
-- A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
 - An update through the running app's own button, or from a real release.
 - A session, and the open chat, surviving a relaunch of the real app. Keystrokes reach the views in
   the walk through Avalonia's headless input, not a real keyboard.
