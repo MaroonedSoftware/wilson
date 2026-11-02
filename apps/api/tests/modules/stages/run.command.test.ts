@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PASSED_THROUGH, pnpmStoreLock, runConfiguredCommand, scrubbedEnv } from '#modules/stages/run.command.js';
+import { PASSED_THROUGH, PASSED_THROUGH_PREFIXES, pnpmStoreLock, runConfiguredCommand, scrubbedEnv } from '#modules/stages/run.command.js';
 
 /**
  * Card 0045: `runConfiguredCommand` used to call `execFile` with no `env`, so a `setupCommand`,
@@ -49,7 +49,19 @@ describe('scrubbedEnv', () => {
         const env = scrubbedEnv();
         const allowed = new Set([...PASSED_THROUGH, 'CI']);
         for (const key of Object.keys(env)) {
-            expect(allowed.has(key)).toBe(true);
+            expect(allowed.has(key) || PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))).toBe(true);
+        }
+    });
+
+    it("passes TEST_DATABASE_* so a stage's suite finds a test database that is not on localhost", () => {
+        const key = 'TEST_DATABASE_HOST';
+        const previous = process.env[key];
+        process.env[key] = 'test-db.internal';
+        try {
+            expect(scrubbedEnv()[key]).toBe('test-db.internal');
+        } finally {
+            if (previous === undefined) delete process.env[key];
+            else process.env[key] = previous;
         }
     });
 
