@@ -2002,6 +2002,7 @@ describe('BoardWriteService', () => {
 
             expect(result.merged).toBe(false);
             expect(result.reason).toContain('fails the suite');
+            expect(result.reason).toMatch(/1 failing: .*\.test\.ts > /);
             const stored = await board.read('0198');
             expect(stored.frontmatter.stage).toBe('ready');
             expect(stored.frontmatter.needsHuman).toBe(true);

@@ -87,13 +87,22 @@ export const describeFailingTest = (test: FailingTest): string =>
  * or it parsed cleanly but named no failures even though the command exited non-zero — a suite that
  * failed for a reason the report cannot see.
  */
-export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string => {
+export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string => `the suite is not green: ${redRunDetail(report, run)}`;
+
+/**
+ * What a red run has to say for itself, without saying which check it failed: the failing tests
+ * when the report names any, then the command's own reason. Shared with the merge check
+ * (`BoardWriteService.judgeFailedMergeSuite`), which frames it as a merge that fails the suite, so
+ * the two cannot drift back apart: the merge check used to keep only `run.reason`, whose last 4000
+ * characters can be nothing but warnings, and card 0007's refused merge named no test at all.
+ */
+export const redRunDetail = (report: TestReport | undefined, run: CommandFailure): string => {
     const failing = report?.failing ?? [];
-    if (failing.length === 0) return `the suite is not green: ${run.reason}`;
+    if (failing.length === 0) return run.reason;
 
     const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailingTest);
     const more = failing.length > MAX_NAMED_FAILURES ? ` and ${failing.length - MAX_NAMED_FAILURES} more` : '';
-    return `the suite is not green: ${failing.length} failing: ${shown.join('; ')}${more}\n${run.reason}`;
+    return `${failing.length} failing: ${shown.join('; ')}${more}\n${run.reason}`;
 };
 
 /**

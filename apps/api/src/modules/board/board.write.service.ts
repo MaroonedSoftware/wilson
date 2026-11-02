@@ -14,7 +14,7 @@ import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token
 import { findStage, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
-import { describeFailingTest } from '#modules/stages/testing.verifier.js';
+import { describeFailingTest, redRunDetail } from '#modules/stages/testing.verifier.js';
 import { parseTestReport } from '#modules/stages/test.report.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
@@ -876,9 +876,9 @@ export class BoardWriteService {
      * fault here — it just means there is nothing to rerun, exactly like a report that parsed
      * cleanly but named no failures.
      *
-     * No named failures means the run is judged red exactly as it always has been (`run.reason`,
-     * unchanged). A rerun of just the failing files that comes back red too is judged red the same
-     * way, with `run`'s own reason, not the rerun's — this was not a flake. A rerun that comes back
+     * No named failures means the run is judged red with `run.reason` alone. A rerun of just the
+     * failing files that comes back red too is judged red with `redRunDetail`, naming the tests from
+     * `run`'s own report, not the rerun's — this was not a flake. A rerun that comes back
      * green appends a `test.flaky` event naming the tests and lets the merge proceed, `run:
      * 'merge-check'` distinguishing it in the card's history from a `test.flaky` event
      * `TestingVerifier` itself might have appended.
@@ -891,11 +891,11 @@ export class BoardWriteService {
     ): Promise<{ ok: true } | { ok: false; reason: string }> {
         const report = await this.readTestReport(worktreePath, stage.testReportPath);
         const failing = report?.failing ?? [];
-        if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: run.reason };
+        if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: redRunDetail(report, run) };
 
         const files = [...new Set(failing.map(test => test.file))];
         const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
-        if (rerun) return { ok: false, reason: run.reason };
+        if (rerun) return { ok: false, reason: redRunDetail(report, run) };
 
         await this.eventLog.append({
             project: this.boardConfig.project,
