@@ -224,10 +224,9 @@ export class PlanService {
         // Loaded only when `isFirstTurn`, since a later turn's preamble is never used below anyway.
         const learningsPreamble = isFirstTurn ? learningsBlock((await this.learnings?.load()) ?? '') : '';
 
-        // This card's Constraints: no new state — `createdAt` on a snapshot and on a prior turn are
-        // both the database's own `NOW()`, so "has this conversation seen this snapshot yet" is
-        // answerable from what `appendTurn` already fetched above, with no column or table of its
-        // own. Prepended to the prompt the engine sees, never to `text` itself, for the same reason
+        // "Has this conversation seen this snapshot yet" is answered by the snapshot ids earlier
+        // turns recorded (`unseenSince`, below), and this turn records its own when it is appended.
+        // Prepended to the prompt the engine sees, never to `text` itself, for the same reason
         // `commentsPreamble` below is not: `planTurns.append` stores exactly what the person typed.
         // Empty for a card with no unseen snapshots, so the prompt this builds is byte-identical to
         // what `turn` sent before this card existed.
@@ -271,7 +270,7 @@ export class PlanService {
             prompt = `${contextPreamble}${commentsPreamble}${modePreamble}${text}`;
         }
 
-        await this.planTurns.append(id, 'user', text);
+        await this.planTurns.append(id, 'user', text, undefined, snapshots.at(-1)?.id);
 
         // Resolved fresh on every turn, not cached on this transient instance: a card's planning
         // session can span many `PlanService.turn` calls, and this reads the same way `subscriptionEnv`
@@ -636,17 +635,20 @@ function learningsBlock(markdown: string): string {
 const MAX_SNAPSHOT_CHARS = 100_000;
 
 /**
- * The snapshots newly attached to `id`'s card since the last turn this conversation has already
- * seen — this card's Constraints ("no new state"): both a snapshot's `createdAt` and a stored
- * turn's `createdAt` are the same database's own `NOW()`, so there is no skew between them to
- * reason about. `priorTurns` is `appendTurn`'s own `since(id, 0)`, already fetched to compute
- * `isFirstTurn`; on a first turn it is empty, so every snapshot is unseen, exactly as a first turn
- * carries every open comment too.
+ * The snapshots newly attached to `id`'s card since the last turn that read any. Compared by id, not
+ * `createdAt`: timestamps read back at millisecond precision, so a snapshot attached right after a
+ * turn can tie with it, and one attached while the engine was answering sits before that turn's
+ * assistant row. `priorTurns` is `appendTurn`'s own `since(id, 0)`, already fetched to compute
+ * `isFirstTurn`; with no id recorded on any of them, every snapshot is unseen, exactly as a first
+ * turn carries every open comment too.
  */
 function unseenSince(snapshots: CardContext[], priorTurns: StoredPlanTurn[]): CardContext[] {
-    if (priorTurns.length === 0) return snapshots;
-    const lastSeenAt = priorTurns[priorTurns.length - 1]!.createdAt;
-    return snapshots.filter(snapshot => snapshot.createdAt > lastSeenAt);
+    const lastSeenId = priorTurns
+        .map(turn => turn.contextSeenId)
+        .filter(id => id !== undefined)
+        .at(-1);
+    if (lastSeenId === undefined) return snapshots;
+    return snapshots.filter(snapshot => BigInt(snapshot.id) > BigInt(lastSeenId));
 }
 
 /**

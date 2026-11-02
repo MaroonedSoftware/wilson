@@ -1336,6 +1336,97 @@ describe('PlanService', () => {
             }
         });
 
+        it('a snapshot timestamped the same as the last turn reaches the very next turn, and no turn after that', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const first = await service.turn(id, { text: 'first message' });
+
+                const contextRepo = new CardContextRepository(config, db);
+                const snapshot = await contextRepo.attach(
+                    id,
+                    'https://example.com/tie',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'attached in the same tick',
+                    'hash-tie',
+                );
+                await db.updateTable('wilson.cardContext').set({ createdAt: first.createdAt }).where('id', '=', BigInt(snapshot.id)).execute();
+
+                const second = await service.turn(id, { text: 'second message' });
+                expect(second.content).toContain('attached in the same tick');
+
+                const third = await service.turn(id, { text: 'third message' });
+                expect(third.content).toBe('third message');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a snapshot attached while the engine was answering reaches the next turn, once', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const first = await service.turn(id, { text: 'first message' });
+
+                const contextRepo = new CardContextRepository(config, db);
+                const snapshot = await contextRepo.attach(
+                    id,
+                    'https://example.com/during',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'attached mid-answer',
+                    'hash-during',
+                );
+                await db
+                    .updateTable('wilson.cardContext')
+                    .set({ createdAt: first.createdAt.minus({ seconds: 1 }) })
+                    .where('id', '=', BigInt(snapshot.id))
+                    .execute();
+
+                const second = await service.turn(id, { text: 'second message' });
+                expect(second.content).toContain('attached mid-answer');
+
+                const third = await service.turn(id, { text: 'third message' });
+                expect(third.content).toBe('third message');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a snapshot attached after an earlier one was removed still counts as unseen', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                const contextRepo = new CardContextRepository(config, db);
+                const removed = await contextRepo.attach(
+                    id,
+                    'https://example.com/gone',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'the wrong document',
+                    'hash-gone',
+                );
+                await service.turn(id, { text: 'first message' });
+                await contextRepo.remove(id, removed.id);
+
+                const second = await service.turn(id, { text: 'second message' });
+                expect(second.content).toBe('second message');
+
+                await contextRepo.attach(id, 'https://example.com/right', DateTime.now(), 'human', undefined, 'the right document', 'hash-right');
+                const third = await service.turn(id, { text: 'third message' });
+                expect(third.content).toContain('the right document');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
         it('a snapshot whose content exceeds the prompt cap is truncated, and the block says so', async () => {
             const { board, service, config } = await freshEnv();
             const id = randomUUID();
