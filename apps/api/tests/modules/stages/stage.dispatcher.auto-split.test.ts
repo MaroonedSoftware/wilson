@@ -165,7 +165,7 @@ describe('StageDispatcher auto-split routing', () => {
                     config,
                     {} as StageConfigStore,
                     board,
-                    {} as WorktreeManager,
+                    { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
                     new Map([['cli', { run: async () => run }]]) as unknown as StageAgentMap,
                     new Map([['scope-check', { verify: async () => verification }]]) as unknown as StageVerifierMap,
                     new Map([['scope-check', {}]]) as unknown as StageResultSchemaMap,

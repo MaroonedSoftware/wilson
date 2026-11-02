@@ -139,6 +139,8 @@ describe('approving a card and then dispatching it (card 0109)', () => {
                 throw new Error('MARKER: should not rebase — the run is not resumable');
             }),
             commit: vi.fn(async () => 'committedsha'),
+            uncommittedPaths: vi.fn(async () => []),
+            uncommittedSnapshot: vi.fn(async () => ({})),
             reclaim: vi.fn(async () => {}),
             // Card 0161: `run` now calls this unconditionally, once per board card, to grant read
             // access to every preserved patch — not just on a failure path.

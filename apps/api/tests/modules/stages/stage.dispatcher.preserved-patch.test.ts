@@ -99,6 +99,8 @@ describe("StageDispatcher.run grants read access to every board card's preserved
                 throw new Error('MARKER: should not rebase — the run is not resumable');
             }),
             commit: vi.fn(async () => 'committedsha'),
+            uncommittedPaths: vi.fn(async () => []),
+            uncommittedSnapshot: vi.fn(async () => ({})),
             reclaim: vi.fn(async () => {}),
             failedAttemptPatchPath,
         };

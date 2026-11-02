@@ -312,6 +312,8 @@ stages:
             resume: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
             rebaseOntoHead: vi.fn(async () => ({ ok: true, baseSha: 'deadbeef' })),
             commit: vi.fn(async () => 'committedsha'),
+            uncommittedPaths: vi.fn(async () => []),
+            uncommittedSnapshot: vi.fn(async () => ({})),
             reclaim: vi.fn(async () => {}),
             failedAttemptPatchPath: vi.fn(() => '/tmp/never-used.patch'),
         };

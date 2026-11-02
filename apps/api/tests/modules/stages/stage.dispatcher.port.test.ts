@@ -52,6 +52,8 @@ const makeWorktrees = (dirs: Record<string, string>) => ({
         throw new Error('MARKER: should not rebase');
     }),
     commit: vi.fn(async () => 'committedsha'),
+    uncommittedPaths: vi.fn(async () => []),
+    uncommittedSnapshot: vi.fn(async () => ({})),
     reclaim: vi.fn(async () => {}),
     failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/run/cards/${cardId}/last-failed-attempt.patch`),
 });

@@ -76,6 +76,8 @@ describe('StageDispatcher.run caps a run at what remains of its card’s budget'
             hasWork: vi.fn(async () => false),
             create: vi.fn(async () => ({ path: worktreeDir, baseSha: 'deadbeef' })),
             commit: vi.fn(async () => 'committedsha'),
+            uncommittedPaths: vi.fn(async () => []),
+            uncommittedSnapshot: vi.fn(async () => ({})),
             reclaim: vi.fn(async () => {}),
             failedAttemptPatchPath: vi.fn((cardId: string) => join(base, 'run', 'cards', cardId, 'last-failed-attempt.patch')),
         };

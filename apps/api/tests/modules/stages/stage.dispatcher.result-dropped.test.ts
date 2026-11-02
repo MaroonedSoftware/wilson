@@ -80,7 +80,7 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
             { project: 'test' } as BoardConfig,
             {} as StageConfigStore,
             {} as BoardRepository,
-            {} as WorktreeManager,
+            { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
             agents,
             verifiers,
             resultSchemas,

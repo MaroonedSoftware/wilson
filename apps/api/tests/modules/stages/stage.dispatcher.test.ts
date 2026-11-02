@@ -96,7 +96,10 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
 
         // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
         // building its attempts bullet, so the worktrees stub needs a real function here.
-        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+        const worktrees = {
+            failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch'),
+            uncommittedSnapshot: async () => ({}),
+        };
 
         dispatcher = new StageDispatcher(
             config as BoardConfig,
@@ -508,7 +511,10 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
 
         // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
         // building its attempts bullet, so the worktrees stub needs a real function here.
-        const worktrees = { failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch') };
+        const worktrees = {
+            failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch'),
+            uncommittedSnapshot: async () => ({}),
+        };
 
         const dispatcher = new StageDispatcher(
             config as BoardConfig,
@@ -684,7 +690,11 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
 describe('StageDispatcher writeTransition reclaims the worktree on a terminal transition', () => {
     let board: BoardRepository;
     let events: { append: ReturnType<typeof vi.fn> };
-    let worktrees: { reclaim: ReturnType<typeof vi.fn>; failedAttemptPatchPath: ReturnType<typeof vi.fn> };
+    let worktrees: {
+        reclaim: ReturnType<typeof vi.fn>;
+        failedAttemptPatchPath: ReturnType<typeof vi.fn>;
+        uncommittedSnapshot: ReturnType<typeof vi.fn>;
+    };
     let dispatcher: StageDispatcher;
 
     beforeEach(async () => {
@@ -693,7 +703,11 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
         events = { append: vi.fn(async () => {}) };
         // Card 0234: a judged failure now calls `failedAttemptPatchPath` unconditionally while
         // building its attempts bullet, so this spy needs a real function alongside `reclaim`.
-        worktrees = { reclaim: vi.fn(async () => {}), failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/${cardId}.patch`) };
+        worktrees = {
+            reclaim: vi.fn(async () => {}),
+            uncommittedSnapshot: vi.fn(async () => ({})),
+            failedAttemptPatchPath: vi.fn((cardId: string) => `/tmp/${cardId}.patch`),
+        };
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
@@ -817,7 +831,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
             { project: 'test' } as BoardConfig,
             {} as StageConfigStore,
             {} as BoardRepository,
-            {} as WorktreeManager,
+            { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
             agents,
             verifiers,
             resultSchemas,
@@ -960,7 +974,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
             { project: 'test' } as BoardConfig,
             {} as StageConfigStore,
             {} as BoardRepository,
-            {} as WorktreeManager,
+            { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
             agents,
             verifiers,
             resultSchemas,
@@ -1000,7 +1014,7 @@ describe('StageDispatcher runAgent (via private access) surfaces a run’s budge
                 { project: 'test' } as BoardConfig,
                 {} as StageConfigStore,
                 {} as BoardRepository,
-                {} as WorktreeManager,
+                { uncommittedSnapshot: async () => ({}) } as unknown as WorktreeManager,
                 agents,
                 verifiers,
                 resultSchemas,

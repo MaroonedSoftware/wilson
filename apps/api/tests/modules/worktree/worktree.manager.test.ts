@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { snapshotDrift, WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { LeaseService } from '#modules/lease/lease.service.js';
 
@@ -287,6 +287,58 @@ describe('WorktreeManager', () => {
             await manager.commit(worktree, '0001: implementing');
 
             await expect(manager.hasWork('card/0001-thing')).resolves.toBe(true);
+        });
+    });
+
+    describe('uncommittedSnapshot', () => {
+        const fresh = () => manager.create('0900', 'card/0900-snapshot');
+
+        it('is empty on a clean tree, and hashes what is modified, new or deleted', async () => {
+            const worktree = await fresh();
+            await expect(manager.uncommittedSnapshot(worktree)).resolves.toEqual({});
+
+            await writeFile(join(worktree.path, 'src/index.ts'), 'changed\n');
+            await writeFile(join(worktree.path, 'src/new file.ts'), 'new\n');
+            const snapshot = await manager.uncommittedSnapshot(worktree);
+
+            expect(Object.keys(snapshot).length).toBe(2);
+            expect(snapshot['src/index.ts']).toMatch(/^[0-9a-f]{40}$/);
+
+            await rm(join(worktree.path, 'src/index.ts'));
+            expect((await manager.uncommittedSnapshot(worktree))['src/index.ts']).toBe('deleted');
+        });
+
+        it('reads a file removed with git rm as deleted, and sees both ends of a git mv', async () => {
+            const worktree = await fresh();
+            await exec('git', ['rm', '-q', 'src/index.ts'], { cwd: worktree.path });
+            expect(await manager.uncommittedSnapshot(worktree)).toEqual({ 'src/index.ts': 'deleted' });
+
+            await exec('git', ['reset', '-q', '--hard'], { cwd: worktree.path });
+            await exec('git', ['mv', 'src/index.ts', 'src/moved.ts'], { cwd: worktree.path });
+            const moved = await manager.uncommittedSnapshot(worktree);
+
+            expect(moved['src/index.ts']).toBe('deleted');
+            expect(moved['src/moved.ts']).toMatch(/^[0-9a-f]{40}$/);
+            await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/index.ts', 'src/moved.ts']);
+        });
+
+        it('lists a path with a space in it as the path it is', async () => {
+            const worktree = await fresh();
+            await writeFile(join(worktree.path, 'src/new file.ts'), 'new\n');
+
+            await expect(manager.uncommittedPaths(worktree)).resolves.toEqual(['src/new file.ts']);
+        });
+
+        it('notices an edit to a file that was already modified, which the list of paths would not', async () => {
+            const worktree = await fresh();
+            await writeFile(join(worktree.path, 'src/index.ts'), 'first\n');
+            const before = await manager.uncommittedSnapshot(worktree);
+
+            await writeFile(join(worktree.path, 'src/index.ts'), 'second\n');
+            const after = await manager.uncommittedSnapshot(worktree);
+
+            expect(snapshotDrift(before, after)).toEqual(['src/index.ts']);
+            expect(snapshotDrift(after, after)).toEqual([]);
         });
     });
 

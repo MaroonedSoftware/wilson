@@ -80,6 +80,8 @@ const build = async (
                 : { path: placement ? '/remote/wt/0001' : base, branch, baseSha: 'deadbeef', host: placement?.host, placement },
         ),
         commit: vi.fn(async () => 'committedsha'),
+        uncommittedPaths: vi.fn(async () => []),
+        uncommittedSnapshot: vi.fn(async () => ({})),
         fetchBack: vi.fn(async () => {}),
         reclaim: vi.fn(async () => {}),
         rebaseOntoHead: vi.fn(async () => ({ ok: true, baseSha: 'deadbeef' })),
@@ -192,6 +194,58 @@ describe('StageDispatcher placement', () => {
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'stage.placed', payload: { host: 'agent-3', slot: 'host:agent-3:slot:1' } }),
         );
+    });
+
+    describe('the last look before committing', () => {
+        it('commits nothing when something uncommitted is outside the stage’s scope', async () => {
+            const { dispatcher, worktrees, events } = await build(async () => undefined);
+            worktrees.uncommittedPaths.mockImplementation((async () => ['.runner/stages.yaml']) as never);
+
+            const outcome = await dispatcher.run('0001', 'implementing');
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.join()).toContain(".runner/stages.yaml is outside this stage's scope");
+            expect(worktrees.commit).not.toHaveBeenCalled();
+            expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
+        });
+
+        it('commits nothing when the tree changed after the verifier finished, and names what changed', async () => {
+            const { dispatcher, worktrees } = await build(async () => undefined);
+            worktrees.uncommittedSnapshot
+                .mockImplementationOnce((async () => ({ 'src/x.ts': 'verified' })) as never)
+                .mockImplementationOnce((async () => ({ 'src/x.ts': 'edited-later', 'src/y.ts': 'new' })) as never);
+
+            const outcome = await dispatcher.run('0001', 'implementing');
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures).toContain('changed after the stage was verified: src/x.ts, src/y.ts');
+            expect(worktrees.commit).not.toHaveBeenCalled();
+        });
+
+        it('commits when the tree is in scope and as the verifier left it', async () => {
+            const { dispatcher, worktrees } = await build(async () => undefined);
+            const same = { 'src/x.ts': 'verified' };
+            worktrees.uncommittedSnapshot.mockImplementation((async () => same) as never);
+
+            const outcome = await dispatcher.run('0001', 'implementing');
+
+            expect(outcome.passed).toBe(true);
+            expect(worktrees.commit).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not hold the test report against a stage’s scope', async () => {
+            const { dispatcher, worktrees } = await build(async () => undefined);
+            worktrees.uncommittedPaths.mockImplementation((async () => ['report.json']) as never);
+            const scope = { check: vi.fn(async (path: string) => ({ allowed: false, path, reason: 'no' })) };
+            const outcome = { passed: true, failures: [], changedPaths: [], scopeGrants: [] };
+
+            const checked = await (
+                dispatcher as unknown as { checkBeforeCommit(...args: unknown[]): Promise<{ passed: boolean }> }
+            ).checkBeforeCommit(outcome, {}, scope, { testReportPath: 'report.json' });
+
+            expect(checked.passed).toBe(true);
+            expect(scope.check).not.toHaveBeenCalled();
+        });
     });
 
     it('leaves an interrupted stage’s tree on its host, gives the slot back, and records no failure', async () => {

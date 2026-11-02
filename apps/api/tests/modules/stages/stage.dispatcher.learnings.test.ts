@@ -92,6 +92,8 @@ describe('StageDispatcher.run materializes the project learnings document (card 
                 throw new Error('MARKER: should not rebase — the run is not resumable');
             }),
             commit: vi.fn(async () => 'committedsha'),
+            uncommittedPaths: vi.fn(async () => []),
+            uncommittedSnapshot: vi.fn(async () => ({})),
             reclaim: vi.fn(async () => {}),
             failedAttemptPatchPath: (cardId: string) => join(config.runRoot, 'cards', cardId, 'last-failed-attempt.patch'),
         };

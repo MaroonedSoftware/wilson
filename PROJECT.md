@@ -694,6 +694,13 @@ in files the card had not touched. A card that adds a contract operation or an a
 route should say so in its plan, name the generated file, and treat `pnpm build`
 passing — `tsc` included — as the thing that proves it.
 
+**The last look before a commit.** The write tool stops the writes it sees, and an engine or a
+command can write without it. So before a passing stage commits, whichever engine ran it, the
+dispatcher checks everything uncommitted against that stage's scope, and compares the tree with a
+snapshot taken when the verifier finished. A path outside scope, or anything changed since the
+verifier finished, fails the stage and commits nothing. The configured test report is exempt from the scope check, being the
+runner's own output.
+
 When an agent genuinely needs a file outside scope, it cannot write it. It calls a
 `request_scope` tool with the path and a reason, and the project's
 `scope_violation` policy decides:
