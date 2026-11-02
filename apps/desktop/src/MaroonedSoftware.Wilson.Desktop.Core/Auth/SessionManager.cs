@@ -31,6 +31,12 @@ public sealed class SessionManager(string origin, WilsonSdk sdk, ISecretStore st
     /// <summary>Raised when the API ends the session, so the app can go back to signing in.</summary>
     public event EventHandler? SessionEnded;
 
+    /// <summary>
+    /// Asks the operator to prove it is them, answering true once a fresh session is in place. Without
+    /// one, a step-up refusal simply reaches the caller.
+    /// </summary>
+    public Func<CancellationToken, Task<bool>>? StepUp { get; set; }
+
     public string? AccessToken => Volatile.Read(ref _session)?.AccessToken;
 
     public string? Email => Volatile.Read(ref _session)?.Email;

@@ -3,6 +3,7 @@ import { Settings } from 'luxon';
 import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftware/koa';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
+import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
 import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
 import { HostProber } from '#modules/host/host.prober.js';
 import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
@@ -36,6 +37,10 @@ export const setupServer = async (): Promise<Server> => {
     await captureBuildHead(requireConfigString(config, 'PROJECT_CODE_ROOT'));
     const logger = new ConsoleLogger();
     const container = await serverBuilder.setup(config, logger, modules);
+    // Ahead of `attachWorkerEndpoint` below, since listeners run in the order they were added: a
+    // worker's socket closing first would read as a lost host, and a placed stage would fail on it
+    // rather than stop.
+    serverBuilder.lifecycleSignal.addEventListener('abort', () => container.get(StageInterrupt).interrupt());
     // Here rather than in a module's `start`, since only the daemon sends: a CLI command never does.
     const fcm = await fcmChannelFrom(optionalConfigString(config, 'FCM_SERVICE_ACCOUNT_FILE'), container.get(DeviceRepository), logger);
     if (fcm) registerNotificationChannel(fcm);

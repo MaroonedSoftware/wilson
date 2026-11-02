@@ -4,6 +4,7 @@ import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
+import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
@@ -101,6 +102,19 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
                 }): Promise<StageOutcome>;
             }
         ).runAgent({ card, stage, worktree, scope, planPath: '/run/plan.md', stages });
+
+    it('throws rather than verifying a run that was interrupted', async () => {
+        const dispatcher = buildDispatcher(
+            { usage: { inputTokens: 10 }, truncated: true, interrupted: { wallClockMs: 5, steps: 1 } },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const error = await runAgent(dispatcher).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(StageInterruptedError);
+        expect((error as StageInterruptedError).usage).toEqual({ inputTokens: 10 });
+        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef', spent: { wallClockMs: 5, steps: 1, inputTokens: 10 } });
+    });
 
     it('carries resultDropped from the adapter run onto the outcome', async () => {
         const dispatcher = buildDispatcher(

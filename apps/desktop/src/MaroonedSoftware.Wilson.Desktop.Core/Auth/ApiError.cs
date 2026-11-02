@@ -19,6 +19,32 @@ public static partial class ApiError
                 : null;
     }
 
+    /// <summary>The password policy's advice: `details.password` and `details.suggestions`, not the `details.reason` other refusals use.</summary>
+    public static string? PasswordAdvice(SdkException failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        if (Details(failure) is not { } details)
+        {
+            return null;
+        }
+
+        var warned = details.TryGetProperty("password", out var password);
+        var suggested = details.TryGetProperty("suggestions", out var suggestions) && suggestions.ValueKind == JsonValueKind.Array;
+        if (!warned && !suggested)
+        {
+            return null;
+        }
+
+        var advice = new List<string?> { warned && password.ValueKind == JsonValueKind.String ? password.GetString() : null };
+        if (suggested)
+        {
+            advice.AddRange(suggestions.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()));
+        }
+
+        return string.Join(' ', advice.Where(text => !string.IsNullOrEmpty(text)));
+    }
+
     /// <summary>The sentence to show for a failed call: the API's own when it sent one.</summary>
     public static string Reason(Exception failure)
     {
@@ -26,6 +52,7 @@ public static partial class ApiError
 
         return failure switch
         {
+            SdkException refused when IsStepUpRequired(refused) => "This change needs you to sign in again.",
             SdkException refused => Message(refused)
                 ?? (refused.Json is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String ? message.GetString() : null)
                 ?? FormattableString.Invariant($"The server answered {refused.Status}."),
@@ -53,15 +80,33 @@ public static partial class ApiError
     {
         ArgumentNullException.ThrowIfNull(failure);
 
-        return failure.Status == 403
-            && Details(failure) is { } details
-            && details.TryGetProperty("kind", out var kind)
-            && kind.ValueKind == JsonValueKind.String
-            && kind.GetString() == "step_up_required";
+        return failure.Status == 403 && AsksForStepUp(Details(failure));
     }
 
-    private static JsonElement? Details(SdkException failure) =>
-        failure.Json is { ValueKind: JsonValueKind.Object } body
+    /// <summary>The same question of a body not yet turned into an exception, for <see cref="SessionHandler"/>.</summary>
+    public static bool IsStepUpRequired(string? body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body ?? string.Empty);
+            return AsksForStepUp(Details(document.RootElement));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool AsksForStepUp(JsonElement? details) =>
+        details is { } found
+        && found.TryGetProperty("kind", out var kind)
+        && kind.ValueKind == JsonValueKind.String
+        && kind.GetString() == "step_up_required";
+
+    private static JsonElement? Details(SdkException failure) => failure.Json is { } body ? Details(body) : null;
+
+    private static JsonElement? Details(JsonElement body) =>
+        body is { ValueKind: JsonValueKind.Object }
         && body.TryGetProperty("details", out var details)
         && details.ValueKind == JsonValueKind.Object
             ? details

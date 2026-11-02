@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
+using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
@@ -21,6 +22,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
     [NotifyPropertyChangedFor(nameof(SigningIn))]
     [NotifyPropertyChangedFor(nameof(NeedsCode))]
     [NotifyPropertyChangedFor(nameof(ShowsPasswordStep))]
+    [NotifyPropertyChangedFor(nameof(CreatingAccount))]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(SigningInTo))]
     [NotifyCanExecuteChangedFor(nameof(BackCommand))]
@@ -34,6 +36,9 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
 
     [ObservableProperty]
     private string? _password;
+
+    [ObservableProperty]
+    private string? _confirmation;
 
     [ObservableProperty]
     private string? _code;
@@ -52,6 +57,8 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
     public bool SigningIn => Step is SignInStep.Password or SignInStep.Code;
 
     public bool ShowsPasswordStep => Step == SignInStep.Password;
+
+    public bool CreatingAccount => Step == SignInStep.Account;
 
     public bool NeedsCode => Step == SignInStep.Code;
 
@@ -90,7 +97,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
             {
                 shell.Connect(origin);
                 Address = origin;
-                Step = SignInStep.Password;
+                Step = await HasNoAccountAsync(CancellationToken.None) ? SignInStep.Account : SignInStep.Password;
             }
             else
             {
@@ -129,7 +136,7 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
             }
             else
             {
-                Error = Words(result);
+                Error = SignInWords.Of(result, NeedsCode);
             }
         }
         finally
@@ -138,21 +145,64 @@ public sealed partial class SignInViewModel(ShellViewModel shell) : PageViewMode
         }
     }
 
-    protected override Task OnShownAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    /// <summary>First-run: the one operator account. The password is asked twice, as there is no reset by email to fall back on.</summary>
+    [RelayCommand]
+    public async Task CreateAccountAsync()
+    {
+        if (Password != Confirmation)
+        {
+            Error = "The passwords do not match.";
+            return;
+        }
+
+        Busy = true;
+        Error = null;
+        var email = Email?.Trim() ?? string.Empty;
+        var password = Password ?? string.Empty;
+        try
+        {
+            await shell.Connection!.Sdk.Onboarding.CreateAccountAsync(new CreateAccountRequest { Email = email, Password = password });
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = SignInWords.OfAccount(failure);
+            Busy = false;
+            return;
+        }
+
+        Confirmation = null;
+        Busy = false;
+        Step = SignInStep.Password;
+        await SubmitAsync();
+    }
+
+    /// <summary>A remembered server can have lost its account, as a fresh database has.</summary>
+    protected override async Task OnShownAsync(CancellationToken cancellationToken)
+    {
+        if (Step == SignInStep.Password && shell.Connection is not null && await HasNoAccountAsync(cancellationToken))
+        {
+            Step = SignInStep.Account;
+        }
+    }
+
+    /// <summary>A server that will not say is taken to have an account: signing in will find out.</summary>
+    private async Task<bool> HasNoAccountAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var status = await shell.Connection!.Sdk.Onboarding.GetOnboardingStatusAsync(cancellationToken);
+            return status.Requirements.Any(requirement => requirement.Key == OnboardingRequirementKey.Account);
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+    }
 
     private static string Words(ServerProbeResult result) => result switch
     {
         ServerProbeResult.NotWilson => "Something answered at that address, but it is not a Wilson server.",
         ServerProbeResult.Untrusted => "This Mac does not trust that server's certificate. Add its certificate authority to the system keychain, mark it trusted, and try again.",
         _ => "Nothing answered at that address. Check the server is running.",
-    };
-
-    private string? Words(SignInResult result) => result switch
-    {
-        SignInResult.Refused => NeedsCode ? "That code was not accepted. Check your authenticator and try the next one." : "Wrong email or password.",
-        SignInResult.TooManyAttempts => "Too many wrong attempts. Wait five minutes and try again.",
-        SignInResult.PasskeyOnly => "This account's second factor is a passkey, which works only in the web app. Add an authenticator there to sign in here.",
-        SignInResult.Unavailable unavailable => unavailable.Message ?? "Could not reach the server.",
-        _ => null,
     };
 }

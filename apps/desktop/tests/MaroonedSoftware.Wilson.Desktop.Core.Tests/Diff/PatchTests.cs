@@ -4,6 +4,14 @@ namespace MaroonedSoftware.Wilson.Desktop.Core.Tests.Diff;
 
 public class PatchTests
 {
+    [Fact]
+    public void OnlyALineInTheNewFileCanBeCited()
+    {
+        var lines = Patch.Parse("@@ -1,2 +1,2 @@\n same\n-old\n+new");
+
+        Assert.Equal([false, true, false, true], lines.Select(Patch.Commentable));
+    }
+
     private const string Sample = """
         diff --git a/a.txt b/a.txt
         index 1234..5678 100644

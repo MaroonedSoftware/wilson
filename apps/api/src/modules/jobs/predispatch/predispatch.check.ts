@@ -1,4 +1,5 @@
 import { JobBroker } from '@maroonedsoftware/jobbroker';
+import type { InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
@@ -31,5 +32,7 @@ export interface PreDispatchDeps {
  * it, and `dispatcher.run` below reads the same board and the same stage config and reports a
  * genuine problem with either through its own, already-covered error handling. A check exists to
  * stop a dispatch early, never to become a second and less complete place for it to fail.
+ *
+ * `interrupted` is the job's own, for a check that sends the job again.
  */
-export type PreDispatchCheck = (deps: PreDispatchDeps, cardId: string, stageName: string) => Promise<boolean>;
+export type PreDispatchCheck = (deps: PreDispatchDeps, cardId: string, stageName: string, interrupted?: InterruptedAttempt) => Promise<boolean>;

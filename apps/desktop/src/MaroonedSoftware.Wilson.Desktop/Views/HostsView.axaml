@@ -1,0 +1,137 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.HostsView"
+    x:DataType="vm:HostsViewModel">
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12" MaxWidth="1000" HorizontalAlignment="Left" MinWidth="640">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="title" Text="Hosts" />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Machines a stage with placement any or remote can run on, reached over SSH. A host takes a stage when it is enabled, not draining, serves the card's project, passed its last probe and will not expire first." />
+            </StackPanel>
+            <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="quiet" Text="No hosts yet. Register one below, or with wilson host add." IsVisible="{Binding NoHosts}" />
+            <ItemsControl ItemsSource="{Binding Hosts}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:HostPanelViewModel">
+                        <Border Classes="panel" Margin="0,0,0,12">
+                            <StackPanel Spacing="10">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+                                        <Button Content="Probe" Command="{Binding ProbeHostCommand}" IsEnabled="{Binding CanProbe}" />
+                                        <Button Content="{Binding Drainable}" Command="{Binding ToggleDrainCommand}" IsEnabled="{Binding Idle}" />
+                                        <Button Content="{Binding Switchable}" Command="{Binding ToggleEnabledCommand}" IsEnabled="{Binding Idle}" />
+                                        <Button Classes="danger" Classes.confirming="{Binding ConfirmingRemoval}" Content="{Binding Removal}" Command="{Binding RemoveCommand}" IsEnabled="{Binding Idle}" LostFocus="OnRemoveLeft" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="2">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding Name}" VerticalAlignment="Center" />
+                                            <Border Classes="badge" VerticalAlignment="Center">
+                                                <TextBlock Classes="quiet" Classes.good="{Binding Taking}" Classes.caution="{Binding Holding}" Text="{Binding State}" />
+                                            </Border>
+                                            <Border Classes="badge" VerticalAlignment="Center" ToolTip.Tip="{Binding ProbeDetail}">
+                                                <TextBlock Classes="quiet" Classes.error="{Binding ProbeFailed}" Text="{Binding Probe}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <SelectableTextBlock Classes="quiet" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <Border Classes="codeblock" IsVisible="{Binding ProbeFailed}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource Flag}" Text="Last probe failed" />
+                                        <SelectableTextBlock Text="{Binding FailedProbe}" FontSize="13" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <StackPanel Spacing="2">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="{Binding Slots}" />
+                                    <ItemsControl ItemsSource="{Binding Running}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostSlotRow">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock FontSize="13" Text="{Binding Slot}" VerticalAlignment="Center" />
+                                                    <Button Classes="section" Padding="4,1" Content="{Binding Card}" Command="{Binding Panel.OpenCardCommand}" CommandParameter="{Binding}" />
+                                                    <TextBlock Classes="quiet" Text="{Binding Since}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="Projects" />
+                                    <TextBlock Classes="quiet" Text="Serves no project yet, so no stage is placed here." IsVisible="{Binding NoProjects}" />
+                                    <ItemsControl ItemsSource="{Binding Projects}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostProjectRow">
+                                                <DockPanel Margin="0,0,0,4">
+                                                    <Button DockPanel.Dock="Right" Classes="ghost" Padding="8,3" Content="Stop serving" Command="{Binding Panel.StopServingCommand}" CommandParameter="{Binding}" />
+                                                    <StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Project}" />
+                                                            <SelectableTextBlock Classes="mono" Text="{Binding CodeRoot}" />
+                                                        </StackPanel>
+                                                        <SelectableTextBlock Classes="quiet" Text="{Binding Roots}" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <StackPanel Spacing="2" IsVisible="{Binding IsWorker}" Margin="0,4,0,0">
+                                        <TextBlock FontWeight="SemiBold" FontSize="13" Text="Engine token" />
+                                        <TextBlock Classes="quiet" TextWrapping="Wrap" Text="What engines here sign in with, from the next one started." />
+                                        <ComboBox ItemsSource="{Binding EngineTokens}" SelectedItem="{Binding EngineToken}" MinWidth="240" IsEnabled="{Binding Idle}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" IsVisible="{Binding CanOffer}" Margin="0,6,0,0">
+                                        <TextBlock FontWeight="SemiBold" FontSize="13" Text="Serve a project" />
+                                        <WrapPanel>
+                                            <ComboBox ItemsSource="{Binding Serveable}" SelectedItem="{Binding ServeProject}" PlaceholderText="Project" Width="150" Margin="0,0,6,6" />
+                                            <TextBox Text="{Binding CodeRoot}" PlaceholderText="Clone, /opt/agent/TGA" Width="200" Margin="0,0,6,6" />
+                                            <TextBox Text="{Binding WorktreeRoot}" PlaceholderText="Worktrees, /opt/agent/worktrees" Width="220" Margin="0,0,6,6" />
+                                            <TextBox Text="{Binding RunRoot}" PlaceholderText="Run, /opt/agent/run" Width="180" Margin="0,0,6,6" />
+                                            <Button Content="Serve" Command="{Binding ServeCommand}" IsEnabled="{Binding CanServe}" Margin="0,0,0,6" />
+                                        </WrapPanel>
+                                        <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding ServeError}" IsVisible="{Binding ServeError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Classes="panel">
+                <StackPanel Spacing="6">
+                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="Register a host" />
+                    <WrapPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6">
+                            <TextBlock Classes="quiet" Text="Name" />
+                            <TextBox Text="{Binding Name}" PlaceholderText="agent-3" Width="150" />
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6">
+                            <TextBlock Classes="quiet" Text="Reached by" />
+                            <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" Width="110" />
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6" IsVisible="{Binding OverSsh}">
+                            <TextBlock Classes="quiet" Text="SSH target" />
+                            <TextBox Text="{Binding SshTarget}" PlaceholderText="defaults to the name" Width="170" />
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6">
+                            <TextBlock Classes="quiet" Text="Slots" />
+                            <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="8" FormatString="0" Width="100" />
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6">
+                            <TextBlock Classes="quiet" Text="Lifetime (minutes)" />
+                            <NumericUpDown Value="{Binding Lifetime}" Minimum="1" FormatString="0" PlaceholderText="720, a VM" Width="170" />
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,6">
+                            <TextBlock Classes="quiet" Text="Command env, from the host for setup and tests" />
+                            <TextBox Text="{Binding CommandEnv}" PlaceholderText="GITHUB_TOKEN" Width="270" />
+                        </StackPanel>
+                    </WrapPanel>
+                    <Button Classes="primary" Content="Register" Command="{Binding RegisterCommand}" IsEnabled="{Binding CanRegister}" HorizontalAlignment="Left" />
+                    <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding RegisterError}" IsVisible="{Binding RegisterError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -36,22 +36,51 @@ public sealed class SessionHandler(Func<SessionManager?> session) : DelegatingHa
         }
 
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode != HttpStatusCode.Unauthorized || token is null)
+        if (response.StatusCode == HttpStatusCode.Unauthorized && token is not null)
         {
-            return response;
+            // Ended or unavailable, the caller's own 401 is the true answer to what it asked.
+            if (await manager.RefreshedAsync(token, cancellationToken).ConfigureAwait(false) is not RefreshOutcome.Renewed renewed)
+            {
+                return response;
+            }
+
+            // Once. A second 401 after a fresh token is not a token problem.
+            response.Dispose();
+            response = await ReplayAsync(request, renewed.AccessToken, cancellationToken).ConfigureAwait(false);
         }
 
-        // Ended or unavailable, the caller's own 401 is the true answer to what it asked.
-        if (await manager.RefreshedAsync(token, cancellationToken).ConfigureAwait(false) is not RefreshOutcome.Renewed renewed)
+        if (response.StatusCode == HttpStatusCode.Forbidden
+            && manager.StepUp is { } stepUp
+            && ApiError.IsStepUpRequired(await BodyAsync(response, cancellationToken).ConfigureAwait(false))
+            && await stepUp(cancellationToken).ConfigureAwait(false)
+            && manager.AccessToken is { } fresh)
         {
-            return response;
+            response.Dispose();
+            response = await ReplayAsync(request, fresh, cancellationToken).ConfigureAwait(false);
         }
 
-        response.Dispose();
+        return response;
+    }
 
-        // Once. A second 401 after a fresh token is not a token problem.
-        using var replay = Clone(request, renewed.AccessToken);
-        return await base.SendAsync(replay, cancellationToken).ConfigureAwait(false);
+    /// <summary>Buffered, so whoever receives the response can still read it.</summary>
+    private static async Task<string> BodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        await response.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<HttpResponseMessage> ReplayAsync(HttpRequestMessage request, string token, CancellationToken cancellationToken)
+    {
+        using var replay = Clone(request, token);
+        try
+        {
+            return await base.SendAsync(replay, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Shared with the request, which may yet be replayed again.
+            replay.Content = null;
+        }
     }
 
     private static HttpRequestMessage Clone(HttpRequestMessage request, string token)

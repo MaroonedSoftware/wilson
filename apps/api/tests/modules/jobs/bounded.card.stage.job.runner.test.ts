@@ -18,6 +18,7 @@ vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
 
 const { AbandonedCardJobsError, BoundedCardStageJobRunner, CARD_STAGE_WORKER } = await import('#modules/jobs/jobs.module.js');
 const { RunningCards } = await import('#modules/jobs/running.cards.js');
+const { StageInterrupt } = await import('#modules/agent/stage.interrupt.js');
 const { CARD_STAGE_CONCURRENCY } = await import('#modules/settings/card.stage.concurrency.setting.js');
 
 /**
@@ -209,6 +210,31 @@ describe('BoundedCardStageJobRunner.stop', () => {
         await runner.stop();
 
         expect(order).toEqual(['poller.stop', 'inner.stop']);
+    });
+
+    it('interrupts running stages before stopping the queue, while they can still requeue', async () => {
+        const interrupts = new StageInterrupt();
+        const inner = fakeInnerRunner();
+        let interruptedAtStop: boolean | undefined;
+        vi.mocked(inner.stop).mockImplementation(async () => {
+            interruptedAtStop = interrupts.signal.aborted;
+        });
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            fakePoller(),
+            fakePollerSettings(),
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+            interrupts,
+        );
+
+        await runner.stop();
+
+        expect(interruptedAtStop).toBe(true);
     });
 
     /**

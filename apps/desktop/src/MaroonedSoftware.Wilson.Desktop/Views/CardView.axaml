@@ -2,8 +2,10 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
     xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.CardView"
+    xmlns:sys="using:System"
     x:DataType="vm:CardViewModel">
     <DockPanel Margin="16">
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -14,6 +16,7 @@
         <TextBlock DockPanel.Dock="Top" Classes="title" Text="{Binding Card.Title}" TextWrapping="Wrap" />
         <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Margin="0,2,0,0" Text="{Binding Card.Stage}" />
         <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Card.Branch}" IsVisible="{Binding Card.Branch, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding RanOn}" ToolTip.Tip="The registered host this card's most recent stage ran on" IsVisible="{Binding RanOn, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="error" Margin="0,4,0,0" Text="{Binding FlagReason}" IsVisible="{Binding FlagReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <WrapPanel DockPanel.Dock="Top" Margin="0,10,0,4" IsEnabled="{Binding Idle}">
             <WrapPanel.Styles>
@@ -41,29 +44,207 @@
         <TabControl SelectedIndex="{Binding SelectedTab}">
             <TabItem Header="Plan">
                 <ScrollViewer>
-                    <SelectableTextBlock Text="{Binding Card.Body}" TextWrapping="Wrap" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,8,8" />
+                    <StackPanel Margin="0,8,12,8" Spacing="4">
+                        <StackPanel.Styles>
+                            <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Margin" Value="0,10,0,2" /></Style>
+                        </StackPanel.Styles>
+                        <TextBlock Classes="heading" Text="Live activity" Margin="0,0,0,2" />
+                    <ScrollViewer MaxHeight="240">
+                        <ItemsControl ItemsSource="{Binding Tools}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ToolLine">
+                                    <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,4" Margin="0,0,10,4">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding When}" />
+                                                <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Tool}" />
+                                            </DockPanel>
+                                            <SelectableTextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Label}" TextWrapping="Wrap" IsVisible="{Binding Label, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                        <TextBlock Classes="quiet" Text="{Binding ToolsNote}" IsVisible="{Binding ToolsNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <StackPanel IsVisible="{Binding !!Scope.Count}">
+                            <TextBlock Classes="heading" Text="Files in scope" />
+                            <ItemsControl ItemsSource="{Binding Scope}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="sys:String">
+                                        <SelectableTextBlock Text="{Binding}" FontFamily="{StaticResource Mono}" FontSize="12" Margin="0,1" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding !!Criteria.Count}">
+                            <TextBlock Classes="heading" Text="Acceptance criteria" />
+                            <ItemsControl ItemsSource="{Binding Criteria}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CriterionLine">
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Left" Classes="quiet" FontFamily="{StaticResource Mono}" Text="{Binding Id}" Width="46" />
+                                            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding Status}" Margin="8,0,0,0" IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <TextBlock Classes="heading" Text="Plan" />
+                        <views:MarkdownView Text="{Binding Card.Body}" MaxWidth="760" HorizontalAlignment="Left" />
+                        <StackPanel IsVisible="{Binding HasSplit}" Spacing="2">
+                            <TextBlock Classes="heading" Text="Split" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplitFrom, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <TextBlock Text="Split from" VerticalAlignment="Center" />
+                                <Button Classes="ghost" Padding="6,2" Content="{Binding SplitFrom}" Command="{Binding OpenCardCommand}" CommandParameter="{Binding SplitFrom}" />
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding Pieces}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PieceLine">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1">
+                                            <Button Classes="ghost" Padding="6,2" Content="{Binding Id}" Command="{Binding Page.OpenCardCommand}" CommandParameter="{Binding Id}" />
+                                            <TextBlock Classes="quiet" Text="{Binding Stage}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
             <TabItem Header="Activity">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Usage}" Margin="0,8" IsVisible="{Binding Usage, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                    <ScrollViewer>
+                <ScrollViewer>
+                    <StackPanel Margin="0,0,12,8" Spacing="4">
+                        <StackPanel.Styles>
+                            <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Margin" Value="0,10,0,2" /></Style>
+                        </StackPanel.Styles>
+                        <TextBlock Classes="heading" Text="Attempts" />
+                        <TextBlock Classes="quiet" Text="{Binding AttemptsNote}" IsVisible="{Binding AttemptsNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <ItemsControl ItemsSource="{Binding Attempts}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:AttemptLine">
+                                    <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,6" Margin="0,0,0,4">
+                                        <StackPanel Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Stage}" />
+                                                <TextBlock FontSize="12" Text="{Binding Outcome}" />
+                                                <TextBlock Classes="quiet" Text="{Binding When}" />
+                                            </StackPanel>
+                                            <TextBlock Classes="quiet" Text="{Binding Tally}" />
+                                            <ItemsControl ItemsSource="{Binding Failures}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="sys:String">
+                                                        <SelectableTextBlock Foreground="{DynamicResource Flag}" FontSize="12" Text="{Binding}" TextWrapping="Wrap" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <SelectableTextBlock Text="{Binding FinalMessage}" TextWrapping="Wrap" IsVisible="{Binding FinalMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                            <SelectableTextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Reads}" TextWrapping="Wrap" IsVisible="{Binding Reads, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="heading" Text="Events" />
                         <ItemsControl ItemsSource="{Binding Events}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:EventLine">
                                     <DockPanel Margin="0,2">
                                         <TextBlock DockPanel.Dock="Left" Classes="quiet" Text="{Binding When}" Width="110" />
-                                        <SelectableTextBlock Text="{Binding What}" TextWrapping="Wrap" />
+                                        <StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <SelectableTextBlock Text="{Binding What}" />
+                                                <TextBlock Classes="quiet" Text="{Binding Stage}" VerticalAlignment="Center" IsVisible="{Binding Stage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                            </StackPanel>
+                                            <SelectableTextBlock Classes="quiet" Text="{Binding Detail}" TextWrapping="Wrap" IsVisible="{Binding Detail, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                        </StackPanel>
                                     </DockPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </ScrollViewer>
-                </DockPanel>
+                        <TextBlock Classes="quiet" Text="{Binding EventsNote}" IsVisible="{Binding EventsNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Classes="heading" Text="Usage" />
+                        <TextBlock Classes="quiet" Text="{Binding UsageNote}" IsVisible="{Binding UsageNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <Grid ColumnDefinitions="180,80,120,120" IsVisible="{Binding !!UsageRows.Count}">
+                            <TextBlock Classes="quiet" Text="Stage" />
+                            <TextBlock Grid.Column="1" Classes="quiet" Text="Attempts" />
+                            <TextBlock Grid.Column="2" Classes="quiet" Text="Input tokens" />
+                            <TextBlock Grid.Column="3" Classes="quiet" Text="Output tokens" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding UsageRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:UsageLine">
+                                    <Grid ColumnDefinitions="180,80,120,120" Classes.total="{Binding Total}" Margin="0,1">
+                                        <Grid.Styles><Style Selector="Grid.total TextBlock"><Setter Property="FontWeight" Value="Bold" /></Style></Grid.Styles>
+                                        <TextBlock Text="{Binding Stage}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Attempts}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Input}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding Output}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="heading" Text="Versions" />
+                        <TextBlock Classes="quiet" Text="{Binding VersionsNote}" IsVisible="{Binding VersionsNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <ItemsControl ItemsSource="{Binding Versions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:VersionLine">
+                                    <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,4" Margin="0,0,0,4">
+                                        <StackPanel>
+                                            <SelectableTextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                                            <TextBlock Classes="quiet" Text="{Binding When}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
             <TabItem Header="Diff">
                 <DockPanel>
                     <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding DiffNote}" Margin="0,8" />
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding !!Findings.Count}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Bottom" Classes="primary" HorizontalAlignment="Right" Padding="12,5" Margin="0,6,0,0" Content="{Binding SubmitFindingsLabel}" Command="{Binding SubmitFindingsCommand}" IsEnabled="{Binding Idle}" />
+                            <ScrollViewer MaxHeight="140">
+                                <ItemsControl ItemsSource="{Binding Findings}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FindingLine">
+                                            <DockPanel Margin="0,0,10,6">
+                                                <Button DockPanel.Dock="Right" Classes="ghost" Padding="8,2" Content="Remove" Command="{Binding Page.RemoveFindingCommand}" CommandParameter="{Binding}" VerticalAlignment="Top" />
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Severity}" />
+                                                        <TextBlock Classes="quiet" FontFamily="{StaticResource Mono}" Text="{Binding Where}" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Finding.Problem}" TextWrapping="Wrap" />
+                                                    <TextBlock Classes="quiet" Text="{Binding Finding.Suggestion}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding Composing}">
+                        <StackPanel Spacing="6">
+                            <DockPanel>
+                                <ToggleButton DockPanel.Dock="Right" Content="Concern, not a blocker" IsChecked="{Binding Concern}" />
+                                <TextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding ComposingOn}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBox Text="{Binding Problem}" PlaceholderText="What's wrong?" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44" />
+                            <TextBox Text="{Binding Suggestion}" PlaceholderText="What would fix it?" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <Button Classes="ghost" Padding="10,4" Content="Cancel" Command="{Binding CancelFindingCommand}" />
+                                <Button Classes="primary" Padding="10,4" Content="Add comment" Command="{Binding AddFindingCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding FileNote}" Margin="0,0,0,8" IsVisible="{Binding FileNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     <Grid ColumnDefinitions="260,*">
                         <ListBox ItemsSource="{Binding DiffFiles}" SelectedItem="{Binding SelectedFile}" Background="{DynamicResource Panel}">
                             <ListBox.ItemTemplate>
@@ -75,7 +256,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <ListBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding DiffRows}" FontFamily="{StaticResource Mono}" FontSize="12" Background="Transparent">
+                        <ListBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding DiffRows}" SelectedItem="{Binding SelectedRow}" FontFamily="{StaticResource Mono}" FontSize="12" Background="Transparent">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
                                 <Style Selector="Grid.added"><Setter Property="Background" Value="{DynamicResource Added}" /></Style>
@@ -94,6 +275,53 @@
                         </ListBox>
                     </Grid>
                 </DockPanel>
+            </TabItem>
+            <TabItem Header="Context">
+                <ScrollViewer>
+                    <StackPanel Margin="0,0,12,8" Spacing="4">
+                        <StackPanel.Styles>
+                            <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Margin" Value="0,10,0,2" /></Style>
+                        </StackPanel.Styles>
+                        <TextBlock Classes="heading" Text="Context" />
+                        <DockPanel MaxWidth="560" HorizontalAlignment="Left">
+                            <Button DockPanel.Dock="Right" Content="Attach context" Command="{Binding AttachContextCommand}" Margin="6,0,0,0" />
+                            <TextBox Text="{Binding ContextUrl}" PlaceholderText="https://…" MinWidth="380" />
+                        </DockPanel>
+                        <TextBlock Classes="quiet" Text="{Binding ContextNote}" IsVisible="{Binding ContextNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <ItemsControl ItemsSource="{Binding Context}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ContextLine">
+                                    <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,6" Margin="0,0,0,4">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Classes="ghost" Padding="8,3" Content="Remove" Command="{Binding Page.AskRemoveContextCommand}" CommandParameter="{Binding}" VerticalAlignment="Top" />
+                                            <StackPanel Spacing="2">
+                                                <TextBlock FontWeight="SemiBold" Text="{Binding Title}" IsVisible="{Binding Title, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                <SelectableTextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Source}" TextWrapping="Wrap" />
+                                                <TextBlock Classes="quiet" Text="{Binding Fetched}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="heading" Text="Dependencies" />
+                        <TextBlock Classes="quiet" Text="No dependencies." IsVisible="{Binding !Dependencies.Count}" />
+                        <ItemsControl ItemsSource="{Binding Dependencies}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DependencyLine">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1">
+                                        <Button Classes="ghost" Padding="6,2" Content="{Binding Id}" Command="{Binding Page.OpenCardCommand}" CommandParameter="{Binding Id}" />
+                                        <Button Classes="ghost" Padding="8,2" Content="Remove" Command="{Binding Page.RemoveDependencyCommand}" CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                            <TextBox Text="{Binding NewDependency}" PlaceholderText="Card id" Width="140" />
+                            <Button Content="Add dependency" Command="{Binding AddDependencyCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
         </TabControl>
     </DockPanel>

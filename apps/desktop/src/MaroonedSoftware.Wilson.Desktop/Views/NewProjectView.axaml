@@ -1,0 +1,91 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:sys="using:System"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.NewProjectView"
+    x:DataType="vm:NewProjectViewModel"
+    x:Name="Root">
+    <Grid>
+        <DockPanel Margin="16">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+                <TextBlock Classes="title" Text="Add a project" />
+            </DockPanel>
+            <ScrollViewer>
+                <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Left" MinWidth="560" Margin="0,0,12,0">
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Registers the repo and gives its board the default stage config. All paths are on the machine the server runs on." Margin="0,0,0,6" />
+                    <TextBlock FontWeight="SemiBold" Text="Name" />
+                    <TextBox Text="{Binding Name}" IsEnabled="{Binding !Busy}" />
+                    <StackPanel Spacing="4" Margin="0,6,0,0" IsVisible="{Binding HasRepositories}">
+                        <TextBlock FontWeight="SemiBold" Text="Repository" />
+                        <TextBlock Classes="quiet" Text="Cloned for you. Leave empty to use a folder already on the machine." />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearRepositoryCommand}" Margin="6,0,0,0" />
+                            <ComboBox ItemsSource="{Binding Repositories}" SelectedItem="{Binding Repository}" PlaceholderText="owner/name" HorizontalAlignment="Stretch" IsEnabled="{Binding !Busy}" />
+                        </DockPanel>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding UsesPaths}">
+                        <TextBlock FontWeight="SemiBold" Text="Code root" Margin="0,6,0,0" />
+                        <TextBlock Classes="quiet" Text="Absolute path to the git repo agents work in." />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse" Command="{Binding BrowseCommand}" Margin="6,0,0,0" CommandParameter="{x:Static vm:PathField.CodeRoot}" IsEnabled="{Binding !Busy}" />
+                            <TextBox Text="{Binding CodeRoot}" PlaceholderText="/Users/you/projects/myapp" IsEnabled="{Binding !Busy}" />
+                        </DockPanel>
+                        <TextBlock FontWeight="SemiBold" Text="Worktree root" Margin="0,6,0,0" />
+                        <TextBlock Classes="quiet" Text="Where each card's worktree is cut." />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse" Command="{Binding BrowseCommand}" Margin="6,0,0,0" CommandParameter="{x:Static vm:PathField.WorktreeRoot}" IsEnabled="{Binding !Busy}" />
+                            <TextBox Text="{Binding ShownWorktreeRoot}" IsEnabled="{Binding !Busy}" />
+                        </DockPanel>
+                        <TextBlock FontWeight="SemiBold" Text="Run root" Margin="0,6,0,0" />
+                        <TextBlock Classes="quiet" Text="Where per-card run state is kept." />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse" Command="{Binding BrowseCommand}" Margin="6,0,0,0" CommandParameter="{x:Static vm:PathField.RunRoot}" IsEnabled="{Binding !Busy}" />
+                            <TextBox Text="{Binding ShownRunRoot}" IsEnabled="{Binding !Busy}" />
+                        </DockPanel>
+                    </StackPanel>
+                    <Border Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding Failure, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource Flag}" Text="{Binding FailureTitle}" />
+                            <SelectableTextBlock Text="{Binding Failure}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Button Classes="primary" Content="Create" Command="{Binding CreateCommand}" IsEnabled="{Binding CanCreate}" HorizontalAlignment="Right" Margin="0,10,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+        <Border IsVisible="{Binding Picking}" Background="#80000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="560" Height="480" Padding="18" CornerRadius="6" Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Classes="title" FontSize="18" Text="{Binding PickTitle}" Margin="0,0,0,10" />
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button Content="Up" Command="{Binding UpCommand}" IsEnabled="{Binding Listing.Parent, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" Margin="0,0,8,0" />
+                        <SelectableTextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Listing.Path, FallbackValue={x:Null}}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,8" IsVisible="{Binding PickError, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <SelectableTextBlock Classes="error" Text="{Binding PickError}" TextWrapping="Wrap" />
+                        <Button Content="Go to the top folder" Command="{Binding GoToTopCommand}" IsVisible="{Binding CanGoToTop}" />
+                    </StackPanel>
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                        <CheckBox Content="Show hidden folders" IsChecked="{Binding ShowHidden}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                            <Button Classes="ghost" Content="Cancel" Command="{Binding CancelPickCommand}" />
+                            <Button Classes="primary" Content="Select this folder" Command="{Binding SelectFolderCommand}" IsEnabled="{Binding Listing, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="No folders here." IsVisible="{Binding !Folders.Count}" />
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding Folders}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sys:String">
+                                    <Button Classes="nav" Content="{Binding}" Padding="10,4" Command="{Binding #Root.((vm:NewProjectViewModel)DataContext).OpenFolderCommand}" CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Border>
+    </Grid>
+</UserControl>
