@@ -6,6 +6,8 @@ import type {
     CardDiff,
     CardDivision,
     CardEvent,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -253,6 +255,22 @@ export class BoardClient {
     async openAPlanningSession(id: string): Promise<PlanSession> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/open`, { method: 'POST' });
         return await parseJson<PlanSession>(result);
+    }
+
+    /**
+     * @name Get card plan
+     * @description A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+     * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+     * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+     * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+     * is pinned. `differsFromPin` says whether the two have drifted apart.
+     */
+    async getCardPlan(id: string, query?: CardPlanQuery): Promise<CardPlan> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan${qs}`, {
+            method: 'GET',
+        });
+        return await parseJson<CardPlan>(result);
     }
 
     /**

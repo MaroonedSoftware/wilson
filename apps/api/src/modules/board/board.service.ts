@@ -9,6 +9,8 @@ import type {
     CardDiff,
     CardEvent,
     CardDetail,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -18,7 +20,7 @@ import type {
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
-import { sectionKey, type Card } from './card.js';
+import { acceptanceCriteria, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
 
 /** `limit` when a caller omits it. */
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -146,6 +148,40 @@ export class BoardService {
             payload: row.payload as unknown as CardEvent['payload'],
             createdAt: row.createdAt,
         }));
+    }
+
+    /**
+     * A card's plan as a stage reads it. Pinned unless a caller asks for head, since the pin is what a
+     * running stage and its verifier hold a card to: answering from head would explain a review
+     * against text it never saw.
+     */
+    async plan(id: string, query: CardPlanQuery): Promise<CardPlan> {
+        const head = await this.boardRepository.read(id).catch((err: unknown) => {
+            if (err instanceof CardNotFoundError) throw httpError(404);
+            throw err;
+        });
+        const pinnedVersion = head.frontmatter.planVersionId;
+        const pinned = pinnedVersion ? await this.boardRepository.readAt(id, pinnedVersion) : undefined;
+        const at = query.at ?? (pinned ? 'pinned' : 'head');
+        const card = at === 'pinned' && pinned ? pinned : head;
+        const currentVersion = await this.boardRepository.currentVersion(id);
+
+        const sectionLengths: Record<string, number> = {};
+        for (const section of PLAN_SECTIONS) {
+            const text = card.sections[section];
+            if (text !== undefined) sectionLengths[sectionKey(section)] = text.length;
+        }
+
+        return {
+            at: card === pinned ? 'pinned' : 'head',
+            version: card === pinned ? pinnedVersion : currentVersion,
+            currentVersion,
+            pinnedVersion,
+            differsFromPin: pinned !== undefined && pinned.body !== head.body,
+            sectionLengths,
+            text: query.section ? card.sections[PLAN_SECTIONS.find(section => sectionKey(section) === query.section)!] : undefined,
+            criteria: acceptanceCriteria(card),
+        };
     }
 
     async versions(id: string, query: ListQuery): Promise<CardVersion[]> {

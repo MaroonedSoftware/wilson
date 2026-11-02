@@ -8,6 +8,8 @@ import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardDiff
 import com.maroonedsoftware.wilson.sdk.models.CardDivision
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
+import com.maroonedsoftware.wilson.sdk.models.CardPlan
+import com.maroonedsoftware.wilson.sdk.models.CardPlanQuery
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.CardVersion
@@ -274,6 +276,23 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun openAPlanningSession(id: String): PlanSession {
         val response = http.execute(HttpMethod.Post) {
             path("api", "cards", segment(id), "plan", "open")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get card plan
+     * A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+     * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+     * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+     * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+     * is pinned. `differsFromPin` says whether the two have drifted apart.
+     * @throws SdkError on 404
+     */
+    suspend fun getCardPlan(id: String, query: CardPlanQuery? = null): CardPlan {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "plan")
+            params(query)
         }
         return http.decodeJson(response)
     }

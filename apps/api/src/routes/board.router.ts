@@ -14,6 +14,8 @@ import {
     CardDiff,
     CardDivision,
     CardEvent,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -416,6 +418,32 @@ BoardRouter.post('/api/cards/:id/plan/open', requirePolicy({ policy: 'wilson.man
 
     const service = ctx.container.get(PlanService);
     const result: PlanSession = await service.open(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+ * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+ * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+ * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+ * is pinned. `differsFromPin` says whether the two have drifted apart.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/plan`
+ */
+BoardRouter.get('/api/cards/:id/plan', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const query = await parseAndValidate(ctx.query, CardPlanQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: CardPlan = await service.plan(id, query);
 
     ctx.status = 200;
     ctx.type = 'application/json';

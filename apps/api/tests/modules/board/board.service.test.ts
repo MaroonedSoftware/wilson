@@ -36,6 +36,68 @@ const noHistory = { tail: async () => [] } as unknown as EventLog;
  * repository itself already has its own Postgres-backed tests; nothing here re-tests persistence.
  */
 describe('BoardService', () => {
+    describe('plan', () => {
+        const sections = (criteria: string) => ({ Goal: 'the goal', 'Acceptance criteria': criteria });
+        const serviceOver = (head: Card, pinned?: Card) =>
+            new BoardService(
+                {
+                    read: async () => head,
+                    readAt: async () => pinned,
+                    currentVersion: async () => '9',
+                } as unknown as BoardRepository,
+                noHistory,
+                config,
+                worktrees,
+            );
+
+        it('answers from the pinned version by default, with the criteria a review is held to', async () => {
+            const pinned = card('0008', { planVersionId: '3' }, sections('1. first\n   wrapped\n2. second'), 'pinned');
+            const head = card('0008', { planVersionId: '3' }, sections('- edited'), 'head');
+
+            const plan = await serviceOver(head, pinned).plan('0008', { section: 'acceptance-criteria' });
+
+            expect(plan).toMatchObject({ at: 'pinned', version: '3', currentVersion: '9', pinnedVersion: '3', differsFromPin: true });
+            expect(plan.text).toBe('1. first\n   wrapped\n2. second');
+            expect(plan.criteria).toEqual([
+                { id: 'AC1', text: 'first wrapped' },
+                { id: 'AC2', text: 'second' },
+            ]);
+            expect(plan.sectionLengths).toEqual({ goal: 8, 'acceptance-criteria': 29 });
+        });
+
+        it('reads head when asked, and on a card with no pin', async () => {
+            const pinned = card('0008', { planVersionId: '3' }, sections('- pinned'), 'same');
+            const head = card('0008', { planVersionId: '3' }, sections('- head'), 'same');
+
+            expect(await serviceOver(head, pinned).plan('0008', { at: 'head' })).toMatchObject({
+                at: 'head',
+                version: '9',
+                differsFromPin: false,
+                criteria: [{ id: 'AC1', text: 'head' }],
+            });
+            expect(await serviceOver(card('0008', {}, sections('- only'))).plan('0008', { at: 'pinned' })).toMatchObject({ at: 'head', version: '9' });
+        });
+
+        it('leaves the text out when no section is named', async () => {
+            expect((await serviceOver(card('0008', {}, sections('- one'))).plan('0008', {})).text).toBeUndefined();
+        });
+
+        it('is a 404 for a card that does not exist', async () => {
+            const service = new BoardService(
+                {
+                    read: async () => {
+                        throw new CardNotFoundError('0404');
+                    },
+                } as unknown as BoardRepository,
+                noHistory,
+                config,
+                worktrees,
+            );
+
+            await expect(service.plan('0404', {})).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
     describe('activity', () => {
         it('reads the configured project, clamps the limit and turns a missing title into null', async () => {
             const recent = vi.fn(async () => [

@@ -143,6 +143,36 @@ contract RepositionCardRequest: {
     afterId?: string
 }
 
+# The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`).
+contract CardPlanSection: enum(goal, constraints, files-in-scope, tasks, acceptance-criteria, out-of-scope)
+
+contract CardPlanQuery: {
+    # Which version to read. Left out, the pinned one, or head on a card with no pin.
+    at?: enum(head, pinned)
+    # The section to return the text of. Left out, only the lengths and the criteria come back.
+    section?: CardPlanSection
+}
+
+# One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for.
+contract CardPlanCriterion: {
+    id: string
+    text: string
+}
+
+contract CardPlan: {
+    at: enum(head, pinned)
+    # The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval.
+    version?: string
+    currentVersion?: string
+    pinnedVersion?: string
+    differsFromPin: boolean
+    # Each section's length in characters, keyed like `CardDetail.sections`.
+    sectionLengths: record(string, int)
+    # The text of the section asked for; absent when none was, or the plan lacks it.
+    text?: string
+    criteria: array(CardPlanCriterion)
+}
+
 contract EditCardRequest: {
     body: string
 }
@@ -805,6 +835,31 @@ operation /api/cards/{id}/plan/open: {
                 application/json: PlanSession
             }
             400:
+            404:
+        }
+    }
+}
+
+# A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+# be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+# a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+# exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+# is pinned. `differsFromPin` says whether the two have drifted apart.
+operation /api/cards/{id}/plan: {
+    params: {
+        id: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get card plan
+        service: BoardService.plan
+        query: CardPlanQuery
+        response: {
+            200: {
+                application/json: CardPlan
+            }
             404:
         }
     }
