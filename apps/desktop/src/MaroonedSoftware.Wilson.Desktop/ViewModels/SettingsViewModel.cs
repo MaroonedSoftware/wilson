@@ -65,6 +65,23 @@ public sealed partial class SettingsViewModel : PageViewModel
             1,
             async token => (await Sdk.Settings.GetLocalStageSlotsAsync(token)).Slots,
             async value => (await Sdk.Settings.SetLocalStageSlotsAsync(new SetLocalStageSlotsRequest { Slots = value })).Slots);
+        ClaudeConfigDir = new TextSetting(
+            "Claude config directory",
+            "Where the engine reads its Claude Code credentials from. Must already be authenticated: pointing this at an unauthenticated directory fails every cli-adapter stage at the model call. Leave empty to use the daemon's own default. A change applies to stages started afterwards, never one already running.",
+            "/home/operator/.claude-wilson",
+            "claude config directory",
+            async token => (await Sdk.Settings.GetClaudeConfigDirSettingAsync(token)).ConfigDir,
+            async value => (await Sdk.Settings.SetClaudeConfigDirSettingAsync(new SetClaudeConfigDirSettingRequest { ConfigDir = value })).ConfigDir);
+        GitHubApp = new TextSetting(
+            "GitHub App ID",
+            "Lets Wilson clone repositories when adding a project. Shown on the app's settings page on GitHub. Takes effect without a restart.",
+            "123456",
+            "GitHub App",
+            async token => Reported(await Sdk.Settings.GetGithubAppSettingAsync(token)),
+            async value => Reported(await Sdk.Settings.SetGithubAppSettingAsync(new SetGitHubAppSettingRequest { AppId = value })));
+        EngineToken = new EngineTokenControl(() => Sdk);
+        WorkerTokens = new WorkerTokensControl(() => Sdk);
+        ChatEngine = new ChatEngineControl(() => Sdk);
     }
 
     public ShellViewModel Shell => _shell;
@@ -80,6 +97,16 @@ public sealed partial class SettingsViewModel : PageViewModel
     public NumberSetting Concurrency { get; }
 
     public NumberSetting LocalSlots { get; }
+
+    public TextSetting ClaudeConfigDir { get; }
+
+    public EngineTokenControl EngineToken { get; }
+
+    public WorkerTokensControl WorkerTokens { get; }
+
+    public TextSetting GitHubApp { get; }
+
+    public ChatEngineControl ChatEngine { get; }
 
     public IReadOnlyList<DeploymentFact> Facts { get; private set; } = [];
 
@@ -107,6 +134,12 @@ public sealed partial class SettingsViewModel : PageViewModel
 
     [ObservableProperty]
     private string? _deploymentError;
+
+    [ObservableProperty]
+    private string? _gitHubKey;
+
+    [ObservableProperty]
+    private bool _gitHubKeyMissing;
 
     public bool WebhookDirty => WebhookIdle && Webhook is { } stored
         && ((WebhookDraft ?? string.Empty) != (stored.WebhookUrl ?? string.Empty) || (BaseUrlDraft ?? string.Empty) != (stored.BaseUrl ?? string.Empty));
@@ -152,6 +185,11 @@ public sealed partial class SettingsViewModel : PageViewModel
             Concurrency.ReadAsync(cancellationToken),
             LocalSlots.ReadAsync(cancellationToken),
             ReadWebhookAsync(cancellationToken),
+            ClaudeConfigDir.ReadAsync(cancellationToken),
+            EngineToken.ReadAsync(cancellationToken),
+            WorkerTokens.ReadAsync(cancellationToken),
+            GitHubApp.ReadAsync(cancellationToken),
+            ChatEngine.ReadAsync(cancellationToken),
             ReadDeploymentAsync(cancellationToken));
         await EveryAsync(DrainReading, () => _ = ReadDrainQuietlyAsync(cancellationToken), cancellationToken);
     }
@@ -160,6 +198,13 @@ public sealed partial class SettingsViewModel : PageViewModel
     {
         _shell.Drain = status;
         return status.Draining;
+    }
+
+    private string? Reported(GitHubAppSetting setting)
+    {
+        GitHubKey = SettingsRules.GitHubKey(setting.KeyInstalled);
+        GitHubKeyMissing = !setting.KeyInstalled;
+        return setting.AppId;
     }
 
     private async Task ReadDrainQuietlyAsync(CancellationToken cancellationToken)

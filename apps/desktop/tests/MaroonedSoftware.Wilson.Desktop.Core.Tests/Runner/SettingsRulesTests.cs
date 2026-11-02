@@ -40,6 +40,27 @@ public sealed class SettingsRulesTests
         Assert.Equal("Safe to restart. 0 running, 2 held, 1 plan drafts.", SettingsRules.DrainLine(Drain(true, safe: true)));
 
     [Theory]
+    [InlineData(EngineTokenSettingSource.Database, "the token saved here")]
+    [InlineData(EngineTokenSettingSource.Environment, "CLAUDE_CODE_OAUTH_TOKEN")]
+    [InlineData(EngineTokenSettingSource.None, "No token is set")]
+    public void The_source_of_a_sign_in_is_said_in_words(EngineTokenSettingSource source, string expected) =>
+        Assert.Contains(expected, SettingsRules.EngineTokenSource(source), StringComparison.Ordinal);
+
+    [Fact]
+    public void The_chat_engine_says_what_it_costs()
+    {
+        Assert.Contains("No API key needed", SettingsRules.ChatEngineHint(ChatEngineSettingEngine.Cli), StringComparison.Ordinal);
+        Assert.Contains("billed per token", SettingsRules.ChatEngineHint(ChatEngineSettingEngine.Api), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_github_key_is_reported_and_never_asked_for()
+    {
+        Assert.Equal("Private key found.", SettingsRules.GitHubKey(true));
+        Assert.Contains("secrets/github-app.pem", SettingsRules.GitHubKey(false), StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(null, null)]
     [InlineData("   ", null)]
     [InlineData(" /a/b ", "/a/b")]

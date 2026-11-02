@@ -134,8 +134,8 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects, hosts and the runner's settings. Not here yet, so these still need
-the web app: onboarding, passkeys, and the engine, GitHub and security settings.
+planning, chat, the diff, projects, hosts and settings other than security. Not here yet, so these still
+need the web app: onboarding, passkeys and second factors.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -181,8 +181,12 @@ replaces. `SettingControls.cs` holds its three shapes, each with the web control
 the attempt beside what is really stored. `ShellViewModel.Drain` is `lib/drain.ts`: read every five seconds
 while draining and every minute otherwise, from sign-in on, for the header's badge on every page.
 
-The API answers 500 to `PUT` notify-webhook with either field null, in the web app too, as `SettingsStore.set`
-hands undefined to the query. So a notification URL cannot be cleared from either client yet.
+`EngineTokenControl` and `WorkerTokensControl` are write-only: the API gives back where a sign-in comes from
+and names, never a token, so nothing here can show one. `ChatEngineControl` is a draft and a Save.
+
+The API answers 500 to a null on notify-webhook, the Claude config directory and the GitHub App, in the web
+app too, as `SettingsStore.set` hands undefined to the query. So those cannot be cleared from either client
+yet. The engine token can: it has its own path.
 
 ## Feed activity
 
@@ -273,6 +277,11 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, engine settings: with `tools/Walk`, a config directory and a token refused, a made-up token
+saved and removed, a worker token listed and removed, an app id saved, and the chat engine saved and put
+back. No real token was used, so a sign-in with one was not tried, and the GitHub key's found state and a
+chat on the AI SDK were not seen.
 
 2026-11-02, runner settings: with `tools/Walk`, each read and written and put back on the throwaway API, a
 drain reaching the header on another page, an interval refused and a webhook refused keeping the attempt.

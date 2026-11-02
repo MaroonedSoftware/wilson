@@ -30,6 +30,73 @@
                 <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </DataTemplate>
+        <DataTemplate DataType="vm:TextSetting">
+            <StackPanel Spacing="4">
+                <StackPanel Spacing="4" IsVisible="{Binding Loaded}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Label}" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Description}" />
+                    <TextBox Text="{Binding Draft}" PlaceholderText="{Binding Placeholder}" IsEnabled="{Binding Idle}" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding Dirty}" HorizontalAlignment="Left" />
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <SelectableTextBlock Classes="quiet" Text="{Binding StillSaved}" IsVisible="{Binding StillSaved, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:EngineTokenControl">
+            <StackPanel Spacing="4">
+                <TextBlock FontSize="13" FontWeight="Medium" Text="Engine token" />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Worker hosts use the tokens below, and SSH hosts their own. A change applies to stages and planning sessions started afterwards, never one already running." />
+                <TextBox Text="{Binding Draft}" PasswordChar="•" IsEnabled="{Binding Idle}" />
+                <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding Source}" />
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+                    <Button Classes="ghost" Content="Remove" Command="{Binding RemoveCommand}" IsEnabled="{Binding Idle}" IsVisible="{Binding CanRemove}" />
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:WorkerTokensControl">
+            <StackPanel Spacing="4">
+                <TextBlock FontSize="13" FontWeight="Medium" Text="Worker engine tokens" />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Tokens Wilson holds for worker hosts, each assigned on the Hosts page. Wilson sends one to its worker with each engine start, and a stage there can read it. Saving under an existing name replaces that token. Removing one sends its hosts back to their own sign-in, leaves running engines alone, and does not revoke it with Anthropic." />
+                <ItemsControl ItemsSource="{Binding Tokens}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:EngineTokenRow">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,3">
+                                <TextBlock FontSize="13" Text="{Binding Name}" VerticalAlignment="Center" />
+                                <TextBlock Classes="quiet" Text="{Binding Hosts}" VerticalAlignment="Center" />
+                                <Button Classes="ghost" Padding="8,3" Content="Remove" Command="{Binding Control.RemoveCommand}" CommandParameter="{Binding}" IsEnabled="{Binding Control.Idle}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBox Text="{Binding Name}" PlaceholderText="Name" Width="180" IsEnabled="{Binding Idle}" />
+                    <TextBox Text="{Binding Token}" PlaceholderText="Token" PasswordChar="•" Width="260" IsEnabled="{Binding Idle}" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:ChatEngineControl">
+            <StackPanel Spacing="6">
+                <StackPanel Spacing="6" IsVisible="{Binding Loaded}">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <RadioButton GroupName="engine" Content="Claude Agent SDK" IsChecked="{Binding UsesCli}" IsEnabled="{Binding Idle}" />
+                        <RadioButton GroupName="engine" Content="AI SDK" IsChecked="{Binding UsesApi}" IsEnabled="{Binding Idle}" />
+                    </StackPanel>
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Hint}" />
+                    <StackPanel Spacing="2" IsVisible="{Binding UsesApi}">
+                        <TextBlock FontSize="13" FontWeight="Medium" Text="Provider" />
+                        <ComboBox ItemsSource="{Binding Providers}" SelectedItem="{Binding Provider}" MinWidth="180" IsEnabled="{Binding Idle}" />
+                    </StackPanel>
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Model" />
+                    <TextBox Text="{Binding Model}" IsEnabled="{Binding Idle}" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding Dirty}" HorizontalAlignment="Left" />
+                </StackPanel>
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
     </UserControl.DataTemplates>
     <ScrollViewer>
         <StackPanel Margin="16" Spacing="12" MaxWidth="720" HorizontalAlignment="Left" MinWidth="560">
@@ -79,6 +146,27 @@
                     <Button Content="Save" Command="{Binding SaveWebhookCommand}" IsEnabled="{Binding WebhookDirty}" HorizontalAlignment="Left" />
                     <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding WebhookError}" IsVisible="{Binding WebhookError, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     <SelectableTextBlock Classes="quiet" Text="{Binding WebhookStillSaved}" IsVisible="{Binding WebhookStillSaved, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="heading" Text="Engine credentials" />
+                    <ContentControl Content="{Binding ClaudeConfigDir}" />
+                    <ContentControl Content="{Binding EngineToken}" />
+                    <ContentControl Content="{Binding WorkerTokens}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="GitHub" />
+                    <ContentControl Content="{Binding GitHubApp}" />
+                    <TextBlock Classes="quiet" Classes.caution="{Binding GitHubKeyMissing}" TextWrapping="Wrap" Text="{Binding GitHubKey}" />
+                </StackPanel>
+            </Border>
+            <Border Classes="panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="heading" Text="Chat" />
+                    <ContentControl Content="{Binding ChatEngine}" />
                 </StackPanel>
             </Border>
             <Border Classes="panel">

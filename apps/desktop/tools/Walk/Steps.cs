@@ -167,6 +167,69 @@ internal static class Steps
 
         // The API answers 500 to a null in this request (`SettingsStore.set` of undefined), in the web app too, so this goes by hand.
         Walker.Sql("delete from wilson.settings where key in ('notify-webhook-url', 'notify-base-url')");
+
+        await EngineSettingsAsync(walk, settings);
+    }
+
+    /// <summary>Tokens made up for the walk, saved on the throwaway API and removed, so they sign nothing in.</summary>
+    private static async Task EngineSettingsAsync(Walker walk, SettingsViewModel settings)
+    {
+        await walk.UntilAsync("the engine settings read", () => settings.ClaudeConfigDir.Loaded && settings.GitHubApp.Loaded && settings.ChatEngine.Loaded && settings.EngineToken.Source is not null && settings.GitHubKey is not null);
+        var dir = settings.ClaudeConfigDir.Stored;
+        settings.ClaudeConfigDir.Draft = "not/absolute";
+        await settings.ClaudeConfigDir.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a config directory answered", () => settings.ClaudeConfigDir.Idle);
+        Console.WriteLine($"     config dir: stored {settings.ClaudeConfigDir.Stored}, error {settings.ClaudeConfigDir.Error}");
+        settings.ClaudeConfigDir.Draft = dir;
+        if (settings.ClaudeConfigDir.Stored != dir)
+        {
+            Walker.Sql("delete from wilson.settings where key = 'claude-config-dir'");
+        }
+
+        var source = settings.EngineToken.Setting!.Source;
+        settings.EngineToken.Draft = "two words";
+        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token with a space refused, the attempt kept", () => settings.EngineToken.Error is not null && settings.EngineToken.Draft == "two words");
+        settings.EngineToken.Draft = "walked-not-a-token";
+        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token saved, and the box emptied", () => settings.EngineToken.CanRemove && settings.EngineToken.Draft is null);
+        walk.ScrollTo("Engine credentials");
+        walk.Shot("12-settings-engine");
+        await settings.EngineToken.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the token removed", () => settings.EngineToken.Setting?.Source == source);
+
+        settings.WorkerTokens.Name = "walked-worker";
+        settings.WorkerTokens.Token = "walked-not-a-token";
+        await settings.WorkerTokens.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a worker token listed", () => settings.WorkerTokens.Tokens.Any(row => row.Name == "walked-worker") && settings.WorkerTokens.Token is null);
+        await settings.WorkerTokens.RemoveCommand.ExecuteAsync(settings.WorkerTokens.Tokens.First(row => row.Name == "walked-worker"));
+        await walk.UntilAsync("the worker token gone", () => settings.WorkerTokens.Tokens.All(row => row.Name != "walked-worker"));
+
+        var app = settings.GitHubApp.Stored;
+        settings.GitHubApp.Draft = "424242";
+        await settings.GitHubApp.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an app id saved", () => settings.GitHubApp.Stored == "424242");
+        Console.WriteLine($"     key: {settings.GitHubKey}");
+        if (app is null)
+        {
+            Walker.Sql("delete from wilson.settings where key = 'github-app-id'");
+        }
+
+        var chat = settings.ChatEngine.Stored!;
+        settings.ChatEngine.UsesApi = true;
+        settings.ChatEngine.Provider = MaroonedSoftware.Wilson.Sdk.Models.ChatEngineSettingProvider.Openai;
+        settings.ChatEngine.Model = "walked-model";
+        await walk.UntilAsync("the draft differing", () => settings.ChatEngine.Dirty);
+        walk.ScrollTo("GitHub");
+        walk.Shot("12-settings-chat");
+        await settings.ChatEngine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the chat engine answered", () => settings.ChatEngine.Idle);
+        Console.WriteLine($"     chat: {settings.ChatEngine.Stored} error {settings.ChatEngine.Error}");
+        settings.ChatEngine.Engine = chat.Engine;
+        settings.ChatEngine.Provider = chat.Provider;
+        settings.ChatEngine.Model = chat.Model;
+        await settings.ChatEngine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the chat engine put back", () => settings.ChatEngine.Stored == chat);
     }
 
     /// <summary>

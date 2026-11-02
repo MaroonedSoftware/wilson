@@ -226,6 +226,17 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
     }
 
+    /// <summary>Scrolls the first block reading `text` to the top of its scroller, for a look further down a page.</summary>
+    public void ScrollTo(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var block = window.GetVisualDescendants().OfType<TextBlock>().First(found => found.Text == text);
+        var scroller = block.GetVisualAncestors().OfType<ScrollViewer>().First();
+        var top = block.TranslatePoint(default, (Visual)scroller.Content!)!.Value.Y;
+        scroller.Offset = new Vector(0, top);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>A press and release in one place, through Avalonia's input like a person's.</summary>
     public void Click(Point at)
     {
