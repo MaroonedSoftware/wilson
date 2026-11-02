@@ -130,6 +130,22 @@ public sealed class EngineTokenKindConverter : JsonConverter<EngineTokenKind>
     };
 }
 
+/// <summary>
+/// A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
+/// the sign-in of engines on this machine, or `worker:&lt;host&gt;` for a worker's own.
+/// </summary>
+public sealed record EngineLimit
+{
+    [JsonPropertyName("account")]
+    public required string Account { get; init; }
+
+    [JsonPropertyName("limitType")]
+    public required string LimitType { get; init; }
+
+    [JsonPropertyName("resetsAt")]
+    public required DateTimeOffset ResetsAt { get; init; }
+}
+
 /// <summary>What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.</summary>
 public sealed record EngineTokenSummary
 {
@@ -171,6 +187,27 @@ public sealed record PutEngineTokenRequest
     /// Each of these keeps what is saved under this name when left out, or its default on a new name:
     /// anthropic, subscription, 0 and not pooled.
     /// </summary>
+    [JsonPropertyName("provider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EngineTokenProvider? Provider { get; init; }
+
+    [JsonPropertyName("kind")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EngineTokenKind? Kind { get; init; }
+
+    /// <summary>0 to 1000.</summary>
+    [JsonPropertyName("priority")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Priority { get; init; }
+
+    [JsonPropertyName("pooled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Pooled { get; init; }
+}
+
+/// <summary>What can change about a saved token without saving it again. What is left out stays as it is.</summary>
+public sealed record UpdateEngineTokenRequest
+{
     [JsonPropertyName("provider")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public EngineTokenProvider? Provider { get; init; }

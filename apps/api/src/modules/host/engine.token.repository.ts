@@ -56,6 +56,16 @@ export class EngineTokenRepository {
             .execute();
     }
 
+    /** Change what is recorded about `name`, keeping its token. Returns whether a row matched. */
+    async update(name: string, account: Partial<EngineTokenAccount>): Promise<boolean> {
+        const result = await this.db
+            .updateTable('wilson.engineTokens')
+            .set({ ...account, updatedAt: sql`now()` })
+            .where('name', '=', name)
+            .executeTakeFirst();
+        return result.numUpdatedRows > 0n;
+    }
+
     /** The stored ciphertext for `name`, or undefined when none is saved. */
     async ciphertext(name: string): Promise<string | undefined> {
         const row = await this.db.selectFrom('wilson.engineTokens').select('ciphertext').where('name', '=', name).executeTakeFirst();

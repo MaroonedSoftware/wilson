@@ -77,6 +77,29 @@ describe('EngineTokensService', () => {
         await expect(tokens.put(uniqueName(), { token: 'fine', priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('updates what is recorded about a token, keeping the token and what it has hit', async () => {
+        const name = uniqueName();
+        await tokens.put(name, { token: 'kept' });
+        await new EngineLimitRepository(db).record(name, 'five_hour', DateTime.now().plus({ hours: 1 }));
+
+        expect(await tokens.update(name, { pooled: true, priority: 7 })).toMatchObject({ pooled: true, priority: 7, kind: 'subscription' });
+
+        await expect(tokens.resolve(name)).resolves.toBe('kept');
+        expect((await tokens.limitsInForce()).map(limit => limit.account)).toContain(name);
+        await tokens.remove(name);
+    });
+
+    it('refuses to update an unknown token with 404, and a bad change with 400', async () => {
+        const [host, name] = [uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+        await tokens.assign(host, { name });
+
+        await expect(tokens.update(uniqueName(), { pooled: true })).rejects.toMatchObject({ statusCode: 404 });
+        await expect(tokens.update(name, { priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.update(name, { provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('offers only pooled Anthropic subscription tokens, by priority and then name', async () => {
         const prefix = uniqueName();
         const named = (suffix: string) => `${prefix}-${suffix}`;

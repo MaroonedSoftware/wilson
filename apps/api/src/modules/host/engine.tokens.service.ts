@@ -2,11 +2,11 @@ import { Injectable } from 'injectkit';
 import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import { httpError } from '@maroonedsoftware/errors';
 import { requireEngineToken } from '#modules/settings/engine.token.setting.service.js';
-import type { EngineTokenSummary, PutEngineTokenRequest } from '../../generated/engine.tokens.js';
+import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
 import type { EngineAccount } from './execution.host.js';
 import { EngineLimitRepository } from './engine.limit.repository.js';
-import { EngineTokenRepository } from './engine.token.repository.js';
+import { EngineTokenRepository, type EngineTokenAccount } from './engine.token.repository.js';
 import { HostRepository } from './host.repository.js';
 import { toHost } from './hosts.service.js';
 
@@ -51,19 +51,28 @@ export class EngineTokensService {
             throw httpError(400).withDetails({ reason: 'an engine token name is lowercase letters, digits, dots, dashes and underscores' });
         }
         const { token, ...account } = request;
-        if (account.priority !== undefined && (account.priority < 0 || account.priority > MAX_PRIORITY)) {
-            throw httpError(400).withDetails({ reason: `an engine token's priority is 0 to ${MAX_PRIORITY}` });
-        }
-        const saved = await this.find(name);
-        if (saved && saved.hosts.length > 0 && !signsInEngines({ ...saved, ...account })) {
-            throw httpError(400).withDetails({
-                reason: `"${name}" is assigned to ${saved.hosts.join(', ')}, whose engines can only sign in with an Anthropic subscription token`,
-            });
-        }
+        await this.refuseChange(name, account);
         await this.tokens.put(name, this.encryption.encrypt(requireEngineToken(token)), account);
         // A new token may be a different account, so what the old one hit says nothing about it.
         await this.limits.clear(name);
         return (await this.find(name))!;
+    }
+
+    /**
+     * Change what is recorded about `name`, keeping its token and limits. Refuses an unknown name with
+     * 404, and with 400 a bad priority or a change that would leave a host with a token its engine cannot use.
+     */
+    async update(name: string, request: UpdateEngineTokenRequest): Promise<EngineTokenSummary> {
+        await this.refuseChange(name, request);
+        if (!(await this.tokens.update(name, request))) {
+            throw httpError(404).withDetails({ reason: `no engine token is saved as "${name}"` });
+        }
+        return (await this.find(name))!;
+    }
+
+    /** Every usage limit in force, for any account, soonest reset first. */
+    async limitsInForce(): Promise<EngineLimit[]> {
+        return this.limits.active();
     }
 
     /** Forget `name`. Never decrypts it, so this still works after the key is lost. Refuses an unknown name with 404. */
@@ -137,6 +146,18 @@ export class EngineTokensService {
             return this.encryption.decrypt(ciphertext);
         } catch {
             throw new Error(`The engine token "${name}" cannot be decrypted, so the encryption key has changed. Save the token again.`);
+        }
+    }
+
+    private async refuseChange(name: string, account: Partial<EngineTokenAccount>): Promise<void> {
+        if (account.priority !== undefined && (account.priority < 0 || account.priority > MAX_PRIORITY)) {
+            throw httpError(400).withDetails({ reason: `an engine token's priority is 0 to ${MAX_PRIORITY}` });
+        }
+        const saved = await this.find(name);
+        if (saved && saved.hosts.length > 0 && !signsInEngines({ ...saved, ...account })) {
+            throw httpError(400).withDetails({
+                reason: `"${name}" is assigned to ${saved.hosts.join(', ')}, whose engines can only sign in with an Anthropic subscription token`,
+            });
         }
     }
 

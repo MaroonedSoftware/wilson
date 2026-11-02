@@ -49,6 +49,17 @@ object EngineTokenKindSerializer : SdkEnumSerializer<EngineTokenKind>(
     EngineTokenKind.API_KEY to "api_key",
 )
 
+/**
+ * A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
+ * the sign-in of engines on this machine, or `worker:<host>` for a worker's own.
+ */
+@Serializable
+data class EngineLimit(
+    val account: String,
+    val limitType: String,
+    val resetsAt: Instant,
+)
+
 /** What is shown of a saved token: its name, what it signs in to and when it was saved, never the token. */
 @Serializable
 data class EngineTokenSummary(
@@ -73,6 +84,16 @@ data class PutEngineTokenRequest(
      * Each of these keeps what is saved under this name when left out, or its default on a new name:
      * anthropic, subscription, 0 and not pooled.
      */
+    val provider: EngineTokenProvider? = null,
+    val kind: EngineTokenKind? = null,
+    /** 0 to 1000. */
+    val priority: Long? = null,
+    val pooled: Boolean? = null,
+)
+
+/** What can change about a saved token without saving it again. What is left out stays as it is. */
+@Serializable
+data class UpdateEngineTokenRequest(
     val provider: EngineTokenProvider? = null,
     val kind: EngineTokenKind? = null,
     /** 0 to 1000. */

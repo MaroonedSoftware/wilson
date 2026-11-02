@@ -20,6 +20,16 @@ namespace MaroonedSoftware.Wilson.Sdk.Clients;
 /// <summary>Operations declared in &lt;c&gt;engine.tokens.ck&lt;/c&gt;.</summary>
 public sealed class EngineTokensClient(SdkHttp http)
 {
+    /// <summary>List engine limits</summary>
+    public async Task<List<EngineLimit>> ListEngineLimitsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "engine-limits"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<EngineLimit>>(response);
+    }
+
     /// <summary>List engine tokens</summary>
     public async Task<List<EngineTokenSummary>> ListEngineTokensAsync(CancellationToken cancellationToken = default)
     {
@@ -40,6 +50,21 @@ public sealed class EngineTokensClient(SdkHttp http)
     {
         var response = await http.ExecuteAsync(
             HttpMethod.Put,
+            http.Path("api", "engine-tokens", http.Segment(name)),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EngineTokenSummary>(response);
+    }
+
+    /// <summary>
+    /// Update engine token
+    /// Change what is recorded about a saved token, keeping the token and what it has hit.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<EngineTokenSummary> UpdateEngineTokenAsync(string name, UpdateEngineTokenRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            SdkHttp.Patch,
             http.Path("api", "engine-tokens", http.Segment(name)),
             content: http.JsonContent(body, "application/json"),
             cancellationToken: cancellationToken).ConfigureAwait(false);

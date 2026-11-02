@@ -38,6 +38,7 @@ import cardVersionsCommand from './commands/card/versions.command.js';
 import engineTokenListCommand from './commands/engine-token/list.command.js';
 import engineTokenRemoveCommand from './commands/engine-token/remove.command.js';
 import engineTokenSetCommand from './commands/engine-token/set.command.js';
+import engineTokenUpdateCommand from './commands/engine-token/update.command.js';
 import hostAddCommand from './commands/host/add.command.js';
 import hostEngineTokenCommand from './commands/host/engine-token.command.js';
 import hostListCommand from './commands/host/list.command.js';
@@ -120,6 +121,7 @@ const app = await createCliApp({
         reg(['host', 'engine-token'], hostEngineTokenCommand),
         reg(['engine-token', 'list'], engineTokenListCommand),
         reg(['engine-token', 'set'], engineTokenSetCommand),
+        reg(['engine-token', 'update'], engineTokenUpdateCommand),
         reg(['engine-token', 'remove'], engineTokenRemoveCommand),
         reg(['host', 'probe'], hostProbeCommand),
         reg(['server', 'drain'], serverDrainCommand),

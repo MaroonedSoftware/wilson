@@ -46,6 +46,39 @@ contract PutEngineTokenRequest: {
     pooled?: boolean
 }
 
+# What can change about a saved token without saving it again. What is left out stays as it is.
+contract UpdateEngineTokenRequest: {
+    provider?: EngineTokenProvider
+    kind?: EngineTokenKind
+    # 0 to 1000.
+    priority?: int
+    pooled?: boolean
+}
+
+# A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
+# the sign-in of engines on this machine, or `worker:<host>` for a worker's own.
+contract EngineLimit: {
+    account: string
+    limitType: string
+    resetsAt: datetime
+}
+
+operation /api/engine-limits: {
+    get: {
+        mcp: exclude # Which credentials exist is not an agent's business
+        security: {
+            policy: wilson.view
+        }
+        name: List engine limits
+        service: EngineTokensService.limitsInForce
+        response: {
+            200: {
+                application/json: array(EngineLimit)
+            }
+        }
+    }
+}
+
 operation /api/engine-tokens: {
     get: {
         mcp: exclude # Credentials are never handed to an agent
@@ -82,6 +115,23 @@ operation /api/engine-tokens/{name}: {
             # A bad name or priority, a token that is empty or more than one word, or a host assigned
             # this token that could not sign in with what it would become.
             400:
+        }
+    }
+    # Change what is recorded about a saved token, keeping the token and what it has hit.
+    patch: {
+        mcp: exclude # Credentials are never handed to an agent
+        name: Update engine token
+        service: EngineTokensService.update
+        request: {
+            application/json: UpdateEngineTokenRequest
+        }
+        response: {
+            200: {
+                application/json: EngineTokenSummary
+            }
+            # A bad priority, or a host assigned this token that could not sign in with what it would become.
+            400:
+            404:
         }
     }
     # Forget a token. This does not revoke it with Anthropic, and an engine already running keeps it.

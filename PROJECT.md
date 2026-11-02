@@ -1217,7 +1217,12 @@ only when retrying cannot help.
   under the same key, and each worker host is assigned one, or none to use the worker's own
   (`wilson engine-token`, the Settings and Hosts pages). Each records its provider, its kind
   (`subscription` or `api_key`) and a priority, but only an Anthropic subscription's token can be
-  assigned, since a host's engine receives it as `CLAUDE_CODE_OAUTH_TOKEN`. None of it is readable through the API or
+  assigned, since a host's engine receives it as `CLAUDE_CODE_OAUTH_TOKEN`. A token can also join
+  the pool (`wilson engine-token update <name> --pool`): an engine with no token assigned, here or on
+  a worker, takes the first pooled token with no usage limit in force, lowest priority first. Wilson
+  reads the engine's rate limit events, keeps what each account hit in `wilson.engine_limits`, and
+  holds a stage stopped by a limit through the interruption path: it is sent again at once on the
+  next free account, resuming its session, or when the soonest limit resets. None of it is readable through the API or
   reachable by MCP, and the assignment is an operation of its own so that it stays out of agents'
   reach too. Each engine start reads the assignment again and sends the token in that one `spawn`
   or `run-claude` message, not in `welcome`, so a replaced token needs no reconnect and an idle worker

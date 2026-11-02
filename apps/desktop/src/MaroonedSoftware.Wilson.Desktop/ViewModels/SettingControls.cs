@@ -283,7 +283,10 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
 }
 
 /// <summary>A worker's engine token, as drawn: its name and the hosts using it, never the token.</summary>
-public sealed record EngineTokenRow(string Name, string Hosts, WorkerTokensControl Control);
+public sealed record EngineTokenRow(string Name, string Hosts, string State, bool Pooled, WorkerTokensControl Control)
+{
+    public string PoolAction => Pooled ? "Leave pool" : "Add to pool";
+}
 
 /// <summary>`WorkerEngineTokensControl`. Saving under a name already there replaces that token and no other.</summary>
 public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : ObservableObject
@@ -305,6 +308,10 @@ public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : Observabl
     [ObservableProperty]
     private string? _error;
 
+    /// <summary>Limits on sign-ins Wilson holds no token for: this machine's, or a worker's own.</summary>
+    [ObservableProperty]
+    private string? _otherLimits;
+
     public bool CanSave => Idle && !string.IsNullOrWhiteSpace(Name) && !string.IsNullOrWhiteSpace(Token);
 
     public async Task ReadAsync(CancellationToken cancellationToken)
@@ -312,11 +319,19 @@ public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : Observabl
         try
         {
             var tokens = await sdk().EngineTokens.ListEngineTokensAsync(cancellationToken);
+            var limits = await sdk().EngineTokens.ListEngineLimitsAsync(cancellationToken);
+            string Limits(string account) => string.Join(", ", limits.Where(limit => limit.Account == account).Select(limit => $"{limit.LimitType} limit until {limit.ResetsAt.ToLocalTime():g}"));
+
             Tokens.Clear();
             foreach (var token in tokens)
             {
-                Tokens.Add(new EngineTokenRow(token.Name, token.Hosts.Count > 0 ? string.Join(", ", token.Hosts) : "no host", this));
+                var pooled = token.Pooled ? $"pooled, priority {token.Priority}" : string.Empty;
+                var state = string.Join("; ", new[] { pooled, Limits(token.Name) }.Where(part => part.Length > 0));
+                Tokens.Add(new EngineTokenRow(token.Name, token.Hosts.Count > 0 ? string.Join(", ", token.Hosts) : "no host", state, token.Pooled, this));
             }
+
+            var saved = tokens.Select(token => token.Name).ToHashSet();
+            OtherLimits = string.Join("\n", limits.Select(limit => limit.Account).Distinct().Where(account => !saved.Contains(account)).Select(account => $"{account}: {Limits(account)}"));
         }
         catch (HttpRequestException failure)
         {
@@ -338,6 +353,14 @@ public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : Observabl
         ArgumentNullException.ThrowIfNull(row);
 
         return WriteAsync(client => client.EngineTokens.RemoveEngineTokenAsync(row.Name));
+    }
+
+    [RelayCommand]
+    public Task TogglePoolAsync(EngineTokenRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return WriteAsync(client => client.EngineTokens.UpdateEngineTokenAsync(row.Name, new UpdateEngineTokenRequest { Pooled = !row.Pooled }));
     }
 
     private async Task WriteAsync(Func<WilsonSdk, Task> write)

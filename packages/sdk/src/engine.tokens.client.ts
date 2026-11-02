@@ -1,5 +1,5 @@
-import type { EngineTokenSummary, PutEngineTokenRequest } from './types/engine.tokens.js';
-import { reviveEngineTokenSummary } from './types/engine.tokens.js';
+import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from './types/engine.tokens.js';
+import { reviveEngineLimit, reviveEngineTokenSummary } from './types/engine.tokens.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -8,6 +8,12 @@ import { bigIntReplacer, parseJson } from './sdk-options.js';
  */
 export class EngineTokensClient {
     constructor(private fetch: SdkFetch) {}
+
+    /** @name List engine limits */
+    async listEngineLimits(): Promise<EngineLimit[]> {
+        const result = await this.fetch(`/api/engine-limits`, { method: 'GET' });
+        return (await parseJson<EngineLimit[]>(result)).map(reviveEngineLimit);
+    }
 
     /** @name List engine tokens */
     async listEngineTokens(): Promise<EngineTokenSummary[]> {
@@ -23,6 +29,19 @@ export class EngineTokensClient {
     async putEngineToken(name: string, body: PutEngineTokenRequest): Promise<EngineTokenSummary> {
         const result = await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}`, {
             method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveEngineTokenSummary(await parseJson<EngineTokenSummary>(result));
+    }
+
+    /**
+     * @name Update engine token
+     * @description Change what is recorded about a saved token, keeping the token and what it has hit.
+     */
+    async updateEngineToken(name: string, body: UpdateEngineTokenRequest): Promise<EngineTokenSummary> {
+        const result = await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}`, {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });
