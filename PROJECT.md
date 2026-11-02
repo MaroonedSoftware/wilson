@@ -260,8 +260,8 @@ when run from inside a real stage, under the stage's own config directory, is st
 ### Where a stage runs: here, an SSH host, or a worker
 
 A stage that cuts a worktree runs where its `placement` says: `local` (the default) on the daemon's
-own machine, `remote` on a registered host, or `any` on a host when one has a free slot and here
-otherwise. Planning sessions and stages with `worktree: none` always run here. A host is a
+own machine, `remote` on a registered host, or `any` on a host whenever one can run it, waiting for
+a slot when they are only busy, and here when none can. Planning sessions and stages with `worktree: none` always run here. A host is a
 `wilson.hosts` row (`wilson host add`, the web app's Hosts page) with a number of slots, the projects
 it serves and where each one's clone lives on it, and a probe (`wilson host probe`) that has to pass
 before placement will choose it. A worker probes itself each time it connects. A host with a

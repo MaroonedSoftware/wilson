@@ -5,7 +5,7 @@ import type { SettingDefinition } from './setting.definition.js';
  * How many stages may hold a worktree on this machine at once, whatever `card-stage-concurrency`
  * allows overall. Once stages can run on registered hosts, the total and this machine's share stop
  * being the same number: twelve stages across three agent VMs is no reason to run twelve here when
- * the hosts are busy and a `placement: any` stage falls back to this machine.
+ * the hosts are down and a `placement: any` stage falls back to this machine.
  *
  * Enforced as `wilson.leases` rows (`local:slot:N`), taken by `HostPlacer.takeLocalSlot` before a
  * stage's worktree is cut and released by the dispatcher when the stage ends. A stage that finds

@@ -59,8 +59,9 @@ export const StageConfigSchema = z
         worktreeFrom: z.enum(['base', 'branch']).default('base'),
         /**
          * Which machine the stage runs on: `local` (this one, the default and the only choice before
-         * hosts existed), `any` (a registered host when one has a free slot, otherwise this machine), or
-         * `remote` (a registered host only; with none free, the dispatch is deferred until one is).
+         * hosts existed), `any` (a registered host when one can run it, waiting for a slot when they
+         * are only busy, and this machine when none can), or `remote` (a registered host only; with
+         * none free, the dispatch is deferred until one is).
          *
          * A host is used only when it is enabled, not draining, serves the card's project, passed its last
          * probe, and will not expire before the stage's `maxWallClockMs` is up. A stage with
