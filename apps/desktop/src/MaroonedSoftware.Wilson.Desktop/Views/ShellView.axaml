@@ -25,6 +25,7 @@
                 <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding Feed.RefreshCommand, FallbackValue={x:Null}}" IsVisible="{Binding Feed, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" ToolTip.Tip="Updates as cards move" IsVisible="{Binding Feed.Live, FallbackValue=False}" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="snapshot" ToolTip.Tip="Not connected: see Refresh" IsVisible="{Binding !Feed.Live, FallbackValue=False}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                <Button DockPanel.Dock="Right" Classes="flag" Content="{Binding Flagged}" Command="{Binding ShowFlaggedCommand}" IsVisible="{Binding Flagged, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
             </DockPanel>
         </Border>
         <ContentControl Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />

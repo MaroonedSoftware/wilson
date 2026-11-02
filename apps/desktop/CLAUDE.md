@@ -135,7 +135,7 @@ the application menu runs the same check and also answers when there is nothing 
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second).
+hosts and settings, and the activity page.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -156,6 +156,10 @@ keeps it across a change of server, and `ShellViewModel.StartAsync` applies it b
 
 `ProjectsViewModel` is `routes/projects.index.tsx`, names only, and pressing one opens its board through
 `ShellViewModel.ShowProject`. The board's own project menu is the web header's `ProjectSwitcher`.
+
+The flagged page is the board narrowed by its Flagged toggle, and the header's "n needs human" goes
+there. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
+each change of page, and for the project in hand where the web app reads the server's own.
 
 ## Feed activity
 
@@ -246,6 +250,9 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, flagged: with `tools/Walk`, the header's count away from the board, the narrowed board, and
+nothing flagged.
 
 2026-11-02, projects: with `tools/Walk`, the page and a real press on a project opening its board.
 

@@ -15,7 +15,7 @@
     <Grid>
     <DockPanel Margin="16">
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12" LastChildFill="False">
-            <TextBlock Classes="title" Text="Board" Margin="0,0,16,0" VerticalAlignment="Center" />
+            <TextBlock Classes="title" Text="{Binding Heading}" Margin="0,0,16,0" VerticalAlignment="Center" />
             <ComboBox ItemsSource="{Binding Projects}" SelectedItem="{Binding Project}" MinWidth="160" VerticalAlignment="Center" />
             <TextBox Text="{Binding Filter}" PlaceholderText="Filter by id or title" Width="180" Margin="8,0,0,0" VerticalAlignment="Center" />
             <ToggleButton Content="Flagged" IsChecked="{Binding FlaggedOnly}" Margin="8,0,0,0" VerticalAlignment="Center" />
@@ -23,6 +23,7 @@
             <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding Count}" VerticalAlignment="Center" />
         </DockPanel>
         <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" FontSize="14" Text="Nothing is flagged right now." IsVisible="{Binding NothingFlagged}" Margin="0,0,0,8" />
         <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Columns}">
                 <ItemsControl.ItemsPanel>

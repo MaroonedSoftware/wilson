@@ -182,6 +182,15 @@
         <Style Selector="Button.section:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.section.current /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Panel}" />
         </Style>
+        <Style Selector="Button.flag">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,3" />
+        </Style>
+        <Style Selector="Button.flag /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Flag}" />
+            <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
         <Style Selector="Button.chip">
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="12,5" />

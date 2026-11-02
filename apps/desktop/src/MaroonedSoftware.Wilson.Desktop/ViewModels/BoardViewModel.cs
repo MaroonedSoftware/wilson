@@ -97,7 +97,12 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     private string? _project;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Heading))]
     private bool _flaggedOnly;
+
+    /// <summary>Only once a read has said so.</summary>
+    [ObservableProperty]
+    private bool _nothingFlagged;
 
     [ObservableProperty]
     private string? _filter;
@@ -110,6 +115,8 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     [ObservableProperty]
     private string? _error;
+
+    public string Heading => FlaggedOnly ? "Cards needing a human" : "Board";
 
     public string Server => shell.Connection?.Origin ?? string.Empty;
 
@@ -415,6 +422,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
             _cards = cards;
             _order = BoardRules.ColumnOrder(columns, cards);
+            shell.ReportFlagged(cards.Count(card => card.NeedsHuman));
             // Only a failure of its own: a refused drop stays said after the re-read that follows it.
             if (_unread)
             {
@@ -453,6 +461,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
             }
         }
 
+        NothingFlagged = FlaggedOnly && _order.Count > 0 && !_cards.Any(card => card.NeedsHuman);
         Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
         Tick();
     }

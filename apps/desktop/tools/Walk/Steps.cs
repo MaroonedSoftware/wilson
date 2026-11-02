@@ -70,6 +70,7 @@ internal static class Steps
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
         await ProjectsAsync(walk, board);
+        await FlaggedAsync(walk, board);
         await FilterAsync(walk, board);
         await ToolActivityAsync(walk, board);
 
@@ -82,6 +83,24 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>The header's count, from the page that has no feed, and the board narrowed to it, then nothing flagged.</summary>
+    private static async Task FlaggedAsync(Walker walk, BoardViewModel board)
+    {
+        Walker.Sql("update wilson.cards set needs_human = true, needs_human_reason = 'Walked: read me' where id = '0003'");
+        walk.Shell.ShowChatCommand.Execute(null);
+        await walk.UntilAsync("the count in the header away from the board", () => walk.Shell.Flagged is not null);
+        walk.Shell.ShowFlaggedCommand.Execute(null);
+        await walk.UntilAsync("the board narrowed to it", () => walk.Shell.Page == board && board.FlaggedOnly && board.Columns.Count > 0 && board.Columns.All(column => column.Cards.All(tile => tile.Card.NeedsHuman)));
+        walk.Shot("03-flagged");
+
+        Walker.Sql("update wilson.cards set needs_human = false, needs_human_reason = null where id = '0003'; update wilson.cards set needs_human = false where needs_human");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("nothing flagged said, and the count gone", () => board.NothingFlagged && walk.Shell.Flagged is null);
+        walk.Shot("03-flagged-none");
+        board.FlaggedOnly = false;
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
