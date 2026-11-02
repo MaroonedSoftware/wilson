@@ -47,6 +47,26 @@
             <TabItem Header="Activity">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Usage}" Margin="0,8" IsVisible="{Binding Usage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" Text="Live activity" Margin="0,8,0,4" />
+                    <ScrollViewer DockPanel.Dock="Top" MaxHeight="240">
+                        <ItemsControl ItemsSource="{Binding Tools}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ToolLine">
+                                    <Border Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="3" Padding="8,4" Margin="0,0,10,4">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding When}" />
+                                                <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Tool}" />
+                                            </DockPanel>
+                                            <SelectableTextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Label}" TextWrapping="Wrap" IsVisible="{Binding Label, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding ToolsNote}" Margin="0,0,0,4" IsVisible="{Binding ToolsNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" Text="Events" Margin="0,8,0,4" />
                     <ScrollViewer>
                         <ItemsControl ItemsSource="{Binding Events}">
                             <ItemsControl.ItemTemplate>

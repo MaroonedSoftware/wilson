@@ -1,12 +1,14 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
-using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MaroonedSoftware.Wilson.Desktop;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.Core.Updates;
 using MaroonedSoftware.Wilson.Desktop.Mac;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
@@ -97,7 +99,7 @@ internal static class Program
     private static void Run(string[] args)
     {
         var (into, origin, email, password) = (args[0], args[1], args[2], args[3]);
-        Application.Current!.RequestedThemeVariant = args.Length > 4 && args[4] == "light" ? ThemeVariant.Light : ThemeVariant.Dark;
+        var appearance = args.Length > 4 && args[4] == "light" ? Appearance.Light : Appearance.Dark;
         Directory.CreateDirectory(into);
 
         using var finished = new CancellationTokenSource();
@@ -105,7 +107,7 @@ internal static class Program
         {
             try
             {
-                await WalkAsync(into, origin, email, password);
+                await WalkAsync(into, origin, email, password, appearance);
             }
             catch (Exception failure)
             {
@@ -120,9 +122,12 @@ internal static class Program
         Dispatcher.UIThread.MainLoop(finished.Token);
     }
 
-    private static async Task WalkAsync(string into, string origin, string email, string password)
+    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance)
     {
-        using var shell = new ShellViewModel(new InMemorySecretStore(), Path.Combine(into, "settings.json"));
+        // A fresh file each run, because a walk begins at the first-run sign-in.
+        var settings = Path.Combine(into, "settings.json");
+        new DesktopSettings { Appearance = appearance }.Save(settings);
+        using var shell = new ShellViewModel(new InMemorySecretStore(), settings);
         var window = new Window { Width = Width, Height = Height, Content = new ShellView { DataContext = shell } };
         window.Show();
 
@@ -136,6 +141,27 @@ internal static class Program
 internal sealed class Walker(string into, Window window, ShellViewModel shell)
 {
     public ShellViewModel Shell => shell;
+
+    /// <summary>What a relaunch would read.</summary>
+    public DesktopSettings Settings() => DesktopSettings.Load(Path.Combine(into, "settings.json"));
+
+    /// <summary>
+    /// Writes an event as a running stage would, on the throwaway API's own database. The feed reads
+    /// a Postgres notification, so this is the real path and only the writer is posed.
+    /// </summary>
+    public static void Emit(string card, string stage, string type, string payload)
+    {
+        var sql = $"with made as (insert into wilson.card_events (project, card_id, stage, type, payload) select project, id, '{stage}', '{type}', '{payload}'::jsonb from wilson.cards where id = '{card}' returning *) "
+            + "select pg_notify('card_events', json_build_object('id', id::text, 'project', project, 'cardId', card_id, 'stage', stage, 'type', type)::text) from made";
+        Sql(sql);
+    }
+
+    /// <summary>Only ever the throwaway API's database, for what no request can pose.</summary>
+    public static void Sql(string sql)
+    {
+        using var psql = Process.Start("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]);
+        psql.WaitForExit();
+    }
 
     public T Page<T>()
         where T : PageViewModel => shell.Page as T ?? throw new InvalidOperationException($"expected {typeof(T).Name}, on {shell.Page?.GetType().Name}");
@@ -168,6 +194,66 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Dispatcher.UIThread.RunJobs();
         window.KeyPressQwerty(physical, RawInputModifiers.None);
         window.KeyReleaseQwerty(physical, RawInputModifiers.None);
+    }
+
+    /// <summary>The middle of whatever a view drew for `model`, in the window's coordinates.</summary>
+    public Point Center(object model)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var control = window.GetVisualDescendants().OfType<Control>().First(found => found.DataContext == model && found is Button or Border);
+        return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
+    }
+
+    /// <summary>A press and release in one place, through Avalonia's input like a person's.</summary>
+    public void Click(Point at)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(at);
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A press that stays down, for what happens during one.</summary>
+    public void Down(Point at)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(at);
+        window.MouseDown(at, MouseButton.Left);
+    }
+
+    public void MoveTo(Point at)
+    {
+        window.MouseMove(at);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    public void Up(Point at)
+    {
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A press, a move in steps, and a release, shooting the middle of the drag if named.</summary>
+    public void Drag(Point from, Point to, string? shot = null)
+    {
+        const int Steps = 6;
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(from);
+        window.MouseDown(from, MouseButton.Left);
+        for (var step = 1; step <= Steps; step++)
+        {
+            window.MouseMove(from + ((to - from) * step / Steps));
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        if (shot is not null)
+        {
+            Shot(shot);
+        }
+
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
     }
 
     public void Shot(string name)

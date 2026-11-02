@@ -135,9 +135,40 @@ the application menu runs the same check and also answers when there is nothing 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
-dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and splitting a card. A
+and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
+here either, but the web app has no such control: it only shows a split's progress. A
 card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
 notifications.
+
+## The header
+
+`ShellView` draws the sections, as `apps/web/src/routes/__root.tsx` does, over everything but sign-in.
+A section's page is kept for the session (`ShellViewModel.ShowChat`, `ShowBoard`), so an open chat and
+the chosen project survive a trip between them, and going to one clears the Back stack. Back is for
+what opens from a section, such as a card. A page following the feed implements `IFollowsFeed`, and
+the header shows its state and Refresh. Chat follows no feed, so unlike the web app's header, this one
+shows neither there. Add a section's link in the same commit as its page, never ahead of it.
+
+The header's appearance button steps through System, Light and Dark. `DesktopSettings.Appearance`
+keeps it across a change of server, and `ShellViewModel.StartAsync` applies it before the first page.
+
+## Feed activity
+
+`CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
+folded into a card, which only a re-read changes. Each page following the feed has its own, because the
+desktop feed is per page. A tool event changes no card summary, so it updates a tile in place. A tile
+is never redrawn for one, or for the ten-second clock, as that would lose its column's scroll.
+
+## Dragging
+
+`BoardView.axaml.cs` draws a drag and `BoardRules.Drop` says what it means. A tile stays a `Button`, and
+capturing the pointer past eight pixels is what takes the press from it, so a click still opens the card.
+A move only asks: `BoardViewModel` never changes a card's stage, and no redraw lands while a card is held.
+A reorder within the parking lot is the one optimistic write, as on the web board.
+Redraws wait from the press, not the drag: replacing a button under a press would swallow its click.
+`LetGo` is posted so the release reaches the button first. Escape is a drop on nothing, and a collapsed
+column is still somewhere to drop. `StateIcon` strokes the face in the colour behind it, since the
+brand's SVGs cut it out with a mask, so it only suits a solid backing.
 
 ## Chat follows the web app
 
@@ -159,6 +190,35 @@ release built, signed and published from the workflow, and that download launche
 2026-11-01, chat: with `tools/Walk`, the greeting, Tab, typing and Enter by headless keyboard, a real
 streamed turn, Markdown, the working state, rename and archive, in both appearances. A proposed
 change was posed, as nothing makes the agent propose one on cue.
+
+2026-11-02, header: with `tools/Walk`, in both appearances, the sections and their marker, live status
+and Refresh on the board and a card, leaving a card for either section, the same board and chat coming
+back, no header on sign-in, and signing out from it.
+
+2026-11-02, appearance: with `tools/Walk`, all three drawn and read back from the settings file.
+
+2026-11-02, board filter: with `tools/Walk`, the filter and its count, a flag's reason, a blocked card and
+split progress, the last three from rows set by hand on the throwaway database.
+
+2026-11-02, tile activity: with `tools/Walk`, a `tool.executed` row and its `pg_notify` written to the
+throwaway database reached a tile through the real feed. `Walker.Emit` is that writer, as nothing
+runs a stage there. The stale style was not seen on screen: five minutes is longer than a walk.
+
+2026-11-02, card tools: with `tools/Walk`, none said, then executed and denied calls arriving through the
+real feed. The merge with a fetched tail is proved in `ToolRowsTests`, not on screen.
+
+2026-11-02, dragging: with `tools/Walk`, by Avalonia's headless pointer input through the real views, a
+click and a three-pixel slip opening a card, the held tile, ghost and target column, a drop moving a card
+through the API, and a drop refused because the row had gone. The server allows nearly any move, so that
+refusal is the only one a walk can pose. Not seen: scrolling at the window's edge, a real trackpad, and
+losing the pointer mid-drag.
+
+2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
+and read back from the server, put back the same way, and a refused reorder rolled back. The other
+neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, the board: with `tools/Walk`, through headless pointer input, collapsing columns and
+dropping on one, the faces on tiles, a click surviving a re-read during its press, and Escape.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
