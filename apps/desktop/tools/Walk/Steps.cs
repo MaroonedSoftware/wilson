@@ -96,6 +96,43 @@ internal static class Steps
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
     }
 
+    /// <summary>
+    /// Making the one account, which needs an API on a database with none: not the seeded one, whose
+    /// operator already exists. Run with `firstrun` against one made for the purpose.
+    /// </summary>
+    public static async Task FirstRunAsync(Walker walk, string origin, string email, string password)
+    {
+        await walk.UntilAsync("the welcome", () => walk.Shell.Page is SignInViewModel { Welcoming: true });
+        var signIn = walk.Page<SignInViewModel>();
+        signIn.Start();
+        signIn.Address = origin;
+        await signIn.CheckAsync();
+        await walk.UntilAsync("the server with no account asking for one", () => signIn.CreatingAccount);
+        walk.Shot("00-account");
+
+        signIn.Email = email;
+        signIn.Password = password;
+        signIn.Confirmation = "something else";
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("passwords that differ refused", () => signIn.Error == "The passwords do not match.");
+
+        signIn.Password = "password";
+        signIn.Confirmation = "password";
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an easy password refused, with advice", () => signIn.Error?.StartsWith("That password is too easy", StringComparison.Ordinal) == true);
+        Console.WriteLine($"     refused: {signIn.Error}");
+        walk.Shot("00-account-refused");
+
+        signIn.Password = password;
+        signIn.Confirmation = password;
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the account made and signed in", () => walk.Shell.Page is ThreadsViewModel);
+        walk.Shot("00-account-done");
+
+        await walk.Shell.SignOutCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the server now asking for a password", () => walk.Shell.Page is SignInViewModel { ShowsPasswordStep: true });
+    }
+
     /// <summary>The deployment's own pages, which need no board. `admin` as a sixth argument walks only these.</summary>
     private static async Task AdminAsync(Walker walk)
     {

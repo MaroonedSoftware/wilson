@@ -51,7 +51,8 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 ```
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
-appearance. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
+appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
+session must age for a step-up, so a whole walk's end is that wait too. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
 this for the findings step, which brings its own card.
@@ -68,7 +69,8 @@ osascript -e 'tell application "System Events" to tell process "wilson" to get n
 
 The screen is deadair's setup steps: a welcome on a first run, the address, then the sign-in and any
 code. A remembered server opens on the sign-in. `ServerProbe` asks `/api/health` before an address is
-kept, and an address that answers moves straight on, because a server has no name to confirm.
+kept, and an address that answers moves straight on, because a server has no name to confirm. A server
+with no account yet asks for one instead (`SignInStep.Account`, `OnboardingForm`), and that goes on to sign in.
 
 ## Menu bar
 
@@ -137,9 +139,9 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects, hosts and settings. Not here yet, so these still need the web app:
-onboarding, and making a passkey, which an app signed ad hoc cannot do. Settings lists and removes passkeys
-and opens the web app to add one.
+planning, chat, the diff, projects, hosts, settings and making the first account. Not here yet, so this
+still needs the web app: making a passkey, which an app signed ad hoc cannot do. Settings lists and removes
+passkeys and opens the web app to add one.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -281,6 +283,11 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
+empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the
+account made and signed in, and that server then asking for a password. An account made in between
+checking and creating (the 409) is in `SignInWordsTests` only.
 
 2026-11-02, security: with `tools/Walk`, on a real session past the five minutes, a real step-up refused,
 cancelled and answered with the request replayed, a real authenticator enrolled from its secret, wrong

@@ -12,6 +12,7 @@ dotnet run --project src/MaroonedSoftware.Wilson.Desktop
 tools/macos/make-app-bundle.sh
 ```
 
-On first run, give it the address of your Wilson server, such as `tower:13101`, and sign in. A session
+On first run, give it the address of your Wilson server, such as `tower:13101`, and sign in, or create
+the account if the server has none yet. A session
 is kept in the Keychain. An account whose only second factor is a passkey cannot sign in here: add an
 authenticator in the web app.

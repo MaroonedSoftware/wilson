@@ -14,6 +14,7 @@ public class SignInStepTests
 
     [Theory]
     [InlineData(SignInStep.Code, Kept, SignInStep.Password)]
+    [InlineData(SignInStep.Account, null, SignInStep.Server)]
     [InlineData(SignInStep.Password, Kept, SignInStep.Server)]
     [InlineData(SignInStep.Server, Kept, SignInStep.Password)]
     [InlineData(SignInStep.Server, null, SignInStep.Welcome)]

@@ -84,5 +84,20 @@
             <Button Classes="ghost" Content="Use a different server" Command="{Binding BackCommand}" IsVisible="{Binding ShowsPasswordStep}" HorizontalAlignment="Center" />
         </StackPanel>
 
+        <StackPanel Width="420" Spacing="18" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding CreatingAccount}">
+            <Button Classes="icon" ToolTip.Tip="Back" AutomationProperties.Name="Back" Command="{Binding BackCommand}" Margin="-8,0,0,0" HorizontalAlignment="Left">
+                <PathIcon Data="{StaticResource IconChevronRight}" RenderTransform="scaleX(-1)" />
+            </Button>
+            <TextBlock Classes="title" Text="Create your account" />
+            <TextBlock Classes="quiet" FontSize="14" TextWrapping="Wrap" Text="Wilson has one account: yours. Choose the email address and password you will sign in with. Wilson never sends mail to it." />
+            <StackPanel Spacing="8">
+                <TextBox x:Name="AccountEmailBox" Text="{Binding Email}" PlaceholderText="you@example.com" IsEnabled="{Binding !Busy}" />
+                <TextBox Text="{Binding Password}" PasswordChar="•" PlaceholderText="Password, at least 8 characters and hard to guess" IsEnabled="{Binding !Busy}" />
+                <TextBox Text="{Binding Confirmation}" PasswordChar="•" PlaceholderText="Confirm password" IsEnabled="{Binding !Busy}" />
+                <Button Classes="primary" Content="Create account" Command="{Binding CreateAccountCommand}" IsDefault="True" IsEnabled="{Binding !Busy}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+            </StackPanel>
+            <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        </StackPanel>
+
     </Panel>
 </UserControl>

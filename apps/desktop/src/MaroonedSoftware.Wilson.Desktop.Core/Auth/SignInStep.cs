@@ -9,6 +9,9 @@ public enum SignInStep
     /// <summary>Never reached without a server: an account belongs to one, and there is none until an address has answered.</summary>
     Password,
     Code,
+
+    /// <summary>A server with no account yet: the one operator's account is made here.</summary>
+    Account,
 }
 
 /// <summary>How the sign-in screen moves.</summary>
@@ -24,6 +27,7 @@ public static class SignInSteps
     public static SignInStep Back(SignInStep step, string? keptOrigin) => step switch
     {
         SignInStep.Code => SignInStep.Password,
+        SignInStep.Account => SignInStep.Server,
         SignInStep.Password => SignInStep.Server,
         SignInStep.Server => Initial(keptOrigin),
         _ => step,

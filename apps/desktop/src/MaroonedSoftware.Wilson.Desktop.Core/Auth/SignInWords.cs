@@ -14,6 +14,14 @@ public static class SignInWords
         _ => null,
     };
 
+    /// <summary>Why making the account failed, by the same rules as `onboardingFailure` in `lib/auth.ts`.</summary>
+    public static string OfAccount(Exception failure) => failure switch
+    {
+        SdkException { Status: 409 } => "An account already exists. Go back and sign in.",
+        SdkException refused when ApiError.PasswordAdvice(refused) is { } advice => $"That password is too easy to guess. {advice}".TrimEnd(),
+        _ => ApiError.Reason(failure),
+    };
+
     /// <summary>A code refused while setting up an authenticator, by the same rules as `codeFailure` in `lib/auth.ts`.</summary>
     public static string OfCode(Exception failure) => failure switch
     {

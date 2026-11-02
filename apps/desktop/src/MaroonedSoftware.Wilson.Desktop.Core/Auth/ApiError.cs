@@ -19,6 +19,32 @@ public static partial class ApiError
                 : null;
     }
 
+    /// <summary>The password policy's advice: `details.password` and `details.suggestions`, not the `details.reason` other refusals use.</summary>
+    public static string? PasswordAdvice(SdkException failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        if (Details(failure) is not { } details)
+        {
+            return null;
+        }
+
+        var warned = details.TryGetProperty("password", out var password);
+        var suggested = details.TryGetProperty("suggestions", out var suggestions) && suggestions.ValueKind == JsonValueKind.Array;
+        if (!warned && !suggested)
+        {
+            return null;
+        }
+
+        var advice = new List<string?> { warned && password.ValueKind == JsonValueKind.String ? password.GetString() : null };
+        if (suggested)
+        {
+            advice.AddRange(suggestions.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()));
+        }
+
+        return string.Join(' ', advice.Where(text => !string.IsNullOrEmpty(text)));
+    }
+
     /// <summary>The sentence to show for a failed call: the API's own when it sent one.</summary>
     public static string Reason(Exception failure)
     {

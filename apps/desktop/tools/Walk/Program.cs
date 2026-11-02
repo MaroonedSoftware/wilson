@@ -23,7 +23,7 @@ namespace Walk;
 // the requests are real and a picture is what a window would show. Run it against the throwaway API
 // (apps/android/tools/api.sh) and never the real board: it changes cards.
 //
-//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin]
+//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun]
 //     dotnet run --project tools/Walk -- keychain
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -101,7 +101,7 @@ internal static class Program
     {
         var (into, origin, email, password) = (args[0], args[1], args[2], args[3]);
         var appearance = args.Length > 4 && args[4] == "light" ? Appearance.Light : Appearance.Dark;
-        var adminOnly = args.Length > 5 && args[5] == "admin";
+        var only = args.Length > 5 ? args[5] : null;
         Directory.CreateDirectory(into);
 
         using var finished = new CancellationTokenSource();
@@ -109,7 +109,7 @@ internal static class Program
         {
             try
             {
-                await WalkAsync(into, origin, email, password, appearance, adminOnly);
+                await WalkAsync(into, origin, email, password, appearance, only);
             }
             catch (Exception failure)
             {
@@ -124,7 +124,7 @@ internal static class Program
         Dispatcher.UIThread.MainLoop(finished.Token);
     }
 
-    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance, bool adminOnly)
+    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance, string? only)
     {
         // A fresh file each run, because a walk begins at the first-run sign-in.
         var settings = Path.Combine(into, "settings.json");
@@ -134,7 +134,9 @@ internal static class Program
         window.Show();
 
         await shell.StartAsync();
-        await Steps.RunAsync(new Walker(into, window, shell), origin, email, password, adminOnly);
+        await (only == "firstrun"
+            ? Steps.FirstRunAsync(new Walker(into, window, shell), origin, email, password)
+            : Steps.RunAsync(new Walker(into, window, shell), origin, email, password, only == "admin"));
         window.Close();
     }
 }
