@@ -168,6 +168,14 @@ export interface EditCardRequest {
 }
 
 /**
+ * generated from [RepinCardPlanRequest](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface RepinCardPlanRequest {
+    /** The version the person is agreeing to (`CardPlan.currentVersion`). */
+    version: string;
+}
+
+/**
  * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
  * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
  * for no behavioural gain, where `POST .../rename` is purely additive.

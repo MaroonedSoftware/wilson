@@ -172,6 +172,8 @@ export type CardEventType =
     | 'chain.stopped'
     | 'card.flagged'
     | 'card.acked'
+    /** `BoardWriteService.repin` moved the approved plan to a newer version. Payload: `from`, `to`, `by`. */
+    | 'plan.repinned'
     /** `AutoSplitter` split this card on a supported refusal. Payload: `pieces` and the refusal's `reason`. */
     | 'card.auto-split'
     /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */

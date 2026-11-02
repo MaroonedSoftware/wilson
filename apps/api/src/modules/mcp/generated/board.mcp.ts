@@ -38,6 +38,7 @@ import {
     PlanDraft,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SplitCardsRequest,
     SplitResult,
@@ -69,6 +70,7 @@ const SplitCardArgs = z.object({ id: z.string(), body: SplitCardsRequest });
 const LintACardPlanArgs = z.object({ id: z.string() });
 const GetCardPlanArgs = z.object({ id: z.string(), query: CardPlanQuery.optional() });
 const EditCardSectionArgs = z.object({ id: z.string(), body: EditCardSectionRequest });
+const RepinCardPlanArgs = z.object({ id: z.string(), body: RepinCardPlanRequest });
 const GetAPlanDraftArgs = z.object({ id: z.string() });
 const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRequest });
 const ListPlanCommentsArgs = z.object({ id: z.string() });
@@ -501,6 +503,30 @@ export class EditCardSectionMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/repin`
+ */
+@Injectable()
+export class RepinCardPlanMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'repin_card_plan',
+        description:
+            "Moves a card's approved plan to its newest text, which is what stages read from then on. Approval\nagain, for a card already past approval: a change to the plan contract, so always a person's own\nconfirmed act and always recorded. Leaves the card's stage, flag and retries alone.",
+        inputSchema: z.toJSONSchema(RepinCardPlanArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, body } = await parseAndValidate(args, RepinCardPlanArgs);
+        const result = await container.get(BoardWriteService).repin(id, body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/plan/draft`
  */
 @Injectable()
@@ -786,6 +812,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('lint_a_card_plan', container.get(LintACardPlanMcpTool));
     map.set('get_card_plan', container.get(GetCardPlanMcpTool));
     map.set('edit_card_section', container.get(EditCardSectionMcpTool));
+    map.set('repin_card_plan', container.get(RepinCardPlanMcpTool));
     map.set('get_a_plan_draft', container.get(GetAPlanDraftMcpTool));
     map.set('add_a_plan_comment', container.get(AddAPlanCommentMcpTool));
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
@@ -819,6 +846,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(LintACardPlanMcpTool).useClass(LintACardPlanMcpTool).asSingleton();
     registry.register(GetCardPlanMcpTool).useClass(GetCardPlanMcpTool).asSingleton();
     registry.register(EditCardSectionMcpTool).useClass(EditCardSectionMcpTool).asSingleton();
+    registry.register(RepinCardPlanMcpTool).useClass(RepinCardPlanMcpTool).asSingleton();
     registry.register(GetAPlanDraftMcpTool).useClass(GetAPlanDraftMcpTool).asSingleton();
     registry.register(AddAPlanCommentMcpTool).useClass(AddAPlanCommentMcpTool).asSingleton();
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();

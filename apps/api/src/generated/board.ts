@@ -149,6 +149,14 @@ export const EditCardRequest = z.strictObject({
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
 
 /**
+ * generated from [RepinCardPlanRequest](../../data/contracts/board.ck)
+ */
+export const RepinCardPlanRequest = z.strictObject({
+    version: z.string().describe('The version the person is agreeing to (`CardPlan.currentVersion`).'),
+});
+export type RepinCardPlanRequest = z.infer<typeof RepinCardPlanRequest>;
+
+/**
  * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
  * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
  * for no behavioural gain, where `POST .../rename` is purely additive.

@@ -30,6 +30,7 @@ import com.maroonedsoftware.wilson.sdk.models.PlanTurnRequest
 import com.maroonedsoftware.wilson.sdk.models.RecordFindingsRequest
 import com.maroonedsoftware.wilson.sdk.models.ReleaseResult
 import com.maroonedsoftware.wilson.sdk.models.RenameCardRequest
+import com.maroonedsoftware.wilson.sdk.models.RepinCardPlanRequest
 import com.maroonedsoftware.wilson.sdk.models.RepositionCardRequest
 import com.maroonedsoftware.wilson.sdk.models.SaveDraftRequest
 import com.maroonedsoftware.wilson.sdk.models.SplitCardsRequest
@@ -308,6 +309,21 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun editCardSection(id: String, body: EditCardSectionRequest): CardDetail {
         val response = http.execute(HttpMethod.Patch) {
             path("api", "cards", segment(id), "plan", "section")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Repin card plan
+     * Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+     * again, for a card already past approval: a change to the plan contract, so always a person's own
+     * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun repinCardPlan(id: String, body: RepinCardPlanRequest): CardDetail {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "plan", "repin")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

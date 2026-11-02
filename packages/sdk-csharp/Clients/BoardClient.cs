@@ -323,6 +323,23 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Repin card plan
+    /// Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+    /// again, for a card already past approval: a change to the plan contract, so always a person's own
+    /// confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<CardDetail> RepinCardPlanAsync(string id, RepinCardPlanRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "plan", "repin"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardDetail>(response);
+    }
+
+    /// <summary>
     /// Get a plan draft
     /// Card 0140. A read, and nothing else: creates no session, cuts no worktree, writes nothing — `open`
     /// remains the only thing that seeds a draft. A card in `planning` that has never had a session open

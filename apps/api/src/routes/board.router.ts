@@ -36,6 +36,7 @@ import {
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
@@ -469,6 +470,30 @@ BoardRouter.patch('/api/cards/:id/plan/section', requirePolicy({ policy: 'wilson
 
     const service = ctx.container.get(BoardWriteService);
     const result: CardDetail = await service.editSection(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+ * again, for a card already past approval: a change to the plan contract, so always a person's own
+ * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/repin`
+ */
+BoardRouter.post('/api/cards/:id/plan/repin', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, RepinCardPlanRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.repin(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

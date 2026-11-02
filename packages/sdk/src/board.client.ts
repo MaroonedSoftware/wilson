@@ -28,6 +28,7 @@ import type {
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
@@ -283,6 +284,21 @@ export class BoardClient {
     async editCardSection(id: string, body: EditCardSectionRequest): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/section`, {
             method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
+    }
+
+    /**
+     * @name Repin card plan
+     * @description Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+     * again, for a card already past approval: a change to the plan contract, so always a person's own
+     * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+     */
+    async repinCardPlan(id: string, body: RepinCardPlanRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/repin`, {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body, bigIntReplacer),
         });

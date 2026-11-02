@@ -115,6 +115,18 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
 };
 
 /**
+ * Why `body` cannot be a card's plan, in words a refusal can use: a plan-contract section absent or
+ * empty, or an empty "Files in scope". Undefined for a body that can be approved. Each of these would
+ * otherwise kill the card at dispatch, stages after whoever approved it.
+ */
+export const planGap = (body: string): string | undefined => {
+    const sections = sectionsOf(body);
+    const missing = PLAN_SECTIONS.filter(section => !sections[section] || sections[section]!.trim().length === 0);
+    if (missing.length > 0) return `draft is incomplete — empty section(s): ${missing.join(', ')}`;
+    return filesInScope({ frontmatter: {} as CardFrontmatter, sections, body }).length === 0 ? 'draft has an empty "Files in scope"' : undefined;
+};
+
+/**
  * `body` with one section's text replaced and every other byte kept: the sections around it and the
  * runner's own appended sections after it. The last heading wins when a section repeats, as it does
  * in `sectionsOf`. Undefined for a plan without that section, or `text` that carries a heading of its

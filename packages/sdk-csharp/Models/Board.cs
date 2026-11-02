@@ -275,6 +275,13 @@ public sealed record EditCardRequest
     public required string Body { get; init; }
 }
 
+public sealed record RepinCardPlanRequest
+{
+    /// <summary>The version the person is agreeing to (`CardPlan.currentVersion`).</summary>
+    [JsonPropertyName("version")]
+    public required string Version { get; init; }
+}
+
 /// <summary>
 /// Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
 /// would rename the generated SDK method `editCardBody` (and its caller and the test that names it)

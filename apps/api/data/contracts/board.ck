@@ -184,6 +184,11 @@ contract EditCardSectionRequest: {
     baseVersion: string
 }
 
+contract RepinCardPlanRequest: {
+    # The version the person is agreeing to (`CardPlan.currentVersion`).
+    version: string
+}
+
 # Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
 # would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
 # for no behavioural gain, where `POST .../rename` is purely additive.
@@ -893,6 +898,33 @@ operation /api/cards/{id}/plan/section: {
             400:
             404:
             # The card has a newer version than `baseVersion`: read it again before proposing this.
+            409:
+        }
+    }
+}
+
+# Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+# again, for a card already past approval: a change to the plan contract, so always a person's own
+# confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+operation /api/cards/{id}/plan/repin: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Repin card plan
+        service: BoardWriteService.repin
+        request: {
+            application/json: RepinCardPlanRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A card with no approved plan yet, a stage running or queued on it, or a plan that could
+            # not be approved as it stands.
+            400:
+            404:
+            # The card has a newer version than `version`: read it again before proposing this.
             409:
         }
     }
