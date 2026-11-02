@@ -14,6 +14,12 @@ export const isUnanswered = (question: ChatPendingQuestion): boolean => question
 // cannot import from `apps/api`, so this is kept as its own constant rather than a shared package.
 const MAX_OTHER_LENGTH = 500;
 
+/** Replaces the entry at `index` in an array of per-question state, leaving the rest as they were. */
+const replaceAt =
+    <T,>(index: number, value: T) =>
+    (previous: T[]): T[] =>
+        previous.map((entry, i) => (i === index ? value : entry));
+
 /** The given answer as it reads in the conversation: the chosen labels, then any "Other" text, joined. */
 const answerText = (q: ChatQuestion, given: ChatQuestionAnswer | undefined): string | undefined => {
     if (!given) return undefined;
@@ -78,7 +84,7 @@ export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }
                                       label={q.header}
                                       description={q.text}
                                       value={chosen[i]}
-                                      onChange={value => setChosen(previous => previous.map((entry, index) => (index === i ? value : entry)))}
+                                      onChange={value => setChosen(replaceAt(i, value))}
                                   >
                                       <Stack gap="xs" mt="xs">
                                           {q.options.map((option, index) => (
@@ -97,9 +103,7 @@ export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }
                                       label={q.header}
                                       description={q.text}
                                       value={chosen[i]![0] ?? null}
-                                      onChange={value =>
-                                          setChosen(previous => previous.map((entry, index) => (index === i ? [value] : entry)))
-                                      }
+                                      onChange={value => setChosen(replaceAt(i, [value]))}
                                   >
                                       <Stack gap="xs" mt="xs">
                                           {q.options.map((option, index) => (
@@ -119,10 +123,7 @@ export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }
                                   placeholder="Something else…"
                                   maxLength={MAX_OTHER_LENGTH}
                                   value={other[i]}
-                                  onChange={event => {
-                                      const value = event.currentTarget.value;
-                                      setOther(previous => previous.map((entry, index) => (index === i ? value : entry)));
-                                  }}
+                                  onChange={event => setOther(replaceAt(i, event.currentTarget.value))}
                                   disabled={answer.isPending}
                               />
                           </Stack>
