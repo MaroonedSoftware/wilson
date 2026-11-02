@@ -1,3 +1,5 @@
+using Avalonia;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -33,6 +35,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public DesktopSettings Settings => _settings;
 
     /// <summary>Everything but the sign-in page sits under the header.</summary>
+    public Appearance Appearance => _settings.Appearance;
+
     public bool SignedIn => Page is not (null or SignInViewModel);
 
     public bool OnChat => Section is ThreadsViewModel;
@@ -47,6 +51,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     /// <summary>Goes to chat if a session was kept for the remembered server, and to sign-in otherwise.</summary>
     public async Task StartAsync()
     {
+        Draw();
         if (_settings.Origin is { } origin)
         {
             var connection = Connect(origin);
@@ -72,7 +77,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
         Connection = new ServerConnection(origin, store);
         Connection.Session.SessionEnded += (_, _) => Dispatcher.UIThread.Post(ShowSignIn);
-        Remember(_settings.Origin == origin ? _settings with { Origin = origin } : new DesktopSettings { Origin = origin });
+        Remember(_settings.Origin == origin ? _settings : _settings with { Origin = origin, Project = null, Thread = null });
         return Connection;
     }
 
@@ -117,6 +122,14 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         ShowSignIn();
     }
 
+    [RelayCommand]
+    public void NextAppearance()
+    {
+        Remember(_settings with { Appearance = Appearances.Next(_settings.Appearance) });
+        OnPropertyChanged(nameof(Appearance));
+        Draw();
+    }
+
     public void RememberProject(string project) => Remember(_settings with { Project = project });
 
     public void RememberThread(string? thread) => Remember(_settings with { Thread = thread });
@@ -134,6 +147,19 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         _chat = null;
         _board = null;
         Replace(new SignInViewModel(this));
+    }
+
+    private void Draw()
+    {
+        if (Application.Current is { } app)
+        {
+            app.RequestedThemeVariant = _settings.Appearance switch
+            {
+                Appearance.Light => ThemeVariant.Light,
+                Appearance.Dark => ThemeVariant.Dark,
+                _ => ThemeVariant.Default,
+            };
+        }
     }
 
     private void Go(PageViewModel section)

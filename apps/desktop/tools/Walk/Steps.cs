@@ -1,6 +1,9 @@
+using Avalonia;
 using Avalonia.Input;
+using Avalonia.Styling;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Chat;
+using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 namespace Walk;
@@ -58,6 +61,7 @@ internal static class Steps
         Console.WriteLine($"     home: {home.Threads.Count} chats");
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
+        await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
         var board = walk.Page<BoardViewModel>();
@@ -73,6 +77,24 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>Round all three, ending where it began, as the file records each.</summary>
+    private static async Task AppearanceAsync(Walker walk)
+    {
+        for (var press = 0; press < 3; press++)
+        {
+            walk.Shell.NextAppearanceCommand.Execute(null);
+            var appearance = walk.Shell.Appearance;
+            var variant = appearance switch
+            {
+                Appearance.Light => ThemeVariant.Light,
+                Appearance.Dark => ThemeVariant.Dark,
+                _ => ThemeVariant.Default,
+            };
+            await walk.UntilAsync($"the app drawn {appearance}, and remembered", () => Application.Current!.RequestedThemeVariant == variant && walk.Settings().Appearance == appearance);
+            walk.Shot($"03-appearance-{appearance.ToString().ToLowerInvariant()}");
+        }
     }
 
     /// <summary>Only if the throwaway board has a card with a branch: a fresh one has none, and it takes a hand to give it one.</summary>

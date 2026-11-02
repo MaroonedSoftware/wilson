@@ -3,10 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using MaroonedSoftware.Wilson.Desktop;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.Core.Updates;
 using MaroonedSoftware.Wilson.Desktop.Mac;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
@@ -97,7 +97,7 @@ internal static class Program
     private static void Run(string[] args)
     {
         var (into, origin, email, password) = (args[0], args[1], args[2], args[3]);
-        Application.Current!.RequestedThemeVariant = args.Length > 4 && args[4] == "light" ? ThemeVariant.Light : ThemeVariant.Dark;
+        var appearance = args.Length > 4 && args[4] == "light" ? Appearance.Light : Appearance.Dark;
         Directory.CreateDirectory(into);
 
         using var finished = new CancellationTokenSource();
@@ -105,7 +105,7 @@ internal static class Program
         {
             try
             {
-                await WalkAsync(into, origin, email, password);
+                await WalkAsync(into, origin, email, password, appearance);
             }
             catch (Exception failure)
             {
@@ -120,9 +120,12 @@ internal static class Program
         Dispatcher.UIThread.MainLoop(finished.Token);
     }
 
-    private static async Task WalkAsync(string into, string origin, string email, string password)
+    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance)
     {
-        using var shell = new ShellViewModel(new InMemorySecretStore(), Path.Combine(into, "settings.json"));
+        // A fresh file each run, because a walk begins at the first-run sign-in.
+        var settings = Path.Combine(into, "settings.json");
+        new DesktopSettings { Appearance = appearance }.Save(settings);
+        using var shell = new ShellViewModel(new InMemorySecretStore(), settings);
         var window = new Window { Width = Width, Height = Height, Content = new ShellView { DataContext = shell } };
         window.Show();
 
@@ -136,6 +139,9 @@ internal static class Program
 internal sealed class Walker(string into, Window window, ShellViewModel shell)
 {
     public ShellViewModel Shell => shell;
+
+    /// <summary>What a relaunch would read.</summary>
+    public DesktopSettings Settings() => DesktopSettings.Load(Path.Combine(into, "settings.json"));
 
     public T Page<T>()
         where T : PageViewModel => shell.Page as T ?? throw new InvalidOperationException($"expected {typeof(T).Name}, on {shell.Page?.GetType().Name}");

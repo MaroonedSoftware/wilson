@@ -135,7 +135,8 @@ the application menu runs the same check and also answers when there is nothing 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
-dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and splitting a card. A
+dragging cards, and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
+here either, but the web app has no such control: it only shows a split's progress. A
 card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
 notifications.
 
@@ -147,6 +148,9 @@ the chosen project survive a trip between them, and going to one clears the Back
 what opens from a section, such as a card. A page following the feed implements `IFollowsFeed`, and
 the header shows its state and Refresh. Chat follows no feed, so unlike the web app's header, this one
 shows neither there. Add a section's link in the same commit as its page, never ahead of it.
+
+The header's appearance button steps through System, Light and Dark. `DesktopSettings.Appearance`
+keeps it across a change of server, and `ShellViewModel.StartAsync` applies it before the first page.
 
 ## Chat follows the web app
 
@@ -172,6 +176,8 @@ change was posed, as nothing makes the agent propose one on cue.
 2026-11-02, header: with `tools/Walk`, in both appearances, the sections and their marker, live status
 and Refresh on the board and a card, leaving a card for either section, the same board and chat coming
 back, no header on sign-in, and signing out from it.
+
+2026-11-02, appearance: with `tools/Walk`, all three drawn and read back from the settings file.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

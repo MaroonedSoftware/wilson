@@ -1,8 +1,9 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Settings;
 
-/// <summary>What is remembered between launches that is not a secret: which server, and which project and chat on it.</summary>
+/// <summary>What is remembered between launches that is not a secret: which server, which project and chat on it, and how the app looks.</summary>
 public sealed record DesktopSettings
 {
     public string? Origin { get; init; }
@@ -11,6 +12,10 @@ public sealed record DesktopSettings
 
     /// <summary>The chat left open, so a launch reopens the conversation. None is a new chat.</summary>
     public string? Thread { get; init; }
+
+    /// <summary>Written by name, so the file stays readable and a reordered enum cannot change it.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<Appearance>))]
+    public Appearance Appearance { get; init; }
 
     /// <summary>`~/Library/Application Support/Wilson/settings.json`.</summary>
     public static string DefaultPath() =>
