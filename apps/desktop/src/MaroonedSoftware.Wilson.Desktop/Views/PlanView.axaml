@@ -2,8 +2,11 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
+    xmlns:core="using:MaroonedSoftware.Wilson.Desktop.Core.Planning"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.PlanView"
     x:DataType="vm:PlanViewModel">
+    <Grid>
     <DockPanel Margin="16">
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <Button DockPanel.Dock="Right" Content="Close session" Command="{Binding CloseSessionCommand}" IsEnabled="{Binding Open}" />
@@ -25,42 +28,104 @@
                 </StackPanel>
                 <ScrollViewer>
                     <StackPanel>
-                        <ItemsControl ItemsSource="{Binding Lines}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:TranscriptLine"><StackPanel Margin="0,0,0,10" Spacing="2"><TextBlock Classes="quiet" Text="{Binding Who}" /><SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <ItemsControl ItemsSource="{Binding Lines}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:TranscriptLine"><StackPanel Margin="0,0,0,10" Spacing="2"><TextBlock Classes="quiet" Text="{Binding Who}" /><views:MarkdownView Text="{Binding Text}" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         <SelectableTextBlock Classes="quiet" Text="{Binding Sent}" TextWrapping="Wrap" IsVisible="{Binding Sending}" Margin="0,0,0,8" />
-                        <SelectableTextBlock Text="{Binding Pending}" TextWrapping="Wrap" />
+                        <views:MarkdownView Text="{Binding Pending}" />
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
             <DockPanel Grid.Column="2">
+                <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,0,0,6" IsVisible="{Binding Collision}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Use the agent's version" Command="{Binding UseIncomingCommand}" Margin="8,0,0,0" />
+                        <TextBlock Text="The agent wrote a new draft while you were editing. Your edit is kept below." TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Content="Approve…" Command="{Binding AskApproveCommand}" IsEnabled="{Binding CanApprove}" />
+                    <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="unsaved" VerticalAlignment="Center" Margin="0,0,8,0" IsVisible="{Binding Unsaved}" />
+                    <ToggleButton Content="Preview" IsChecked="{Binding Preview}" HorizontalAlignment="Left" IsEnabled="{Binding Open}" />
+                </DockPanel>
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
-                        <Button Content="Save draft" Command="{Binding SaveDraftCommand}" IsEnabled="{Binding Open}" />
-                        <Button Content="Comment on selection" Click="CommentOnSelection" IsEnabled="{Binding Open}" />
-                    </StackPanel>
                     <StackPanel DockPanel.Dock="Top" Spacing="6" IsVisible="{Binding Quote, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,6">
                         <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
-                        <TextBox PlaceholderText="Your comment" Text="{Binding CommentText}" />
-                        <Button Content="Add comment" Command="{Binding AddCommentCommand}" />
+                        <TextBox PlaceholderText="Comment on this passage" Text="{Binding CommentText}" AcceptsReturn="True" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Cancel" Command="{Binding CancelCommentCommand}" />
+                            <Button Content="Comment" Command="{Binding AddCommentCommand}" />
+                        </StackPanel>
                     </StackPanel>
-                    <ScrollViewer MaxHeight="170">
-                        <ItemsControl ItemsSource="{Binding Comments}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:PlanCommentRow">
-                                    <DockPanel Margin="0,0,0,6">
-                                        <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
-                                        <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
-                                        <StackPanel>
-                                            <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
-                                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </DockPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                    <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="Select a passage to comment on it." IsVisible="{Binding Preview}" Margin="0,0,0,6" />
+                    <ScrollViewer MaxHeight="190">
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding Comments}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PlanCommentRow">
+                                        <DockPanel Margin="0,0,10,6">
+                                            <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
+                                            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
+                                            <StackPanel>
+                                                <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
+                                                <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="quiet" FontWeight="SemiBold" Text="Outdated comments" IsVisible="{Binding !!Outdated.Count}" Margin="0,0,0,4" />
+                            <ItemsControl ItemsSource="{Binding Outdated}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PlanCommentRow">
+                                        <DockPanel Margin="0,0,10,6">
+                                            <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
+                                            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
+                                            <StackPanel>
+                                                <TextBlock Classes="quiet" Text="{Binding Quote}" TextDecorations="Strikethrough" TextTrimming="CharacterEllipsis" />
+                                                <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
-                <TextBox x:Name="DraftBox" PlaceholderText="The draft" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" VerticalContentAlignment="Top" />
+                <Grid>
+                    <TextBox PlaceholderText="The draft" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" VerticalContentAlignment="Top" IsVisible="{Binding !Preview}" />
+                    <ScrollViewer IsVisible="{Binding Preview}">
+                        <views:MarkdownView x:Name="DraftPreview" Text="{Binding Draft}" Marks="{Binding Marks}" Margin="0,0,10,0" />
+                    </ScrollViewer>
+                </Grid>
             </DockPanel>
         </Grid>
     </DockPanel>
+    <Border IsVisible="{Binding Approving}" Background="#80000000">
+        <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="640" MaxHeight="560" Padding="18" CornerRadius="6" Background="{DynamicResource Tile}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="title" FontSize="18" Text="{Binding ApproveTitle}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,10,0,0">
+                    <Button Classes="ghost" Content="Cancel" Command="{Binding CancelApproveCommand}" />
+                    <Button Classes="primary" Content="Write this version" Command="{Binding SaveDraftCommand}" />
+                </StackPanel>
+                <SelectableTextBlock DockPanel.Dock="Bottom" Classes="error" Text="{Binding ApproveError}" TextWrapping="Wrap" Margin="0,8,0,0" IsVisible="{Binding ApproveError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="No changes." IsVisible="{Binding !ApproveLines.Count}" />
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding ApproveLines}" Margin="0,0,10,0">
+                        <ItemsControl.Styles>
+                            <Style Selector="Border.added"><Setter Property="Background" Value="{DynamicResource Added}" /></Style>
+                            <Style Selector="Border.removed"><Setter Property="Background" Value="{DynamicResource Removed}" /></Style>
+                        </ItemsControl.Styles>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:DraftDiffLine">
+                                <Border Classes.added="{Binding Added}" Classes.removed="{Binding !Added}" Padding="4,1">
+                                    <TextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Text}" TextWrapping="Wrap" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Border>
+    </Grid>
 </UserControl>

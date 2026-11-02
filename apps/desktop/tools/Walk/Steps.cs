@@ -449,18 +449,33 @@ internal static class Steps
 
         await walk.UntilAsync("the plan stream live", () => plan.Live);
 
-        plan.Draft = "# Plan\n\nDo the first thing.\n\nThen the second thing.";
+        plan.Draft = "# Plan\n\nDo the first thing, and **then** the second thing.\n\nDo the first thing again.";
+        await walk.UntilAsync("the edit said to be unsaved", () => plan.Unsaved && plan.CanApprove);
+        plan.AskApproveCommand.Execute(null);
+        walk.Shot("10a-plan-approve");
         await plan.SaveDraftCommand.ExecuteAsync(null);
-        await walk.UntilAsync("the draft saved", () => plan.Notice is not null);
-        Console.WriteLine($"     save: {plan.Notice}");
+        await walk.UntilAsync("the draft refused on the dialog, and kept", () => plan.ApproveError is not null && plan.Draft!.StartsWith("# Plan", StringComparison.Ordinal));
+        Console.WriteLine($"     save: {plan.ApproveError}");
+        walk.Shot("10b-plan-approve-refused");
+        plan.CancelApproveCommand.Execute(null);
 
-        plan.Quote = "the first thing";
-        plan.CommentText = "Which first thing?";
+        plan.Preview = true;
+        await walk.UntilAsync("the edit surviving the poll", () => plan.Draft!.Contains("**then**", StringComparison.Ordinal));
+        walk.Select("then the");
+        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the");
+        plan.CommentText = "Which second thing?";
         await plan.AddCommentCommand.ExecuteAsync(null);
-        await walk.UntilAsync("the comment added", () => plan.Comments.Count > 0);
+        await walk.UntilAsync("the comment added, and anchored", () => plan.Comments.Count == 1 && plan.Marks is { Count: 1 });
         walk.Shot("10-plan-commented");
-        await plan.ResolveCommentCommand.ExecuteAsync(plan.Comments[0]);
-        await walk.UntilAsync("the comment resolved", () => plan.Comments[0].Resolved);
+
+        plan.Draft = "# Plan\n\nDo the only thing.";
+        plan.Preview = false;
+        plan.Preview = true;
+        await walk.UntilAsync("the comment listed as outdated", () => plan.Outdated.Count == 1 && plan.Comments.Count == 0);
+        walk.Shot("10c-plan-outdated");
+        await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment resolved", () => plan.Outdated[0].Resolved);
+        plan.Preview = false;
 
         plan.Composer = "Reply with the single word: ok";
         await plan.SendCommand.ExecuteAsync(null);

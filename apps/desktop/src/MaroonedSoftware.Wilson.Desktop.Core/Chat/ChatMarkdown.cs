@@ -36,6 +36,9 @@ public abstract record MarkdownInline
     public sealed record CardRef(string Id) : MarkdownInline;
 
     public sealed record Break : MarkdownInline;
+
+    /// <summary>A line ending inside a paragraph: a space to read, and a newline in the source text.</summary>
+    public sealed record SoftBreak : MarkdownInline;
 }
 
 /// <summary>
@@ -51,9 +54,37 @@ public static partial class ChatMarkdown
         return Blocks(Markdown.Parse(markdown), markdown);
     }
 
+    /// <summary>
+    /// The text of Markdown as read, the web app's `textContent`: no separators between blocks and no
+    /// list markers. Plan comments are anchored against this, so the two clients must agree on it.
+    /// </summary>
+    public static string RenderedText(string markdown) => string.Concat(Parse(markdown).Select(Rendered));
+
     /// <summary>Answers are written by agents, so a link opens only if it is a web address.</summary>
     public static bool CanOpen(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    private static string Rendered(MarkdownBlock block) => block switch
+    {
+        MarkdownBlock.Heading heading => Rendered(heading.Inlines),
+        MarkdownBlock.Paragraph paragraph => Rendered(paragraph.Inlines),
+        MarkdownBlock.BlockList list => string.Concat(list.Items.SelectMany(item => item).Select(Rendered)),
+        MarkdownBlock.Code code => code.Text,
+        MarkdownBlock.Quote quote => string.Concat(quote.Blocks.Select(Rendered)),
+        _ => string.Empty,
+    };
+
+    private static string Rendered(IEnumerable<MarkdownInline> inlines) => string.Concat(inlines.Select(inline => inline switch
+    {
+        MarkdownInline.Text text => text.Value,
+        MarkdownInline.Code code => code.Value,
+        MarkdownInline.Strong strong => Rendered(strong.Inlines),
+        MarkdownInline.Emphasis emphasis => Rendered(emphasis.Inlines),
+        MarkdownInline.Link link => Rendered(link.Inlines),
+        MarkdownInline.CardRef reference => $"[[{reference.Id}]]",
+        MarkdownInline.SoftBreak => "\n",
+        _ => string.Empty,
+    }));
 
     private static List<MarkdownBlock> Blocks(IEnumerable<Block> blocks, string source) => [.. blocks.Select(block => Convert(block, source))];
 
@@ -76,7 +107,7 @@ public static partial class ChatMarkdown
             {
                 LiteralInline literal => new MarkdownInline.Text(literal.Content.ToString()),
                 LineBreakInline { IsHard: true } => new MarkdownInline.Break(),
-                LineBreakInline => new MarkdownInline.Text(" "),
+                LineBreakInline => new MarkdownInline.SoftBreak(),
                 CodeInline code => new MarkdownInline.Code(code.Content),
                 AutolinkInline link => new MarkdownInline.Link(link.Url, [new MarkdownInline.Text(link.Url)]),
                 LinkInline { IsImage: false, Url: { } url } link => new MarkdownInline.Link(url, Inlines(link, source)),

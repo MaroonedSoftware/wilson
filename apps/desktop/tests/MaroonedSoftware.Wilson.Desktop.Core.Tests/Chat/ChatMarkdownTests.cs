@@ -50,6 +50,10 @@ public class ChatMarkdownTests
     }
 
     [Fact]
+    public void RenderedTextIsWhatAReaderSees_WithNoSeparators() =>
+        Assert.Equal("TitleOne bold\nlineItem aItem bQuotedcodesee [[0012]]", ChatMarkdown.RenderedText("# Title\n\nOne **bold**\nline\n\n- Item a\n- Item b\n\n> Quoted\n\n```\ncode\n```\n\nsee [[0012]]"));
+
+    [Fact]
     public void ANonNumericReferenceStaysText() =>
         Assert.Equal(new MarkdownInline.Text("[[abc]]"), Assert.Single(Assert.IsType<MarkdownBlock.Paragraph>(Assert.Single(ChatMarkdown.Parse("[[abc]]"))).Inlines));
 

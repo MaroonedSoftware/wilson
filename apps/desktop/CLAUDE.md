@@ -166,6 +166,16 @@ kept in step by hand as the web app keeps its own copy of the API's. The Plan ta
 down to the plan, with Live activity above Files in scope. Activity holds Attempts, Events, Usage and
 Versions. Context holds attached snapshots and dependencies. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
 
+## Planning
+
+`PlanView` follows `DraftPane.tsx` and `CommentableDraft.tsx`: `DraftEdit` is whose edit wins, the draft
+is read again every four seconds, and nothing is written until the changes have been seen. Comments
+are `PlanAnchors`, `lib/anchor.ts`, a quote and its surroundings and never an offset. **Both clients must
+anchor against the same text**, `ChatMarkdown.RenderedText`, which is the web app's `textContent`, or a
+comment made in one reads as outdated in the other. `MarkdownView` marks and selects by offsets into
+that text. A selection stays within one block, unlike the web app's, and a passage in a code block is
+found but not marked. Comments are listed under the draft rather than in a popover over the mark.
+
 ## Comments on a diff
 
 Selecting a numbered line opens the composer under the diff, not under the line as on the web, as a
@@ -231,6 +241,11 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, planning: with `tools/Walk`, a real drag selecting a passage in the preview, a comment
+anchored and marked, a rewrite leaving it outdated, resolving it, the changes shown before a save and
+a refusal staying on that dialog. A collision is covered by `DraftEditTests` only, and a comment made
+in the web app and read here has not been tried.
 
 2026-11-02, comments on a diff: with `tools/Walk`, a real branch in the scratch repo, composing on a
 line, a batch across lines, removing one, and sending it, which moved the card back.
