@@ -31,6 +31,9 @@ Everything in `apps/android/CLAUDE.md` under that heading applies here. Beyond i
   `WWW-Authenticate` (`ApiError.RefusesRefresh`), the Android app's rule. Everything else is `Unavailable`.
 - Refresh tokens are single-use and a replay revokes the family, so a refresh is single-flight.
 - A passkey cannot be answered here. An account with no authenticator gets `SignInResult.PasskeyOnly`.
+- A 403 naming `step_up_required` is `lib/session.ts`'s, in `SessionHandler`: it asks `SessionManager.StepUp`,
+  which is `StepUpViewModel` over the page, and replays the request with the new session. Cancelling leaves
+  it refused. With an authenticator enrolled a password alone does not satisfy it, hence the code step.
 - The shared `HttpClient` has no timeout: a merge runs the suite before answering, and streams never
   end. So each call that needs a limit brings its own, as the token requests do.
 
@@ -48,7 +51,8 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 ```
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
-appearance. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
+appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
+session must age for a step-up, so a whole walk's end is that wait too. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
 this for the findings step, which brings its own card.
@@ -65,7 +69,8 @@ osascript -e 'tell application "System Events" to tell process "wilson" to get n
 
 The screen is deadair's setup steps: a welcome on a first run, the address, then the sign-in and any
 code. A remembered server opens on the sign-in. `ServerProbe` asks `/api/health` before an address is
-kept, and an address that answers moves straight on, because a server has no name to confirm.
+kept, and an address that answers moves straight on, because a server has no name to confirm. A server
+with no account yet asks for one instead (`SignInStep.Account`, `OnboardingForm`), and that goes on to sign in.
 
 ## Menu bar
 
@@ -134,8 +139,9 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings.
+planning, chat, the diff, projects, hosts, settings and making the first account. Not here yet, so this
+still needs the web app: making a passkey, which an app signed ad hoc cannot do. Settings lists and removes
+passkeys and opens the web app to add one.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -166,6 +172,27 @@ each change of page, and for the project in hand where the web app reads the ser
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
 The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
 as many events as are showing, so one from the feed does not take back what Show older brought in.
+
+## Hosts
+
+`HostsViewModel` is `routes/hosts.tsx` and `HostRules` its wording. The feed says nothing of hosts, so the
+page reads every ten seconds, and panels are kept by name across a read, as a redraw would lose a form
+half filled in or close a menu. As on the web, there is no minting of a worker's token: `wilson host` does that.
+
+## Settings
+
+`SettingsViewModel` is `routes/settings.tsx`, without its "back to the board" link, which the header
+replaces. `SettingControls.cs` holds its three shapes, each with the web control's rule about a refusal:
+`SwitchSetting` shows what came back, `NumberSetting` puts the stored value back, and `TextSetting` keeps
+the attempt beside what is really stored. `ShellViewModel.Drain` is `lib/drain.ts`: read every five seconds
+while draining and every minute otherwise, from sign-in on, for the header's badge on every page.
+
+`EngineTokenControl` and `WorkerTokensControl` are write-only: the API gives back where a sign-in comes from
+and names, never a token, so nothing here can show one. `ChatEngineControl` is a draft and a Save.
+
+The API answers 500 to a null on notify-webhook, the Claude config directory and the GitHub App, in the web
+app too, as `SettingsStore.set` hands undefined to the query. So those cannot be cleared from either client
+yet. The engine token can: it has its own path.
 
 ## Feed activity
 
@@ -207,6 +234,14 @@ Redraws wait from the press, not the drag: replacing a button under a press woul
 `LetGo` is posted so the release reaches the button first. Escape is a drop on nothing, and a collapsed
 column is still somewhere to drop. `StateIcon` strokes the face in the colour behind it, since the
 brand's SVGs cut it out with a mask, so it only suits a solid backing.
+
+## The chat dock
+
+`ChatDockViewModel` is `ChatDock.tsx` and `ChatDock` is `lib/chat.dock.ts`, kept in `DesktopSettings`. It is the
+chat page's own `ThreadsViewModel` beside another page, so there is one conversation: `ShellViewModel.SyncDock`
+shows that page while the dock is open, as a page follows its stream only while shown, and hides it again
+unless it has come to the front itself. Cmd+J sits on the window, as nothing need have the focus, and does
+nothing on chat. A resize is written when the drag ends, not on each move. There is no phone drawer here.
 
 ## Chat follows the web app
 
@@ -257,6 +292,35 @@ losing the pointer mid-drag.
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
 
+2026-11-02, the chat dock: with `tools/Walk`, the shortcut through headless input, a drag resizing it and
+stopping at the limit, a real turn in the dock, moving it, the picker, the home page showing the same chat,
+Cmd+J doing nothing there, and each kept in the settings file. Arrow keys on the handle were not walked.
+
+2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
+empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the
+account made and signed in, and that server then asking for a password. An account made in between
+checking and creating (the 409) is in `SignInWordsTests` only.
+
+2026-11-02, security: with `tools/Walk`, on a real session past the five minutes, a real step-up refused,
+cancelled and answered with the request replayed, a real authenticator enrolled from its secret, wrong
+codes refused, a real sign-in with a code, and removing it. `Walker.Totp` stands in for the phone, so the
+QR code was seen and not scanned. A step-up answered with a code, and a passkey listed or removed, were not
+walked: the first needs the session to age again and the second needs a browser to make one.
+
+2026-11-02, engine settings: with `tools/Walk`, a config directory and a token refused, a made-up token
+saved and removed, a worker token listed and removed, an app id saved, and the chat engine saved and put
+back. No real token was used, so a sign-in with one was not tried, and the GitHub key's found state and a
+chat on the AI SDK were not seen.
+
+2026-11-02, runner settings: with `tools/Walk`, each read and written and put back on the throwaway API, a
+drain reaching the header on another page, an interval refused and a webhook refused keeping the attempt.
+Auto-mode was flipped only under a drain, as that API must never start work. Draining with a stage running
+was not seen, as nothing runs a stage there.
+
+2026-11-02, hosts: with `tools/Walk`, registering, a taken name refused, drain, disable, serving a project,
+a real probe failing, an engine token assigned to a worker, and removing after being asked. A running slot
+was a `wilson.leases` row written by hand. A probe that passes needs a machine, so it was not walked.
+
 2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
 picker, a missing folder opening its parent, the roots following the code root, a taken name refused
 and a real registration reaching a board. The GitHub repository list needs an app, so it was not
@@ -302,7 +366,6 @@ icon's Quit and the app menu's Quit each ended the process.
 Not verified:
 
 - How the menu-bar icon looks, which was only checked as a PNG.
-- A real authenticator code through the code step, which the walk only poses: the seeded operator has none.
 - An update through the running app's own button, or from a real release.
 - A session, and the open chat, surviving a relaunch of the real app. Keystrokes reach the views in
   the walk through Avalonia's headless input, not a real keyboard.

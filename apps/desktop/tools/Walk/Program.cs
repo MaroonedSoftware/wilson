@@ -23,7 +23,7 @@ namespace Walk;
 // the requests are real and a picture is what a window would show. Run it against the throwaway API
 // (apps/android/tools/api.sh) and never the real board: it changes cards.
 //
-//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark]
+//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun]
 //     dotnet run --project tools/Walk -- keychain
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -101,6 +101,7 @@ internal static class Program
     {
         var (into, origin, email, password) = (args[0], args[1], args[2], args[3]);
         var appearance = args.Length > 4 && args[4] == "light" ? Appearance.Light : Appearance.Dark;
+        var only = args.Length > 5 ? args[5] : null;
         Directory.CreateDirectory(into);
 
         using var finished = new CancellationTokenSource();
@@ -108,7 +109,7 @@ internal static class Program
         {
             try
             {
-                await WalkAsync(into, origin, email, password, appearance);
+                await WalkAsync(into, origin, email, password, appearance, only);
             }
             catch (Exception failure)
             {
@@ -123,7 +124,7 @@ internal static class Program
         Dispatcher.UIThread.MainLoop(finished.Token);
     }
 
-    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance)
+    private static async Task WalkAsync(string into, string origin, string email, string password, Appearance appearance, string? only)
     {
         // A fresh file each run, because a walk begins at the first-run sign-in.
         var settings = Path.Combine(into, "settings.json");
@@ -133,7 +134,9 @@ internal static class Program
         window.Show();
 
         await shell.StartAsync();
-        await Steps.RunAsync(new Walker(into, window, shell), origin, email, password);
+        await (only == "firstrun"
+            ? Steps.FirstRunAsync(new Walker(into, window, shell), origin, email, password)
+            : Steps.RunAsync(new Walker(into, window, shell), origin, email, password, only == "admin"));
         window.Close();
     }
 }
@@ -201,6 +204,34 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Console.WriteLine($"ok   {what} ({shell.Page?.GetType().Name})");
     }
 
+    /// <summary>The code an authenticator app shows now, as RFC 6238 and the API's defaults have it.</summary>
+    public static string Totp(string secret)
+    {
+        const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        var key = new List<byte>();
+        var (buffer, bits) = (0, 0);
+        foreach (var letter in secret.TrimEnd('=').ToUpperInvariant())
+        {
+            buffer = (buffer << 5) | Alphabet.IndexOf(letter, StringComparison.Ordinal);
+            bits += 5;
+            if (bits >= 8)
+            {
+                bits -= 8;
+                key.Add((byte)(buffer >> bits));
+                buffer &= (1 << bits) - 1;
+            }
+        }
+
+        var counter = BitConverter.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
+        Array.Reverse(counter);
+#pragma warning disable CA5350 // SHA-1 is what RFC 6238 and the server use.
+        var hash = System.Security.Cryptography.HMACSHA1.HashData(key.ToArray(), counter);
+#pragma warning restore CA5350
+        var at = hash[^1] & 0xf;
+        var number = ((hash[at] & 0x7f) << 24) | (hash[at + 1] << 16) | (hash[at + 2] << 8) | hash[at + 3];
+        return (number % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     /// <summary>Text from the keyboard, into whatever has the focus, as a person's would arrive.</summary>
     public void Type(string text)
     {
@@ -215,6 +246,23 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         window.KeyReleaseQwerty(physical, RawInputModifiers.None);
     }
 
+    /// <summary>A shortcut, as the window would receive it, whatever has the focus.</summary>
+    public void Chord(PhysicalKey physical, RawInputModifiers modifiers)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.KeyPressQwerty(physical, modifiers);
+        window.KeyReleaseQwerty(physical, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The middle of the control of that name.</summary>
+    public Point CenterOf(string name)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var control = window.GetVisualDescendants().OfType<Control>().First(found => found.Name == name);
+        return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
+    }
+
     /// <summary>The middle of whatever a view drew for `model`, in the window's coordinates.</summary>
     public Point Center(object model)
     {
@@ -223,6 +271,17 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         control.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
+    }
+
+    /// <summary>Scrolls the first block reading `text` to the top of its scroller, for a look further down a page.</summary>
+    public void ScrollTo(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var block = window.GetVisualDescendants().OfType<TextBlock>().First(found => found.Text == text);
+        var scroller = block.GetVisualAncestors().OfType<ScrollViewer>().First();
+        var top = block.TranslatePoint(default, (Visual)scroller.Content!)!.Value.Y;
+        scroller.Offset = new Vector(0, top);
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>A press and release in one place, through Avalonia's input like a person's.</summary>

@@ -1,0 +1,32 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatDockView"
+    x:DataType="vm:ChatDockViewModel">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,6">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="8,0,0,0">
+                    <Button Classes="icon" Command="{Binding Home.NewChatCommand}" ToolTip.Tip="New chat" AutomationProperties.Name="New chat">
+                        <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconPlus}" /></Viewbox>
+                    </Button>
+                    <Button Classes="icon" Command="{Binding MoveCommand}" IsVisible="{Binding OnTheRight}" ToolTip.Tip="Dock at the bottom" AutomationProperties.Name="Dock at the bottom">
+                        <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconDockBottom}" /></Viewbox>
+                    </Button>
+                    <Button Classes="icon" Command="{Binding MoveCommand}" IsVisible="{Binding AtTheBottom}" ToolTip.Tip="Dock on the right" AutomationProperties.Name="Dock on the right">
+                        <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconDockRight}" /></Viewbox>
+                    </Button>
+                    <Button Classes="icon" Command="{Binding OpenAsHomeCommand}" ToolTip.Tip="Open as the home page" AutomationProperties.Name="Open as the home page">
+                        <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconMaximize}" /></Viewbox>
+                    </Button>
+                    <Button Classes="icon" Command="{Binding CloseCommand}" ToolTip.Tip="Close the chat" AutomationProperties.Name="Close the chat">
+                        <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconClose}" /></Viewbox>
+                    </Button>
+                </StackPanel>
+                <ComboBox ItemsSource="{Binding Home.Threads}" SelectedItem="{Binding Picked}" DisplayMemberBinding="{Binding Title, x:DataType=vm:ThreadRow}" PlaceholderText="New chat" HorizontalAlignment="Stretch" />
+            </DockPanel>
+        </Border>
+        <ContentControl Content="{Binding Home.Chat}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+    </DockPanel>
+</UserControl>

@@ -57,7 +57,7 @@ public partial class SignInView : UserControl
             {
                 if (_signIn is { } signIn)
                 {
-                    (signIn.Finding ? AddressBox : signIn.NeedsCode ? CodeBox : EmailBox).Focus();
+                    (signIn.Finding ? AddressBox : signIn.NeedsCode ? CodeBox : signIn.CreatingAccount ? AccountEmailBox : EmailBox).Focus();
                 }
             },
             DispatcherPriority.Loaded);

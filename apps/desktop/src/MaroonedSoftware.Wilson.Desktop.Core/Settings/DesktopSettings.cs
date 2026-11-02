@@ -20,6 +20,9 @@ public sealed record DesktopSettings
     /// <summary>The columns folded away on each project's board.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Collapsed { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 
+    /// <summary>The chat docked beside a page.</summary>
+    public ChatDock Dock { get; init; } = new();
+
     /// <summary>`~/Library/Application Support/Wilson/settings.json`.</summary>
     public static string DefaultPath() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Wilson", "settings.json");

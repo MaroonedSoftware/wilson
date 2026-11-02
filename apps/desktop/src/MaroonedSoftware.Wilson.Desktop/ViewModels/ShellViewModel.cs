@@ -6,24 +6,37 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
+using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
+using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 /// <summary>The window's one job: which page is in front, and which server it is talking to.</summary>
 public sealed partial class ShellViewModel(ISecretStore store, string settingsPath) : ObservableObject, IDisposable
 {
+    private static readonly TimeSpan DrainingReading = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan IdleReading = TimeSpan.FromSeconds(60);
+
     private readonly Stack<PageViewModel> _behind = new();
-    private DesktopSettings _settings = DesktopSettings.Load(settingsPath);
+    private DesktopSettings _settings = HeldDock(DesktopSettings.Load(settingsPath));
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
     private ProjectsViewModel? _projects;
+    private HostsViewModel? _hosts;
+    private SettingsViewModel? _settingsPage;
+    private CancellationTokenSource? _watchingDrain;
+    private TaskCompletionSource<bool>? _steppingUp;
+    private ChatDockViewModel? _dock;
+    private bool _dockFollowing;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
     [NotifyPropertyChangedFor(nameof(OnChat))]
     [NotifyPropertyChangedFor(nameof(OnBoard))]
     [NotifyPropertyChangedFor(nameof(OnProjects))]
+    [NotifyPropertyChangedFor(nameof(OnHosts))]
+    [NotifyPropertyChangedFor(nameof(OnSettings))]
     [NotifyPropertyChangedFor(nameof(Feed))]
     private PageViewModel? _page;
 
@@ -33,6 +46,16 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     /// <summary>"n needs human" for the project in hand, or nothing at none, as an always-on "0" is noise.</summary>
     [ObservableProperty]
     private string? _flagged;
+
+    /// <summary>Shown on every page while draining, as a board left draining looks healthy while starting nothing.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DrainBadge))]
+    [NotifyPropertyChangedFor(nameof(DrainLine))]
+    private DrainStatus? _drain;
+
+    /// <summary>"Confirm it's you", over whatever page asked. Never open without something waiting on it.</summary>
+    [ObservableProperty]
+    private StepUpViewModel? _stepUp;
 
     /// <summary>Absent where nothing checks for updates, such as in tools/Walk.</summary>
     public UpdateViewModel? Updates { get; init; }
@@ -46,11 +69,30 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     public bool SignedIn => Page is not (null or SignInViewModel);
 
+    /// <summary>On every page but chat itself, as the web app's header has it.</summary>
+    public bool CanDock => SignedIn && Page is not ThreadsViewModel;
+
+    public bool DockOpen => _settings.Dock.Open;
+
+    public ChatDockViewModel? RightDock => CanDock && DockOpen && _settings.Dock.Position == ChatDockPosition.Right ? _dock : null;
+
+    public ChatDockViewModel? BottomDock => CanDock && DockOpen && _settings.Dock.Position == ChatDockPosition.Bottom ? _dock : null;
+
+    public ChatDock Dock => _settings.Dock;
+
     public bool OnChat => Section is ThreadsViewModel;
 
     public bool OnBoard => Section is BoardViewModel;
 
     public bool OnProjects => Section is ProjectsViewModel;
+
+    public bool OnHosts => Section is HostsViewModel;
+
+    public bool OnSettings => Section is SettingsViewModel;
+
+    public string? DrainBadge => Drain is { } status ? SettingsRules.DrainBadge(status) : null;
+
+    public string? DrainLine => Drain is { } status ? SettingsRules.DrainLine(status) : null;
 
     public IFollowsFeed? Feed => Page as IFollowsFeed;
 
@@ -86,6 +128,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
         Connection = new ServerConnection(origin, store);
         Connection.Session.SessionEnded += (_, _) => Dispatcher.UIThread.Post(ShowSignIn);
+        Connection.Session.StepUp = AskStepUpAsync;
         Remember(_settings.Origin == origin ? _settings : _settings with { Origin = origin, Project = null, Thread = null, Collapsed = new Dictionary<string, IReadOnlyList<string>>() });
         return Connection;
     }
@@ -120,6 +163,12 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     [RelayCommand]
     public void ShowProjects() => Go(_projects ??= new ProjectsViewModel(this));
+
+    [RelayCommand]
+    public void ShowHosts() => Go(_hosts ??= new HostsViewModel(this));
+
+    [RelayCommand]
+    public void ShowSettings() => Go(_settingsPage ??= new SettingsViewModel(this));
 
     /// <summary>A project just made: the board learns of it and shows it.</summary>
     public async Task ProjectAddedAsync(string project)
@@ -195,6 +244,33 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         ShowSignIn();
     }
 
+    /// <summary>Ctrl or Cmd+J, which does nothing on chat, where the dock has no place.</summary>
+    [RelayCommand]
+    public void ToggleDock()
+    {
+        if (CanDock)
+        {
+            Remember(_settings with { Dock = _settings.Dock with { Open = !_settings.Dock.Open } });
+            SyncDock();
+        }
+    }
+
+    public void MoveDock(ChatDockPosition position)
+    {
+        Remember(_settings with { Dock = _settings.Dock with { Position = position } });
+        SyncDock();
+    }
+
+    /// <summary>During a drag, so nothing is written until it ends.</summary>
+    public void ResizeDock(int? width = null, int? height = null)
+    {
+        var dock = _settings.Dock;
+        _settings = _settings with { Dock = (dock with { Width = width ?? dock.Width, Height = height ?? dock.Height }).Held() };
+        OnPropertyChanged(nameof(Dock));
+    }
+
+    public void KeepDockSize() => Remember(_settings);
+
     [RelayCommand]
     public void NextAppearance()
     {
@@ -212,8 +288,95 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     public void Dispose()
     {
+        StopWatchingDrain();
         Page?.Hidden();
         Connection?.Dispose();
+    }
+
+    /// <summary>
+    /// The dock shows the chat page's own model: one conversation, wherever it is drawn. The page follows
+    /// its stream only while shown, so with the dock open the shell shows it, and hides it again unless it
+    /// has since come to the front itself.
+    /// </summary>
+    private void SyncDock()
+    {
+        if (CanDock && DockOpen)
+        {
+            _chat ??= new ThreadsViewModel(this);
+            _dock ??= new ChatDockViewModel(this, _chat);
+            if (!_dockFollowing)
+            {
+                _dockFollowing = true;
+                _chat.Shown();
+            }
+        }
+        else if (_dockFollowing)
+        {
+            _dockFollowing = false;
+            if (Page != _chat)
+            {
+                _chat?.Hidden();
+            }
+        }
+
+        OnPropertyChanged(nameof(CanDock));
+        OnPropertyChanged(nameof(DockOpen));
+        OnPropertyChanged(nameof(RightDock));
+        OnPropertyChanged(nameof(BottomDock));
+        OnPropertyChanged(nameof(Dock));
+    }
+
+    /// <summary>Requests refused together share one question, as one new session answers them all.</summary>
+    private Task<bool> AskStepUpAsync(CancellationToken cancellationToken) => Dispatcher.UIThread.InvokeAsync(() =>
+    {
+        if (_steppingUp is null)
+        {
+            _steppingUp = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StepUp = new StepUpViewModel(Connection!.Session, FinishStepUp);
+        }
+
+        return _steppingUp.Task.WaitAsync(cancellationToken);
+    });
+
+    private void FinishStepUp(bool confirmed)
+    {
+        StepUp = null;
+        _steppingUp?.TrySetResult(confirmed);
+        _steppingUp = null;
+    }
+
+    /// <summary>Often while draining, as that is when someone is waiting for it to be safe. A key that may not read it simply shows nothing.</summary>
+    private async Task WatchDrainAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    Drain = await Connection!.Sdk.Settings.GetDrainStatusAsync(cancellationToken);
+                }
+                catch (HttpRequestException failure)
+                {
+                    Trace.WriteLine($"drain: {failure.Message}");
+                    Drain = null;
+                }
+
+                await Task.Delay(Drain?.Draining == true ? DrainingReading : IdleReading, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Signing out is how the watch ends.
+        }
+    }
+
+    private void StopWatchingDrain()
+    {
+        _watchingDrain?.Cancel();
+        _watchingDrain?.Dispose();
+        _watchingDrain = null;
+        Drain = null;
     }
 
     /// <summary>Away from the board nothing is following the feed, so the header's count is read on each change of page.</summary>
@@ -237,14 +400,25 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private void ShowSignIn()
     {
         Flagged = null;
+        FinishStepUp(false);
+        StopWatchingDrain();
+        _dockFollowing = false;
+        _dock?.Dispose();
+        _dock = null;
         _chat?.Dispose();
         _board?.Dispose();
         _projects?.Dispose();
+        _hosts?.Dispose();
+        _settingsPage?.Dispose();
         _chat = null;
         _board = null;
         _projects = null;
+        _hosts = null;
+        _settingsPage = null;
         Replace(new SignInViewModel(this));
     }
+
+    private static DesktopSettings HeldDock(DesktopSettings settings) => settings with { Dock = settings.Dock.Held() };
 
     private void Draw()
     {
@@ -279,6 +453,13 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Page = page;
         CanGoBack = _behind.Count > 0;
         page.Shown();
+        if (SignedIn && _watchingDrain is null)
+        {
+            _watchingDrain = new CancellationTokenSource();
+            _ = WatchDrainAsync(_watchingDrain.Token);
+        }
+
+        SyncDock();
         if (SignedIn && page is not BoardViewModel)
         {
             _ = ReadFlaggedAsync();

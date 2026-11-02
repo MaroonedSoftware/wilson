@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Styling;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
@@ -12,7 +13,7 @@ namespace Walk;
 /// <summary>The flows, in the order a person would meet them.</summary>
 internal static class Steps
 {
-    public static async Task RunAsync(Walker walk, string origin, string email, string password)
+    public static async Task RunAsync(Walker walk, string origin, string email, string password, bool adminOnly = false)
     {
         await walk.UntilAsync("the sign-in page, under no header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
         var signIn = walk.Page<SignInViewModel>();
@@ -62,6 +63,14 @@ internal static class Steps
         Console.WriteLine($"     home: {home.Threads.Count} chats");
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
+        var signedIn = DateTime.UtcNow;
+        if (adminOnly)
+        {
+            await AdminAsync(walk);
+            await SecurityAsync(walk, email, password, signedIn);
+            return;
+        }
+
         await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
@@ -78,12 +87,407 @@ internal static class Steps
         await DiffAsync(walk, board);
         await FindingsAsync(walk, board);
         await CardsAsync(walk, board);
+        await AdminAsync(walk);
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
         await ChatAsync(walk, home);
+        await SecurityAsync(walk, email, password, signedIn);
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>
+    /// Making the one account, which needs an API on a database with none: not the seeded one, whose
+    /// operator already exists. Run with `firstrun` against one made for the purpose.
+    /// </summary>
+    public static async Task FirstRunAsync(Walker walk, string origin, string email, string password)
+    {
+        await walk.UntilAsync("the welcome", () => walk.Shell.Page is SignInViewModel { Welcoming: true });
+        var signIn = walk.Page<SignInViewModel>();
+        signIn.Start();
+        signIn.Address = origin;
+        await signIn.CheckAsync();
+        await walk.UntilAsync("the server with no account asking for one", () => signIn.CreatingAccount);
+        walk.Shot("00-account");
+
+        signIn.Email = email;
+        signIn.Password = password;
+        signIn.Confirmation = "something else";
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("passwords that differ refused", () => signIn.Error == "The passwords do not match.");
+
+        signIn.Password = "password";
+        signIn.Confirmation = "password";
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an easy password refused, with advice", () => signIn.Error?.StartsWith("That password is too easy", StringComparison.Ordinal) == true);
+        Console.WriteLine($"     refused: {signIn.Error}");
+        walk.Shot("00-account-refused");
+
+        signIn.Password = password;
+        signIn.Confirmation = password;
+        await signIn.CreateAccountCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the account made and signed in", () => walk.Shell.Page is ThreadsViewModel);
+        walk.Shot("00-account-done");
+
+        await walk.Shell.SignOutCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the server now asking for a password", () => walk.Shell.Page is SignInViewModel { ShowsPasswordStep: true });
+    }
+
+    /// <summary>The deployment's own pages, which need no board. `admin` as a sixth argument walks only these.</summary>
+    private static async Task AdminAsync(Walker walk)
+    {
+        await HostsAsync(walk);
+        await SettingsAsync(walk);
+        await DockAsync(walk);
+    }
+
+    /// <summary>The chat beside a page: by the real shortcut and a real drag, one real turn, and the same model on the home page.</summary>
+    private static async Task DockAsync(Walker walk)
+    {
+        await walk.UntilAsync("on a page that takes the dock", () => walk.Shell.CanDock && !walk.Shell.DockOpen);
+        walk.Chord(PhysicalKey.J, RawInputModifiers.Meta);
+        await walk.UntilAsync("the dock open on the right by Cmd+J", () => walk.Shell.RightDock is { Home.Chat: not null } && walk.Settings().Dock.Open);
+        var dock = walk.Shell.RightDock!;
+        await walk.UntilAsync("the chats in its picker", () => dock.Home.Threads.Count > 0 || dock.Home.NoChats);
+        walk.Shot("14-dock-right");
+
+        var width = walk.Shell.Dock.Width;
+        var handle = walk.CenterOf("RightHandle");
+        walk.Drag(handle, handle - new Point(120, 0));
+        await walk.UntilAsync("a drag widening it, kept", () => walk.Shell.Dock.Width > width + 100 && walk.Settings().Dock.Width == walk.Shell.Dock.Width);
+        walk.Drag(walk.CenterOf("RightHandle"), new Point(1100, 300));
+        await walk.UntilAsync("a drag stopped at the limit", () => walk.Shell.Dock.Width == ChatDock.MinWidth);
+
+        dock.Home.NewChatCommand.Execute(null);
+        var chat = dock.Home.Chat!;
+        chat.Composer = "Say hello in three words.";
+        await chat.SendCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a real turn answered in the dock", () => chat.Entries.OfType<AnswerEntry>().Any(), 120);
+        await walk.UntilAsync("that chat picked", () => dock.Picked?.Id == chat.Id);
+        walk.Shot("14-dock-turn");
+
+        dock.MoveCommand.Execute(null);
+        await walk.UntilAsync("the dock at the bottom, kept", () => walk.Shell.BottomDock is not null && walk.Shell.RightDock is null && walk.Settings().Dock.Position == ChatDockPosition.Bottom);
+        walk.Shot("14-dock-bottom");
+        var height = walk.Shell.Dock.Height;
+        var bar = walk.CenterOf("BottomHandle");
+        walk.Drag(bar, bar - new Point(0, 100));
+        await walk.UntilAsync("a drag raising it", () => walk.Shell.Dock.Height > height + 80);
+
+        if (dock.Home.Threads.FirstOrDefault(thread => thread.Id != chat.Id) is { } other)
+        {
+            dock.Picked = other;
+            await walk.UntilAsync("another chat from the picker", () => dock.Home.Chat?.Id == other.Id);
+            dock.Picked = dock.Home.Threads.First(thread => thread.Id == chat.Id);
+            await walk.UntilAsync("that chat back", () => dock.Home.Chat?.Id == chat.Id);
+        }
+
+        var open = dock.Home.Chat;
+        dock.OpenAsHomeCommand.Execute(null);
+        await walk.UntilAsync("the home page showing the same chat, with no dock", () => walk.Shell.Page is ThreadsViewModel page && page.Chat == open && walk.Shell.BottomDock is null);
+        walk.Chord(PhysicalKey.J, RawInputModifiers.Meta);
+        await walk.UntilAsync("Cmd+J doing nothing on chat", () => walk.Shell.DockOpen);
+        walk.Shell.ShowHostsCommand.Execute(null);
+        await walk.UntilAsync("the dock back on another page", () => walk.Shell.BottomDock is not null);
+        walk.Shell.BottomDock!.MoveCommand.Execute(null);
+        walk.Shell.RightDock!.CloseCommand.Execute(null);
+        await walk.UntilAsync("the dock closed, kept", () => walk.Shell.RightDock is null && !walk.Settings().Dock.Open);
+    }
+
+    /// <summary>
+    /// Real writes on the throwaway API, each put back. Auto-mode is only flipped under a drain, because
+    /// that API's poller is off so that nothing it holds ever starts work.
+    /// </summary>
+    private static async Task SettingsAsync(Walker walk)
+    {
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var settings = walk.Page<SettingsViewModel>();
+        await walk.UntilAsync("the settings read", () => settings.AutoMode.Loaded && settings.Drain.Loaded && settings.PollInterval.Loaded && settings.Facts.Count == 5 && settings.Webhook is not null);
+        await walk.UntilAsync("the header marking Settings", () => walk.Shell.OnSettings);
+        walk.Shot("12-settings");
+
+        settings.Drain.On = true;
+        await walk.UntilAsync("a drain, in the header too", () => walk.Shell.DrainBadge is not null && settings.Drain.Idle);
+        Console.WriteLine($"     {walk.Shell.DrainBadge}: {walk.Shell.DrainLine}");
+        walk.Shot("12-settings-drain");
+        walk.Shell.ShowHostsCommand.Execute(null);
+        await walk.UntilAsync("the header's drain on another page", () => walk.Shell.Page is HostsViewModel && walk.Shell.DrainBadge is not null);
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        await walk.UntilAsync("the settings kept", () => walk.Shell.Page == settings);
+
+        settings.AutoMode.On = true;
+        await walk.UntilAsync("auto-mode on", () => settings.AutoMode.Idle && settings.AutoMode.On);
+        settings.AutoMode.On = false;
+        await walk.UntilAsync("auto-mode off again", () => settings.AutoMode.Idle && !settings.AutoMode.On);
+        settings.Drain.On = false;
+        await walk.UntilAsync("the drain lifted, and gone from the header", () => settings.Drain.Idle && walk.Shell.DrainBadge is null);
+
+        var split = settings.AutoSplit.On;
+        settings.AutoSplit.On = !split;
+        await walk.UntilAsync("auto-split changed", () => settings.AutoSplit.Idle && settings.AutoSplit.On != split);
+        settings.AutoSplit.On = split;
+        await walk.UntilAsync("auto-split put back", () => settings.AutoSplit.Idle && settings.AutoSplit.On == split);
+
+        var interval = settings.PollInterval.Stored;
+        settings.PollInterval.Draft = 1;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an interval refused and put back", () => settings.PollInterval.Error is not null && settings.PollInterval.Draft == interval);
+        Console.WriteLine($"     refused: {settings.PollInterval.Error}");
+        settings.PollInterval.Draft = 12_000;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an interval saved", () => settings.PollInterval.Stored == 12_000 && !settings.PollInterval.Dirty);
+        settings.PollInterval.Draft = interval;
+        await settings.PollInterval.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the interval put back", () => settings.PollInterval.Stored == interval);
+
+        var slots = settings.LocalSlots.Stored;
+        settings.LocalSlots.Draft = slots == 1 ? 2 : 1;
+        await settings.LocalSlots.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("local slots saved", () => settings.LocalSlots.Stored != slots);
+        settings.LocalSlots.Draft = slots;
+        await settings.LocalSlots.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("local slots put back", () => settings.LocalSlots.Stored == slots);
+
+        settings.WebhookDraft = "http://localhost:9/hook";
+        settings.BaseUrlDraft = "http://not checked";
+        await settings.SaveWebhookCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a webhook refused, the attempt kept", () => settings.WebhookError is not null && settings.WebhookDraft == "http://localhost:9/hook" && settings.WebhookStillSaved is not null);
+        Console.WriteLine($"     refused: {settings.WebhookError}");
+        walk.Shot("12-settings-refused");
+        settings.WebhookDraft = "https://example.com/hook";
+        settings.BaseUrlDraft = "not checked at all";
+        await settings.SaveWebhookCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a webhook saved, and the base URL as typed", () => settings.Webhook?.BaseUrl == "not checked at all" && settings.WebhookError is null);
+
+        // The API answers 500 to a null in this request (`SettingsStore.set` of undefined), in the web app too, so this goes by hand.
+        Walker.Sql("delete from wilson.settings where key in ('notify-webhook-url', 'notify-base-url')");
+
+        await EngineSettingsAsync(walk, settings);
+    }
+
+    /// <summary>
+    /// A real authenticator on the throwaway operator, enrolled behind a real step-up and answered with
+    /// real codes, then removed. Waits for the session to pass the five minutes the step-up allows. A
+    /// failure here leaves the operator with a factor: see `Walker.Sql`.
+    /// </summary>
+    private static async Task SecurityAsync(Walker walk, string email, string password, DateTime signedIn)
+    {
+        var old = signedIn.AddMinutes(5.2) - DateTime.UtcNow;
+        if (old > TimeSpan.Zero)
+        {
+            Console.WriteLine($"     waiting {old.TotalSeconds:F0}s for the session to need a step-up");
+            await Task.Delay(old);
+        }
+
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var settings = walk.Page<SettingsViewModel>();
+        var security = settings.Security;
+        await security.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("no factor yet", () => security.CanSetUp && security.Factors.Count == 0);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security");
+
+        _ = security.StartCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked, with the email filled in", () => walk.Shell.StepUp is { Email: not null });
+        var stepUp = walk.Shell.StepUp!;
+        stepUp.Password = "wrong";
+        await stepUp.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong password refused", () => stepUp.Error == "Wrong email or password." && walk.Shell.StepUp == stepUp);
+        walk.Shot("13-step-up");
+        stepUp.CancelCommand.Execute(null);
+        await walk.UntilAsync("cancelling leaving it refused", () => walk.Shell.StepUp is null && !security.Busy && security.Error is not null);
+        Console.WriteLine($"     cancelled: {security.Error}");
+
+        _ = security.StartCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked again", () => walk.Shell.StepUp is not null);
+        walk.Shell.StepUp!.Password = password;
+        await walk.Shell.StepUp.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the request replayed, and enrolment open", () => walk.Shell.StepUp is null && security.Enrolling && security.QrCode is not null && security.Secret is not null);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security-enrolling");
+
+        var secret = security.Secret!;
+        security.Code = "000000";
+        await security.VerifyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong code refused", () => security.Error is not null && security.Enrolling);
+        Console.WriteLine($"     refused: {security.Error}");
+        security.Code = Walker.Totp(secret);
+        await security.VerifyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an authenticator on", () => security.HasAuthenticator && !security.Enrolling && security.Factors.Count == 1);
+        walk.ScrollTo("Security");
+        walk.Shot("13-security-on");
+
+        await walk.Shell.SignOutCommand.ExecuteAsync(null);
+        await walk.UntilAsync("signed out", () => walk.Shell.Page is SignInViewModel);
+        var signIn = walk.Page<SignInViewModel>();
+        signIn.Email = email;
+        signIn.Password = password;
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the code step for real", () => signIn.NeedsCode);
+        signIn.Code = "000000";
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a wrong code refused at sign-in", () => signIn.Error is not null);
+
+        // A code answers once, and enrolling spent this period's.
+        await Task.Delay(TimeSpan.FromSeconds(31 - (DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 30)));
+        signIn.Code = Walker.Totp(secret);
+        await signIn.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("signed in with a real code", () => walk.Shell.Page is ThreadsViewModel, 10);
+
+        walk.Shell.ShowSettingsCommand.Execute(null);
+        var again = walk.Page<SettingsViewModel>().Security;
+        await walk.UntilAsync("the authenticator listed", () => again.Factors.Count == 1);
+        await again.RemoveCommand.ExecuteAsync(again.Factors[0]);
+        await walk.UntilAsync("the authenticator removed", () => again.Factors.Count == 0 && !again.Busy && walk.Shell.StepUp is null);
+    }
+
+    /// <summary>Tokens made up for the walk, saved on the throwaway API and removed, so they sign nothing in.</summary>
+    private static async Task EngineSettingsAsync(Walker walk, SettingsViewModel settings)
+    {
+        await walk.UntilAsync("the engine settings read", () => settings.ClaudeConfigDir.Loaded && settings.GitHubApp.Loaded && settings.ChatEngine.Loaded && settings.EngineToken.Source is not null && settings.GitHubKey is not null);
+        var dir = settings.ClaudeConfigDir.Stored;
+        settings.ClaudeConfigDir.Draft = "not/absolute";
+        await settings.ClaudeConfigDir.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a config directory answered", () => settings.ClaudeConfigDir.Idle);
+        Console.WriteLine($"     config dir: stored {settings.ClaudeConfigDir.Stored}, error {settings.ClaudeConfigDir.Error}");
+        settings.ClaudeConfigDir.Draft = dir;
+        if (settings.ClaudeConfigDir.Stored != dir)
+        {
+            Walker.Sql("delete from wilson.settings where key = 'claude-config-dir'");
+        }
+
+        var source = settings.EngineToken.Setting!.Source;
+        settings.EngineToken.Draft = "two words";
+        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token with a space refused, the attempt kept", () => settings.EngineToken.Error is not null && settings.EngineToken.Draft == "two words");
+        settings.EngineToken.Draft = "walked-not-a-token";
+        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token saved, and the box emptied", () => settings.EngineToken.CanRemove && settings.EngineToken.Draft is null);
+        walk.ScrollTo("Engine credentials");
+        walk.Shot("12-settings-engine");
+        await settings.EngineToken.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the token removed", () => settings.EngineToken.Setting?.Source == source);
+
+        settings.WorkerTokens.Name = "walked-worker";
+        settings.WorkerTokens.Token = "walked-not-a-token";
+        await settings.WorkerTokens.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a worker token listed", () => settings.WorkerTokens.Tokens.Any(row => row.Name == "walked-worker") && settings.WorkerTokens.Token is null);
+        await settings.WorkerTokens.RemoveCommand.ExecuteAsync(settings.WorkerTokens.Tokens.First(row => row.Name == "walked-worker"));
+        await walk.UntilAsync("the worker token gone", () => settings.WorkerTokens.Tokens.All(row => row.Name != "walked-worker"));
+
+        var app = settings.GitHubApp.Stored;
+        settings.GitHubApp.Draft = "424242";
+        await settings.GitHubApp.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an app id saved", () => settings.GitHubApp.Stored == "424242");
+        Console.WriteLine($"     key: {settings.GitHubKey}");
+        if (app is null)
+        {
+            Walker.Sql("delete from wilson.settings where key = 'github-app-id'");
+        }
+
+        var chat = settings.ChatEngine.Stored!;
+        settings.ChatEngine.UsesApi = true;
+        settings.ChatEngine.Provider = MaroonedSoftware.Wilson.Sdk.Models.ChatEngineSettingProvider.Openai;
+        settings.ChatEngine.Model = "walked-model";
+        await walk.UntilAsync("the draft differing", () => settings.ChatEngine.Dirty);
+        walk.ScrollTo("GitHub");
+        walk.Shot("12-settings-chat");
+        await settings.ChatEngine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the chat engine answered", () => settings.ChatEngine.Idle);
+        Console.WriteLine($"     chat: {settings.ChatEngine.Stored} error {settings.ChatEngine.Error}");
+        settings.ChatEngine.Engine = chat.Engine;
+        settings.ChatEngine.Provider = chat.Provider;
+        settings.ChatEngine.Model = chat.Model;
+        await settings.ChatEngine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the chat engine put back", () => settings.ChatEngine.Stored == chat);
+    }
+
+    /// <summary>
+    /// Real writes on the throwaway API: a host registered, refused, drained, disabled, serving a project,
+    /// an engine token assigned to a worker, a real probe failing, and both removed. A running slot is a
+    /// row written by hand. Nothing here reaches a machine: the target does not resolve.
+    /// </summary>
+    private static async Task HostsAsync(Walker walk)
+    {
+        var stamp = DateTime.UtcNow.ToString("HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var (name, worker, token) = ($"walked-{stamp}", $"walked-w{stamp}", $"walked-t{stamp}");
+        walk.Shell.ShowHostsCommand.Execute(null);
+        var hosts = walk.Page<HostsViewModel>();
+        await walk.UntilAsync("the hosts read", () => hosts.NoHosts || hosts.Hosts.Count > 0);
+        await walk.UntilAsync("the header marking Hosts", () => walk.Shell.OnHosts);
+        walk.Shot("11-hosts-none");
+
+        hosts.Name = name;
+        hosts.SshTarget = "walked.invalid";
+        hosts.Slots = 2;
+        hosts.CommandEnv = "WALKED_ONE, WALKED_TWO";
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a host registered and the form cleared", () => hosts.Hosts.Any(panel => panel.Name == name) && hosts.Name is null);
+        hosts.Name = name;
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a taken name refused", () => hosts.RegisterError is not null);
+        Console.WriteLine($"     refused: {hosts.RegisterError}");
+        walk.Shot("11-hosts-refused");
+        hosts.Name = null;
+        hosts.RegisterError = null;
+
+        var panel = hosts.Hosts.First(found => found.Name == name);
+        await panel.ToggleDrainCommand.ExecuteAsync(null);
+        await walk.UntilAsync("draining said", () => panel.State == "draining" && panel.Drainable == "Undrain");
+        await panel.ToggleDrainCommand.ExecuteAsync(null);
+        await walk.UntilAsync("undrained", () => panel.State == "enabled");
+        await panel.ToggleEnabledCommand.ExecuteAsync(null);
+        await walk.UntilAsync("disabled, which stops a probe", () => panel.State == "disabled" && !panel.CanProbe);
+        await panel.ToggleEnabledCommand.ExecuteAsync(null);
+        await walk.UntilAsync("enabled again", () => panel.State == "enabled");
+
+        panel.ServeProject = panel.Serveable[0];
+        panel.CodeRoot = "/opt/walked/code";
+        panel.WorktreeRoot = "/opt/walked/worktrees";
+        panel.RunRoot = "/opt/walked/run";
+        await panel.ServeCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a project served", () => panel.Projects.Count == 1 && panel.ServeProject is null);
+
+        await panel.ProbeHostCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a probe answered", () => panel.Host?.Probe is not null || panel.Error is not null, 60);
+        Console.WriteLine($"     probe: {panel.Probe}: {panel.ProbeDetail}; error {panel.Error}");
+
+        await walk.Shell.Connection!.Sdk.EngineTokens.PutEngineTokenAsync(token, new MaroonedSoftware.Wilson.Sdk.Models.PutEngineTokenRequest { Token = "walked-not-a-token" });
+        hosts.Name = worker;
+        hosts.Kind = "Worker";
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a worker registered", () => hosts.Hosts.Any(found => found.Name == worker && found.EngineTokens.Contains(token)));
+        var workerPanel = hosts.Hosts.First(found => found.Name == worker);
+        workerPanel.EngineToken = token;
+        await walk.UntilAsync("an engine token assigned", () => workerPanel.Host?.EngineToken == token);
+
+        var project = panel.Projects[0].Project;
+        Walker.Sql($"insert into wilson.leases (resource_key, project, card_id, acquired_at) values ('host:{name}:slot:0', '{project}', '0001', now() - interval '12 minutes')");
+        await hosts.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("a slot in use", () => panel.Running.Count == 1, 5);
+        walk.Shot("11-hosts");
+
+        panel.OpenCardCommand.Execute(panel.Running[0]);
+        await walk.UntilAsync("a slot opening its card", () => walk.Shell.Page is CardViewModel { Id: "0001" });
+        await walk.UntilAsync("the header still on Hosts", () => walk.Shell.OnHosts);
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the same page", () => walk.Shell.Page == hosts);
+        Walker.Sql($"delete from wilson.leases where resource_key = 'host:{name}:slot:0'");
+
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("removal asking first", () => panel.ConfirmingRemoval);
+        walk.Shot("11-hosts-confirm");
+        panel.ForgetRemoval();
+        await panel.StopServingCommand.ExecuteAsync(panel.Projects[0]);
+        await walk.UntilAsync("no longer serving", () => panel.NoProjects);
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the host gone", () => hosts.Hosts.All(found => found.Name != name));
+        await workerPanel.RemoveCommand.ExecuteAsync(null);
+        await workerPanel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the worker gone", () => hosts.Hosts.All(found => found.Name != worker));
+        await walk.Shell.Connection!.Sdk.EngineTokens.RemoveEngineTokenAsync(token);
     }
 
     /// <summary>The project's history, kept live by the feed, with its link into a card and back.</summary>
