@@ -121,6 +121,7 @@ const detail = (messages: ChatMessage[], actions: ChatPendingAction[] = [], titl
     thread: { ...thread, title },
     messages,
     actions,
+    questions: [],
 });
 
 beforeEach(() => {
@@ -185,6 +186,7 @@ describe('the chat dock', () => {
                 message: message(1, 'user', 'What is in review?'),
                 reply: message(2, 'assistant', 'One card: **0007**.'),
                 proposed: [],
+                asked: [],
             } satisfies ChatTurnResult;
         });
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
@@ -220,7 +222,7 @@ describe('the chat dock', () => {
 
         expect(await screen.findByText('Looking at the board')).toBeTruthy();
         expect(screen.getByText('list cards in demo')).toBeTruthy();
-        act(() => finish({ message: message(1, 'user', 'What is in review?'), reply: message(2, 'assistant', 'done'), proposed: [] }));
+        act(() => finish({ message: message(1, 'user', 'What is in review?'), reply: message(2, 'assistant', 'done'), proposed: [], asked: [] }));
     });
 
     it('clears the box as soon as a message goes', async () => {
