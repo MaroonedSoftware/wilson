@@ -10,6 +10,10 @@ import { BoardWriteService } from '#modules/board/board.write.service.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
+import type { ExecutionHost } from '#modules/host/execution.host.js';
+import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
+import { localHost } from '#modules/host/local.execution.host.js';
+import type { RemotePlacement } from '#modules/host/placement.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
@@ -1810,6 +1814,7 @@ describe('BoardWriteService', () => {
             stages: StaticStageConfigStore,
             dryRun = false,
             reReviewOnMerge = false,
+            placer?: HostPlacer,
         ) => {
             const events = { append: vi.fn(async () => {}) };
             const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -1829,6 +1834,7 @@ describe('BoardWriteService', () => {
                 runningCards,
                 fakeSettings(dryRun, reReviewOnMerge),
                 stages,
+                placer,
             );
             return { board, events, service };
         };
@@ -1880,7 +1886,7 @@ describe('BoardWriteService', () => {
             expect(result.reason).toContain('fails the suite');
             expect(worktrees.landMerge).not.toHaveBeenCalled();
             // The scratch worktree is still reclaimed even though the suite failed.
-            expect(worktrees.reclaim).toHaveBeenCalledWith('0092-merge-check');
+            expect(worktrees.reclaim).toHaveBeenCalledWith('0092-merge-check', undefined);
 
             const stored = await board.read('0092');
             expect(stored.frontmatter.stage).toBe('ready');
@@ -1925,6 +1931,154 @@ describe('BoardWriteService', () => {
             await writeFile(scriptPath, body, 'utf8');
             return scriptPath;
         };
+
+        /**
+         * The merge check runs where the `testing` stage is placed. Tower's own suite is red on a
+         * commit `my-mac` passes, so a merge proved on the daemon's machine contradicted the stage
+         * that had just passed the card. `spyHost` is this machine behind an `ExecutionHost` of its
+         * own, so these tests see which calls went through the placement, and the commands still
+         * really run.
+         */
+        describe('placement', () => {
+            const spyHost = () =>
+                ({
+                    name: 'my-mac',
+                    exec: vi.fn((...args: Parameters<ExecutionHost['exec']>) => localHost.exec(...args)),
+                    readFile: vi.fn((path: string) => localHost.readFile(path)),
+                }) as unknown as ExecutionHost;
+
+            const placementOn = (host: ExecutionHost): RemotePlacement => ({
+                hostName: 'my-mac',
+                host,
+                git: {} as RemotePlacement['git'],
+                codeRoot: '/srv/projects/wilson/code',
+                worktreeRoot: '/srv/projects/wilson/worktrees',
+                runRoot: '/srv/projects/wilson/run',
+                slotKey: 'host:my-mac:slot:1',
+            });
+
+            const fakePlacer = (placed: RemotePlacement | NoHostAvailable | undefined) =>
+                ({ place: vi.fn(async () => placed), releaseSlot: vi.fn(async () => {}) }) as unknown as HostPlacer;
+
+            it('runs the suite on the host the testing stage is placed on, then gives back its worktree, branch and slot', async () => {
+                const passing = await scriptExiting(0);
+                const host = spyHost();
+                const placement = placementOn(host);
+                const placer = fakePlacer(placement);
+                const worktrees = mergeWorktrees({
+                    create: vi.fn(async () => ({
+                        path: tmpdir(),
+                        branch: 'card/0120-merge-check',
+                        baseSha: 'merge-commit-sha',
+                        host,
+                        placement,
+                    })),
+                });
+                const { board, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, placer);
+                await board.create(card('0120', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0120');
+
+                expect(result.merged).toBe(true);
+                expect(worktrees.create).toHaveBeenCalledWith('0120-merge-check', 'card/0120-merge-check', 'merge-commit-sha', placement);
+                expect(host.exec).toHaveBeenCalledWith('node', [passing], expect.objectContaining({ cwd: tmpdir() }));
+                expect(worktrees.reclaim).toHaveBeenCalledWith('0120-merge-check', placement);
+                expect(host.exec).toHaveBeenCalledWith(
+                    'git',
+                    ['branch', '-D', 'card/0120-merge-check'],
+                    expect.objectContaining({ cwd: placement.codeRoot }),
+                );
+                expect(placer.releaseSlot).toHaveBeenCalledWith(placement.slotKey, expect.any(String), '0120');
+            });
+
+            it('reads the report and reruns the failed files on that host too', async () => {
+                const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-placed-'));
+                const scriptPath = await writeFakeMergeSuite(dir, {
+                    reportPath: 'report.json',
+                    tests: [{ file: 'thing.test.ts', name: 'flaky test' }],
+                    rerunExit: 0,
+                });
+                const stages = new StaticStageConfigStore(
+                    [
+                        'stages:',
+                        '  - name: testing',
+                        '    mode: agent',
+                        '    model: claude-opus',
+                        '    instructions: test the thing',
+                        `    testCommand: node ${scriptPath}`,
+                        '    testReportPath: report.json',
+                        '    onPass: merged',
+                        '    onFail: testing',
+                        '',
+                    ].join('\n'),
+                );
+                const host = spyHost();
+                const placement = placementOn(host);
+                const worktrees = mergeWorktrees({
+                    create: vi.fn(async () => ({ path: dir, branch: 'card/0121-merge-check', baseSha: 'merge-commit-sha', host, placement })),
+                });
+                const { board, service } = freshMergeBoard(worktrees, stages, false, false, fakePlacer(placement));
+                await board.create(card('0121', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0121');
+
+                expect(result.merged).toBe(true);
+                expect(host.readFile).toHaveBeenCalledWith(join(dir, 'report.json'));
+                expect(host.exec).toHaveBeenCalledWith('node', [scriptPath, 'thing.test.ts'], expect.anything());
+            });
+
+            it('calls a merge unproven, not failed, when no host can take the suite, and cuts nothing', async () => {
+                const passing = await scriptExiting(0);
+                const placer = fakePlacer(new NoHostAvailable(['my-mac has all 2 slots in use']));
+                const worktrees = mergeWorktrees();
+                const { board, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, placer);
+                await board.create(card('0122', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0122');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('could not prove the merge');
+                expect(result.reason).toContain('my-mac has all 2 slots in use');
+                expect(result.reason).not.toContain('fails the suite');
+                expect(worktrees.create).not.toHaveBeenCalled();
+                expect(worktrees.landMerge).not.toHaveBeenCalled();
+
+                const stored = await board.read('0122');
+                expect(stored.frontmatter.stage).toBe('ready');
+                expect(stored.frontmatter.needsHuman).toBe(true);
+            });
+
+            it('gives the slot back when the worktree cannot be cut', async () => {
+                const passing = await scriptExiting(0);
+                const placement = placementOn(spyHost());
+                const placer = fakePlacer(placement);
+                const worktrees = mergeWorktrees({
+                    create: vi.fn(async () => {
+                        throw new Error('git push to my-mac failed');
+                    }),
+                });
+                const { board, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, placer);
+                await board.create(card('0123', { stage: 'ready' }), 'seed');
+
+                await expect(service.merge('0123')).rejects.toThrow('git push to my-mac failed');
+
+                expect(placer.releaseSlot).toHaveBeenCalledWith(placement.slotKey, expect.any(String), '0123');
+            });
+
+            it('keeps the suite on this machine when the placer says so', async () => {
+                const passing = await scriptExiting(0);
+                const placer = fakePlacer(undefined);
+                const worktrees = mergeWorktrees();
+                const { board, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, placer);
+                await board.create(card('0124', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0124');
+
+                expect(result.merged).toBe(true);
+                expect(worktrees.reclaim).toHaveBeenCalledWith('0124-merge-check', undefined);
+                expect(placer.releaseSlot).not.toHaveBeenCalled();
+            });
+        });
 
         it('AC6: merges the card when the merge-check suite fails and its rerun of the failed file is green, recording a merge-check test.flaky event', async () => {
             const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-flaky-'));
@@ -2029,7 +2183,7 @@ describe('BoardWriteService', () => {
             expect(worktrees.commitMerge).toHaveBeenCalledWith('main-sha-before', 'branch-sha', 'tree-sha', expect.stringContaining('0093'));
             expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha', 'main');
             expect(worktrees.ensureIntegrationBranch).not.toHaveBeenCalled();
-            expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check');
+            expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check', undefined);
 
             const stored = await board.read('0093');
             expect(stored.frontmatter.stage).toBe('merged');
