@@ -66,12 +66,26 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
 
 const MAX_NAMED_FAILURES = 5;
 
+/** A failure message's first line can be a whole serialized value; the name matters more. */
+const MAX_FAILURE_MESSAGE_CHARS = 200;
+
 /**
  * Format one failing test — or one file that failed to load — for the red-suite failure's first
  * line.
  */
 export const describeFailingTest = (test: FailingTest): string =>
     test.name === undefined ? `${test.file} failed to load: ${test.message ?? 'no message'}` : `${test.file} > ${test.name}`;
+
+/**
+ * `describeFailingTest` with why the test failed, for a person to read. Kept apart from it because
+ * that string is also a test's identity: `recurringFlake` compares it across runs, and a message that
+ * changes between runs would stop a recurring flake from being recognised.
+ */
+export const describeFailure = (test: FailingTest): string => {
+    if (test.name === undefined || test.message === undefined) return describeFailingTest(test);
+    const message = test.message.length > MAX_FAILURE_MESSAGE_CHARS ? `${test.message.slice(0, MAX_FAILURE_MESSAGE_CHARS)}…` : test.message;
+    return `${describeFailingTest(test)}: ${message}`;
+};
 
 /**
  * The red-suite failure: which tests failed, named on the first line, with the command's own exit
@@ -87,7 +101,8 @@ export const describeFailingTest = (test: FailingTest): string =>
  * or it parsed cleanly but named no failures even though the command exited non-zero — a suite that
  * failed for a reason the report cannot see.
  */
-export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string => `the suite is not green: ${redRunDetail(report, run)}`;
+export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string =>
+    `the suite is not green: ${redRunDetail(report, run)}`;
 
 /**
  * What a red run has to say for itself, without saying which check it failed: the failing tests
@@ -100,7 +115,7 @@ export const redRunDetail = (report: TestReport | undefined, run: CommandFailure
     const failing = report?.failing ?? [];
     if (failing.length === 0) return run.reason;
 
-    const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailingTest);
+    const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailure);
     const more = failing.length > MAX_NAMED_FAILURES ? ` and ${failing.length - MAX_NAMED_FAILURES} more` : '';
     return `${failing.length} failing: ${shown.join('; ')}${more}\n${run.reason}`;
 };

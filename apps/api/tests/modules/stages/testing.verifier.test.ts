@@ -10,6 +10,7 @@ import {
     baselineRefusal,
     checkCounts,
     describeFailingTest,
+    describeFailure,
     redSuiteFailure,
     scratchTestFileName,
     TestingVerifier,
@@ -88,6 +89,30 @@ describe('parseTestReport', () => {
 
     // Card 0246: naming which tests failed, added on top of the counts check above.
     describe('failing tests (card 0246)', () => {
+        it("keeps the first line of a failed test's own message", () => {
+            const report = parseTestReport(
+                JSON.stringify({
+                    numTotalTests: 1,
+                    numPassedTests: 0,
+                    numFailedTests: 1,
+                    numPendingTests: 0,
+                    numTodoTests: 0,
+                    testResults: [
+                        {
+                            name: '/w/thing.test.ts',
+                            status: 'failed',
+                            assertionResults: [
+                                { fullName: 'does the thing', status: 'failed', failureMessages: ['AssertionError: nope\n    at thing.test.ts:1:1'] },
+                            ],
+                        },
+                    ],
+                }),
+                '/w',
+            );
+
+            expect(report.failing).toEqual([{ file: 'thing.test.ts', name: 'does the thing', message: 'AssertionError: nope' }]);
+        });
+
         it('names a failed assertion, with the file made relative to worktreePath', () => {
             const raw = JSON.stringify({
                 numTotalTests: 1,
@@ -299,6 +324,28 @@ describe('describeFailingTest', () => {
  * the only part the board's event log and card 0234's attempt record keep. `checkCounts` above is
  * the strict exit condition; this is purely about what the message says when the suite is red.
  */
+describe('describeFailure', () => {
+    const test = { file: 'thing.test.ts', name: 'does the thing' };
+
+    it('adds why the test failed to its name', () => {
+        expect(describeFailure({ ...test, message: 'expected 1 to be 2' })).toBe('thing.test.ts > does the thing: expected 1 to be 2');
+    });
+
+    it('caps a long message so the name stays readable', () => {
+        const described = describeFailure({ ...test, message: 'x'.repeat(500) });
+        expect(described).toHaveLength('thing.test.ts > does the thing: '.length + 201);
+        expect(described.endsWith('x…')).toBe(true);
+    });
+
+    it('falls back to the bare description with no message', () => {
+        expect(describeFailure(test)).toBe(describeFailingTest(test));
+    });
+
+    it('leaves describeFailingTest free of the message, since recurringFlake compares that string', () => {
+        expect(describeFailingTest({ ...test, message: 'changes every run' })).toBe('thing.test.ts > does the thing');
+    });
+});
+
 describe('redSuiteFailure', () => {
     const run = { reason: '`pnpm exec vitest run` failed (exit 1)\nsome noisy console output' };
     const report = (failing: FailingTest[]): TestReport => ({ total: failing.length, passed: 0, failed: failing.length, skipped: 0, failing });
