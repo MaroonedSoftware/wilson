@@ -100,6 +100,30 @@ public sealed record ChatPendingAction
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
+/// <summary>One suggested answer to a `ChatQuestion`.</summary>
+public sealed record ChatQuestionOption
+{
+    [JsonPropertyName("label")]
+    public required string Label { get; init; }
+
+    [JsonPropertyName("description")]
+    public required string Description { get; init; }
+}
+
+/// <summary>
+/// One question's answer: the options chosen, by index into its own `options` (never by label — a
+/// submission is validated against the stored question, not a string match), and any "Other" text.
+/// </summary>
+public sealed record ChatQuestionAnswer
+{
+    [JsonPropertyName("chosen")]
+    public required List<long> Chosen { get; init; }
+
+    [JsonPropertyName("other")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Other { get; init; }
+}
+
 public sealed record RenameChatThreadRequest
 {
     [JsonPropertyName("title")]
@@ -147,6 +171,63 @@ public sealed record ChatMessage
     public List<string>? Suggestions { get; init; }
 }
 
+/// <summary>One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it.</summary>
+public sealed record ChatQuestion
+{
+    [JsonPropertyName("header")]
+    public required string Header { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+
+    [JsonPropertyName("options")]
+    public required List<ChatQuestionOption> Options { get; init; }
+
+    [JsonPropertyName("multiSelect")]
+    public required bool MultiSelect { get; init; }
+}
+
+/// <summary>`POST .../questions/{questionId}/answers`'s request: one answer per question asked, in order.</summary>
+public sealed record AnswerChatQuestionsRequest
+{
+    [JsonPropertyName("answers")]
+    public required List<ChatQuestionAnswer> Answers { get; init; }
+}
+
+/// <summary>
+/// A question the agent asked, waiting on the person. `pending` until they answer it or an ordinary
+/// message on the thread dismisses it (`ChatService.sendMessage`); `answered` once they submit. A
+/// pending question past `expiresAt` can no longer be answered.
+/// </summary>
+public sealed record ChatPendingQuestion
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("threadId")]
+    public required string ThreadId { get; init; }
+
+    [JsonPropertyName("questions")]
+    public required List<ChatQuestion> Questions { get; init; }
+
+    [JsonPropertyName("answers")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ChatQuestionAnswer>? Answers { get; init; }
+
+    [JsonPropertyName("status")]
+    public required ChatPendingQuestionStatus Status { get; init; }
+
+    [JsonPropertyName("expiresAt")]
+    public required DateTimeOffset ExpiresAt { get; init; }
+
+    [JsonPropertyName("decidedAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? DecidedAt { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
 public sealed record ChatThreadDetail
 {
     [JsonPropertyName("thread")]
@@ -157,6 +238,9 @@ public sealed record ChatThreadDetail
 
     [JsonPropertyName("actions")]
     public required List<ChatPendingAction> Actions { get; init; }
+
+    [JsonPropertyName("questions")]
+    public required List<ChatPendingQuestion> Questions { get; init; }
 }
 
 /// <summary>
@@ -174,6 +258,9 @@ public sealed record ChatTurnResult
 
     [JsonPropertyName("proposed")]
     public required List<ChatPendingAction> Proposed { get; init; }
+
+    [JsonPropertyName("asked")]
+    public required List<ChatPendingQuestion> Asked { get; init; }
 }
 
 /// <summary>'api' is the AI SDK, 'cli' the Claude Agent SDK. Fixed when the thread is made.</summary>
@@ -357,6 +444,67 @@ public sealed class ChatPendingActionStatusConverter : JsonConverter<ChatPending
         ChatPendingActionStatus.Failed => "failed",
         ChatPendingActionStatus.Declined => "declined",
         _ => throw new JsonException($"ChatPendingActionStatus.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ChatPendingQuestionStatusConverter))]
+public enum ChatPendingQuestionStatus
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("pending")]
+    Pending,
+
+    [JsonStringEnumMemberName("answered")]
+    Answered,
+
+    [JsonStringEnumMemberName("dismissed")]
+    Dismissed,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ChatPendingQuestionStatus"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ChatPendingQuestionStatus.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ChatPendingQuestionStatusConverter : JsonConverter<ChatPendingQuestionStatus>
+{
+    public override ChatPendingQuestionStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ChatPendingQuestionStatus, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ChatPendingQuestionStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ChatPendingQuestionStatus ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ChatPendingQuestionStatus value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ChatPendingQuestionStatus FromWire(string? text) => text switch
+    {
+        "pending" => ChatPendingQuestionStatus.Pending,
+        "answered" => ChatPendingQuestionStatus.Answered,
+        "dismissed" => ChatPendingQuestionStatus.Dismissed,
+        _ => ChatPendingQuestionStatus.Unknown,
+    };
+
+    private static string ToWire(ChatPendingQuestionStatus value) => value switch
+    {
+        ChatPendingQuestionStatus.Pending => "pending",
+        ChatPendingQuestionStatus.Answered => "answered",
+        ChatPendingQuestionStatus.Dismissed => "dismissed",
+        _ => throw new JsonException($"ChatPendingQuestionStatus.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

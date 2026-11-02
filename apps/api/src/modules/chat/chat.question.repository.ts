@@ -72,12 +72,7 @@ export class ChatQuestionRepository {
 
     /** A thread's questions, oldest first, whatever their status. */
     async forThread(threadId: string): Promise<PendingQuestion[]> {
-        const rows = await this.db
-            .selectFrom('wilson.chatQuestions')
-            .selectAll()
-            .where('threadId', '=', BigInt(threadId))
-            .orderBy('id')
-            .execute();
+        const rows = await this.db.selectFrom('wilson.chatQuestions').selectAll().where('threadId', '=', BigInt(threadId)).orderBy('id').execute();
         return rows.map(toQuestion);
     }
 

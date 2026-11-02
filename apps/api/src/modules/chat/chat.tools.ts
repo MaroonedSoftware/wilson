@@ -24,9 +24,7 @@ export interface ChatTool {
 
 /** What the tools report as they run, for the stream to show while a turn is still in progress. */
 export type ChatToolEvent =
-    | { type: 'operation'; operation: ChatOperation }
-    | { type: 'proposed'; action: PendingAction }
-    | { type: 'asked'; question: PendingQuestion };
+    { type: 'operation'; operation: ChatOperation } | { type: 'proposed'; action: PendingAction } | { type: 'asked'; question: PendingQuestion };
 
 /**
  * One turn's state, shared by its tools. `operations`, `proposed` and `asked` are what the turn did,
@@ -163,9 +161,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
             input: QUESTIONS_SCHEMA,
             execute: async input => {
                 const { questions } = input as { questions: AskedQuestion[] };
-                const question = await context.container
-                    .get(ChatQuestionRepository)
-                    .ask(context.threadId, { questions, expiresIn: QUESTION_TTL });
+                const question = await context.container.get(ChatQuestionRepository).ask(context.threadId, { questions, expiresIn: QUESTION_TTL });
                 context.asked.push(question);
                 context.emit?.({ type: 'asked', question });
                 return `Asked as question ${question.id}. It has not been answered. The person has ${QUESTION_TTL.as('minutes')} minutes to answer it.`;

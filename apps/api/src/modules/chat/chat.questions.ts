@@ -69,11 +69,7 @@ const QUESTION_SCHEMA = z.object({
  * whose `.shape` the Agent SDK can serve (`cli.chat.engine.ts` hands `input.shape` to `tool()`).
  */
 export const QUESTIONS_SCHEMA = z.object({
-    questions: z
-        .array(QUESTION_SCHEMA)
-        .min(1)
-        .max(MAX_QUESTIONS)
-        .describe(`1 to ${MAX_QUESTIONS} related questions to ask together, in one prompt.`),
+    questions: z.array(QUESTION_SCHEMA).min(1).max(MAX_QUESTIONS).describe(`1 to ${MAX_QUESTIONS} related questions to ask together, in one prompt.`),
 });
 
 const other = (answer: QuestionAnswer): string => answer.other?.trim() ?? '';
@@ -117,5 +113,5 @@ export const describeAnswers = (questions: AskedQuestion[], answers: QuestionAns
 export const QUESTIONS_INSTRUCTION =
     'When you need the person to choose between options, or to give you something missing before you can carry on, ask a structured question ' +
     `rather than writing it in prose: up to ${MAX_QUESTIONS} short, related questions in one prompt, each with ${MIN_OPTIONS}-${MAX_OPTIONS} ` +
-    "suggested options; an \"Other\" free-text box is always offered, so never add one yourself. It returns immediately and the person's answer " +
+    'suggested options; an "Other" free-text box is always offered, so never add one yourself. It returns immediately and the person\'s answer ' +
     'arrives separately, so say what you asked and wait for it rather than guessing.';

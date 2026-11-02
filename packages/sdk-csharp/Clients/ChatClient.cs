@@ -113,4 +113,27 @@ public sealed class ChatClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<ChatPendingAction>(response);
     }
+
+    /// <summary>
+    /// Answer chat questions
+    /// Answers a question `ask_user` asked, choosing options by index and/or typing free text under
+    /// "Other". A valid submission moves the row to `answered` and starts a follow-up turn on the thread,
+    /// carrying the chosen labels and any "Other" text as a note from Wilson — the same mechanism a
+    /// confirmed change already uses (`POST .../decision`) — never a `role: 'user'` message in the
+    /// person's name. The second path param is `questionId`, not `id`: contractkit keys a `params` block
+    /// by name, so two `{id}` segments in one path cannot be expressed (see `.../context/{contextId}` in
+    /// `context.ck` and `.../comments/{commentId}/resolve` in `board.ck` for the same shape). One
+    /// consequence of nesting under the thread, which is the point of it: the same 404 below covers either
+    /// id not existing — the thread, or a question id that does not belong to it.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<ChatPendingQuestion> AnswerChatQuestionsAsync(string id, string questionId, AnswerChatQuestionsRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "chat", "threads", http.Segment(id), "questions", http.Segment(questionId), "answers"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ChatPendingQuestion>(response);
+    }
 }

@@ -48,6 +48,23 @@ data class ChatPendingAction(
     val createdAt: Instant,
 )
 
+/** One suggested answer to a `ChatQuestion`. */
+@Serializable
+data class ChatQuestionOption(
+    val label: String,
+    val description: String,
+)
+
+/**
+ * One question's answer: the options chosen, by index into its own `options` (never by label — a
+ * submission is validated against the stored question, not a string match), and any "Other" text.
+ */
+@Serializable
+data class ChatQuestionAnswer(
+    val chosen: List<Long>,
+    val other: String? = null,
+)
+
 @Serializable
 data class RenameChatThreadRequest(
     val title: String,
@@ -77,11 +94,44 @@ data class ChatMessage(
     val suggestions: List<String>? = null,
 )
 
+/** One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it. */
+@Serializable
+data class ChatQuestion(
+    val header: String,
+    val text: String,
+    val options: List<ChatQuestionOption>,
+    val multiSelect: Boolean,
+)
+
+/** `POST .../questions/{questionId}/answers`'s request: one answer per question asked, in order. */
+@Serializable
+data class AnswerChatQuestionsRequest(
+    val answers: List<ChatQuestionAnswer>,
+)
+
+/**
+ * A question the agent asked, waiting on the person. `pending` until they answer it or an ordinary
+ * message on the thread dismisses it (`ChatService.sendMessage`); `answered` once they submit. A
+ * pending question past `expiresAt` can no longer be answered.
+ */
+@Serializable
+data class ChatPendingQuestion(
+    val id: String,
+    val threadId: String,
+    val questions: List<ChatQuestion>,
+    val answers: List<ChatQuestionAnswer>? = null,
+    val status: ChatPendingQuestionStatus,
+    val expiresAt: Instant,
+    val decidedAt: Instant? = null,
+    val createdAt: Instant,
+)
+
 @Serializable
 data class ChatThreadDetail(
     val thread: ChatThread,
     val messages: List<ChatMessage>,
     val actions: List<ChatPendingAction>,
+    val questions: List<ChatPendingQuestion>,
 )
 
 /**
@@ -94,6 +144,7 @@ data class ChatTurnResult(
     val message: ChatMessage,
     val reply: ChatMessage,
     val proposed: List<ChatPendingAction>,
+    val asked: List<ChatPendingQuestion>,
 )
 
 /** 'api' is the AI SDK, 'cli' the Claude Agent SDK. Fixed when the thread is made. */
@@ -161,6 +212,28 @@ object ChatPendingActionStatusSerializer : SdkEnumSerializer<ChatPendingActionSt
     ChatPendingActionStatus.DONE to "done",
     ChatPendingActionStatus.FAILED to "failed",
     ChatPendingActionStatus.DECLINED to "declined",
+)
+
+@Serializable(with = ChatPendingQuestionStatusSerializer::class)
+enum class ChatPendingQuestionStatus {
+    PENDING,
+    ANSWERED,
+    DISMISSED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ChatPendingQuestionStatus] by its wire spelling. A spelling it does not know reads as [ChatPendingQuestionStatus.UNKNOWN]. */
+object ChatPendingQuestionStatusSerializer : SdkEnumSerializer<ChatPendingQuestionStatus>(
+    "ChatPendingQuestionStatus",
+    ChatPendingQuestionStatus.UNKNOWN,
+    ChatPendingQuestionStatus.PENDING to "pending",
+    ChatPendingQuestionStatus.ANSWERED to "answered",
+    ChatPendingQuestionStatus.DISMISSED to "dismissed",
 )
 
 @Serializable(with = DecideChatActionRequestDecisionSerializer::class)

@@ -376,7 +376,7 @@ describe('ChatService', () => {
             expect((await service.getThread(thread.id)).questions).toEqual(turn.asked);
         });
 
-        it('streams a turn that asks a question: each question asked, in `proposed`\'s own position, then done', async () => {
+        it("streams a turn that asks a question: each question asked, in `proposed`'s own position, then done", async () => {
             const { service } = setup([asksDatabase, says('Asked.')]);
             const thread = await service.startThread();
             const heard: ChatStreamEvent[] = [];
