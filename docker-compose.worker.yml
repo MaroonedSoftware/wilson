@@ -19,6 +19,9 @@ services:
             - ALL
         security_opt:
             - no-new-privileges:true
+        # The test database (deploy/worker.entrypoint.sh). In memory, as `db-test` keeps its own.
+        tmpfs:
+            - /var/lib/wilson-test-db:uid=1000,gid=1000,mode=700
         volumes:
             - projects:/srv/projects
             - home:/home/node

@@ -16,6 +16,13 @@ export interface CommandFailure {
 export const PASSED_THROUGH = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_ENV'];
 
 /**
+ * Whole families passed through by prefix. `TEST_DATABASE_` names the disposable database the suite
+ * writes to, so a deployment whose test database is not on `localhost` can say where it is; the
+ * engine's own list (`ENGINE_PASSED_THROUGH_PREFIXES`) carries it for the same reason.
+ */
+export const PASSED_THROUGH_PREFIXES = ['TEST_DATABASE_'];
+
+/**
  * `port`, when given, is `StageDispatcher`'s `DevServerPortAllocator` result for this stage's
  * worktree (card 0027) — injected explicitly as `PORT`, never read from `process.env.PORT`: the
  * daemon's own `PORT`, if it has one, is its own, and passing it through here would be exactly the
@@ -28,6 +35,9 @@ export const scrubbedEnv = (port?: number): NodeJS.ProcessEnv => {
     for (const key of PASSED_THROUGH) {
         const value = process.env[key];
         if (value !== undefined) env[key] = value;
+    }
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined && PASSED_THROUGH_PREFIXES.some(prefix => key.startsWith(prefix))) env[key] = value;
     }
     // Card-injected, so a dev server started by a stage does not collide with another card's.
     env.CI = 'true';

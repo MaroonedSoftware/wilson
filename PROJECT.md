@@ -1120,7 +1120,9 @@ only when retrying cannot help.
   declares its required runtimes and a `setup` command run once at worktree creation, and a worker's
   machine carries them. The probe checks what it can (`claude`, each clone, each `commandEnv`
   variable) before placement will choose the host. The `api` image needs only what planning and
-  merges do: Node, pnpm and git.
+  merges do: Node, pnpm and git. A merge check still runs the suite on the daemon's machine, so a
+  deployment there needs a test database of its own, named by `TEST_DATABASE_*`. The `worker` image
+  starts one itself.
 - **A published port range** maps the per-worktree dev server ports out from wherever the stage runs.
 - **Git credentials belong to the runner, not to agents.** Wilson merges into its own clones and
   never pushes to a forge, so the stack holds no forge write credential, and should not until it

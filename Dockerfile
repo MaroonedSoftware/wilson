@@ -18,8 +18,9 @@
 #
 # A worker, for a machine that runs stages, is a separate image with none of the above in use:
 #
-#   docker build --target worker . The worker program (apps/worker), the engine and git, connecting out
-#                                 to Wilson. docker-compose.worker.yml runs it.
+#   docker build --target worker . The worker program (apps/worker), the engine, git and a throwaway
+#                                 test database, connecting out to Wilson. docker-compose.worker.yml
+#                                 runs it.
 #
 # Nothing here mounts or talks to the Docker socket, and nothing should: a stage's commands would then
 # hold root on the host.
@@ -77,6 +78,14 @@ FROM engine AS worker
 # What the projects served here build with, beyond Node, pnpm and git: `--build-arg
 # WORKER_PACKAGES="build-essential python3"`.
 ARG WORKER_PACKAGES=""
+# 17 from PGDG, as `full` installs it, for the suite's test database (deploy/worker.entrypoint.sh). No
+# cluster made here: that script makes a new one every start.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-common \
+    && sed -i 's/^#\?create_main_cluster.*/create_main_cluster = false/' /etc/postgresql-common/createcluster.conf \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-17 \
+    && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$WORKER_PACKAGES" ]; then \
         apt-get update \
         && apt-get install -y --no-install-recommends $WORKER_PACKAGES \
@@ -88,11 +97,13 @@ RUN git config --system user.name Wilson && git config --system user.email wilso
 # Where a host's projects go. Made here so that a new named volume starts out owned by the worker's user.
 RUN install -d -o node -g node /srv/projects
 VOLUME /srv/projects
+RUN install -d -m 700 -o node -g node /var/lib/wilson-test-db
+COPY deploy/worker.entrypoint.sh /usr/local/bin/wilson-worker-entrypoint
 # Not root, and the program under /opt stays root's, so a stage cannot rewrite what carries out its
 # commands.
 USER node
 WORKDIR /opt/wilson/apps/worker
-ENTRYPOINT ["tini", "--"]
+ENTRYPOINT ["tini", "--", "wilson-worker-entrypoint"]
 # node directly, not `pnpm start`: the worker's exit status is how a supervisor tells a refusal from a
 # crash, and SIGTERM has to reach it.
 CMD ["node", "--import", "@swc-node/register/esm-register", "./src/main.ts"]
