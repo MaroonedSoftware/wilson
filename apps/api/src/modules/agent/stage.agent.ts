@@ -57,9 +57,14 @@ export interface AgentRunOutput {
     engineFailure?: string;
     /**
      * Set when the run ended because its account hit a usage limit, which says nothing about the card.
-     * Comes with `interrupted`, which says where to pick up once the account can run again.
+     * Comes with `interrupted`, which says where to pick up, and `heldUntil`, which says when.
      */
     usageLimit?: UsageLimit;
+    /**
+     * When the stage can run again, in milliseconds since the epoch: now if another account is free,
+     * and otherwise when the first one resets. Set with `usageLimit`.
+     */
+    heldUntil?: number;
     /**
      * Set when `result` above is undefined but a `report_result` tool call was seen on the stream
      * anyway: the stage did the whole job and the transport lost the result on the way back, rather

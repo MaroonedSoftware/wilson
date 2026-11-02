@@ -59,7 +59,8 @@ export class StageInterruptedError extends Error {
 
 /**
  * A stage stopped because its account hit a usage limit. Handled as an interruption, since it says as
- * little about the card, except that the stage is sent again when the limit resets.
+ * little about the card, except that the stage is sent again at `heldUntil`: at once on another
+ * account if one is free, and otherwise when the first one resets.
  */
 export class StageHeldError extends StageInterruptedError {
     constructor(
@@ -68,6 +69,7 @@ export class StageHeldError extends StageInterruptedError {
         usage: AgentRunOutput['usage'],
         attempt: InterruptedAttempt,
         readonly limit: UsageLimit,
+        readonly heldUntil: number,
     ) {
         super(cardId, stageName, usage, attempt);
         this.message = `${cardId} ${stageName} is held: ${describeUsageLimit(limit)}`;

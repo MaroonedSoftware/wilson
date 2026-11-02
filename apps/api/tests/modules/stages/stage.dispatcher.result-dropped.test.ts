@@ -106,7 +106,13 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
     it('holds a run its account’s usage limit stopped, keeping the session and what it spent', async () => {
         const limit = { account: 'pool-a', limitType: 'five_hour', resetsAt: 1_900_000_000_000 };
         const dispatcher = buildDispatcher(
-            { usage: { inputTokens: 10 }, truncated: true, usageLimit: limit, interrupted: { sessionId: 'session-1', wallClockMs: 5, steps: 1 } },
+            {
+                usage: { inputTokens: 10 },
+                truncated: true,
+                usageLimit: limit,
+                heldUntil: 1_800_000_000_000,
+                interrupted: { sessionId: 'session-1', wallClockMs: 5, steps: 1 },
+            },
             { passed: true, failures: [], changedPaths: [] },
         );
 
@@ -114,6 +120,7 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
 
         expect(error).toBeInstanceOf(StageHeldError);
         expect((error as StageHeldError).limit).toEqual(limit);
+        expect((error as StageHeldError).heldUntil).toBe(1_800_000_000_000);
         expect((error as StageHeldError).attempt).toMatchObject({ sessionId: 'session-1', spent: { wallClockMs: 5, steps: 1, inputTokens: 10 } });
     });
 

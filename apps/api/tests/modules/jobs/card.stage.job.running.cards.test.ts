@@ -130,16 +130,16 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         expect(running.snapshot()).toEqual([]);
     });
 
-    it('sends a stage held by a usage limit again when the limit resets', async () => {
+    it('sends a stage held by a usage limit again when it can next run', async () => {
         const limit = { account: 'pool-a', limitType: 'five_hour', resetsAt: 1_900_000_000_000 };
-        dispatcher.run.mockRejectedValue(new StageHeldError('0042', 'implementing', undefined, { baseSha: 'abc' }, limit));
+        dispatcher.run.mockRejectedValue(new StageHeldError('0042', 'implementing', undefined, { baseSha: 'abc' }, limit, 1_800_000_000_000));
 
         await expect(buildJob().run({ cardId: '0042', stageName: 'implementing' })).resolves.toBeUndefined();
 
         expect(broker.send).toHaveBeenCalledWith(
             'card.stage',
             { cardId: '0042', stageName: 'implementing', project: 'test', interrupted: { baseSha: 'abc' } },
-            { startAfter: DateTime.fromMillis(limit.resetsAt) },
+            { startAfter: DateTime.fromMillis(1_800_000_000_000) },
         );
         expect(cardJobs.record).toHaveBeenCalledWith('0042', 'job-1');
         expect(cardJobs.clear).not.toHaveBeenCalled();

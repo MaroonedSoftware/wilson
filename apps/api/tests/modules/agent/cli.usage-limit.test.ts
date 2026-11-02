@@ -14,6 +14,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
+const { MemoryHost } = await import('#tests/support/memory.host.js');
 const { z } = await import('zod');
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -122,7 +123,78 @@ describe('CliStageAgent — usage limits', () => {
         const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(input as never);
 
         expect(queryMock).not.toHaveBeenCalled();
-        expect(output).toMatchObject({ usageLimit: limit, interrupted: { sessionId: 'session-9', wallClockMs: 0, steps: 0 } });
+        expect(output).toMatchObject({
+            usageLimit: limit,
+            heldUntil: limit.resetsAt,
+            interrupted: { sessionId: 'session-9', wallClockMs: 0, steps: 0 },
+        });
+    });
+
+    describe('choosing where to go next', () => {
+        const running = (next: unknown) => {
+            let calls = 0;
+            return {
+                local: vi.fn(async () => (calls++ === 0 ? { name: 'local' } : next)),
+                recordLimit: vi.fn(async () => {}),
+            };
+        };
+        const run = (service: unknown) => new CliStageAgent(silentLogger as never, undefined, service as never).run(runInput(makeStage()) as never);
+
+        it('goes again at once when another account is free', async () => {
+            queryMock.mockReturnValue(streamOf([refusal, errorResult]));
+            const before = Date.now();
+
+            const output = await run(running({ name: 'second', token: 'second-token' }));
+
+            expect(output.heldUntil).toBeGreaterThanOrEqual(before);
+            expect(output.heldUntil).toBeLessThanOrEqual(Date.now());
+        });
+
+        it('waits for the soonest reset when every account is limited', async () => {
+            queryMock.mockReturnValue(streamOf([refusal, errorResult]));
+            const soonest = { account: 'second', limitType: 'five_hour', resetsAt: 1_800_000_000_000 };
+
+            const output = await run(running({ name: 'second', token: 'second-token', limit: soonest }));
+
+            expect(output.heldUntil).toBe(soonest.resetsAt);
+        });
+
+        it('waits for this limit when the same account comes back, since the record did not take', async () => {
+            queryMock.mockReturnValue(streamOf([refusal, errorResult]));
+
+            const output = await run(running({ name: 'local' }));
+
+            expect(output.heldUntil).toBe(limit.resetsAt);
+        });
+
+        it('waits for this limit when asking again fails', async () => {
+            queryMock.mockReturnValue(streamOf([refusal, errorResult]));
+            const service = {
+                local: vi.fn().mockResolvedValueOnce({ name: 'local' }).mockRejectedValueOnce(new Error('db down')),
+                recordLimit: vi.fn(async () => {}),
+            };
+
+            const output = await run(service);
+
+            expect(output.heldUntil).toBe(limit.resetsAt);
+        });
+
+        it('asks the host, for an engine that runs on one', async () => {
+            queryMock.mockReturnValue(streamOf([refusal, errorResult]));
+            const engineAccount = vi.fn().mockResolvedValueOnce({ name: 'first', token: 'a' }).mockResolvedValueOnce({ name: 'second', token: 'b' });
+            const input = runInput(makeStage());
+            const context = { ...input.context, host: Object.assign(new MemoryHost(), { spawnClaude: vi.fn(), engineAccount }) };
+            const before = Date.now();
+
+            const output = await new CliStageAgent(silentLogger as never, undefined, { recordLimit: async () => {} } as never).run({
+                ...input,
+                context,
+            } as never);
+
+            expect(engineAccount).toHaveBeenCalledTimes(2);
+            expect(output.usageLimit?.account).toBe('first');
+            expect(output.heldUntil).toBeGreaterThanOrEqual(before);
+        });
     });
 
     it('says nothing of a limit on an ordinary run', async () => {

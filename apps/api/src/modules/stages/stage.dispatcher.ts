@@ -694,7 +694,7 @@ export class StageDispatcher {
                     cardId,
                     stage: stageName,
                     type: 'stage.interrupted',
-                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit }) },
+                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }) },
                 });
                 throw err;
             }
@@ -1251,7 +1251,16 @@ export class StageDispatcher {
                     inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
                 },
             };
-            if (run.usageLimit) throw new StageHeldError(card.frontmatter.id, stage.name, run.usage, attempt, run.usageLimit);
+            if (run.usageLimit) {
+                throw new StageHeldError(
+                    card.frontmatter.id,
+                    stage.name,
+                    run.usage,
+                    attempt,
+                    run.usageLimit,
+                    run.heldUntil ?? run.usageLimit.resetsAt,
+                );
+            }
             throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
         }
 

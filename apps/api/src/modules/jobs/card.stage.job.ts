@@ -93,7 +93,7 @@ export class CardStageJob extends Job<CardStagePayload> {
             outcome = await this.dispatcher.run(cardId, stageName, interrupted);
         } catch (error) {
             if (error instanceof StageHeldError) {
-                return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.limit.resetsAt));
+                return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.heldUntil));
             }
             if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt);
 
@@ -190,8 +190,8 @@ export class CardStageJob extends Job<CardStagePayload> {
      * from spending a retry; a daemon that dies outright still spends one, through the boot sweep.
      * `DRAIN_HOLD` keeps this process from picking the job up on its way out, and the claim moves so
      * the card stays in flight throughout. A failed `send` is left to throw, as in `holdWhileDraining`:
-     * returning would complete this job with nothing left carrying the card. `startAfter` is later for
-     * a stage held by a usage limit, which has to wait for the limit to reset.
+     * returning would complete this job with nothing left carrying the card. `startAfter` differs for
+     * a stage held by a usage limit, which waits for an account to be free.
      */
     private async requeueInterrupted(
         cardId: string,

@@ -263,6 +263,7 @@ export class CliStageAgent extends StageAgent {
         // happen out here rather than inline where it is used.
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
         const host = toolHost(context);
+        const chooseAccount = async () => (host.engineAccount ? host.engineAccount() : this.accounts?.local());
         const hostAccount = await host.engineAccount?.();
         const account = hostAccount ?? (await this.accounts?.local());
         // Refused before it starts, rather than spend an engine start learning what is already recorded.
@@ -271,6 +272,7 @@ export class CliStageAgent extends StageAgent {
             return {
                 truncated: true,
                 usageLimit: account.limit,
+                heldUntil: account.limit.resetsAt,
                 interrupted: { ...(sessionId && { sessionId }), wallClockMs: 0, steps: 0 },
             };
         }
@@ -734,11 +736,17 @@ export class CliStageAgent extends StageAgent {
         // whatever state its account is left in. A failed write costs the next engine start a refusal.
         const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
             await this.accounts?.recordLimit(limit).catch((error: unknown) => this.logger.warn(`could not record a usage limit: ${String(error)}`));
+            // Asked again now the limit is recorded. An answer of this same account means the record
+            // did not take, and an error means no answer: either way, wait for what is known.
+            const next = await chooseAccount().catch(() => undefined);
+            const moved = next !== undefined && next.name !== limit.account;
+            const heldUntil = next?.limit?.resetsAt ?? (moved ? Date.now() : limit.resetsAt);
             const sessionId = engineSessionId ?? resume?.sessionId;
             return {
                 usage: usage ?? spentSoFar(),
                 truncated: true,
                 usageLimit: limit,
+                heldUntil,
                 interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps: turns },
                 ...traceField(),
             };
