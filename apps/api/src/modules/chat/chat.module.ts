@@ -30,7 +30,7 @@ class ChatRootContainer {
  * operation catalog (`McpModule`, reached through `ChatCatalog`) and proposes changes for the person
  * to confirm. Its conversations are kept in threads, messages and pending actions
  * (`data/migrations/20261029000900_chat.sql`), and its structured questions in pending questions
- * (`data/migrations/20261031000000_chat_questions.sql`).
+ * (`data/migrations/20261102000000_chat_questions.sql`).
  */
 export const ChatModule: ServerKitModule = {
     name: 'Chat',

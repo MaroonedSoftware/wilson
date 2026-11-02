@@ -38,7 +38,7 @@ const toQuestion = (row: Selectable<WilsonChatQuestions>): PendingQuestion => ({
 
 /**
  * `wilson.chat_questions`: the structured questions the chat's agent asked, which only the person's
- * own submission answers. See the migration (`20261031000000_chat_questions.sql`) for the status flow
+ * own submission answers. See the migration (`20261102000000_chat_questions.sql`) for the status flow
  * and why this is a sibling table to `ChatPendingActionRepository` rather than a shared abstraction.
  *
  * Every transition out of 'pending' is one conditional UPDATE that matches only a pending question not
