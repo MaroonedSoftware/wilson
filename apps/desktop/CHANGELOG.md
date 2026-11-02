@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.5.1
+
+### Patch Changes
+
+- e6fa57c: A plan's numbered acceptance criteria show as one item per number, however they wrap.
+
 ## 0.5.0
 
 ### Minor Changes
