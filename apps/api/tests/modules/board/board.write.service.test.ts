@@ -775,6 +775,52 @@ describe('BoardWriteService', () => {
         });
     });
 
+    describe('editSection', () => {
+        const plan = '## Goal\n\ngoal\n\n## Acceptance criteria\n\n- old\n\n## Out of scope\n\nnone\n\n## Review findings\n\n- a finding\n';
+
+        it('replaces the one section and keeps everything else, including what the runner appended', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0030', {}, plan), 'seed');
+
+            const detail = await service.editSection('0030', {
+                section: 'acceptance-criteria',
+                text: '- new',
+                baseVersion: (await board.currentVersion('0030'))!,
+            });
+
+            expect(detail.body).toBe(plan.replace('- old', '- new'));
+            expect((await board.versions('0030', 10))[0]!.message).toBe('Edit 0030 Acceptance criteria');
+        });
+
+        it('refuses a stale base version and writes nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0031', {}, plan), 'seed');
+            const baseVersion = (await board.currentVersion('0031'))!;
+            await service.edit('0031', { body: `${plan}\nmore` });
+
+            await expect(service.editSection('0031', { section: 'goal', text: 'changed', baseVersion })).rejects.toMatchObject({ statusCode: 409 });
+            expect((await board.read('0031')).body).toBe(`${plan}\nmore`);
+        });
+
+        it('refuses empty text, a missing section, and text carrying a heading', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0032', {}, '## Goal\n\ngoal\n'), 'seed');
+            const baseVersion = (await board.currentVersion('0032'))!;
+            const edit = (section: 'goal' | 'tasks', text: string) => service.editSection('0032', { section, text, baseVersion });
+
+            await expect(edit('goal', '  ')).rejects.toMatchObject({ statusCode: 400 });
+            await expect(edit('tasks', '- one')).rejects.toMatchObject({ statusCode: 400 });
+            await expect(edit('goal', 'text\n## Tasks\n- smuggled')).rejects.toMatchObject({ statusCode: 400 });
+            expect((await board.read('0032')).body).toBe('## Goal\n\ngoal\n');
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.editSection('missing', { section: 'goal', text: 'x', baseVersion: '1' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
     describe('rename', () => {
         it('renames the title and records "Rename {id}: "{old}" → "{new}"" as the version message', async () => {
             const { board, service } = freshBoard();

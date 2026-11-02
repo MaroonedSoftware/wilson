@@ -15,6 +15,7 @@ import type {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -271,6 +272,21 @@ export class BoardClient {
             method: 'GET',
         });
         return await parseJson<CardPlan>(result);
+    }
+
+    /**
+     * @name Edit card section
+     * @description One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+     * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+     * card with a pin keeps running against the pinned plan until that is moved too.
+     */
+    async editCardSection(id: string, body: EditCardSectionRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/section`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**

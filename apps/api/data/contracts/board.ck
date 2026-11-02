@@ -177,6 +177,13 @@ contract EditCardRequest: {
     body: string
 }
 
+contract EditCardSectionRequest: {
+    section: CardPlanSection
+    text: string
+    # The card version this edit was written against (`CardPlan.currentVersion`).
+    baseVersion: string
+}
+
 # Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
 # would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
 # for no behavioural gain, where `POST .../rename` is purely additive.
@@ -861,6 +868,32 @@ operation /api/cards/{id}/plan: {
                 application/json: CardPlan
             }
             404:
+        }
+    }
+}
+
+# One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+# keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+# card with a pin keeps running against the pinned plan until that is moved too.
+operation /api/cards/{id}/plan/section: {
+    params: {
+        id: string
+    }
+    patch: {
+        name: Edit card section
+        service: BoardWriteService.editSection
+        request: {
+            application/json: EditCardSectionRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A plan without that section, or empty text, or text carrying a section heading of its own.
+            400:
+            404:
+            # The card has a newer version than `baseVersion`: read it again before proposing this.
+            409:
         }
     }
 }

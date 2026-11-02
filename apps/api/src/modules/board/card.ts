@@ -77,6 +77,19 @@ export interface Card {
  * it belongs beside `filesInScope` rather than in the frontmatter parser — a card reconstructed
  * from a stored body needs it just as much as one read from a file.
  */
+const planHeading = (line: string): PlanSection | undefined => {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    return heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
+};
+
+/**
+ * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`). `sectionsOf`
+ * reads them as part of the plan section they follow; anything that rewrites a section must not.
+ */
+const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts'];
+
+const endsSection = (line: string): boolean => planHeading(line) !== undefined || RUNNER_HEADINGS.includes(line.trim());
+
 export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> => {
     const sections: Partial<Record<PlanSection, string>> = {};
     const lines = body.split('\n');
@@ -89,8 +102,7 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
     };
 
     for (const line of lines) {
-        const heading = /^##\s+(.+?)\s*$/.exec(line);
-        const matched = heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
+        const matched = planHeading(line);
         if (matched) {
             flush();
             current = matched;
@@ -100,6 +112,24 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
     }
     flush();
     return sections;
+};
+
+/**
+ * `body` with one section's text replaced and every other byte kept: the sections around it and the
+ * runner's own appended sections after it. The last heading wins when a section repeats, as it does
+ * in `sectionsOf`. Undefined for a plan without that section, or `text` that carries a heading of its
+ * own, which would move the boundary of some other section.
+ */
+export const withSection = (body: string, section: PlanSection, text: string): string | undefined => {
+    if (text.split('\n').some(endsSection)) return undefined;
+
+    const lines = body.split('\n');
+    const start = lines.reduce((found, line, index) => (planHeading(line) === section ? index : found), -1);
+    if (start === -1) return undefined;
+
+    const next = lines.findIndex((line, index) => index > start && endsSection(line));
+    const after = next === -1 ? [] : ['', ...lines.slice(next)];
+    return [...lines.slice(0, start + 1), '', text.trim(), ...after].join('\n') + (next === -1 ? '\n' : '');
 };
 
 /**

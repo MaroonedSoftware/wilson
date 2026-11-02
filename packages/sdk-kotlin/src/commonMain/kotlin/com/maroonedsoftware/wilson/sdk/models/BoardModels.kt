@@ -494,6 +494,14 @@ data class CardPlanQuery(
 )
 
 @Serializable
+data class EditCardSectionRequest(
+    val section: CardPlanSection,
+    val text: String,
+    /** The card version this edit was written against (`CardPlan.currentVersion`). */
+    val baseVersion: String,
+)
+
+@Serializable
 data class CardPlan(
     val at: CardPlanAt,
     /** The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval. */

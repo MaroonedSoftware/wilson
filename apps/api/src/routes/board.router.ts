@@ -23,6 +23,7 @@ import {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -444,6 +445,30 @@ BoardRouter.get('/api/cards/:id/plan', requirePolicy({ policy: 'wilson.view' }),
 
     const service = ctx.container.get(BoardService);
     const result: CardPlan = await service.plan(id, query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+ * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+ * card with a pin keeps running against the pinned plan until that is moved too.
+ * from [board.ck](../../data/contracts/board.ck) `PATCH /api/cards/{id}/plan/section`
+ */
+BoardRouter.patch('/api/cards/:id/plan/section', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, EditCardSectionRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.editSection(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

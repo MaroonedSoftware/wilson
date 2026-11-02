@@ -442,6 +442,16 @@ export const CardPlanQuery = z.strictObject({
 export type CardPlanQuery = z.infer<typeof CardPlanQuery>;
 
 /**
+ * generated from [EditCardSectionRequest](../../data/contracts/board.ck)
+ */
+export const EditCardSectionRequest = z.strictObject({
+    section: CardPlanSection,
+    text: z.string(),
+    baseVersion: z.string().describe('The card version this edit was written against (`CardPlan.currentVersion`).'),
+});
+export type EditCardSectionRequest = z.infer<typeof EditCardSectionRequest>;
+
+/**
  * generated from [CardPlan](../../data/contracts/board.ck)
  */
 export const CardPlan = z.strictObject({

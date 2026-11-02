@@ -17,6 +17,7 @@ import com.maroonedsoftware.wilson.sdk.models.CreateCardRequest
 import com.maroonedsoftware.wilson.sdk.models.CreatePlanCommentRequest
 import com.maroonedsoftware.wilson.sdk.models.DependCardRequest
 import com.maroonedsoftware.wilson.sdk.models.EditCardRequest
+import com.maroonedsoftware.wilson.sdk.models.EditCardSectionRequest
 import com.maroonedsoftware.wilson.sdk.models.LintFinding
 import com.maroonedsoftware.wilson.sdk.models.ListQuery
 import com.maroonedsoftware.wilson.sdk.models.MergeResult
@@ -293,6 +294,21 @@ class BoardClient(private val http: SdkHttp) {
         val response = http.execute(HttpMethod.Get) {
             path("api", "cards", segment(id), "plan")
             params(query)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Edit card section
+     * One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+     * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+     * card with a pin keeps running against the pinned plan until that is moved too.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun editCardSection(id: String, body: EditCardSectionRequest): CardDetail {
+        val response = http.execute(HttpMethod.Patch) {
+            path("api", "cards", segment(id), "plan", "section")
+            jsonBody(body, "application/json")
         }
         return http.decodeJson(response)
     }

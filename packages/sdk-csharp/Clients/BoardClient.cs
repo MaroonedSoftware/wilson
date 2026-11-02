@@ -306,6 +306,23 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Edit card section
+    /// One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+    /// keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+    /// card with a pin keeps running against the pinned plan until that is moved too.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<CardDetail> EditCardSectionAsync(string id, EditCardSectionRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            SdkHttp.Patch,
+            http.Path("api", "cards", http.Segment(id), "plan", "section"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardDetail>(response);
+    }
+
+    /// <summary>
     /// Get a plan draft
     /// Card 0140. A read, and nothing else: creates no session, cuts no worktree, writes nothing — `open`
     /// remains the only thing that seeds a draft. A card in `planning` that has never had a session open

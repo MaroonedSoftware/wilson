@@ -733,6 +733,19 @@ public sealed record CardPlanQuery
     public CardPlanSection? Section { get; init; }
 }
 
+public sealed record EditCardSectionRequest
+{
+    [JsonPropertyName("section")]
+    public required CardPlanSection Section { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+
+    /// <summary>The card version this edit was written against (`CardPlan.currentVersion`).</summary>
+    [JsonPropertyName("baseVersion")]
+    public required string BaseVersion { get; init; }
+}
+
 public sealed record CardPlan
 {
     [JsonPropertyName("at")]

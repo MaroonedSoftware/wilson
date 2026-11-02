@@ -495,6 +495,16 @@ export interface CardPlanQuery {
 }
 
 /**
+ * generated from [EditCardSectionRequest](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface EditCardSectionRequest {
+    section: CardPlanSection;
+    text: string;
+    /** The card version this edit was written against (`CardPlan.currentVersion`). */
+    baseVersion: string;
+}
+
+/**
  * generated from [CardPlan](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardPlan {

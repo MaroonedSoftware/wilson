@@ -29,6 +29,7 @@ import {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -67,6 +68,7 @@ const GetCardDivisionArgs = z.object({ id: z.string() });
 const SplitCardArgs = z.object({ id: z.string(), body: SplitCardsRequest });
 const LintACardPlanArgs = z.object({ id: z.string() });
 const GetCardPlanArgs = z.object({ id: z.string(), query: CardPlanQuery.optional() });
+const EditCardSectionArgs = z.object({ id: z.string(), body: EditCardSectionRequest });
 const GetAPlanDraftArgs = z.object({ id: z.string() });
 const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRequest });
 const ListPlanCommentsArgs = z.object({ id: z.string() });
@@ -475,6 +477,30 @@ export class GetCardPlanMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `PATCH /api/cards/{id}/plan/section`
+ */
+@Injectable()
+export class EditCardSectionMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'edit_card_section',
+        description:
+            "One section of a card's plan, replaced in place: the way to change part of a plan, since the server\nkeeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A\ncard with a pin keeps running against the pinned plan until that is moved too.",
+        inputSchema: z.toJSONSchema(EditCardSectionArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, body } = await parseAndValidate(args, EditCardSectionArgs);
+        const result = await container.get(BoardWriteService).editSection(id, body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/plan/draft`
  */
 @Injectable()
@@ -759,6 +785,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('split_card', container.get(SplitCardMcpTool));
     map.set('lint_a_card_plan', container.get(LintACardPlanMcpTool));
     map.set('get_card_plan', container.get(GetCardPlanMcpTool));
+    map.set('edit_card_section', container.get(EditCardSectionMcpTool));
     map.set('get_a_plan_draft', container.get(GetAPlanDraftMcpTool));
     map.set('add_a_plan_comment', container.get(AddAPlanCommentMcpTool));
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
@@ -791,6 +818,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(SplitCardMcpTool).useClass(SplitCardMcpTool).asSingleton();
     registry.register(LintACardPlanMcpTool).useClass(LintACardPlanMcpTool).asSingleton();
     registry.register(GetCardPlanMcpTool).useClass(GetCardPlanMcpTool).asSingleton();
+    registry.register(EditCardSectionMcpTool).useClass(EditCardSectionMcpTool).asSingleton();
     registry.register(GetAPlanDraftMcpTool).useClass(GetAPlanDraftMcpTool).asSingleton();
     registry.register(AddAPlanCommentMcpTool).useClass(AddAPlanCommentMcpTool).asSingleton();
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();
