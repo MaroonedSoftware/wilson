@@ -97,6 +97,16 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     [RelayCommand]
     public void ShowBoard() => Go(_board ??= new BoardViewModel(this));
 
+    /// <summary>What is happening across the project in front. Back returns to the page it was opened from.</summary>
+    [RelayCommand]
+    public void ShowActivity()
+    {
+        if (Feed?.Project is { } project && Page is not ActivityViewModel)
+        {
+            Push(new ActivityViewModel(this, project));
+        }
+    }
+
     /// <summary>The cards needing a human: the board narrowed to them, as the web app's flagged page is.</summary>
     [RelayCommand]
     public void ShowFlagged()

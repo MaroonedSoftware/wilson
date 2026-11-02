@@ -1,0 +1,45 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.ActivityView"
+    x:DataType="vm:ActivityViewModel">
+    <UserControl.Styles>
+        <Style Selector="Ellipse.dot"><Setter Property="Fill" Value="{DynamicResource Line}" /></Style>
+        <Style Selector="Ellipse.dot.going"><Setter Property="Fill" Value="{DynamicResource Ink}" /></Style>
+        <Style Selector="Ellipse.dot.good"><Setter Property="Fill" Value="{DynamicResource Good}" /></Style>
+        <Style Selector="Ellipse.dot.caution"><Setter Property="Fill" Value="{DynamicResource Caution}" /></Style>
+        <Style Selector="Ellipse.dot.bad"><Setter Property="Fill" Value="{DynamicResource Flag}" /></Style>
+    </UserControl.Styles>
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="Activity" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" FontSize="14" Text="Nothing has happened in this project yet." IsVisible="{Binding Empty}" />
+        <ScrollViewer>
+            <StackPanel Margin="0,0,12,0">
+                <ItemsControl ItemsSource="{Binding Events}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ActivityRow">
+                            <DockPanel Margin="0,0,0,6">
+                                <Ellipse DockPanel.Dock="Left" Classes="dot" Classes.going="{Binding IsGoing}" Classes.good="{Binding IsGood}" Classes.caution="{Binding IsCaution}" Classes.bad="{Binding IsBad}" Width="8" Height="8" Margin="2,6,10,0" VerticalAlignment="Top" />
+                                <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding Age}" ToolTip.Tip="{Binding Exactly}" Margin="12,2,0,0" />
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                        <TextBlock Classes="quiet" Text="on" VerticalAlignment="Center" />
+                                        <Button Classes="ghost" Padding="6,1" Content="{Binding Card}" Command="{Binding Page.OpenCardCommand}" CommandParameter="{Binding CardId}" />
+                                    </StackPanel>
+                                    <TextBlock Classes="quiet" Text="{Binding Reason}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" IsVisible="{Binding Reason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="ghost" Content="Show older" Command="{Binding ShowOlderCommand}" IsVisible="{Binding HasMore}" IsEnabled="{Binding CanShowOlder}" HorizontalAlignment="Center" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

@@ -71,6 +71,7 @@ internal static class Steps
         walk.Shot("03-board");
         await ProjectsAsync(walk, board);
         await FlaggedAsync(walk, board);
+        await ActivityAsync(walk, board);
         await FilterAsync(walk, board);
         await ToolActivityAsync(walk, board);
 
@@ -83,6 +84,32 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>The project's history, kept live by the feed, with its link into a card and back.</summary>
+    private static async Task ActivityAsync(Walker walk, BoardViewModel board)
+    {
+        walk.Shell.ShowActivityCommand.Execute(null);
+        var activity = walk.Page<ActivityViewModel>();
+        await walk.UntilAsync("the project's events, and the feed live", () => activity.Events.Count > 0 && activity.Live);
+        Console.WriteLine($"     activity: {activity.Events.Count} events, more: {activity.HasMore}");
+        Walker.Emit("0003", "implementing", "card.flagged", """{"reason":"Walked: a new event reaching the page"}""");
+        await walk.UntilAsync("a new event arriving from the feed", () => activity.Events[0].Reason?.StartsWith("Walked:", StringComparison.Ordinal) == true);
+        walk.Shot("03-activity");
+        if (activity.HasMore)
+        {
+            var before = activity.Events.Count;
+            await activity.ShowOlderCommand.ExecuteAsync(null);
+            await walk.UntilAsync("older events", () => activity.Events.Count > before);
+        }
+
+        activity.OpenCardCommand.Execute(activity.Events[0].CardId);
+        await walk.UntilAsync("a row opening its card", () => walk.Shell.Page is CardViewModel { Id: "0003" });
+        walk.Shell.Back();
+        await walk.UntilAsync("back on activity", () => walk.Shell.Page == activity);
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board && board.Live);
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>The header's count, from the page that has no feed, and the board narrowed to it, then nothing flagged.</summary>

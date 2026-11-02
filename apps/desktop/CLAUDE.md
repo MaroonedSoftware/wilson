@@ -135,7 +135,7 @@ the application menu runs the same check and also answers when there is nothing 
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings, and the activity page.
+hosts and settings.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -160,6 +160,10 @@ keeps it across a change of server, and `ShellViewModel.StartAsync` applies it b
 The flagged page is the board narrowed by its Flagged toggle, and the header's "n needs human" goes
 there. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
 each change of page, and for the project in hand where the web app reads the server's own.
+
+`ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
+The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
+as many events as are showing, so one from the feed does not take back what Show older brought in.
 
 ## Feed activity
 
@@ -250,6 +254,9 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, activity: with `tools/Walk`, the project's events, one arriving through the feed, and a row
+opening its card.
 
 2026-11-02, flagged: with `tools/Walk`, the header's count away from the board, the narrowed board, and
 nothing flagged.

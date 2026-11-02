@@ -16,6 +16,7 @@
     </NativeMenu.Menu>
 
     <Application.DataTemplates>
+        <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
@@ -55,6 +56,7 @@
                     <SolidColorBrush x:Key="Removed" Color="#fbe0de" />
                     <SolidColorBrush x:Key="Caution" Color="#a16207" />
                     <SolidColorBrush x:Key="Marked" Color="#fbe9a8" />
+                    <SolidColorBrush x:Key="Good" Color="#2f7d4a" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="Ink" Color="#e8e8e5" />
@@ -69,6 +71,7 @@
                     <SolidColorBrush x:Key="Removed" Color="#4a2523" />
                     <SolidColorBrush x:Key="Caution" Color="#e6b84d" />
                     <SolidColorBrush x:Key="Marked" Color="#5c4a14" />
+                    <SolidColorBrush x:Key="Good" Color="#6cc58d" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
