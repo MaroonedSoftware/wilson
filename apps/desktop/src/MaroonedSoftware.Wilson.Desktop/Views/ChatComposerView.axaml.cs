@@ -46,7 +46,11 @@ public partial class ChatComposerView : UserControl
             return;
         }
 
-        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.None)
+        if (MacTextKeys.Apply(Box, e))
+        {
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.None)
         {
             e.Handled = chat.TakeOffered();
             if (e.Handled)

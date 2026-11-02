@@ -1023,6 +1023,21 @@ internal static class Steps
         await walk.UntilAsync("Tab taking the suggestion", () => chat.Composer == chat.Starters[0]);
         chat.Composer = null;
 
+        walk.Type("second");
+        walk.Chord(PhysicalKey.A, RawInputModifiers.Control);
+        walk.Type("first ");
+        await walk.UntilAsync("Ctrl+A going to the start of the line", () => chat.Composer == "first second");
+        walk.Chord(PhysicalKey.E, RawInputModifiers.Control);
+        walk.Chord(PhysicalKey.H, RawInputModifiers.Control);
+        await walk.UntilAsync("Ctrl+E and Ctrl+H taking the last letter", () => chat.Composer == "first secon");
+        walk.Chord(PhysicalKey.A, RawInputModifiers.Control);
+        walk.Chord(PhysicalKey.K, RawInputModifiers.Control);
+        await walk.UntilAsync("Ctrl+K clearing the line", () => string.IsNullOrEmpty(chat.Composer));
+        walk.Type("all of this");
+        walk.Chord(PhysicalKey.Backspace, RawInputModifiers.Meta);
+        await walk.UntilAsync("Cmd+Backspace clearing the line", () => string.IsNullOrEmpty(chat.Composer));
+        Console.WriteLine("     composer: macOS text keys passed");
+
         walk.Type("Reply with the single word: ok");
         await walk.UntilAsync("typing in the box", () => chat.CanSend);
         walk.Press(Key.Enter, PhysicalKey.Enter);
