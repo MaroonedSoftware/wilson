@@ -1,11 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { AppConfig } from '@maroonedsoftware/appconfig';
+import type { Kysely } from 'kysely';
+import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { DB } from '#modules/data/db.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { NOTIFY_WEBHOOK_URL } from '#modules/settings/notify.webhook.url.setting.js';
 import { NOTIFY_BASE_URL } from '#modules/settings/notify.base.url.setting.js';
-import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { SettingDefinition } from '#modules/settings/setting.definition.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import type { Logger } from '@maroonedsoftware/logger';
+
+let db: Kysely<DB>;
+beforeAll(() => {
+    db = testDb();
+});
+afterAll(async () => {
+    await db.destroy();
+});
+
+const realStore = (env: Record<string, string> = {}): SettingsStore =>
+    new SettingsStore(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, new AppConfig(env));
 
 /**
  * A `SettingsStore` fake that actually remembers a write, keyed by which `SettingDefinition` it was
@@ -155,5 +171,48 @@ describe('NotifyWebhookSettingService.applyCurrentValue', () => {
 
         expect(config.notifyBaseUrl).toBe('not even a url');
         expect(result.baseUrl).toBe('not even a url');
+    });
+});
+
+/** Against the real table: a fake store never sees what `JSON.stringify(undefined)` does to the insert. */
+describe('NotifyWebhookSettingService against the database', () => {
+    const webhookUrl = 'https://93.184.216.34/hook';
+    const baseUrl = 'https://board.example';
+
+    it('clears both fields', async () => {
+        const store = realStore();
+        const config = fakeConfig();
+        const service = new NotifyWebhookSettingService(store, config, fakeLogger());
+        await service.set({ webhookUrl, baseUrl });
+
+        await expect(service.set({ webhookUrl: null, baseUrl: null })).resolves.toEqual({ webhookUrl: null, baseUrl: null });
+        await expect(store.stored(NOTIFY_WEBHOOK_URL)).resolves.toBeUndefined();
+        await expect(store.stored(NOTIFY_BASE_URL)).resolves.toBeUndefined();
+        expect(config.notifyWebhookUrl).toBeUndefined();
+        expect(config.notifyBaseUrl).toBeUndefined();
+    });
+
+    it('saves the webhook with the base URL empty', async () => {
+        const store = realStore();
+        const service = new NotifyWebhookSettingService(store, fakeConfig(), fakeLogger());
+        await service.set({ webhookUrl: 'https://93.184.216.35/old', baseUrl });
+
+        await expect(service.set({ webhookUrl, baseUrl: null })).resolves.toEqual({ webhookUrl, baseUrl: null });
+        await expect(store.stored(NOTIFY_BASE_URL)).resolves.toBeUndefined();
+    });
+
+    it('saves the base URL with the webhook empty', async () => {
+        const store = realStore();
+        const service = new NotifyWebhookSettingService(store, fakeConfig(), fakeLogger());
+        await service.set({ webhookUrl, baseUrl: 'https://old.example' });
+
+        await expect(service.set({ webhookUrl: null, baseUrl })).resolves.toEqual({ webhookUrl: null, baseUrl });
+        await expect(store.stored(NOTIFY_WEBHOOK_URL)).resolves.toBeUndefined();
+    });
+
+    it('saves both empty on a project that never had either', async () => {
+        const service = new NotifyWebhookSettingService(realStore(), fakeConfig(), fakeLogger());
+
+        await expect(service.set({ webhookUrl: null, baseUrl: null })).resolves.toEqual({ webhookUrl: null, baseUrl: null });
     });
 });
