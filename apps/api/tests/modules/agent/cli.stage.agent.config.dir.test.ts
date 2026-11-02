@@ -97,8 +97,8 @@ describe('CliStageAgent resolves the claude-config-dir setting into the engine e
 
     it('sets CLAUDE_CODE_OAUTH_TOKEN in the engine env when a token is saved', async () => {
         queryMock.mockReturnValue(emptyStream());
-        const engineTokens = { resolve: vi.fn(async () => 'saved-token') };
-        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, engineTokens as never);
+        const accounts = { local: vi.fn(async () => ({ name: 'local', token: 'saved-token' })) };
+        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never, accounts as never);
 
         await agent.run(runInput(makeStage()) as never);
 

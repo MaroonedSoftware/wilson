@@ -92,4 +92,21 @@ describe('CliStageAgent runs the engine where the worktree is', () => {
         expect(spawn(spawnOptions)).toBe(spawned);
         expect(spawnClaude).toHaveBeenCalledWith(spawnOptions);
     });
+
+    it('starts the engine as the account the host named, and keeps this machine’s token out of its env', async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const host = new MemoryHost();
+        const spawnClaude = vi.fn(() => ({ fake: 'process' }));
+        const account = { name: 'pool-a', token: 'pool-a-token' };
+        Object.assign(host, { spawnClaude, engineAccount: async () => account });
+        const local = { local: vi.fn(async () => ({ name: 'local', token: 'local-token' })) };
+
+        await new CliStageAgent(silentLogger as never, undefined, local as never).run(runInput({ host }) as never);
+
+        const spawn = options().spawnClaudeCodeProcess as (o: unknown) => unknown;
+        spawn({ command: 'claude', args: [], env: {} });
+        expect(spawnClaude).toHaveBeenCalledWith({ command: 'claude', args: [], env: {}, account });
+        expect(local.local).not.toHaveBeenCalled();
+        expect((options().env as Record<string, unknown>).CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    });
 });

@@ -125,13 +125,13 @@ describe('EngineTokensService', () => {
         await expect(tokens.forHost(host)).resolves.toBeUndefined();
 
         await tokens.assign(host, { name: first });
-        await expect(tokens.forHost(host)).resolves.toBe('first-value');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'first-value' });
 
         await tokens.put(first, { token: 'first-rotated' });
-        await expect(tokens.forHost(host)).resolves.toBe('first-rotated');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'first-rotated' });
 
         await tokens.assign(host, { name: second });
-        await expect(tokens.forHost(host)).resolves.toBe('second-value');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'second-value' });
 
         await tokens.remove(second);
         await expect(tokens.forHost(host)).resolves.toBeUndefined();
@@ -168,7 +168,7 @@ describe('EngineTokensService', () => {
 
         await expect(tokens.put(name, { token: 'other', provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
         await expect(tokens.put(name, { token: 'other', kind: 'api_key' })).rejects.toMatchObject({ statusCode: 400 });
-        await expect(tokens.forHost(host)).resolves.toBe('value');
+        await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'value' });
 
         expect(await tokens.put(name, { token: 'rotated', priority: 3 })).toMatchObject({ priority: 3, hosts: [host] });
     });

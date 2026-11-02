@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-import type { ClaudeSpawnOptions, ExecOptions, ExecResult, ExecutionHost, HostStat } from '#modules/host/execution.host.js';
+import type { ClaudeSpawnOptions, EngineAccount, ExecOptions, ExecResult, ExecutionHost, HostStat } from '#modules/host/execution.host.js';
 import { ENGINE_TOKEN_VARIABLE } from '@wilson/worker-protocol';
 import { toExecFailure, type WorkerConnection, type WorkerStreamMessage } from './worker.connection.js';
 
@@ -25,8 +25,8 @@ const definedEnv = (env: NodeJS.ProcessEnv): Record<string, string> => {
     return defined;
 };
 
-/** What this host's engines sign in with now: the token assigned to it, or undefined for the worker's own. */
-export type EngineTokenResolver = () => Promise<string | undefined>;
+/** Who this host's engines sign in as now. An account with no token means the worker's own sign-in. */
+export type EngineAccountResolver = () => Promise<EngineAccount>;
 
 /**
  * A machine whose worker program has connected in: every primitive is a message over its connection,
@@ -43,9 +43,13 @@ export class WorkerExecutionHost implements ExecutionHost {
     constructor(
         private readonly connection: WorkerConnection,
         readonly commandEnv: readonly string[] = [],
-        private readonly engineToken: EngineTokenResolver = async () => undefined,
+        private readonly account?: EngineAccountResolver,
     ) {
         this.name = `worker:${connection.hostName}`;
+    }
+
+    async engineAccount(): Promise<EngineAccount> {
+        return this.account ? this.account() : { name: this.name };
     }
 
     async readFile(path: string): Promise<string> {
@@ -118,8 +122,8 @@ export class WorkerExecutionHost implements ExecutionHost {
         const id = randomUUID();
         const env = { ...options.env };
         delete env[ENGINE_TOKEN_VARIABLE];
-        const started = this.engineToken().then(
-            engineToken =>
+        const started = (options.account ? Promise.resolve(options.account) : this.engineAccount()).then(
+            ({ token: engineToken }) =>
                 this.connection.stream(
                     id,
                     {
@@ -143,7 +147,7 @@ export class WorkerExecutionHost implements ExecutionHost {
     }
 
     async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
-        return this.connection.runClaude(args, timeoutMs, await this.engineToken());
+        return this.connection.runClaude(args, timeoutMs, (await this.engineAccount()).token);
     }
 
     async cloneRepository(url: string, path: string, token: string): Promise<void> {

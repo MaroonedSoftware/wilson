@@ -2,7 +2,7 @@ import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { Injectable } from 'injectkit';
 import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
-import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
+import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { MAX_CHAT_STEPS } from './api.chat.engine.js';
 import type { ChatMessage } from './chat.message.repository.js';
@@ -41,7 +41,7 @@ const withTranscript = (history: ChatMessage[], text: string): string =>
 export class CliChatEngine extends ChatEngine {
     constructor(
         private readonly settings: SettingsStore,
-        private readonly engineTokens?: EngineTokenSettingService,
+        private readonly accounts?: EngineAccountsService,
     ) {
         super();
     }
@@ -71,7 +71,7 @@ export class CliChatEngine extends ChatEngine {
                 strictMcpConfig: true,
                 includePartialMessages: true,
                 maxTurns: MAX_CHAT_STEPS,
-                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), await this.engineTokens?.resolve()),
+                env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), (await this.accounts?.local())?.token),
                 ...(thread.engineSessionId ? { resume: thread.engineSessionId } : {}),
             },
         });

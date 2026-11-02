@@ -4,6 +4,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { requireEngineToken } from '#modules/settings/engine.token.setting.service.js';
 import type { EngineTokenSummary, PutEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
+import type { EngineAccount } from './execution.host.js';
 import { EngineTokenRepository } from './engine.token.repository.js';
 import { HostRepository } from './host.repository.js';
 import { toHost } from './hosts.service.js';
@@ -98,9 +99,11 @@ export class EngineTokensService {
     }
 
     /** The token worker host `hostName` is assigned now, or undefined when it has none. */
-    async forHost(hostName: string): Promise<string | undefined> {
+    async forHost(hostName: string): Promise<EngineAccount | undefined> {
         const name = (await this.hosts.find(hostName))?.engineToken;
-        return name === undefined ? undefined : this.resolve(name);
+        if (name === undefined) return undefined;
+        const token = await this.resolve(name);
+        return token === undefined ? undefined : { name, token };
     }
 
     /**

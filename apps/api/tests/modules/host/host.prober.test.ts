@@ -136,7 +136,13 @@ describe('HostProber', () => {
             await connectLoopbackWorker(server.apiUrl, 'token', { env });
             await eventually(() => server.connections.get(name) !== undefined);
             const probeWith = (assigned?: string) =>
-                new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections, async () => assigned)).inspect(row);
+                new HostProber(
+                    hosts,
+                    new HostConnector(FAKE_SSH, undefined, server.connections, async () => ({
+                        name: 'assigned',
+                        ...(assigned !== undefined && { token: assigned }),
+                    })),
+                ).inspect(row);
 
             const signedIn = await probeWith('assigned-token');
             expect(signedIn.ok).toBe(true);
