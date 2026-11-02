@@ -68,6 +68,7 @@ internal static class Steps
         await walk.UntilAsync("columns", () => board.Columns.Count > 0);
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
+        await FilterAsync(walk, board);
 
         await DiffAsync(walk, board);
         await CardsAsync(walk, board);
@@ -97,10 +98,23 @@ internal static class Steps
         }
     }
 
+    /// <summary>The first card by its id, then a filter nothing matches, then none.</summary>
+    private static async Task FilterAsync(Walker walk, BoardViewModel board)
+    {
+        var first = board.Columns.SelectMany(column => column.Cards).First().Card;
+        board.Filter = first.Id;
+        await walk.UntilAsync("the filter leaving one card", () => board.Count?.StartsWith("1 of ", StringComparison.Ordinal) == true);
+        walk.Shot("03-board-filtered");
+        board.Filter = "nothing has this title";
+        await walk.UntilAsync("the filter leaving none", () => board.Columns.All(column => column.Cards.Count == 0));
+        board.Filter = null;
+        await walk.UntilAsync("the whole board back", () => board.Count?.Contains(" of ", StringComparison.Ordinal) == false);
+    }
+
     /// <summary>Only if the throwaway board has a card with a branch: a fresh one has none, and it takes a hand to give it one.</summary>
     private static async Task DiffAsync(Walker walk, BoardViewModel board)
     {
-        if (board.Columns.SelectMany(column => column.Cards).FirstOrDefault(card => card.Branch is not null) is not { } branched)
+        if (board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card).FirstOrDefault(card => card.Branch is not null) is not { } branched)
         {
             Console.WriteLine("skip the diff: no card has a branch");
             return;
@@ -132,8 +146,8 @@ internal static class Steps
         await form.SaveCommand.ExecuteAsync(null);
 
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
-        await walk.UntilAsync("the new card on the board", () => board.Columns.Any(column => column.Cards.Any(card => card.Title == title)));
-        var made = board.Columns.SelectMany(column => column.Cards).First(card => card.Title == title);
+        await walk.UntilAsync("the new card on the board", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Title == title)));
+        var made = board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card).First(card => card.Title == title);
 
         board.OpenCard(made);
         var card = walk.Page<CardViewModel>();

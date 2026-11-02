@@ -2,15 +2,16 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
-    xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.BoardView"
     x:DataType="vm:BoardViewModel">
     <DockPanel Margin="16">
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12" LastChildFill="False">
             <TextBlock Classes="title" Text="Board" Margin="0,0,16,0" VerticalAlignment="Center" />
             <ComboBox ItemsSource="{Binding Projects}" SelectedItem="{Binding Project}" MinWidth="160" VerticalAlignment="Center" />
+            <TextBox Text="{Binding Filter}" PlaceholderText="Filter by id or title" Width="180" Margin="8,0,0,0" VerticalAlignment="Center" />
             <ToggleButton Content="Flagged" IsChecked="{Binding FlaggedOnly}" Margin="8,0,0,0" VerticalAlignment="Center" />
             <Button Content="New card" Command="{Binding NewCardCommand}" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding Count}" VerticalAlignment="Center" />
         </DockPanel>
         <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
@@ -32,12 +33,15 @@
                                             <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="sdk:CardSummary">
-                                                <Button Classes="tile" Command="{Binding $parent[UserControl].((vm:BoardViewModel)DataContext).OpenCardCommand}" CommandParameter="{Binding}">
+                                            <DataTemplate x:DataType="vm:BoardTile">
+                                                <Button Classes="tile" Command="{Binding $parent[UserControl].((vm:BoardViewModel)DataContext).OpenCardCommand}" CommandParameter="{Binding Card}">
                                                     <StackPanel Spacing="2">
-                                                        <TextBlock Classes="quiet" Text="{Binding Id}" />
-                                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
-                                                        <TextBlock Text="Needs you" Foreground="{DynamicResource Flag}" FontSize="12" IsVisible="{Binding NeedsHuman}" />
+                                                        <TextBlock Classes="quiet" Text="{Binding Card.Id}" />
+                                                        <TextBlock Text="{Binding Card.Title}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding Flag}" Foreground="{DynamicResource Flag}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding Flag, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <TextBlock Text="{Binding Blocked}" Foreground="{DynamicResource Caution}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding Blocked, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <TextBlock Classes="quiet" Text="{Binding Deps}" IsVisible="{Binding Deps, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <TextBlock Classes="quiet" Text="{Binding Pieces}" IsVisible="{Binding Pieces, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                     </StackPanel>
                                                 </Button>
                                             </DataTemplate>

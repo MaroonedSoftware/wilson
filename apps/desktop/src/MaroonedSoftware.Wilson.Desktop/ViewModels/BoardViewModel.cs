@@ -9,8 +9,11 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
+/// <summary>A card on the board, with what the rest of the board says about it.</summary>
+public sealed record BoardTile(CardSummary Card, string? Flag, string? Blocked, string? Deps, string? Pieces);
+
 /// <summary>One column of the board, as drawn.</summary>
-public sealed record BoardColumn(string Name, IReadOnlyList<CardSummary> Cards)
+public sealed record BoardColumn(string Name, IReadOnlyList<BoardTile> Cards)
 {
     public string Count { get; } = Cards.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
@@ -20,7 +23,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 {
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
 
-    private IReadOnlyList<CardSummary> _cards = [];
+    private List<CardSummary> _cards = [];
     private IReadOnlyList<string> _order = [];
     private CancellationTokenSource? _settling;
     private bool _choosing;
@@ -34,6 +37,12 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     [ObservableProperty]
     private bool _flaggedOnly;
+
+    [ObservableProperty]
+    private string? _filter;
+
+    [ObservableProperty]
+    private string? _count;
 
     [ObservableProperty]
     private bool _live;
@@ -101,6 +110,8 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     }
 
     partial void OnFlaggedOnlyChanged(bool value) => Draw();
+
+    partial void OnFilterChanged(string? value) => Draw();
 
     private async Task<bool> LoadProjectsAsync(CancellationToken cancellationToken)
     {
@@ -197,14 +208,28 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     private void Draw()
     {
         Columns.Clear();
-        var cards = _cards.Where(card => !FlaggedOnly || card.NeedsHuman).ToList();
+        var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
         foreach (var stage in _order)
         {
             var inStage = BoardRules.Sorted(stage, cards.Where(card => card.Stage == stage));
             if (!FlaggedOnly || inStage.Count > 0)
             {
-                Columns.Add(new BoardColumn(stage, inStage));
+                Columns.Add(new BoardColumn(stage, [.. inStage.Select(Tile)]));
             }
         }
+
+        Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
+    }
+
+    private BoardTile Tile(CardSummary card)
+    {
+        var blockedBy = BoardRules.UnfinishedDeps(card, _cards);
+        var pieces = BoardRules.Split(card, _cards);
+        return new BoardTile(
+            card,
+            card.NeedsHuman ? card.NeedsHumanReason ?? "Needs you" : null,
+            blockedBy.Count > 0 ? $"blocked on {string.Join(", ", blockedBy)}" : null,
+            blockedBy.Count == 0 && card.DependsOn.Count > 0 ? $"{card.DependsOn.Count} deps" : null,
+            pieces is null ? null : $"{pieces.Merged}/{pieces.Total} pieces");
     }
 }

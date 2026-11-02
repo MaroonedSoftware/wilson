@@ -179,6 +179,9 @@ back, no header on sign-in, and signing out from it.
 
 2026-11-02, appearance: with `tools/Walk`, all three drawn and read back from the settings file.
 
+2026-11-02, board filter: with `tools/Walk`, the filter and its count, a flag's reason, a blocked card and
+split progress, the last three from rows set by hand on the throwaway database.
+
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
 signature did not name were both refused.

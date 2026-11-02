@@ -25,6 +25,51 @@ public class BoardRulesTests
         Assert.Equal(["2", "1", "3"], BoardRules.Sorted(BoardRules.ParkingLot, [Card("3", "parking-lot"), Card("1", "parking-lot", position: 9), Card("2", "parking-lot", flagged: false, position: 1)]).Select(card => card.Id));
 
     [Theory]
+    [InlineData("", true)]
+    [InlineData("  ", true)]
+    [InlineData("0012", true)]
+    [InlineData(" fix THE ", true)]
+    [InlineData("other", false)]
+    public void TheFilterReadsIdAndTitleInAnyCase(string filter, bool expected) =>
+        Assert.Equal(expected, BoardRules.Matches(Card("0012", "plan") with { Title = "Fix the header" }, filter));
+
+    [Fact]
+    public void TheCountNamesTheWholeOnlyWhileFiltering()
+    {
+        Assert.Equal("7 cards", BoardRules.CountLabel(7, 7, false));
+        Assert.Equal("2 of 7 cards", BoardRules.CountLabel(2, 7, true));
+    }
+
+    [Fact]
+    public void ASplitCountsItsMergedPieces()
+    {
+        var origin = Card("1", "split");
+        CardSummary[] cards = [origin, Card("2", "merged") with { SplitFrom = "1" }, Card("3", "build") with { SplitFrom = "1" }];
+
+        Assert.Equal(new SplitProgress(1, 2), BoardRules.Split(origin, cards));
+        Assert.Null(BoardRules.Split(cards[1], cards));
+    }
+
+    [Fact]
+    public void ADependencyIsUnfinishedUntilMerged_AndAMissingOneNeverReadsAsFine()
+    {
+        var card = Card("1", "plan") with { DependsOn = ["2", "3", "gone"] };
+
+        Assert.Equal(["3", "gone"], BoardRules.UnfinishedDeps(card, [card, Card("2", "merged"), Card("3", "build")]));
+    }
+
+    [Fact]
+    public void ASplitOriginIsFinishedWhenEveryPieceIs()
+    {
+        var card = Card("1", "plan") with { DependsOn = ["2"] };
+        var origin = Card("2", "split");
+        var piece = Card("3", "merged") with { SplitFrom = "2" };
+
+        Assert.Empty(BoardRules.UnfinishedDeps(card, [card, origin, piece]));
+        Assert.Equal(["2"], BoardRules.UnfinishedDeps(card, [card, origin, piece with { Stage = "build" }]));
+    }
+
+    [Theory]
     [InlineData("""{"message":"tool.started"}""", true)]
     [InlineData("""{"message":"stage.finished"}""", false)]
     [InlineData("not json", false)]
