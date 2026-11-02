@@ -1,3 +1,4 @@
+import type { UsageLimit } from '#modules/agent/usage.limit.js';
 import type { ChildProcess } from 'node:child_process';
 
 /**
@@ -97,6 +98,8 @@ export interface ClaudeSpawnOptions {
 export interface EngineAccount {
     name: string;
     token?: string;
+    /** Set when this account has hit a usage limit that has not reset, so starting an engine would only be refused. */
+    limit?: UsageLimit;
 }
 
 export interface HostStat {

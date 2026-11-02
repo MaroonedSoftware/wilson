@@ -13,7 +13,7 @@ import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
-import { StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
+import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
@@ -694,7 +694,7 @@ export class StageDispatcher {
                     cardId,
                     stage: stageName,
                     type: 'stage.interrupted',
-                    payload: { usage: err.usage },
+                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit }) },
                 });
                 throw err;
             }
@@ -1241,7 +1241,7 @@ export class StageDispatcher {
         });
         if (run.interrupted) {
             const { sessionId, wallClockMs, steps } = run.interrupted;
-            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, {
+            const attempt: InterruptedAttempt = {
                 baseSha: worktree.baseSha,
                 ...(worktree.placement && { host: worktree.placement.hostName }),
                 ...(sessionId && { sessionId }),
@@ -1250,7 +1250,9 @@ export class StageDispatcher {
                     steps: (interrupted?.spent?.steps ?? 0) + steps,
                     inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
                 },
-            });
+            };
+            if (run.usageLimit) throw new StageHeldError(card.frontmatter.id, stage.name, run.usage, attempt, run.usageLimit);
+            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
         }
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);

@@ -55,7 +55,10 @@ export interface AgentRunOutput {
      * that was never the problem, and so the caller does not also blame the step budget.
      */
     engineFailure?: string;
-    /** Set when the run ended because its account hit a usage limit, which says nothing about the card. */
+    /**
+     * Set when the run ended because its account hit a usage limit, which says nothing about the card.
+     * Comes with `interrupted`, which says where to pick up once the account can run again.
+     */
     usageLimit?: UsageLimit;
     /**
      * Set when `result` above is undefined but a `report_result` tool call was seen on the stream

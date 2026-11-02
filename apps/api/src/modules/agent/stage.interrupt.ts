@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import type { AgentRunOutput } from './stage.agent.js';
+import { describeUsageLimit, type UsageLimit } from './usage.limit.js';
 
 /**
  * Tells running engines the daemon is going away, so a stage can stop on its own terms rather than be
@@ -53,5 +54,23 @@ export class StageInterruptedError extends Error {
     ) {
         super(`${cardId} ${stageName} was interrupted by a daemon shutdown`);
         this.name = 'StageInterruptedError';
+    }
+}
+
+/**
+ * A stage stopped because its account hit a usage limit. Handled as an interruption, since it says as
+ * little about the card, except that the stage is sent again when the limit resets.
+ */
+export class StageHeldError extends StageInterruptedError {
+    constructor(
+        cardId: string,
+        stageName: string,
+        usage: AgentRunOutput['usage'],
+        attempt: InterruptedAttempt,
+        readonly limit: UsageLimit,
+    ) {
+        super(cardId, stageName, usage, attempt);
+        this.message = `${cardId} ${stageName} is held: ${describeUsageLimit(limit)}`;
+        this.name = 'StageHeldError';
     }
 }

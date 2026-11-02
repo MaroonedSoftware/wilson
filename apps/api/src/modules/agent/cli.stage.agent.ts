@@ -13,7 +13,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { EngineAccount, ExecutionHost } from '#modules/host/execution.host.js';
-import { describeUsageLimit, UsageLimitWatch, type UsageLimit } from './usage.limit.js';
+import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
@@ -265,6 +265,15 @@ export class CliStageAgent extends StageAgent {
         const host = toolHost(context);
         const hostAccount = await host.engineAccount?.();
         const account = hostAccount ?? (await this.accounts?.local());
+        // Refused before it starts, rather than spend an engine start learning what is already recorded.
+        if (account?.limit) {
+            const sessionId = resume?.sessionId;
+            return {
+                truncated: true,
+                usageLimit: account.limit,
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: 0, steps: 0 },
+            };
+        }
         const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
 
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
@@ -725,11 +734,12 @@ export class CliStageAgent extends StageAgent {
         // whatever state its account is left in. A failed write costs the next engine start a refusal.
         const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
             await this.accounts?.recordLimit(limit).catch((error: unknown) => this.logger.warn(`could not record a usage limit: ${String(error)}`));
+            const sessionId = engineSessionId ?? resume?.sessionId;
             return {
                 usage: usage ?? spentSoFar(),
                 truncated: true,
                 usageLimit: limit,
-                engineFailure: describeUsageLimit(limit),
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps: turns },
                 ...traceField(),
             };
         };

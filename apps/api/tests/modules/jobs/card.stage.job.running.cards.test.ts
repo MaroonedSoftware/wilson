@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
-import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
+import { DateTime } from 'luxon';
+import { StageHeldError, StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { CardStageJob } from '#modules/jobs/card.stage.job.js';
 import { DRAIN_HOLD } from '#modules/jobs/predispatch/hold.while.draining.js';
 import { RunningCards, type RunningCard } from '#modules/jobs/running.cards.js';
@@ -127,6 +128,21 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
         expect(cardJobs.record).toHaveBeenCalledWith('0042', 'job-1');
         expect(cardJobs.clear).not.toHaveBeenCalled();
         expect(running.snapshot()).toEqual([]);
+    });
+
+    it('sends a stage held by a usage limit again when the limit resets', async () => {
+        const limit = { account: 'pool-a', limitType: 'five_hour', resetsAt: 1_900_000_000_000 };
+        dispatcher.run.mockRejectedValue(new StageHeldError('0042', 'implementing', undefined, { baseSha: 'abc' }, limit));
+
+        await expect(buildJob().run({ cardId: '0042', stageName: 'implementing' })).resolves.toBeUndefined();
+
+        expect(broker.send).toHaveBeenCalledWith(
+            'card.stage',
+            { cardId: '0042', stageName: 'implementing', project: 'test', interrupted: { baseSha: 'abc' } },
+            { startAfter: DateTime.fromMillis(limit.resetsAt) },
+        );
+        expect(cardJobs.record).toHaveBeenCalledWith('0042', 'job-1');
+        expect(cardJobs.clear).not.toHaveBeenCalled();
     });
 
     it('hands the dispatcher the tree an interrupted attempt left', async () => {

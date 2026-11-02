@@ -4,7 +4,7 @@ import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
-import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
+import { StageHeldError, StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import type { Card } from '#modules/board/card.js';
@@ -102,6 +102,20 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
                 }): Promise<StageOutcome>;
             }
         ).runAgent({ card, stage, worktree, scope, planPath: '/run/plan.md', stages });
+
+    it('holds a run its account’s usage limit stopped, keeping the session and what it spent', async () => {
+        const limit = { account: 'pool-a', limitType: 'five_hour', resetsAt: 1_900_000_000_000 };
+        const dispatcher = buildDispatcher(
+            { usage: { inputTokens: 10 }, truncated: true, usageLimit: limit, interrupted: { sessionId: 'session-1', wallClockMs: 5, steps: 1 } },
+            { passed: true, failures: [], changedPaths: [] },
+        );
+
+        const error = await runAgent(dispatcher).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(StageHeldError);
+        expect((error as StageHeldError).limit).toEqual(limit);
+        expect((error as StageHeldError).attempt).toMatchObject({ sessionId: 'session-1', spent: { wallClockMs: 5, steps: 1, inputTokens: 10 } });
+    });
 
     it('throws rather than verifying a run that was interrupted', async () => {
         const dispatcher = buildDispatcher(

@@ -80,7 +80,8 @@ describe('CliStageAgent — usage limits', () => {
         const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(runInput(makeStage()) as never);
 
         expect(output.usageLimit).toEqual(limit);
-        expect(output.engineFailure).toContain('five_hour');
+        expect(output.interrupted).toMatchObject({ sessionId: 'session-1' });
+        expect(output.engineFailure).toBeUndefined();
         expect(service.recordLimit).toHaveBeenCalledWith(limit);
     });
 
@@ -112,6 +113,16 @@ describe('CliStageAgent — usage limits', () => {
         const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(runInput(makeStage()) as never);
 
         expect(output.usageLimit).toEqual(limit);
+    });
+
+    it('starts no engine for an account already known to be limited, keeping the session to resume', async () => {
+        const service = { local: async () => ({ name: 'local', limit }), recordLimit: vi.fn(async () => {}) };
+        const input = { ...runInput(makeStage()), resume: { sessionId: 'session-9' } };
+
+        const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(input as never);
+
+        expect(queryMock).not.toHaveBeenCalled();
+        expect(output).toMatchObject({ usageLimit: limit, interrupted: { sessionId: 'session-9', wallClockMs: 0, steps: 0 } });
     });
 
     it('says nothing of a limit on an ordinary run', async () => {

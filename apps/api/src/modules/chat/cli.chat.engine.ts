@@ -49,6 +49,7 @@ export class CliChatEngine extends ChatEngine {
 
     async turn({ thread, history, text, system, tools, model, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
         const account = await this.accounts?.local();
+        if (account?.limit) throw new Error(describeUsageLimit(account.limit));
         const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
         const server = createSdkMcpServer({
             name: CHAT_SERVER,

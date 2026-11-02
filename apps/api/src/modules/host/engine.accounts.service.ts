@@ -24,16 +24,23 @@ export class EngineAccountsService {
     /** The account for an engine on this machine. No token means the sign-in the machine was set up with. */
     async local(): Promise<EngineAccount> {
         const token = await this.saved.resolve();
-        return { name: LOCAL_ACCOUNT, ...(token !== undefined && { token }) };
+        return this.withLimit({ name: LOCAL_ACCOUNT, ...(token !== undefined && { token }) });
     }
 
     /** The account for an engine on worker host `hostName`: the token it is assigned, or the worker's own sign-in. */
     async forHost(hostName: string): Promise<EngineAccount> {
-        return (await this.tokens.forHost(hostName)) ?? { name: `worker:${hostName}` };
+        return this.withLimit((await this.tokens.forHost(hostName)) ?? { name: `worker:${hostName}` });
     }
 
     /** Record that an account hit a limit. */
     async recordLimit({ account, limitType, resetsAt }: UsageLimit): Promise<void> {
         await this.limits.record(account, limitType, DateTime.fromMillis(resetsAt));
+    }
+
+    /** `account`, with the limit that keeps it out longest if any has not reset. */
+    private async withLimit(account: EngineAccount): Promise<EngineAccount> {
+        const last = (await this.limits.active()).filter(limit => limit.account === account.name).at(-1);
+        if (!last) return account;
+        return { ...account, limit: { account: account.name, limitType: last.limitType, resetsAt: last.resetsAt.toMillis() } };
     }
 }
