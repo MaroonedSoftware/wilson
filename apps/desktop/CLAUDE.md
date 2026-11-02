@@ -193,6 +193,9 @@ split progress, the last three from rows set by hand on the throwaway database.
 throwaway database reached a tile through the real feed. `Walker.Emit` is that writer, as nothing
 runs a stage there. The stale style was not seen on screen: five minutes is longer than a walk.
 
+2026-11-02, card tools: with `tools/Walk`, none said, then executed and denied calls arriving through the
+real feed. The merge with a fetched tail is proved in `ToolRowsTests`, not on screen.
+
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
 signature did not name were both refused.

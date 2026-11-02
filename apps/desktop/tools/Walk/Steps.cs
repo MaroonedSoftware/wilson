@@ -175,6 +175,7 @@ internal static class Steps
         board.OpenCard(made);
         card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the stages to move to again", () => card.Stages.Count > 0);
+        await ToolCallsAsync(walk, card);
 
         card.MoveTo = card.Stages.First(stage => stage != card.Card!.Stage);
         var target = card.MoveTo;
@@ -200,6 +201,20 @@ internal static class Steps
         await PlanningAsync(walk, card);
         walk.Shell.Back();
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
+    }
+
+    private static async Task ToolCallsAsync(Walker walk, CardViewModel card)
+    {
+        await walk.UntilAsync("no tool calls said", () => card.ToolsNote is not null && card.Tools.Count == 0);
+        card.SelectedTab = 1;
+        walk.Shot("05-card-no-tools");
+        await walk.UntilAsync("the card live", () => card.Live);
+        Walker.Emit(card.Id, card.Card!.Stage, "tool.executed", """{"tool":"bash","command":"pnpm test --filter @wilson/api"}""");
+        Walker.Emit(card.Id, card.Card.Stage, "tool.denied", """{"tool":"write","reason":"outside the files in scope","path":"secrets.env"}""");
+        Walker.Emit(card.Id, card.Card.Stage, "tool.executed", """{"tool":"Edit","path":"apps/desktop/CLAUDE.md"}""");
+        await walk.UntilAsync("the tool calls arriving", () => card.Tools.Count == 3);
+        walk.Shot("05-card-tools");
+        card.SelectedTab = 0;
     }
 
     private static async Task PlanningAsync(Walker walk, CardViewModel card)

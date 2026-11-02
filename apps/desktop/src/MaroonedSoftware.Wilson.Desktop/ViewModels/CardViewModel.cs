@@ -15,6 +15,9 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 /// <summary>One line of a card's activity.</summary>
 public sealed record EventLine(string When, string What);
 
+/// <summary>One tool call, as drawn.</summary>
+public sealed record ToolLine(string Tool, string Label, string When);
+
 /// <summary>One line of a diff, as drawn.</summary>
 public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk)
 {
@@ -41,11 +44,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private const long EventLimit = 100;
     private const int DiffTab = 2;
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan Clock = TimeSpan.FromSeconds(10);
 
     private readonly WilsonSdk _sdk = shell.Connection!.ForProject(project);
+    private readonly CardFeedLog _log = new();
+    private List<CardEvent> _seed = [];
+    private CancellationTokenSource? _settling;
     private Func<Task>? _confirmed;
 
     public ObservableCollection<EventLine> Events { get; } = [];
+
+    public ObservableCollection<ToolLine> Tools { get; } = [];
 
     public ObservableCollection<string> Stages { get; } = [];
 
@@ -72,6 +81,9 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     private bool _live;
+
+    [ObservableProperty]
+    private string? _toolsNote = "No tool calls yet.";
 
     [ObservableProperty]
     private string? _usage;
@@ -153,31 +165,20 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     protected override async Task OnShownAsync(CancellationToken cancellationToken)
     {
+        _log.Clear();
         await LoadAsync(cancellationToken);
         if (Stages.Count == 0)
         {
             await LoadStagesAsync(cancellationToken);
         }
 
-        CancellationTokenSource? settling = null;
+        _ = EveryAsync(Clock, DrawTools, cancellationToken);
         await shell.Connection!.FollowAsync(
             "/api/feed",
             project,
             signal =>
             {
-                if (signal is StreamSignal.Live or StreamSignal.Down)
-                {
-                    Dispatcher.UIThread.Post(() => Live = signal is StreamSignal.Live);
-                }
-
-                if (signal is StreamSignal.Received received && BoardRules.FeedCardId(received.Event.Data) == id)
-                {
-                    settling?.Cancel();
-                    settling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    var token = settling.Token;
-                    _ = Dispatcher.UIThread.InvokeAsync(() => ReloadSettledAsync(token));
-                }
-
+                Dispatcher.UIThread.Post(() => Follow(signal, cancellationToken));
                 return Task.CompletedTask;
             },
             cancellationToken: cancellationToken);
@@ -222,6 +223,57 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         }
     }
 
+    private void Follow(StreamSignal signal, CancellationToken cancellationToken)
+    {
+        switch (signal)
+        {
+            case StreamSignal.Live:
+                Live = true;
+                break;
+            case StreamSignal.Down:
+                Live = false;
+                break;
+            case StreamSignal.Received received:
+                var feedEvent = FeedEvent.Parse(received.Event.Data);
+                if ((feedEvent?.CardId ?? BoardRules.FeedCardId(received.Event.Data)) != id || cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                if (feedEvent is not null)
+                {
+                    _log.Record(feedEvent);
+                    DrawTools();
+                }
+
+                if (feedEvent is null || !BoardRules.IsToolType(feedEvent.Type))
+                {
+                    _settling?.Cancel();
+                    _settling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    _ = ReloadSettledAsync(_settling.Token);
+                }
+
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void DrawTools()
+    {
+        var rows = ToolRows.Merge(_seed, _log.Tools(id));
+        var now = DateTimeOffset.UtcNow;
+        Tools.Clear();
+        foreach (var row in rows)
+        {
+            Tools.Add(new ToolLine(row.Tool, row.Label, BoardRules.EventAge(row.At, now)));
+        }
+
+        ToolsNote = rows.Count == 0 ? "No tool calls yet."
+            : rows.Count >= CardFeedLog.MostToolEvents ? $"Showing the most recent {CardFeedLog.MostToolEvents} tool calls. More may exist."
+            : null;
+    }
+
     private async Task ReloadSettledAsync(CancellationToken cancellationToken)
     {
         try
@@ -250,6 +302,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
                 Events.Add(new EventLine(when, entry.Stage is null ? entry.Type : $"{entry.Type} ({entry.Stage})"));
             }
 
+            _seed = events;
+            DrawTools();
             Error = null;
         }
         catch (HttpRequestException failure)
