@@ -122,6 +122,59 @@ public class BoardRulesTests
     public void ADropOnItsOwnColumnOrNothingStays(string? over) =>
         Assert.Equal(new BoardDrop.Stay(), BoardRules.Drop("1", over, ["plan", "build"], [Card("1", "plan"), Card("3", "plan")]));
 
+    private static readonly CardSummary[] Lot =
+    [
+        Card("a", "parking-lot", position: 1),
+        Card("b", "parking-lot", position: 2),
+        Card("c", "parking-lot", position: 3),
+        Card("d", "parking-lot", position: 4),
+    ];
+
+    private static readonly string[] Order = ["parking-lot", "plan"];
+
+    private static BoardDrop.Reorder Reorder(string card, string over) => Assert.IsType<BoardDrop.Reorder>(BoardRules.Drop(card, over, Order, Lot));
+
+    [Fact]
+    public void DroppingUpTheParkingLotTakesThatCardsPlace()
+    {
+        var drop = Reorder("c", "a");
+
+        Assert.Equal((null, "a"), (drop.BeforeId, drop.AfterId));
+        Assert.Equal(["c", "a", "b", "d"], drop.Order);
+    }
+
+    [Fact]
+    public void DroppingDownTheParkingLotTakesThatCardsPlace()
+    {
+        var drop = Reorder("a", "c");
+
+        Assert.Equal(("c", "d"), (drop.BeforeId, drop.AfterId));
+        Assert.Equal(["b", "c", "a", "d"], drop.Order);
+    }
+
+    [Fact]
+    public void DroppingOnTheParkingLotItselfGoesToTheBottom()
+    {
+        var drop = Reorder("b", "parking-lot");
+
+        Assert.Equal(("d", null), (drop.BeforeId, drop.AfterId));
+        Assert.Equal(["a", "c", "d", "b"], drop.Order);
+    }
+
+    [Theory]
+    [InlineData("b", "b")]
+    [InlineData("d", "parking-lot")]
+    public void AParkedCardLeftInPlaceStays(string card, string over) =>
+        Assert.Equal(new BoardDrop.Stay(), BoardRules.Drop(card, over, Order, Lot));
+
+    [Fact]
+    public void ACardComingFromAnotherColumnIsAMoveNeverAReorder() =>
+        Assert.Equal(new BoardDrop.Move("parking-lot"), BoardRules.Drop("x", "b", Order, [.. Lot, Card("x", "plan")]));
+
+    [Fact]
+    public void AParkedCardLeavingIsAMove() =>
+        Assert.Equal(new BoardDrop.Move("plan"), BoardRules.Drop("a", "plan", Order, Lot));
+
     [Fact]
     public void AFeedEventNamesItsCard()
     {

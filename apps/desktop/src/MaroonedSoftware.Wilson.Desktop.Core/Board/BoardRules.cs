@@ -12,6 +12,9 @@ public abstract record BoardDrop
     public sealed record Stay : BoardDrop;
 
     public sealed record Move(string Stage) : BoardDrop;
+
+    /// <summary>A new place in the parking lot, between neighbours named by id. `Order` is the whole lot as it would then read.</summary>
+    public sealed record Reorder(string? BeforeId, string? AfterId, IReadOnlyList<string> Order) : BoardDrop;
 }
 
 /// <summary>What the board decides without a window. The same rules as the web board and the Android app.</summary>
@@ -95,14 +98,36 @@ public static class BoardRules
     }
 
     /// <summary>
-    /// What a drop means. `over` is a column or a card, and a card stands for the column it is in.
-    /// The server decides whether a move happens, so a drop only ever asks.
+    /// What a drop means, among the `cards` showing. `over` is a column or a card, and a card stands
+    /// for the column it is in. The server decides whether a move happens, so a drop only ever asks.
+    /// Within the parking lot it is a new place instead: on a card, that card's, and on the column
+    /// itself, the bottom.
     /// </summary>
     public static BoardDrop Drop(string card, string? over, IReadOnlyList<string> order, IReadOnlyCollection<CardSummary> cards)
     {
         var source = cards.FirstOrDefault(other => other.Id == card)?.Stage;
         var target = over is null ? null : order.Contains(over) ? over : cards.FirstOrDefault(other => other.Id == over)?.Stage;
+        if (source == ParkingLot && target == ParkingLot)
+        {
+            return Reorder(card, over!, cards);
+        }
+
         return target is null || target == source ? new BoardDrop.Stay() : new BoardDrop.Move(target);
+    }
+
+    private static BoardDrop Reorder(string card, string over, IReadOnlyCollection<CardSummary> cards)
+    {
+        var lot = Sorted(ParkingLot, cards.Where(other => other.Stage == ParkingLot)).Select(other => other.Id).ToList();
+        var from = lot.IndexOf(card);
+        var to = over == ParkingLot ? lot.Count - 1 : lot.IndexOf(over);
+        if (from == to)
+        {
+            return new BoardDrop.Stay();
+        }
+
+        lot.RemoveAt(from);
+        lot.Insert(to, card);
+        return new BoardDrop.Reorder(to > 0 ? lot[to - 1] : null, to < lot.Count - 1 ? lot[to + 1] : null, lot);
     }
 
     /// <summary>The events that change nothing a card summary carries. Named rather than matched, so an event type added later still reloads.</summary>

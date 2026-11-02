@@ -71,6 +71,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     private readonly CardFeedLog _log = new();
     private List<CardSummary> _cards = [];
+    private List<CardSummary> _shown = [];
     private IReadOnlyList<string> _order = [];
     private CancellationTokenSource? _settling;
     private bool _choosing;
@@ -140,7 +141,12 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     {
         ArgumentNullException.ThrowIfNull(tile);
 
-        var stage = BoardRules.Drop(tile.Card.Id, over, _order, _cards) is BoardDrop.Move move ? move.Stage : null;
+        var stage = BoardRules.Drop(tile.Card.Id, over, _order, _shown) switch
+        {
+            BoardDrop.Move move => move.Stage,
+            BoardDrop.Reorder => BoardRules.ParkingLot,
+            _ => null,
+        };
         foreach (var column in Columns)
         {
             column.Target = column.Name == stage;
@@ -149,7 +155,8 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     /// <summary>
     /// Lets go. A move only asks: nothing here changes a card's stage, so it stays where it was until
-    /// a re-read brings a board that agrees, and a refusal comes back in the server's own words.
+    /// a re-read brings a board that agrees, and a refusal comes back in the server's own words. A
+    /// reorder within the parking lot is the one thing shown before the server answers.
     /// </summary>
     public async Task EndDragAsync(BoardTile tile, string? over)
     {
@@ -158,13 +165,20 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         Hover(tile, null);
         tile.Dragged = false;
         _dragging = false;
-        if (BoardRules.Drop(tile.Card.Id, over, _order, _cards) is BoardDrop.Move move)
+        switch (BoardRules.Drop(tile.Card.Id, over, _order, _shown))
         {
-            _moving = tile.Card.Id;
-            tile.Pending = true;
-            await MoveAsync(tile.Card.Id, move.Stage);
-            _moving = null;
-            await LoadAsync(CancellationToken.None);
+            case BoardDrop.Move move:
+                _moving = tile.Card.Id;
+                tile.Pending = true;
+                await MoveAsync(tile.Card.Id, move.Stage);
+                _moving = null;
+                await LoadAsync(CancellationToken.None);
+                break;
+            case BoardDrop.Reorder reorder:
+                await ReorderAsync(tile.Card.Id, reorder);
+                break;
+            default:
+                break;
         }
 
         if (_drawOwed)
@@ -286,6 +300,33 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         }
     }
 
+    /// <summary>Stamps the new order over the server's sparse positions until a re-read replaces them, and puts it back on a refusal.</summary>
+    private async Task ReorderAsync(string card, BoardDrop.Reorder reorder)
+    {
+        if (Project is not { } project || shell.Connection is not { } connection)
+        {
+            return;
+        }
+
+        var before = _cards;
+        var places = reorder.Order.Select((id, place) => (id, place)).ToDictionary(pair => pair.id, pair => pair.place);
+        _cards = [.. _cards.Select(other => places.TryGetValue(other.Id, out var place) ? other with { Position = place } : other)];
+        Draw();
+        try
+        {
+            using var sdk = connection.ForProject(project);
+            await sdk.Board.RepositionCardAsync(card, new RepositionCardRequest { BeforeId = reorder.BeforeId, AfterId = reorder.AfterId });
+            Error = null;
+            await LoadAsync(CancellationToken.None);
+        }
+        catch (HttpRequestException failure)
+        {
+            _cards = before;
+            Error = $"Could not reorder the card: {ApiError.Reason(failure)}";
+            Draw();
+        }
+    }
+
     private void Tick()
     {
         var now = DateTimeOffset.UtcNow;
@@ -362,6 +403,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         _drawOwed = false;
         Columns.Clear();
         var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
+        _shown = cards;
         foreach (var stage in _order)
         {
             var inStage = BoardRules.Sorted(stage, cards.Where(card => card.Stage == stage));

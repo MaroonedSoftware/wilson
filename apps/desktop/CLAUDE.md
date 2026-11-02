@@ -136,7 +136,8 @@ Here: sign-in, the board and its feed, card detail and every card action, creati
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
 and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
-here either, but the web app has no such control: it only shows a split's progress. A
+here either, but the web app has no such control: it only shows a split's progress. The board has no
+collapsed columns and no state icons on its tiles. A
 card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
 notifications.
 
@@ -164,6 +165,7 @@ is never redrawn for one, or for the ten-second clock, as that would lose its co
 `BoardView.axaml.cs` draws a drag and `BoardRules.Drop` says what it means. A tile stays a `Button`, and
 capturing the pointer past eight pixels is what takes the press from it, so a click still opens the card.
 A move only asks: `BoardViewModel` never changes a card's stage, and no redraw lands while a card is held.
+A reorder within the parking lot is the one optimistic write, as on the web board.
 
 ## Chat follows the web app
 
@@ -207,6 +209,10 @@ click and a three-pixel slip opening a card, the held tile, ghost and target col
 through the API, and a drop refused because the row had gone. The server allows nearly any move, so that
 refusal is the only one a walk can pose. Not seen: scrolling at the window's edge, a real trackpad, and
 losing the pointer mid-drag.
+
+2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
+and read back from the server, put back the same way, and a refused reorder rolled back. The other
+neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

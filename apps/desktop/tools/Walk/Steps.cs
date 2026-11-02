@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Input;
 using Avalonia.Styling;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Board;
 using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
@@ -249,6 +250,36 @@ internal static class Steps
         Walker.Sql("delete from wilson.card_versions where card_id = '9999'; delete from wilson.cards where id = '9999'");
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the walk's own card gone", () => board.Columns.All(column => column.Cards.All(tile => tile.Card.Id != "9999")));
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        await ReorderAsync(walk, board);
+    }
+
+    /// <summary>The second parked card over the first and back, each read back from the server, and one refused.</summary>
+    private static async Task ReorderAsync(Walker walk, BoardViewModel board)
+    {
+        IReadOnlyList<BoardTile> Lot() => board.Columns.First(column => column.Name == BoardRules.ParkingLot).Cards;
+        var (first, second) = (Lot()[0].Card.Id, Lot()[1].Card.Id);
+
+        walk.Drag(walk.Center(Lot()[1]), walk.Center(Lot()[0]), "04e-board-reordering");
+        await walk.UntilAsync("the new order at once", () => Lot()[0].Card.Id == second);
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the server agreeing", () => Lot()[0].Card.Id == second && Lot()[1].Card.Id == first);
+        walk.Shot("04f-board-reordered");
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        walk.Drag(walk.Center(Lot()[1]), walk.Center(Lot()[0]));
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the order back", () => Lot()[0].Card.Id == first && Lot()[1].Card.Id == second);
+
+        Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9997', 'Walked away', 'parking-lot', '' from wilson.cards limit 1");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the walk's own card parked", () => Lot().Any(tile => tile.Card.Id == "9997"));
+        Walker.Sql("delete from wilson.cards where id = '9997'");
+        walk.Drag(walk.Center(Lot().First(tile => tile.Card.Id == "9997")), walk.Center(Lot()[0]));
+        await walk.UntilAsync("a reorder refused, and put back", () => board.Error?.StartsWith("Could not reorder", StringComparison.Ordinal) == true && Lot()[0].Card.Id == first);
+        Console.WriteLine($"     reorder: {board.Error}");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("that card gone", () => Lot().All(tile => tile.Card.Id != "9997"));
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
