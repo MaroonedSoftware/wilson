@@ -1,7 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { AppConfig } from '@maroonedsoftware/appconfig';
+import type { Kysely } from 'kysely';
+import { StaticBoardConfig } from '#modules/board/board.config.js';
+import type { DB } from '#modules/data/db.js';
 import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
-import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
+import { testDb, uniqueProject } from '#tests/support/test.db.js';
+
+let db: Kysely<DB>;
+beforeAll(() => {
+    db = testDb();
+});
+afterAll(async () => {
+    await db.destroy();
+});
+
+const realStore = (env: Record<string, string> = {}): SettingsStore =>
+    new SettingsStore(new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run'), db, new AppConfig(env));
 
 /**
  * A `SettingsStore` fake that actually remembers a write, the same way `poller.interval.setting.
@@ -90,5 +106,28 @@ describe('ClaudeConfigDirSettingService.set', () => {
         expect(set).toHaveBeenCalledWith(CLAUDE_CONFIG_DIR, undefined);
         expect(result).toEqual({ configDir: null });
         await expect(service.get()).resolves.toEqual({ configDir: null });
+    });
+});
+
+/** Against the real table: a fake store never sees what `JSON.stringify(undefined)` does to the insert. */
+describe('ClaudeConfigDirSettingService against the database', () => {
+    it('clears a stored directory', async () => {
+        const store = realStore();
+        const service = new ClaudeConfigDirSettingService(store);
+        await service.set({ configDir: '/home/operator/.claude-wilson' });
+
+        await expect(service.set({ configDir: null })).resolves.toEqual({ configDir: null });
+        await expect(store.stored(CLAUDE_CONFIG_DIR)).resolves.toBeUndefined();
+    });
+
+    it('clears nothing without failing', async () => {
+        await expect(new ClaudeConfigDirSettingService(realStore()).set({ configDir: null })).resolves.toEqual({ configDir: null });
+    });
+
+    it('answers with the environment value a cleared row falls back to', async () => {
+        const service = new ClaudeConfigDirSettingService(realStore({ CLAUDE_CONFIG_DIR: '/from/environment' }));
+        await service.set({ configDir: '/home/operator/.claude-wilson' });
+
+        await expect(service.set({ configDir: null })).resolves.toEqual({ configDir: '/from/environment' });
     });
 });

@@ -64,8 +64,13 @@ export class SettingsStore {
         return (await this.row(definition))?.value as T | undefined;
     }
 
-    /** Persist a value, overriding the environment variable and the default from now on. */
+    /**
+     * Persist a value, overriding the environment variable and the default from now on. `undefined`
+     * is how an optional setting says unset, and it has no JSON form to store, so it clears the row.
+     */
     async set<T>(definition: SettingDefinition<T>, value: T): Promise<void> {
+        if (value === undefined) return this.clear(definition);
+
         const serialized = JSON.stringify(value);
         await this.db
             .insertInto('wilson.settings')

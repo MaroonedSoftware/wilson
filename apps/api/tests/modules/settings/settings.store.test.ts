@@ -50,6 +50,33 @@ describe('SettingsStore.clear', () => {
     });
 });
 
+describe('SettingsStore.set with undefined', () => {
+    const optional: SettingDefinition<string | undefined> = {
+        key: 'optional-test',
+        scope: 'project',
+        envVar: 'OPTIONAL_TEST',
+        parseEnv: raw => raw,
+        defaultValue: undefined,
+    };
+
+    it('removes the row, so the environment variable applies again', async () => {
+        const store = buildStore(uniqueProject(), { OPTIONAL_TEST: 'from-env' });
+        await store.set(optional, 'stored');
+
+        await store.set(optional, undefined);
+
+        await expect(store.stored(optional)).resolves.toBeUndefined();
+        await expect(store.get(optional)).resolves.toBe('from-env');
+    });
+
+    it('is a no-op when there is no row', async () => {
+        const store = buildStore(uniqueProject());
+
+        await expect(store.set(optional, undefined)).resolves.toBeUndefined();
+        await expect(store.stored(optional)).resolves.toBeUndefined();
+    });
+});
+
 /**
  * Card 0106. `SettingsStore` is the one place the precedence this card exists for lives: a
  * `wilson.settings` row, else the environment variable, else the coded default. A fresh database

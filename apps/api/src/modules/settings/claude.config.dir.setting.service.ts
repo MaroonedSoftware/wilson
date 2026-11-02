@@ -29,7 +29,8 @@ export class ClaudeConfigDirSettingService {
      * same refusal `curl` and the settings page both see), otherwise persist it. Whether the
      * directory exists, is writable, or holds working credentials is deliberately not checked here
      * (this card's Out of scope) — that only ever surfaces as every `cli`-adapter stage failing at
-     * the model call.
+     * the model call. `null` clears the row, so the answer is what now applies, which may be the
+     * environment variable.
      */
     async set(body: SetClaudeConfigDirSettingRequest): Promise<ClaudeConfigDirSetting> {
         if (body.configDir !== null && !isAbsolute(body.configDir)) {
@@ -38,6 +39,6 @@ export class ClaudeConfigDirSettingService {
             });
         }
         await this.settings.set(CLAUDE_CONFIG_DIR, body.configDir ?? undefined);
-        return { configDir: body.configDir };
+        return this.get();
     }
 }
