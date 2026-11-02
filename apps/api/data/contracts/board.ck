@@ -143,8 +143,50 @@ contract RepositionCardRequest: {
     afterId?: string
 }
 
+# The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`).
+contract CardPlanSection: enum(goal, constraints, files-in-scope, tasks, acceptance-criteria, out-of-scope)
+
+contract CardPlanQuery: {
+    # Which version to read. Left out, the pinned one, or head on a card with no pin.
+    at?: enum(head, pinned)
+    # The section to return the text of. Left out, only the lengths and the criteria come back.
+    section?: CardPlanSection
+}
+
+# One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for.
+contract CardPlanCriterion: {
+    id: string
+    text: string
+}
+
+contract CardPlan: {
+    at: enum(head, pinned)
+    # The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval.
+    version?: string
+    currentVersion?: string
+    pinnedVersion?: string
+    differsFromPin: boolean
+    # Each section's length in characters, keyed like `CardDetail.sections`.
+    sectionLengths: record(string, int)
+    # The text of the section asked for; absent when none was, or the plan lacks it.
+    text?: string
+    criteria: array(CardPlanCriterion)
+}
+
 contract EditCardRequest: {
     body: string
+}
+
+contract EditCardSectionRequest: {
+    section: CardPlanSection
+    text: string
+    # The card version this edit was written against (`CardPlan.currentVersion`).
+    baseVersion: string
+}
+
+contract RepinCardPlanRequest: {
+    # The version the person is agreeing to (`CardPlan.currentVersion`).
+    version: string
 }
 
 # Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
@@ -806,6 +848,84 @@ operation /api/cards/{id}/plan/open: {
             }
             400:
             404:
+        }
+    }
+}
+
+# A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+# be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+# a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+# exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+# is pinned. `differsFromPin` says whether the two have drifted apart.
+operation /api/cards/{id}/plan: {
+    params: {
+        id: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get card plan
+        service: BoardService.plan
+        query: CardPlanQuery
+        response: {
+            200: {
+                application/json: CardPlan
+            }
+            404:
+        }
+    }
+}
+
+# One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+# keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+# card with a pin keeps running against the pinned plan until that is moved too.
+operation /api/cards/{id}/plan/section: {
+    params: {
+        id: string
+    }
+    patch: {
+        name: Edit card section
+        service: BoardWriteService.editSection
+        request: {
+            application/json: EditCardSectionRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A plan without that section, or empty text, or text carrying a section heading of its own.
+            400:
+            404:
+            # The card has a newer version than `baseVersion`: read it again before proposing this.
+            409:
+        }
+    }
+}
+
+# Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+# again, for a card already past approval: a change to the plan contract, so always a person's own
+# confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+operation /api/cards/{id}/plan/repin: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Repin card plan
+        service: BoardWriteService.repin
+        request: {
+            application/json: RepinCardPlanRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A card with no approved plan yet, a stage running or queued on it, or a plan that could
+            # not be approved as it stands.
+            400:
+            404:
+            # The card has a newer version than `version`: read it again before proposing this.
+            409:
         }
     }
 }

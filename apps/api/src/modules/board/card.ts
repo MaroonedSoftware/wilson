@@ -77,6 +77,19 @@ export interface Card {
  * it belongs beside `filesInScope` rather than in the frontmatter parser — a card reconstructed
  * from a stored body needs it just as much as one read from a file.
  */
+const planHeading = (line: string): PlanSection | undefined => {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    return heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
+};
+
+/**
+ * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`). `sectionsOf`
+ * reads them as part of the plan section they follow; anything that rewrites a section must not.
+ */
+const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts'];
+
+const endsSection = (line: string): boolean => planHeading(line) !== undefined || RUNNER_HEADINGS.includes(line.trim());
+
 export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> => {
     const sections: Partial<Record<PlanSection, string>> = {};
     const lines = body.split('\n');
@@ -89,8 +102,7 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
     };
 
     for (const line of lines) {
-        const heading = /^##\s+(.+?)\s*$/.exec(line);
-        const matched = heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
+        const matched = planHeading(line);
         if (matched) {
             flush();
             current = matched;
@@ -100,6 +112,46 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
     }
     flush();
     return sections;
+};
+
+/**
+ * Why `body` cannot be a card's plan, in words a refusal can use: a plan-contract section absent or
+ * empty, or an empty "Files in scope". Undefined for a body that can be approved. Each of these would
+ * otherwise kill the card at dispatch, stages after whoever approved it.
+ */
+export const planGap = (body: string): string | undefined => {
+    const sections = sectionsOf(body);
+    const missing = PLAN_SECTIONS.filter(section => !sections[section] || sections[section]!.trim().length === 0);
+    if (missing.length > 0) return `draft is incomplete — empty section(s): ${missing.join(', ')}`;
+    return filesInScope({ frontmatter: {} as CardFrontmatter, sections, body }).length === 0 ? 'draft has an empty "Files in scope"' : undefined;
+};
+
+/**
+ * A section as `sectionsOf` read it, up to the first heading the runner appended: the text a person
+ * wrote, and so the text `withSection` replaces and accepts back.
+ */
+export const authoredText = (section: string): string => {
+    const lines = section.split('\n');
+    const end = lines.findIndex(line => RUNNER_HEADINGS.includes(line.trim()));
+    return end === -1 ? section : lines.slice(0, end).join('\n').trim();
+};
+
+/**
+ * `body` with one section's text replaced and every other byte kept: the sections around it and the
+ * runner's own appended sections after it. The last heading wins when a section repeats, as it does
+ * in `sectionsOf`. Undefined for a plan without that section, or `text` that carries a heading of its
+ * own, which would move the boundary of some other section.
+ */
+export const withSection = (body: string, section: PlanSection, text: string): string | undefined => {
+    if (text.split('\n').some(endsSection)) return undefined;
+
+    const lines = body.split('\n');
+    const start = lines.reduce((found, line, index) => (planHeading(line) === section ? index : found), -1);
+    if (start === -1) return undefined;
+
+    const next = lines.findIndex((line, index) => index > start && endsSection(line));
+    const after = next === -1 ? [] : ['', ...lines.slice(next)];
+    return [...lines.slice(0, start + 1), '', text.trim(), ...after].join('\n') + (next === -1 ? '\n' : '');
 };
 
 /**

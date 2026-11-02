@@ -14,6 +14,8 @@ import {
     CardDiff,
     CardDivision,
     CardEvent,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -21,6 +23,7 @@ import {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -33,6 +36,7 @@ import {
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
@@ -416,6 +420,80 @@ BoardRouter.post('/api/cards/:id/plan/open', requirePolicy({ policy: 'wilson.man
 
     const service = ctx.container.get(PlanService);
     const result: PlanSession = await service.open(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+ * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+ * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+ * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+ * is pinned. `differsFromPin` says whether the two have drifted apart.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/plan`
+ */
+BoardRouter.get('/api/cards/:id/plan', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const query = await parseAndValidate(ctx.query, CardPlanQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: CardPlan = await service.plan(id, query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+ * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+ * card with a pin keeps running against the pinned plan until that is moved too.
+ * from [board.ck](../../data/contracts/board.ck) `PATCH /api/cards/{id}/plan/section`
+ */
+BoardRouter.patch('/api/cards/:id/plan/section', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, EditCardSectionRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.editSection(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+ * again, for a card already past approval: a change to the plan contract, so always a person's own
+ * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/repin`
+ */
+BoardRouter.post('/api/cards/:id/plan/repin', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, RepinCardPlanRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.repin(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

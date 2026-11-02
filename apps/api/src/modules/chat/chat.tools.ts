@@ -48,9 +48,18 @@ export const PROPOSAL_TTL = Duration.fromObject({ minutes: 10 });
 /** A read's result is cut here before the model sees it, so one large diff cannot fill the context. */
 export const RESULT_CAP = 20_000;
 
-const capped = (value: unknown): string => {
+/**
+ * One window of a result, `RESULT_CAP` long, from `offset`. A cut says where the next window starts,
+ * so an operation with no narrower form of itself, such as a card with a long plan, can still be
+ * read to its end.
+ */
+const capped = (value: unknown, offset = 0): string => {
     const text = JSON.stringify(value ?? null, null, 1);
-    return text.length <= RESULT_CAP ? text : `${text.slice(0, RESULT_CAP)}\n… cut at ${RESULT_CAP} of ${text.length} characters; ask for less.`;
+    if (offset === 0 && text.length <= RESULT_CAP) return text;
+    if (offset >= text.length) return `Nothing at offset ${offset}: the result is ${text.length} characters.`;
+    const end = offset + RESULT_CAP;
+    if (end >= text.length) return text.slice(offset);
+    return `${text.slice(offset, end)}\n… cut at ${end} of ${text.length} characters; repeat this call with offset ${end} to read on.`;
 };
 
 const PROJECT = z
@@ -105,10 +114,21 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
         },
         {
             name: 'dispatch_readonly',
-            description: 'Run a read operation and answer with its result. Refuses a change: propose one instead, for the person to confirm.',
-            input: z.object({ name: z.string().describe('The operation name.'), project: PROJECT, arguments: ARGUMENTS }),
+            description:
+                'Run a read operation and answer with its result. A long result comes back in windows, each saying the offset of the next. Refuses a change: propose one instead, for the person to confirm.',
+            input: z.object({
+                name: z.string().describe('The operation name.'),
+                project: PROJECT,
+                arguments: ARGUMENTS,
+                offset: z.number().int().min(0).optional().describe('Where in the result to start, from a cut result; the start if left out.'),
+            }),
             execute: async input => {
-                const { name, project, arguments: args = {} } = input as { name: string; project?: string; arguments?: Record<string, unknown> };
+                const {
+                    name,
+                    project,
+                    arguments: args = {},
+                    offset,
+                } = input as { name: string; project?: string; arguments?: Record<string, unknown>; offset?: number };
                 const entry = catalog.get(name);
                 if (!entry) return `There is no operation named "${name}". Search for one first.`;
                 if (!entry.readOnly)
@@ -116,7 +136,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                 try {
                     const result = await catalog.run(context.container, context.logger, context.session, name, args, project);
                     record({ name, arguments: args, project, ok: true });
-                    return capped(result);
+                    return capped(result, offset);
                 } catch (err) {
                     record({ name, arguments: args, project, ok: false });
                     return `"${name}" failed: ${explainError(err)}`;

@@ -92,6 +92,27 @@ describe('the chat tools', () => {
         expect(answer).toContain(`cut at ${RESULT_CAP}`);
     });
 
+    it('reads a large result to its end in windows, each naming the next offset', async () => {
+        const { tool } = setup();
+        const read = (offset?: number) =>
+            tool('dispatch_readonly').execute({ name: 'get_card_diff', project: 'wilson', arguments: { id: '0007' }, offset });
+
+        expect(await read()).toContain(`repeat this call with offset ${RESULT_CAP} to read on`);
+        expect(await read(RESULT_CAP)).toContain(`repeat this call with offset ${RESULT_CAP * 2} to read on`);
+
+        const last = await read(RESULT_CAP * 2);
+        expect(last).not.toContain('read on');
+        expect(last.length).toBeLessThan(10);
+    });
+
+    it('says so when an offset is past the end of the result', async () => {
+        const { tool } = setup();
+
+        const answer = await tool('dispatch_readonly').execute({ name: 'list_cards', project: 'wilson', offset: 5000 });
+
+        expect(answer).toContain('Nothing at offset 5000');
+    });
+
     it('proposes a change as a pending action, without running it', async () => {
         const { tool, context, events, proposals, calls } = setup();
         const args = { id: '0007', body: { stage: 'implementing' } };

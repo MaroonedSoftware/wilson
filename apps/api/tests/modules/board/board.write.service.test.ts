@@ -775,6 +775,128 @@ describe('BoardWriteService', () => {
         });
     });
 
+    describe('editSection', () => {
+        const plan = '## Goal\n\ngoal\n\n## Acceptance criteria\n\n- old\n\n## Out of scope\n\nnone\n\n## Review findings\n\n- a finding\n';
+
+        it('replaces the one section and keeps everything else, including what the runner appended', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0030', {}, plan), 'seed');
+
+            const detail = await service.editSection('0030', {
+                section: 'acceptance-criteria',
+                text: '- new',
+                baseVersion: (await board.currentVersion('0030'))!,
+            });
+
+            expect(detail.body).toBe(plan.replace('- old', '- new'));
+            expect((await board.versions('0030', 10))[0]!.message).toBe('Edit 0030 Acceptance criteria');
+        });
+
+        it('refuses a stale base version and writes nothing', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0031', {}, plan), 'seed');
+            const baseVersion = (await board.currentVersion('0031'))!;
+            await service.edit('0031', { body: `${plan}\nmore` });
+
+            await expect(service.editSection('0031', { section: 'goal', text: 'changed', baseVersion })).rejects.toMatchObject({ statusCode: 409 });
+            expect((await board.read('0031')).body).toBe(`${plan}\nmore`);
+        });
+
+        it('refuses empty text, a missing section, and text carrying a heading', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0032', {}, '## Goal\n\ngoal\n'), 'seed');
+            const baseVersion = (await board.currentVersion('0032'))!;
+            const edit = (section: 'goal' | 'tasks', text: string) => service.editSection('0032', { section, text, baseVersion });
+
+            await expect(edit('goal', '  ')).rejects.toMatchObject({ statusCode: 400 });
+            await expect(edit('tasks', '- one')).rejects.toMatchObject({ statusCode: 400 });
+            await expect(edit('goal', 'text\n## Tasks\n- smuggled')).rejects.toMatchObject({ statusCode: 400 });
+            expect((await board.read('0032')).body).toBe('## Goal\n\ngoal\n');
+        });
+
+        it('answers a card that does not exist with a 404', async () => {
+            const { service } = freshBoard();
+
+            await expect(service.editSection('missing', { section: 'goal', text: 'x', baseVersion: '1' })).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    describe('repin', () => {
+        const plan = (criteria: string) =>
+            `## Goal\n\ng\n\n## Constraints\n\nc\n\n## Files in scope\n\n- src/a.ts\n\n## Tasks\n\nt\n\n## Acceptance criteria\n\n- ${criteria}\n\n## Out of scope\n\no\n`;
+
+        /** A card in review, pinned to its first text, with a newer text at head. */
+        const pinnedWithEdit = async (id: string, fresh = freshBoard()) => {
+            await fresh.board.create(card(id, { stage: 'testing' }, plan('old')), 'seed');
+            const pinned = (await fresh.board.currentVersion(id))!;
+            await fresh.board.write(id, 'pin', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: pinned } }));
+            await fresh.service.edit(id, { body: plan('new') });
+            return { ...fresh, pinned, version: (await fresh.board.currentVersion(id))! };
+        };
+
+        it('pins the version the person read, so a stage reads the new text, and records it', async () => {
+            const { board, events, service, pinned, version } = await pinnedWithEdit('0040');
+
+            const detail = await service.repin('0040', { version });
+
+            const head = await board.read('0040');
+            expect(head.frontmatter.planVersionId).toBe(version);
+            expect((await board.readAt('0040', head.frontmatter.planVersionId!)).body).toBe(plan('new'));
+            expect(detail.stage).toBe('testing');
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'plan.repinned', payload: { from: pinned, to: version, by: 'human' } }),
+                expect.anything(),
+            );
+        });
+
+        it('keeps the flag and the retries for the person to deal with', async () => {
+            const { board, service, version } = await pinnedWithEdit('0041');
+            const flagged = await board.write('0041', 'flag', current => ({
+                ...current,
+                frontmatter: { ...current.frontmatter, needsHuman: true, needsHumanReason: 'stuck', retries: { testing: 2 } },
+            }));
+
+            await service.repin('0041', { version: flagged });
+
+            expect((await board.read('0041')).frontmatter).toMatchObject({ needsHuman: true, retries: { testing: 2 } });
+            expect(version).not.toBe(flagged);
+        });
+
+        it('refuses a version that is no longer the newest', async () => {
+            const { board, service, pinned, version } = await pinnedWithEdit('0042');
+            await service.edit('0042', { body: plan('newer') });
+
+            await expect(service.repin('0042', { version })).rejects.toMatchObject({ statusCode: 409 });
+            expect((await board.read('0042')).frontmatter.planVersionId).toBe(pinned);
+        });
+
+        it('refuses a card with no approved plan', async () => {
+            const { board, service } = freshBoard();
+            await board.create(card('0043', { stage: 'planning' }, plan('x')), 'seed');
+
+            await expect(service.repin('0043', { version: '1' })).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('refuses a card with a stage running or queued', async () => {
+            const { board, cardJobs, service, pinned, version } = await pinnedWithEdit(
+                '0044',
+                freshBoard(undefined, { getJob: vi.fn(async () => ({ state: 'active' })) }),
+            );
+            await cardJobs.record('0044', 'job-1');
+
+            await expect(service.repin('0044', { version })).rejects.toMatchObject({ statusCode: 400 });
+            expect((await board.read('0044')).frontmatter.planVersionId).toBe(pinned);
+        });
+
+        it('refuses a plan that could not be approved as it stands', async () => {
+            const { board, service, pinned } = await pinnedWithEdit('0045');
+            await service.edit('0045', { body: '## Goal\n\nonly this\n' });
+
+            await expect(service.repin('0045', { version: (await board.currentVersion('0045'))! })).rejects.toMatchObject({ statusCode: 400 });
+            expect((await board.read('0045')).frontmatter.planVersionId).toBe(pinned);
+        });
+    });
+
     describe('rename', () => {
         it('renames the title and records "Rename {id}: "{old}" → "{new}"" as the version message', async () => {
             const { board, service } = freshBoard();

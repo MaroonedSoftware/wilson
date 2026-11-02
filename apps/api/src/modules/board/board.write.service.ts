@@ -28,10 +28,12 @@ import type {
     MergeResult,
     MoveCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     DependCardRequest,
     RecordFindingsRequest,
     RenameCardRequest,
     ReleaseResult,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SplitCardsRequest,
     SplitResult,
@@ -43,7 +45,7 @@ import { toCardDetail } from './board.service.js';
 import { withFindings } from './append.findings.js';
 import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
-import { filesInScope, type Card } from './card.js';
+import { filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
 
@@ -404,6 +406,74 @@ export class BoardWriteService {
         }
 
         await this.boardRepository.write(id, `Edit ${id} plan body`, card => ({ ...card, body: request.body }));
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Replace one section of a card's plan. `baseVersion` is checked under the row lock, because a
+     * person can take minutes to confirm this and the runner appends to a body in the meantime. Head
+     * only, like `edit`: the pinned plan a stage reads is not touched.
+     */
+    async editSection(id: string, request: EditCardSectionRequest): Promise<CardDetail> {
+        await this.readOrThrow(id);
+        const section = PLAN_SECTIONS.find(candidate => sectionKey(candidate) === request.section)!;
+        if (request.text.trim().length === 0) {
+            throw httpError(400).withDetails({ reason: `the "${section}" section cannot be empty` });
+        }
+
+        await this.boardRepository.write(id, `Edit ${id} ${section}`, async card => {
+            const version = await this.boardRepository.currentVersion(id);
+            if (version !== request.baseVersion) {
+                throw httpError(409).withDetails({ reason: `${id} is at version ${version}, not ${request.baseVersion}: read it again` });
+            }
+            const body = withSection(card.body, section, request.text);
+            if (body === undefined) {
+                throw httpError(400).withDetails({
+                    reason: `${id} has no "${section}" section to replace, or the text carries a section heading of its own`,
+                });
+            }
+            return { ...card, body };
+        });
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Pin a card to its newest plan text, the way approval pinned it the first time, for a card
+     * already past approval. Refused while a job claims the card: the pin is read as a dispatch
+     * starts, and a stage must not have its contract change between one retry and the next. `version`
+     * is checked under the row lock so what gets pinned is what the person read. Like `move`, the
+     * pin is the version before this write, whose body is the same.
+     */
+    async repin(id: string, request: RepinCardPlanRequest): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        const from = before.frontmatter.planVersionId;
+        if (!from) {
+            throw httpError(400).withDetails({ reason: `${id} has no approved plan to move: approve it instead` });
+        }
+        if (await this.cardJobs.inFlight(id)) {
+            throw httpError(400).withDetails({ reason: `${id} has a stage running or queued, so its plan cannot move now` });
+        }
+        const gap = planGap(before.body);
+        if (gap) throw httpError(400).withDetails({ reason: gap });
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Repin ${id} plan`,
+            async card => {
+                const version = await this.boardRepository.currentVersion(id);
+                if (version !== request.version) {
+                    throw httpError(409).withDetails({ reason: `${id} is at version ${version}, not ${request.version}: read it again` });
+                }
+                return { ...card, frontmatter: { ...card.frontmatter, planVersionId: version } };
+            },
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: before.frontmatter.stage,
+                type: 'plan.repinned',
+                payload: { from, to: request.version, by: 'human' },
+            },
+        );
         return toCardDetail(await this.boardRepository.read(id));
     }
 

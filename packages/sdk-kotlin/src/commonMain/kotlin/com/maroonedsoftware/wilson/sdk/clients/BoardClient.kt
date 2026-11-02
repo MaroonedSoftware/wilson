@@ -8,6 +8,8 @@ import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardDiff
 import com.maroonedsoftware.wilson.sdk.models.CardDivision
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
+import com.maroonedsoftware.wilson.sdk.models.CardPlan
+import com.maroonedsoftware.wilson.sdk.models.CardPlanQuery
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.CardVersion
@@ -15,6 +17,7 @@ import com.maroonedsoftware.wilson.sdk.models.CreateCardRequest
 import com.maroonedsoftware.wilson.sdk.models.CreatePlanCommentRequest
 import com.maroonedsoftware.wilson.sdk.models.DependCardRequest
 import com.maroonedsoftware.wilson.sdk.models.EditCardRequest
+import com.maroonedsoftware.wilson.sdk.models.EditCardSectionRequest
 import com.maroonedsoftware.wilson.sdk.models.LintFinding
 import com.maroonedsoftware.wilson.sdk.models.ListQuery
 import com.maroonedsoftware.wilson.sdk.models.MergeResult
@@ -27,6 +30,7 @@ import com.maroonedsoftware.wilson.sdk.models.PlanTurnRequest
 import com.maroonedsoftware.wilson.sdk.models.RecordFindingsRequest
 import com.maroonedsoftware.wilson.sdk.models.ReleaseResult
 import com.maroonedsoftware.wilson.sdk.models.RenameCardRequest
+import com.maroonedsoftware.wilson.sdk.models.RepinCardPlanRequest
 import com.maroonedsoftware.wilson.sdk.models.RepositionCardRequest
 import com.maroonedsoftware.wilson.sdk.models.SaveDraftRequest
 import com.maroonedsoftware.wilson.sdk.models.SplitCardsRequest
@@ -274,6 +278,53 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun openAPlanningSession(id: String): PlanSession {
         val response = http.execute(HttpMethod.Post) {
             path("api", "cards", segment(id), "plan", "open")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get card plan
+     * A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+     * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+     * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+     * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+     * is pinned. `differsFromPin` says whether the two have drifted apart.
+     * @throws SdkError on 404
+     */
+    suspend fun getCardPlan(id: String, query: CardPlanQuery? = null): CardPlan {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "plan")
+            params(query)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Edit card section
+     * One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+     * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+     * card with a pin keeps running against the pinned plan until that is moved too.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun editCardSection(id: String, body: EditCardSectionRequest): CardDetail {
+        val response = http.execute(HttpMethod.Patch) {
+            path("api", "cards", segment(id), "plan", "section")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Repin card plan
+     * Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+     * again, for a card already past approval: a change to the plan contract, so always a person's own
+     * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun repinCardPlan(id: String, body: RepinCardPlanRequest): CardDetail {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "plan", "repin")
+            jsonBody(body, "application/json")
         }
         return http.decodeJson(response)
     }

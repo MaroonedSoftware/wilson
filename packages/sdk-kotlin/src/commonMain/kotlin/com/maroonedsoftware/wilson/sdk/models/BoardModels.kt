@@ -130,9 +130,51 @@ data class RepositionCardRequest(
     val afterId: String? = null,
 )
 
+/** The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`). */
+@Serializable(with = CardPlanSectionSerializer::class)
+enum class CardPlanSection {
+    GOAL,
+    CONSTRAINTS,
+    FILES_IN_SCOPE,
+    TASKS,
+    ACCEPTANCE_CRITERIA,
+    OUT_OF_SCOPE,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardPlanSection] by its wire spelling. A spelling it does not know reads as [CardPlanSection.UNKNOWN]. */
+object CardPlanSectionSerializer : SdkEnumSerializer<CardPlanSection>(
+    "CardPlanSection",
+    CardPlanSection.UNKNOWN,
+    CardPlanSection.GOAL to "goal",
+    CardPlanSection.CONSTRAINTS to "constraints",
+    CardPlanSection.FILES_IN_SCOPE to "files-in-scope",
+    CardPlanSection.TASKS to "tasks",
+    CardPlanSection.ACCEPTANCE_CRITERIA to "acceptance-criteria",
+    CardPlanSection.OUT_OF_SCOPE to "out-of-scope",
+)
+
+/** One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for. */
+@Serializable
+data class CardPlanCriterion(
+    val id: String,
+    val text: String,
+)
+
 @Serializable
 data class EditCardRequest(
     val body: String,
+)
+
+@Serializable
+data class RepinCardPlanRequest(
+    /** The version the person is agreeing to (`CardPlan.currentVersion`). */
+    val version: String,
 )
 
 /**
@@ -449,6 +491,37 @@ data class CardDetail(
     val pieces: List<SplitPieceSummary>? = null,
 )
 
+@Serializable
+data class CardPlanQuery(
+    /** Which version to read. Left out, the pinned one, or head on a card with no pin. */
+    val at: CardPlanQueryAt? = null,
+    /** The section to return the text of. Left out, only the lengths and the criteria come back. */
+    val section: CardPlanSection? = null,
+)
+
+@Serializable
+data class EditCardSectionRequest(
+    val section: CardPlanSection,
+    val text: String,
+    /** The card version this edit was written against (`CardPlan.currentVersion`). */
+    val baseVersion: String,
+)
+
+@Serializable
+data class CardPlan(
+    val at: CardPlanAt,
+    /** The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval. */
+    val version: String? = null,
+    val currentVersion: String? = null,
+    val pinnedVersion: String? = null,
+    val differsFromPin: Boolean,
+    /** Each section's length in characters, keyed like `CardDetail.sections`. */
+    val sectionLengths: Map<String, Long>,
+    /** The text of the section asked for; absent when none was, or the plan lacks it. */
+    val text: String? = null,
+    val criteria: List<CardPlanCriterion>,
+)
+
 /**
  * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
  * when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
@@ -703,6 +776,47 @@ object ReleaseResultReleasedAsSerializer : SdkEnumSerializer<ReleaseResultReleas
     ReleaseResultReleasedAs.UNKNOWN,
     ReleaseResultReleasedAs.QUEUED to "queued",
     ReleaseResultReleasedAs.ORPHAN to "orphan",
+)
+
+/** Which version to read. Left out, the pinned one, or head on a card with no pin. */
+@Serializable(with = CardPlanQueryAtSerializer::class)
+enum class CardPlanQueryAt {
+    HEAD,
+    PINNED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardPlanQueryAt] by its wire spelling. A spelling it does not know reads as [CardPlanQueryAt.UNKNOWN]. */
+object CardPlanQueryAtSerializer : SdkEnumSerializer<CardPlanQueryAt>(
+    "CardPlanQueryAt",
+    CardPlanQueryAt.UNKNOWN,
+    CardPlanQueryAt.HEAD to "head",
+    CardPlanQueryAt.PINNED to "pinned",
+)
+
+@Serializable(with = CardPlanAtSerializer::class)
+enum class CardPlanAt {
+    HEAD,
+    PINNED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardPlanAt] by its wire spelling. A spelling it does not know reads as [CardPlanAt.UNKNOWN]. */
+object CardPlanAtSerializer : SdkEnumSerializer<CardPlanAt>(
+    "CardPlanAt",
+    CardPlanAt.UNKNOWN,
+    CardPlanAt.HEAD to "head",
+    CardPlanAt.PINNED to "pinned",
 )
 
 @Serializable

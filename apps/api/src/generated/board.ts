@@ -124,12 +124,37 @@ export const RepositionCardRequest = z.strictObject({
 export type RepositionCardRequest = z.infer<typeof RepositionCardRequest>;
 
 /**
+ * The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`).
+ * generated from [CardPlanSection](../../data/contracts/board.ck)
+ */
+export const CardPlanSection = z.enum(['goal', 'constraints', 'files-in-scope', 'tasks', 'acceptance-criteria', 'out-of-scope']);
+export type CardPlanSection = z.infer<typeof CardPlanSection>;
+
+/**
+ * One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for.
+ * generated from [CardPlanCriterion](../../data/contracts/board.ck)
+ */
+export const CardPlanCriterion = z.strictObject({
+    id: z.string(),
+    text: z.string(),
+});
+export type CardPlanCriterion = z.infer<typeof CardPlanCriterion>;
+
+/**
  * generated from [EditCardRequest](../../data/contracts/board.ck)
  */
 export const EditCardRequest = z.strictObject({
     body: z.string(),
 });
 export type EditCardRequest = z.infer<typeof EditCardRequest>;
+
+/**
+ * generated from [RepinCardPlanRequest](../../data/contracts/board.ck)
+ */
+export const RepinCardPlanRequest = z.strictObject({
+    version: z.string().describe('The version the person is agreeing to (`CardPlan.currentVersion`).'),
+});
+export type RepinCardPlanRequest = z.infer<typeof RepinCardPlanRequest>;
 
 /**
  * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
@@ -414,6 +439,45 @@ export const CardDetail = CardSummary.extend({
         ),
 });
 export type CardDetail = z.infer<typeof CardDetail>;
+
+/**
+ * generated from [CardPlanQuery](../../data/contracts/board.ck)
+ */
+export const CardPlanQuery = z.strictObject({
+    at: z.enum(['head', 'pinned']).optional().describe('Which version to read. Left out, the pinned one, or head on a card with no pin.'),
+    section: CardPlanSection.optional().describe('The section to return the text of. Left out, only the lengths and the criteria come back.'),
+});
+export type CardPlanQuery = z.infer<typeof CardPlanQuery>;
+
+/**
+ * generated from [EditCardSectionRequest](../../data/contracts/board.ck)
+ */
+export const EditCardSectionRequest = z.strictObject({
+    section: CardPlanSection,
+    text: z.string(),
+    baseVersion: z.string().describe('The card version this edit was written against (`CardPlan.currentVersion`).'),
+});
+export type EditCardSectionRequest = z.infer<typeof EditCardSectionRequest>;
+
+/**
+ * generated from [CardPlan](../../data/contracts/board.ck)
+ */
+export const CardPlan = z.strictObject({
+    at: z.enum(['head', 'pinned']),
+    version: z.string().optional().describe('The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval.'),
+    currentVersion: z.string().optional(),
+    pinnedVersion: z.string().optional(),
+    differsFromPin: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    sectionLengths: z
+        .record(
+            z.string(),
+            z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        )
+        .describe("Each section's length in characters, keyed like `CardDetail.sections`."),
+    text: z.string().optional().describe('The text of the section asked for; absent when none was, or the plan lacks it.'),
+    criteria: z.array(CardPlanCriterion),
+});
+export type CardPlan = z.infer<typeof CardPlan>;
 
 /**
  * One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null

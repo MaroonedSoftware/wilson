@@ -8,7 +8,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
-import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
+import { completeSections, planGap, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
 import { findStage, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
@@ -312,16 +312,8 @@ export class PlanService {
             return toCardDetail(before);
         }
 
-        const sections = sectionsOf(request.body);
-        const missing = PLAN_SECTIONS.filter(section => !sections[section] || sections[section]!.trim().length === 0);
-        if (missing.length > 0) {
-            throw httpError(400).withDetails({ reason: `draft is incomplete — empty section(s): ${missing.join(', ')}` });
-        }
-
-        const draftCard: Card = { frontmatter: before.frontmatter, sections, body: request.body };
-        if (filesInScope(draftCard).length === 0) {
-            throw httpError(400).withDetails({ reason: 'draft has an empty "Files in scope"' });
-        }
+        const gap = planGap(request.body);
+        if (gap) throw httpError(400).withDetails({ reason: gap });
 
         await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => ({ ...current, body: request.body }));
         return toCardDetail(await this.boardRepository.read(id));

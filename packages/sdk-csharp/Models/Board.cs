@@ -182,10 +182,104 @@ public sealed record RepositionCardRequest
     public string? AfterId { get; init; }
 }
 
+/// <summary>The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`).</summary>
+[JsonConverter(typeof(CardPlanSectionConverter))]
+public enum CardPlanSection
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("goal")]
+    Goal,
+
+    [JsonStringEnumMemberName("constraints")]
+    Constraints,
+
+    [JsonStringEnumMemberName("files-in-scope")]
+    FilesInScope,
+
+    [JsonStringEnumMemberName("tasks")]
+    Tasks,
+
+    [JsonStringEnumMemberName("acceptance-criteria")]
+    AcceptanceCriteria,
+
+    [JsonStringEnumMemberName("out-of-scope")]
+    OutOfScope,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardPlanSection"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardPlanSection.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardPlanSectionConverter : JsonConverter<CardPlanSection>
+{
+    public override CardPlanSection Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardPlanSection, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardPlanSection value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardPlanSection ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardPlanSection value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardPlanSection FromWire(string? text) => text switch
+    {
+        "goal" => CardPlanSection.Goal,
+        "constraints" => CardPlanSection.Constraints,
+        "files-in-scope" => CardPlanSection.FilesInScope,
+        "tasks" => CardPlanSection.Tasks,
+        "acceptance-criteria" => CardPlanSection.AcceptanceCriteria,
+        "out-of-scope" => CardPlanSection.OutOfScope,
+        _ => CardPlanSection.Unknown,
+    };
+
+    private static string ToWire(CardPlanSection value) => value switch
+    {
+        CardPlanSection.Goal => "goal",
+        CardPlanSection.Constraints => "constraints",
+        CardPlanSection.FilesInScope => "files-in-scope",
+        CardPlanSection.Tasks => "tasks",
+        CardPlanSection.AcceptanceCriteria => "acceptance-criteria",
+        CardPlanSection.OutOfScope => "out-of-scope",
+        _ => throw new JsonException($"CardPlanSection.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for.</summary>
+public sealed record CardPlanCriterion
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+}
+
 public sealed record EditCardRequest
 {
     [JsonPropertyName("body")]
     public required string Body { get; init; }
+}
+
+public sealed record RepinCardPlanRequest
+{
+    /// <summary>The version the person is agreeing to (`CardPlan.currentVersion`).</summary>
+    [JsonPropertyName("version")]
+    public required string Version { get; init; }
 }
 
 /// <summary>
@@ -633,6 +727,66 @@ public sealed record CardDetail
     public List<SplitPieceSummary>? Pieces { get; init; }
 }
 
+public sealed record CardPlanQuery
+{
+    /// <summary>Which version to read. Left out, the pinned one, or head on a card with no pin.</summary>
+    [JsonPropertyName("at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPlanQueryAt? At { get; init; }
+
+    /// <summary>The section to return the text of. Left out, only the lengths and the criteria come back.</summary>
+    [JsonPropertyName("section")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPlanSection? Section { get; init; }
+}
+
+public sealed record EditCardSectionRequest
+{
+    [JsonPropertyName("section")]
+    public required CardPlanSection Section { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+
+    /// <summary>The card version this edit was written against (`CardPlan.currentVersion`).</summary>
+    [JsonPropertyName("baseVersion")]
+    public required string BaseVersion { get; init; }
+}
+
+public sealed record CardPlan
+{
+    [JsonPropertyName("at")]
+    public required CardPlanAt At { get; init; }
+
+    /// <summary>The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval.</summary>
+    [JsonPropertyName("version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; init; }
+
+    [JsonPropertyName("currentVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CurrentVersion { get; init; }
+
+    [JsonPropertyName("pinnedVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PinnedVersion { get; init; }
+
+    [JsonPropertyName("differsFromPin")]
+    public required bool DiffersFromPin { get; init; }
+
+    /// <summary>Each section's length in characters, keyed like `CardDetail.sections`.</summary>
+    [JsonPropertyName("sectionLengths")]
+    public required Dictionary<string, long> SectionLengths { get; init; }
+
+    /// <summary>The text of the section asked for; absent when none was, or the plan lacks it.</summary>
+    [JsonPropertyName("text")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; init; }
+
+    [JsonPropertyName("criteria")]
+    public required List<CardPlanCriterion> Criteria { get; init; }
+}
+
 /// <summary>
 /// One line of `GET /api/activity`: a `CardEvent`, plus which card it happened to. `cardTitle` is null
 /// when the card no longer exists, since `wilson.card_events` keeps its history with no foreign key.
@@ -1034,6 +1188,119 @@ public sealed class ReleaseResultReleasedAsConverter : JsonConverter<ReleaseResu
         ReleaseResultReleasedAs.Queued => "queued",
         ReleaseResultReleasedAs.Orphan => "orphan",
         _ => throw new JsonException($"ReleaseResultReleasedAs.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>Which version to read. Left out, the pinned one, or head on a card with no pin.</summary>
+[JsonConverter(typeof(CardPlanQueryAtConverter))]
+public enum CardPlanQueryAt
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("head")]
+    Head,
+
+    [JsonStringEnumMemberName("pinned")]
+    Pinned,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardPlanQueryAt"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardPlanQueryAt.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardPlanQueryAtConverter : JsonConverter<CardPlanQueryAt>
+{
+    public override CardPlanQueryAt Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardPlanQueryAt, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardPlanQueryAt value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardPlanQueryAt ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardPlanQueryAt value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardPlanQueryAt FromWire(string? text) => text switch
+    {
+        "head" => CardPlanQueryAt.Head,
+        "pinned" => CardPlanQueryAt.Pinned,
+        _ => CardPlanQueryAt.Unknown,
+    };
+
+    private static string ToWire(CardPlanQueryAt value) => value switch
+    {
+        CardPlanQueryAt.Head => "head",
+        CardPlanQueryAt.Pinned => "pinned",
+        _ => throw new JsonException($"CardPlanQueryAt.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(CardPlanAtConverter))]
+public enum CardPlanAt
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("head")]
+    Head,
+
+    [JsonStringEnumMemberName("pinned")]
+    Pinned,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardPlanAt"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardPlanAt.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardPlanAtConverter : JsonConverter<CardPlanAt>
+{
+    public override CardPlanAt Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardPlanAt, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardPlanAt value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardPlanAt ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardPlanAt value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardPlanAt FromWire(string? text) => text switch
+    {
+        "head" => CardPlanAt.Head,
+        "pinned" => CardPlanAt.Pinned,
+        _ => CardPlanAt.Unknown,
+    };
+
+    private static string ToWire(CardPlanAt value) => value switch
+    {
+        CardPlanAt.Head => "head",
+        CardPlanAt.Pinned => "pinned",
+        _ => throw new JsonException($"CardPlanAt.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

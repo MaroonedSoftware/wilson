@@ -287,6 +287,59 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Get card plan
+    /// A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+    /// be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+    /// a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+    /// exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+    /// is pinned. `differsFromPin` says whether the two have drifted apart.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<CardPlan> GetCardPlanAsync(string id, CardPlanQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "cards", http.Segment(id), "plan"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardPlan>(response);
+    }
+
+    /// <summary>
+    /// Edit card section
+    /// One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+    /// keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+    /// card with a pin keeps running against the pinned plan until that is moved too.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<CardDetail> EditCardSectionAsync(string id, EditCardSectionRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            SdkHttp.Patch,
+            http.Path("api", "cards", http.Segment(id), "plan", "section"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardDetail>(response);
+    }
+
+    /// <summary>
+    /// Repin card plan
+    /// Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+    /// again, for a card already past approval: a change to the plan contract, so always a person's own
+    /// confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<CardDetail> RepinCardPlanAsync(string id, RepinCardPlanRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "plan", "repin"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardDetail>(response);
+    }
+
+    /// <summary>
     /// Get a plan draft
     /// Card 0140. A read, and nothing else: creates no session, cuts no worktree, writes nothing — `open`
     /// remains the only thing that seeds a draft. A card in `planning` that has never had a session open

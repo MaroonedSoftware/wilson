@@ -146,10 +146,33 @@ export interface RepositionCardRequest {
 }
 
 /**
+ * The plan-contract sections by their kebab-cased keys (`PLAN_SECTION_KEYS`, and `CardDetail.sections`).
+ * generated from [CardPlanSection](../../../../apps/api/data/contracts/board.ck)
+ */
+export type CardPlanSection = 'goal' | 'constraints' | 'files-in-scope' | 'tasks' | 'acceptance-criteria' | 'out-of-scope';
+
+/**
+ * One acceptance criterion as `acceptanceCriteria` parses it: what a review must account for.
+ * generated from [CardPlanCriterion](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardPlanCriterion {
+    id: string;
+    text: string;
+}
+
+/**
  * generated from [EditCardRequest](../../../../apps/api/data/contracts/board.ck)
  */
 export interface EditCardRequest {
     body: string;
+}
+
+/**
+ * generated from [RepinCardPlanRequest](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface RepinCardPlanRequest {
+    /** The version the person is agreeing to (`CardPlan.currentVersion`). */
+    version: string;
 }
 
 /**
@@ -467,6 +490,43 @@ export interface CardDetail extends CardSummary {
 export function reviveCardDetail(raw: CardDetail): CardDetail {
     reviveCardSummary(raw as never);
     return raw;
+}
+
+/**
+ * generated from [CardPlanQuery](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardPlanQuery {
+    /** Which version to read. Left out, the pinned one, or head on a card with no pin. */
+    at?: 'head' | 'pinned';
+    /** The section to return the text of. Left out, only the lengths and the criteria come back. */
+    section?: CardPlanSection;
+}
+
+/**
+ * generated from [EditCardSectionRequest](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface EditCardSectionRequest {
+    section: CardPlanSection;
+    text: string;
+    /** The card version this edit was written against (`CardPlan.currentVersion`). */
+    baseVersion: string;
+}
+
+/**
+ * generated from [CardPlan](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardPlan {
+    at: 'head' | 'pinned';
+    /** The version read, and the two a plan can differ between. `pinnedVersion` is absent before approval. */
+    version?: string;
+    currentVersion?: string;
+    pinnedVersion?: string;
+    differsFromPin: boolean;
+    /** Each section's length in characters, keyed like `CardDetail.sections`. */
+    sectionLengths: Record<string, number>;
+    /** The text of the section asked for; absent when none was, or the plan lacks it. */
+    text?: string;
+    criteria: CardPlanCriterion[];
 }
 
 /**

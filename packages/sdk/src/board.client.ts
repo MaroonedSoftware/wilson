@@ -6,6 +6,8 @@ import type {
     CardDiff,
     CardDivision,
     CardEvent,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -13,6 +15,7 @@ import type {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -25,6 +28,7 @@ import type {
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SaveDraftRequest,
     SplitCardsRequest,
@@ -253,6 +257,52 @@ export class BoardClient {
     async openAPlanningSession(id: string): Promise<PlanSession> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/open`, { method: 'POST' });
         return await parseJson<PlanSession>(result);
+    }
+
+    /**
+     * @name Get card plan
+     * @description A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still
+     * be read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between
+     * a review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin
+     * exists) is the version running stages read; `at: head` is the newest text, which only binds once it
+     * is pinned. `differsFromPin` says whether the two have drifted apart.
+     */
+    async getCardPlan(id: string, query?: CardPlanQuery): Promise<CardPlan> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan${qs}`, {
+            method: 'GET',
+        });
+        return await parseJson<CardPlan>(result);
+    }
+
+    /**
+     * @name Edit card section
+     * @description One section of a card's plan, replaced in place: the way to change part of a plan, since the server
+     * keeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A
+     * card with a pin keeps running against the pinned plan until that is moved too.
+     */
+    async editCardSection(id: string, body: EditCardSectionRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/section`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
+    }
+
+    /**
+     * @name Repin card plan
+     * @description Moves a card's approved plan to its newest text, which is what stages read from then on. Approval
+     * again, for a card already past approval: a change to the plan contract, so always a person's own
+     * confirmed act and always recorded. Leaves the card's stage, flag and retries alone.
+     */
+    async repinCardPlan(id: string, body: RepinCardPlanRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/repin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
     /**

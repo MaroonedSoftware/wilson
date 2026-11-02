@@ -20,6 +20,8 @@ import {
     CardDiff,
     CardDivision,
     CardEvent,
+    CardPlan,
+    CardPlanQuery,
     CardSummary,
     CardUsage,
     CardVersion,
@@ -27,6 +29,7 @@ import {
     CreatePlanCommentRequest,
     DependCardRequest,
     EditCardRequest,
+    EditCardSectionRequest,
     LintFinding,
     ListQuery,
     MergeResult,
@@ -35,6 +38,7 @@ import {
     PlanDraft,
     ReleaseResult,
     RenameCardRequest,
+    RepinCardPlanRequest,
     RepositionCardRequest,
     SplitCardsRequest,
     SplitResult,
@@ -64,6 +68,9 @@ const MergeCardArgs = z.object({ id: z.string() });
 const GetCardDivisionArgs = z.object({ id: z.string() });
 const SplitCardArgs = z.object({ id: z.string(), body: SplitCardsRequest });
 const LintACardPlanArgs = z.object({ id: z.string() });
+const GetCardPlanArgs = z.object({ id: z.string(), query: CardPlanQuery.optional() });
+const EditCardSectionArgs = z.object({ id: z.string(), body: EditCardSectionRequest });
+const RepinCardPlanArgs = z.object({ id: z.string(), body: RepinCardPlanRequest });
 const GetAPlanDraftArgs = z.object({ id: z.string() });
 const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRequest });
 const ListPlanCommentsArgs = z.object({ id: z.string() });
@@ -448,6 +455,78 @@ export class LintACardPlanMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/plan`
+ */
+@Injectable()
+export class GetCardPlanMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_card_plan',
+        description:
+            "A card's plan as a stage reads it: one section at a time, so a plan too long to read whole can still\nbe read exactly, and the acceptance criteria as `ReviewVerifier` parses them, so a mismatch between\na review and its plan can be seen rather than guessed at. `at: pinned` (the default when a pin\nexists) is the version running stages read; `at: head` is the newest text, which only binds once it\nis pinned. `differsFromPin` says whether the two have drifted apart.",
+        inputSchema: z.toJSONSchema(GetCardPlanArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardPlan, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { id, query = await parseAndValidate({}, GetCardPlanArgs.shape.query.unwrap()) } = await parseAndValidate(args, GetCardPlanArgs);
+        const result = await container.get(BoardService).plan(id, query);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [board.ck](../../../../data/contracts/board.ck) `PATCH /api/cards/{id}/plan/section`
+ */
+@Injectable()
+export class EditCardSectionMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'edit_card_section',
+        description:
+            "One section of a card's plan, replaced in place: the way to change part of a plan, since the server\nkeeps everything else and `Edit card body` needs the whole text sent back. Writes head only. A\ncard with a pin keeps running against the pinned plan until that is moved too.",
+        inputSchema: z.toJSONSchema(EditCardSectionArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, body } = await parseAndValidate(args, EditCardSectionArgs);
+        const result = await container.get(BoardWriteService).editSection(id, body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/repin`
+ */
+@Injectable()
+export class RepinCardPlanMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'repin_card_plan',
+        description:
+            "Moves a card's approved plan to its newest text, which is what stages read from then on. Approval\nagain, for a card already past approval: a change to the plan contract, so always a person's own\nconfirmed act and always recorded. Leaves the card's stage, flag and retries alone.",
+        inputSchema: z.toJSONSchema(RepinCardPlanArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardDetail, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, body } = await parseAndValidate(args, RepinCardPlanArgs);
+        const result = await container.get(BoardWriteService).repin(id, body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/plan/draft`
  */
 @Injectable()
@@ -731,6 +810,9 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('get_card_division', container.get(GetCardDivisionMcpTool));
     map.set('split_card', container.get(SplitCardMcpTool));
     map.set('lint_a_card_plan', container.get(LintACardPlanMcpTool));
+    map.set('get_card_plan', container.get(GetCardPlanMcpTool));
+    map.set('edit_card_section', container.get(EditCardSectionMcpTool));
+    map.set('repin_card_plan', container.get(RepinCardPlanMcpTool));
     map.set('get_a_plan_draft', container.get(GetAPlanDraftMcpTool));
     map.set('add_a_plan_comment', container.get(AddAPlanCommentMcpTool));
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
@@ -762,6 +844,9 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(GetCardDivisionMcpTool).useClass(GetCardDivisionMcpTool).asSingleton();
     registry.register(SplitCardMcpTool).useClass(SplitCardMcpTool).asSingleton();
     registry.register(LintACardPlanMcpTool).useClass(LintACardPlanMcpTool).asSingleton();
+    registry.register(GetCardPlanMcpTool).useClass(GetCardPlanMcpTool).asSingleton();
+    registry.register(EditCardSectionMcpTool).useClass(EditCardSectionMcpTool).asSingleton();
+    registry.register(RepinCardPlanMcpTool).useClass(RepinCardPlanMcpTool).asSingleton();
     registry.register(GetAPlanDraftMcpTool).useClass(GetAPlanDraftMcpTool).asSingleton();
     registry.register(AddAPlanCommentMcpTool).useClass(AddAPlanCommentMcpTool).asSingleton();
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();
