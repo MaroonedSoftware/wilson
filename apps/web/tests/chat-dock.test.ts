@@ -7,7 +7,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
-import type { ChatMessage, ChatPendingAction, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
+import type { ChatMessage, ChatPendingAction, ChatPendingQuestion, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
 import { setActiveThread } from '#src/lib/chat.js';
 import { setChatDockOpen, setChatDockPosition } from '#src/lib/chat.dock.js';
 import { routeTree } from '#src/routeTree.gen.js';
@@ -117,11 +117,16 @@ const send = (box: HTMLElement, text: string) => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 };
 
-const detail = (messages: ChatMessage[], actions: ChatPendingAction[] = [], title = 'What is in review?'): ChatThreadDetail => ({
+const detail = (
+    messages: ChatMessage[],
+    actions: ChatPendingAction[] = [],
+    questions: ChatPendingQuestion[] = [],
+    title = 'What is in review?',
+): ChatThreadDetail => ({
     thread: { ...thread, title },
     messages,
     actions,
-    questions: [],
+    questions,
 });
 
 beforeEach(() => {
@@ -302,7 +307,7 @@ describe('the chat dock', () => {
     it('runs a proposed change only when the person confirms it', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
-            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.')], [action()], 'Move it'),
+            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.')], [action()], [], 'Move it'),
         );
         const decide = vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
         renderApp();
@@ -323,7 +328,7 @@ describe('the chat dock', () => {
     it('shows the follow-up to a confirmed change as it streams in', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
-            detail([message(1, 'user', 'Move 0007, then release it')], [action()], 'Move it'),
+            detail([message(1, 'user', 'Move 0007, then release it')], [action()], [], 'Move it'),
         );
         vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
         renderApp();
@@ -339,7 +344,7 @@ describe('the chat dock', () => {
 
     it('archives the open chat from the thread menu, and goes back to a new chat', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], [], 'Move it'));
         const archive = vi.spyOn(ChatClient.prototype, 'archiveAChatThread').mockResolvedValue(thread);
         setActiveThread('7');
         renderApp();
@@ -354,7 +359,7 @@ describe('the chat dock', () => {
 
     it('declines a proposed change', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], 'Move it'));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], [], 'Move it'));
         const decide = vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'declined' }));
         renderApp();
         await openChat();
@@ -374,6 +379,7 @@ describe('the chat dock', () => {
                     action({ id: '1', summary: 'Move 0007.', expiresAt: DateTime.now().minus({ minutes: 1 }) }),
                     action({ id: '2', summary: 'Release 0008.', status: 'failed', error: 'card 0008 holds no lease' }),
                 ],
+                [],
                 'Old',
             ),
         );
@@ -463,7 +469,7 @@ describe('the dock itself', () => {
 
     it('opens as the home page, which keeps the same conversation', async () => {
         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], [], 'Move it'));
         setActiveThread('7');
         renderApp();
         await openChat();
