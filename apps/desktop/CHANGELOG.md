@@ -1,5 +1,15 @@
 # @wilson/desktop
 
+## 0.6.0
+
+### Minor Changes
+
+- 2a24258: The chat now follows you off the home page as a sidebar you can resize, until you close it with Cmd+J or the Dock button.
+
+### Patch Changes
+
+- 3b3b1c2: The chat box now takes the macOS text shortcuts it was missing: Cmd+Up and Cmd+Down, Cmd+Backspace and Cmd+Delete, and Ctrl+A, E, K, D, H, B, F, N and P.
+
 ## 0.5.1
 
 ### Patch Changes
