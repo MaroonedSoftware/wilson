@@ -13,9 +13,10 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { EngineAccount, ExecutionHost } from '#modules/host/execution.host.js';
+import { describeUsageLimit, UsageLimitWatch, type UsageLimit } from './usage.limit.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
-import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
+import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
@@ -264,6 +265,7 @@ export class CliStageAgent extends StageAgent {
         const host = toolHost(context);
         const hostAccount = await host.engineAccount?.();
         const account = hostAccount ?? (await this.accounts?.local());
+        const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
 
         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
@@ -719,6 +721,19 @@ export class CliStageAgent extends StageAgent {
             };
         };
 
+        // Only ever for a run with nothing reported: one that has reported has finished its work,
+        // whatever state its account is left in. A failed write costs the next engine start a refusal.
+        const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
+            await this.accounts?.recordLimit(limit).catch((error: unknown) => this.logger.warn(`could not record a usage limit: ${String(error)}`));
+            return {
+                usage: usage ?? spentSoFar(),
+                truncated: true,
+                usageLimit: limit,
+                engineFailure: describeUsageLimit(limit),
+                ...traceField(),
+            };
+        };
+
         try {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
@@ -756,9 +771,13 @@ export class CliStageAgent extends StageAgent {
                 // limit `describeEngineStop` below exists to not paper over. The fallthrough return at
                 // the end of this method carries none, same as an ordinary pass — there is nothing
                 // truthful to put there.
-                if (next.done) break;
+                if (next.done) {
+                    if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
+                    break;
+                }
                 beat();
                 const message = next.value;
+                usageWatch.observe(message);
 
                 // Swallowed: this is only what a later attempt could resume from, and losing it costs
                 // that attempt a fresh start, which is no reason to fail the run in progress.
@@ -857,6 +876,7 @@ export class CliStageAgent extends StageAgent {
                         outputTokens: message.usage?.output_tokens,
                         cachedInputTokens: (message.usage?.cache_read_input_tokens ?? 0) + (message.usage?.cache_creation_input_tokens ?? 0),
                     };
+                    if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
                     // The engine reports its own truncation; treat anything but a clean end as cut off.
                     // That covers `error_max_budget_usd` too: it is not `success`, so it lands here.
                     if (message.subtype !== 'success') {
@@ -991,6 +1011,8 @@ export class CliStageAgent extends StageAgent {
                     ...traceField(),
                 };
             }
+
+            if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
 
             // None of the runner's own controls fired, and the read still rejected. The engine's own
             // process lifecycle tags every abnormal exit it produces — an abort, a nonzero exit, a

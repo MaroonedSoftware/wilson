@@ -5,6 +5,7 @@ import { requireEngineToken } from '#modules/settings/engine.token.setting.servi
 import type { EngineTokenSummary, PutEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
 import type { EngineAccount } from './execution.host.js';
+import { EngineLimitRepository } from './engine.limit.repository.js';
 import { EngineTokenRepository } from './engine.token.repository.js';
 import { HostRepository } from './host.repository.js';
 import { toHost } from './hosts.service.js';
@@ -34,6 +35,7 @@ export class EngineTokensService {
         private readonly tokens: EngineTokenRepository,
         private readonly encryption: EncryptionProvider,
         private readonly hosts: HostRepository,
+        private readonly limits: EngineLimitRepository,
     ) {}
 
     async list(): Promise<EngineTokenSummary[]> {
@@ -59,6 +61,8 @@ export class EngineTokensService {
             });
         }
         await this.tokens.put(name, this.encryption.encrypt(requireEngineToken(token)), account);
+        // A new token may be a different account, so what the old one hit says nothing about it.
+        await this.limits.clear(name);
         return (await this.find(name))!;
     }
 
@@ -67,6 +71,7 @@ export class EngineTokensService {
         if (!(await this.tokens.remove(name))) {
             throw httpError(404).withDetails({ reason: `no engine token is saved as "${name}"` });
         }
+        await this.limits.clear(name);
     }
 
     /**

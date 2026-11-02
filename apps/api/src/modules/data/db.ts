@@ -203,6 +203,13 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonEngineLimits {
+  account: string;
+  limitType: string;
+  recordedAt: Generated<DateTime>;
+  resetsAt: DateTime;
+}
+
 export interface WilsonEngineTokens {
   ciphertext: string;
   createdAt: Generated<DateTime>;
@@ -349,6 +356,7 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;

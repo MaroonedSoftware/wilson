@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { DateTime } from 'luxon';
 import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import type { DB } from '#modules/data/db.js';
+import { EngineLimitRepository } from '#modules/host/engine.limit.repository.js';
 import { EngineTokenRepository } from '#modules/host/engine.token.repository.js';
 import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
 import { HostRepository } from '#modules/host/host.repository.js';
@@ -19,7 +21,7 @@ const uniqueName = (): string => uniqueProject().toLowerCase();
 beforeAll(() => {
     db = testDb();
     hosts = new HostRepository(db);
-    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key), hosts);
+    tokens = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(key), hosts, new EngineLimitRepository(db));
 });
 afterAll(async () => {
     await db.destroy();
@@ -75,6 +77,24 @@ describe('EngineTokensService', () => {
         await expect(tokens.put(uniqueName(), { token: 'fine', priority: 1001 })).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('forgets the limits of a token that is replaced or removed, and only that token', async () => {
+        const limits = new EngineLimitRepository(db);
+        const [first, second] = [uniqueName(), uniqueName()];
+        await tokens.put(first, { token: 'first' });
+        await tokens.put(second, { token: 'second' });
+        const resets = DateTime.now().plus({ hours: 1 });
+        await limits.record(first, 'five_hour', resets);
+        await limits.record(second, 'five_hour', resets);
+        const limited = async () => (await limits.active()).map(limit => limit.account);
+
+        await tokens.put(first, { token: 'first-new' });
+        expect(await limited()).not.toContain(first);
+        expect(await limited()).toContain(second);
+
+        await tokens.remove(second);
+        expect(await limited()).not.toContain(second);
+    });
+
     it('removes one token and leaves the others', async () => {
         const [first, second] = [uniqueName(), uniqueName()];
         await tokens.put(first, { token: 'first' });
@@ -96,7 +116,12 @@ describe('EngineTokensService', () => {
     it('says so when a row will not decrypt, without saying what it held', async () => {
         const name = uniqueName();
         await tokens.put(name, { token: 'unreadable' });
-        const rekeyed = new EngineTokensService(new EngineTokenRepository(db), new EncryptionProvider(randomBytes(32)), hosts);
+        const rekeyed = new EngineTokensService(
+            new EngineTokenRepository(db),
+            new EncryptionProvider(randomBytes(32)),
+            hosts,
+            new EngineLimitRepository(db),
+        );
 
         await expect(rekeyed.resolve(name)).rejects.toThrow(`The engine token "${name}" cannot be decrypted`);
     });

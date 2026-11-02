@@ -1,4 +1,5 @@
 import type { RunTrace } from './run.trace.js';
+import type { UsageLimit } from './usage.limit.js';
 import type { ToolContext } from './tools/index.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 
@@ -54,6 +55,8 @@ export interface AgentRunOutput {
      * that was never the problem, and so the caller does not also blame the step budget.
      */
     engineFailure?: string;
+    /** Set when the run ended because its account hit a usage limit, which says nothing about the card. */
+    usageLimit?: UsageLimit;
     /**
      * Set when `result` above is undefined but a `report_result` tool call was seen on the stream
      * anyway: the stage did the whole job and the transport lost the result on the way back, rather

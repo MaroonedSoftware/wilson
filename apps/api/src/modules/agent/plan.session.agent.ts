@@ -1,3 +1,5 @@
+import { LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
+import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { subscriptionEnv } from './cli.stage.agent.js';
 
@@ -59,6 +61,10 @@ export interface PlanSessionOptions {
     /** The engine token saved in the settings, or `undefined` when there is none. Resolved by the
      * caller for the same reason as {@link PlanSessionOptions.configDir}. */
     engineToken?: string;
+    /** The name of the account `engineToken` belongs to, for what {@link PlanSessionOptions.onUsageLimit} reports. */
+    account?: string;
+    /** Called when a turn ends with the account having hit a usage limit. */
+    onUsageLimit?: (limit: UsageLimit) => void;
 }
 
 /**
@@ -86,7 +92,12 @@ export class PlanSessionAgent {
      * process can resume this exact conversation via {@link PlanSessionOptions.resume}. */
     sessionId: string | undefined;
 
+    private readonly usageWatch: UsageLimitWatch;
+    private readonly onUsageLimit: PlanSessionOptions['onUsageLimit'];
+
     constructor(options: PlanSessionOptions) {
+        this.usageWatch = new UsageLimitWatch(options.account ?? LOCAL_ACCOUNT);
+        this.onUsageLimit = options.onUsageLimit;
         this.stream = query({
             prompt: this.inbox,
             options: {
@@ -121,6 +132,7 @@ export class PlanSessionAgent {
             const next = await this.iterator.next();
             if (next.done) return;
             const message = next.value;
+            this.usageWatch.observe(message);
             if ('session_id' in message && message.session_id) {
                 this.sessionId = message.session_id;
             }
@@ -128,7 +140,10 @@ export class PlanSessionAgent {
                 const chunk = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                 if (chunk) yield chunk;
             }
-            if (message.type === 'result') return;
+            if (message.type === 'result') {
+                if (this.usageWatch.limit) this.onUsageLimit?.(this.usageWatch.limit);
+                return;
+            }
         }
     }
 
