@@ -13,7 +13,22 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 /// <summary>One line of a card's activity.</summary>
-public sealed record EventLine(string When, string What);
+public sealed record EventLine(string When, string What, string? Stage, string? Detail);
+
+/// <summary>An acceptance criterion, and what the latest review said of it.</summary>
+public sealed record CriterionLine(string Id, string Text, string? Status);
+
+/// <summary>One run of a stage, as drawn.</summary>
+public sealed record AttemptLine(string Stage, string Outcome, string When, string Tally, IReadOnlyList<string> Failures, string? FinalMessage, string? Reads);
+
+/// <summary>One row of the usage table.</summary>
+public sealed record UsageLine(string Stage, string Attempts, string Input, string Output, bool Total);
+
+/// <summary>One of the card's versions.</summary>
+public sealed record VersionLine(string Message, string When);
+
+/// <summary>A card split out of this one. It carries the page because the list's own context is the row.</summary>
+public sealed record PieceLine(string Id, string Stage, string Title, CardViewModel Page);
 
 /// <summary>One tool call, as drawn.</summary>
 public sealed record ToolLine(string Tool, string Label, string When);
@@ -41,7 +56,7 @@ public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, 
 /// </summary>
 public sealed partial class CardViewModel(ShellViewModel shell, string project, string id) : PageViewModel, IFollowsFeed
 {
-    private const long EventLimit = 100;
+    private const long HistoryLimit = 100;
     private const int DiffTab = 2;
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan Clock = TimeSpan.FromSeconds(10);
@@ -53,6 +68,18 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private Func<Task>? _confirmed;
 
     public ObservableCollection<EventLine> Events { get; } = [];
+
+    public ObservableCollection<string> Scope { get; } = [];
+
+    public ObservableCollection<CriterionLine> Criteria { get; } = [];
+
+    public ObservableCollection<AttemptLine> Attempts { get; } = [];
+
+    public ObservableCollection<UsageLine> UsageRows { get; } = [];
+
+    public ObservableCollection<VersionLine> Versions { get; } = [];
+
+    public ObservableCollection<PieceLine> Pieces { get; } = [];
 
     public ObservableCollection<ToolLine> Tools { get; } = [];
 
@@ -79,6 +106,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
+    [NotifyPropertyChangedFor(nameof(SplitFrom))]
     private CardDetail? _card;
 
     [ObservableProperty]
@@ -88,7 +116,22 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _toolsNote = "No tool calls yet.";
 
     [ObservableProperty]
-    private string? _usage;
+    private string? _usageNote;
+
+    [ObservableProperty]
+    private string? _eventsNote;
+
+    [ObservableProperty]
+    private string? _versionsNote;
+
+    [ObservableProperty]
+    private string? _attemptsNote;
+
+    [ObservableProperty]
+    private string? _ranOn;
+
+    [ObservableProperty]
+    private bool _hasSplit;
 
     [ObservableProperty]
     private string? _flagReason;
@@ -110,6 +153,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _confirming;
 
     public bool Idle => Acting is null;
+
+    public string? SplitFrom => Card?.SplitFrom;
 
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
@@ -158,6 +203,15 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
+
+    /// <summary>A card linked from this one, in this project.</summary>
+    [RelayCommand]
+    public void OpenCard(string other)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(other);
+
+        shell.Push(new CardViewModel(shell, project, other));
+    }
 
     [RelayCommand]
     public void OpenPlan() => shell.Push(new PlanViewModel(shell, project, id));
@@ -294,16 +348,10 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         try
         {
             var card = await _sdk.Board.GetCardAsync(id, cancellationToken);
-            var events = await _sdk.Board.ListCardEventsAsync(id, new ListQuery { Limit = EventLimit }, cancellationToken);
+            var events = await _sdk.Board.ListCardEventsAsync(id, new ListQuery { Limit = HistoryLimit }, cancellationToken);
             Card = card;
             FlagReason = card.NeedsHuman ? card.NeedsHumanReason ?? "This card is flagged for a human." : null;
-            Events.Clear();
-            foreach (var entry in events)
-            {
-                var when = entry.CreatedAt.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture);
-                Events.Add(new EventLine(when, entry.Stage is null ? entry.Type : $"{entry.Type} ({entry.Stage})"));
-            }
-
+            Draw(card, events);
             _seed = events;
             DrawTools();
             Error = null;
@@ -314,15 +362,95 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
             return;
         }
 
+        await LoadVersionsAsync(cancellationToken);
+        await LoadUsageAsync(cancellationToken);
+    }
+
+    private void Draw(CardDetail card, List<CardEvent> events)
+    {
+        Reset(Scope, CardSections.FilesInScope(card.Sections.GetValueOrDefault(CardSections.FilesInScopeKey)));
+
+        var statuses = CardSections.ReviewStatuses(events);
+        Reset(Criteria, CardSections.AcceptanceCriteria(card.Sections.GetValueOrDefault(CardSections.AcceptanceCriteriaKey))
+            .Select(criterion => new CriterionLine(criterion.Id, criterion.Text, statuses.GetValueOrDefault(criterion.Id))));
+
+        RanOn = CardSections.LastStageHost(events) is { } host ? $"ran on {host}" : null;
+        Reset(Pieces, (card.Pieces ?? []).Select(piece => new PieceLine(piece.Id, piece.Stage, piece.Title, this)));
+        HasSplit = card.SplitFrom is not null || Pieces.Count > 0;
+
+        var attempts = CardAttempts.Group(events);
+        Reset(Attempts, attempts.Select(attempt => new AttemptLine(
+            attempt.Stage,
+            attempt.Outcome,
+            When(attempt.StartedAt),
+            attempt.Tally,
+            attempt.Failures,
+            attempt.FinalMessage,
+            attempt.ReadPaths.Count > 0 ? string.Join("  ", attempt.ReadPaths) : null)));
+        AttemptsNote = attempts.Count == 0 ? "No attempts yet." : null;
+
+        // The API returns its tail oldest first, and someone chasing a stuck card starts at the end of it.
+        Reset(Events, Enumerable.Reverse(events).Select(entry => new EventLine(When(entry.CreatedAt), entry.Type, entry.Stage, CardSections.EventDetail(entry))));
+        EventsNote = events.Count == 0 ? "No events yet."
+            : events.Count >= HistoryLimit ? $"Showing the most recent {HistoryLimit} events. More may exist."
+            : null;
+    }
+
+    private async Task LoadVersionsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var versions = await _sdk.Board.ListCardVersionsAsync(id, new ListQuery { Limit = HistoryLimit }, cancellationToken);
+            Reset(Versions, versions.Select(version => new VersionLine(version.Message, When(version.CreatedAt))));
+            VersionsNote = versions.Count == 0 ? "No versions yet."
+                : versions.Count >= HistoryLimit ? $"Showing the most recent {HistoryLimit} versions. More may exist."
+                : null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Versions.Clear();
+            VersionsNote = $"Could not load versions: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private async Task LoadUsageAsync(CancellationToken cancellationToken)
+    {
         try
         {
             var usage = await _sdk.Board.GetCardUsageAsync(id, cancellationToken);
-            Usage = string.Create(CultureInfo.CurrentCulture, $"{usage.Total.Attempts:N0} attempts, {usage.Total.InputTokens:N0} tokens in, {usage.Total.OutputTokens:N0} out");
+            UsageRows.Clear();
+            if (usage.Stages.Count == 0)
+            {
+                UsageNote = "No usage recorded yet.";
+                return;
+            }
+
+            UsageNote = null;
+            foreach (var stage in usage.Stages)
+            {
+                UsageRows.Add(Row(stage.Stage, stage.Attempts, stage.InputTokens, stage.OutputTokens, false));
+            }
+
+            UsageRows.Add(Row("Total", usage.Total.Attempts, usage.Total.InputTokens, usage.Total.OutputTokens, true));
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException failure)
         {
-            // Usage is a footnote, and a card without it is still a card.
-            Usage = null;
+            UsageRows.Clear();
+            UsageNote = $"Could not load usage: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private static UsageLine Row(string stage, long attempts, long input, long output, bool total) =>
+        new(stage, attempts.ToString(CultureInfo.CurrentCulture), input.ToString("N0", CultureInfo.CurrentCulture), output.ToString("N0", CultureInfo.CurrentCulture), total);
+
+    private static string When(DateTimeOffset at) => at.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture);
+
+    private static void Reset<T>(ObservableCollection<T> rows, IEnumerable<T> items)
+    {
+        rows.Clear();
+        foreach (var item in items)
+        {
+            rows.Add(item);
         }
     }
 

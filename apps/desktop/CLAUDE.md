@@ -158,6 +158,13 @@ folded into a card, which only a re-read changes. Each page following the feed h
 desktop feed is per page. A tool event changes no card summary, so it updates a tile in place. A tile
 is never redrawn for one, or for the ten-second clock, as that would lose its column's scroll.
 
+## A card
+
+`CardSections` is `lib/card.ts` and `CriteriaPanel.tsx`, and `CardAttempts` is `lib/attempts.ts`, both
+kept in step by hand as the web app keeps its own copy of the API's. The Plan tab reads as the web page
+down to the plan, with Live activity above Files in scope. Activity holds Attempts, Events, Usage and
+Versions. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
+
 ## Dragging
 
 `BoardView.axaml.cs` draws a drag and `BoardRules.Drop` says what it means. A tile stays a `Button`, and
@@ -217,6 +224,9 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, a card's history: with `tools/Walk`, criteria with a review's verdict, files in scope, a
+placed run, its attempt, the usage table and versions. The run was written to the throwaway database.
 
 2026-11-02, Markdown: with `tools/Walk`, a card's plan drawn as Markdown and a real press on `[[0001]]`
 opening that card.

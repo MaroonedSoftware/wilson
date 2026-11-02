@@ -202,6 +202,8 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     {
         Dispatcher.UIThread.RunJobs();
         var control = window.GetVisualDescendants().OfType<Control>().First(found => found.DataContext == model && found is Button or Border);
+        control.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
     }
 
@@ -225,6 +227,8 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
             var index = written.IndexOf(text, StringComparison.Ordinal);
             if (index >= 0)
             {
+                block.BringIntoView();
+                Dispatcher.UIThread.RunJobs();
                 var spot = block.TextLayout.HitTestTextPosition(index + 1).Center;
                 Click(block.TranslatePoint(spot, window) ?? throw new InvalidOperationException("not on screen"));
                 return;

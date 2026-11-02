@@ -152,7 +152,7 @@ internal static class Steps
         await walk.UntilAsync("a card with no title refused", () => form.Error is not null);
 
         form.Title = title;
-        form.Body = "## Plan\n\nMade by the desktop walk, after [[0001]].\n\n- One **bold** item\n- Another with `code`\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.";
+        form.Body = "## Goal\n\nMade by the desktop walk, after [[0001]].\n\n- One **bold** item\n- Another with `code`\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.\n\n## Files in scope\n\n- `apps/desktop/**`\n\n## Acceptance criteria\n\n- AC1: The walk reaches here\n- AC2: Something a review found wanting";
         walk.Shot("04-new-card");
         await form.SaveCommand.ExecuteAsync(null);
 
@@ -183,6 +183,7 @@ internal static class Steps
         card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the stages to move to again", () => card.Stages.Count > 0);
         await ToolCallsAsync(walk, card);
+        await HistoryAsync(walk, card);
 
         card.MoveTo = card.Stages.First(stage => stage != card.Card!.Stage);
         var target = card.MoveTo;
@@ -252,6 +253,9 @@ internal static class Steps
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
 
+        // Connecting replays every card and re-reads the board, which would drop the row below before the press.
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
         // The server allows nearly any move, so a refusal needs a card gone from under its tile: a row of the walk's own.
         Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9998', 'Walked away', 'parking-lot', '' from wilson.cards limit 1");
         await board.RefreshCommand.ExecuteAsync(null);
@@ -318,7 +322,6 @@ internal static class Steps
     private static async Task ToolCallsAsync(Walker walk, CardViewModel card)
     {
         await walk.UntilAsync("no tool calls said", () => card.ToolsNote is not null && card.Tools.Count == 0);
-        card.SelectedTab = 1;
         walk.Shot("05-card-no-tools");
         await walk.UntilAsync("the card live", () => card.Live);
         Walker.Emit(card.Id, card.Card!.Stage, "tool.executed", """{"tool":"bash","command":"pnpm test --filter @wilson/api"}""");
@@ -326,6 +329,25 @@ internal static class Steps
         Walker.Emit(card.Id, card.Card.Stage, "tool.executed", """{"tool":"Edit","path":"apps/desktop/CLAUDE.md"}""");
         await walk.UntilAsync("the tool calls arriving", () => card.Tools.Count == 3);
         walk.Shot("05-card-tools");
+    }
+
+    /// <summary>A placed run with a review's result, written to the throwaway database as a stage would.</summary>
+    private static async Task HistoryAsync(Walker walk, CardViewModel card)
+    {
+        var (id, stage) = (card.Id, card.Card!.Stage);
+        Walker.Emit(id, stage, "stage.placed", """{"host":"my-mac"}""");
+        Walker.Emit(id, "review", "stage.dispatched", "{}");
+        Walker.Emit(id, "review", "tool.executed", """{"tool":"read","path":"a.ts"}""");
+        Walker.Emit(id, "review", "stage.failed", """{"result":{"criteria":[{"id":"AC1","status":"met"},{"id":"AC2","status":"unmet"}]},"usage":{"inputTokens":1200,"cachedInputTokens":300,"outputTokens":450},"trace":{"reads":2,"readPaths":["a.ts","b.ts"],"finalMessage":"One criterion is not met."},"failures":["AC2 is unmet"]}""");
+        await card.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the review on its criteria", () => card.Criteria.Any(criterion => criterion.Status == "unmet"));
+        await walk.UntilAsync("the files in scope", () => card.Scope.Count == 1);
+        await walk.UntilAsync("the run placed, and tallied", () => card.RanOn == "ran on my-mac" && card.Attempts.Any(attempt => attempt.Outcome == "failed"));
+        await walk.UntilAsync("the usage table", () => card.UsageRows.Any(row => row.Total));
+        await walk.UntilAsync("a version", () => card.Versions.Count > 0);
+        walk.Shot("05a-card-plan");
+        card.SelectedTab = 1;
+        walk.Shot("05b-card-activity");
         card.SelectedTab = 0;
     }
 
