@@ -89,6 +89,16 @@ describe('acceptanceCriteria', () => {
         ]);
     });
 
+    it('reads a numbered list as one criterion per number, whatever the wrapping', () => {
+        expect(
+            acceptanceCriteria('1. first criterion that\n   wraps onto a second line\n2. second criterion\n10) tenth, in the other style'),
+        ).toEqual([
+            { id: 'AC1', text: 'first criterion that wraps onto a second line' },
+            { id: 'AC2', text: 'second criterion' },
+            { id: 'AC3', text: 'tenth, in the other style' },
+        ]);
+    });
+
     it('strips bullet markers and inline-code backticks before assigning IDs', () => {
         expect(acceptanceCriteria('* `AC1:` uses `lib/card.ts`.')).toEqual([{ id: 'AC1', text: 'uses lib/card.ts.' }]);
     });

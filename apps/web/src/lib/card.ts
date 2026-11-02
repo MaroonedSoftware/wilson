@@ -1,8 +1,8 @@
 import type { DateTime } from 'luxon';
 import type { CardEvent } from '@wilson/sdk';
 
-/** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
-const BULLET_MARKER = /^\s*[-*+]\s*/;
+/** A line's bullet marker (`-`, `*`, `+`, `1.` or `1)`), with any leading indentation and trailing spaces after it. */
+const BULLET_MARKER = /^\s*(?:[-*+]|\d+[.)](?=\s))\s*/;
 
 /**
  * Split a plan-contract section into its bullets.

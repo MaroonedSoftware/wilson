@@ -35,6 +35,12 @@ public class CardSectionsTests
             CardSections.AcceptanceCriteria("- AC7: first\n- no id: second\n- AC-3. third\n- AC4:   fourth"));
 
     [Fact]
+    public void ANumberedListIsOneCriterionPerNumber() =>
+        Assert.Equal(
+            [new Criterion("AC1", "first wrapped"), new Criterion("AC2", "second"), new Criterion("AC3", "tenth")],
+            CardSections.AcceptanceCriteria("1. first\n   wrapped\n2. second\n10) tenth"));
+
+    [Fact]
     public void StatusesComeFromTheLatestReview()
     {
         var statuses = CardSections.ReviewStatuses(
