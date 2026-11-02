@@ -93,7 +93,7 @@ export class HostPlacer {
 
         const rows = await this.hosts.list();
         for (const row of [...rows.filter(r => r.name === preferred), ...rows.filter(r => r.name !== preferred)]) {
-            const listed =row.projects.find(p => p.project === project);
+            const listed = row.projects.find(p => p.project === project);
             const serves = listed ?? (await this.defaultRoots(row, project));
             if (!serves) continue;
 

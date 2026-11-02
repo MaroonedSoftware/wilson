@@ -189,7 +189,11 @@ export class CardStageJob extends Job<CardStagePayload> {
      * returning would complete this job with nothing left carrying the card.
      */
     private async requeueInterrupted(cardId: string, stageName: string, interrupted: InterruptedAttempt): Promise<void> {
-        const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.board.project, interrupted }, { startAfter: DRAIN_HOLD });
+        const jobId = await this.broker.send(
+            'card.stage',
+            { cardId, stageName, project: this.board.project, interrupted },
+            { startAfter: DRAIN_HOLD },
+        );
         await this.cardJobs.record(cardId, jobId);
     }
 

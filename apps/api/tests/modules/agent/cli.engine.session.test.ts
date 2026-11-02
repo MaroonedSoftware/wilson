@@ -127,7 +127,10 @@ describe('CliStageAgent engine session', () => {
         const interrupts = new StageInterrupt();
         queryMock.mockReturnValue(parkedStream(() => interrupts.interrupt()));
 
-        const output = await run(vi.fn(async () => {}), interrupts);
+        const output = await run(
+            vi.fn(async () => {}),
+            interrupts,
+        );
 
         expect(output).toMatchObject({ interrupted: { sessionId: 'session-1', steps: 1 }, truncated: true });
         expect(output.budgetFailure).toBeUndefined();
@@ -140,7 +143,10 @@ describe('CliStageAgent engine session', () => {
         interrupts.interrupt();
         queryMock.mockReturnValue(parkedStream(() => {}));
 
-        const output = await run(vi.fn(async () => {}), interrupts);
+        const output = await run(
+            vi.fn(async () => {}),
+            interrupts,
+        );
 
         expect(output.interrupted).toBeDefined();
     });
@@ -159,7 +165,10 @@ describe('CliStageAgent engine session', () => {
             },
         });
 
-        const output = await run(vi.fn(async () => {}), interrupts);
+        const output = await run(
+            vi.fn(async () => {}),
+            interrupts,
+        );
 
         expect(output.usage).toEqual({ inputTokens: 10, outputTokens: 2, cachedInputTokens: 5 });
     });
