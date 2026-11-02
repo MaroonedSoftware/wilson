@@ -11,6 +11,7 @@ import { CHAT_ENGINE } from './chat.engine.setting.js';
 import { ChatEngineSettingService } from './chat.engine.setting.service.js';
 import { ChatMessageRepository } from './chat.message.repository.js';
 import { ChatPendingActionRepository } from './chat.pending.action.repository.js';
+import { ChatQuestionRepository } from './chat.question.repository.js';
 import { ChatService } from './chat.service.js';
 import { ChatThreadRepository } from './chat.thread.repository.js';
 import { CliChatEngine } from './cli.chat.engine.js';
@@ -28,7 +29,8 @@ class ChatRootContainer {
  * The chat a person drives Wilson from, modelled on ats's web chat: an agent that reads through the
  * operation catalog (`McpModule`, reached through `ChatCatalog`) and proposes changes for the person
  * to confirm. Its conversations are kept in threads, messages and pending actions
- * (`data/migrations/20261029000900_chat.sql`).
+ * (`data/migrations/20261029000900_chat.sql`), and its structured questions in pending questions
+ * (`data/migrations/20261102000000_chat_questions.sql`).
  */
 export const ChatModule: ServerKitModule = {
     name: 'Chat',
@@ -36,6 +38,7 @@ export const ChatModule: ServerKitModule = {
         registry.register(ChatThreadRepository).useClass(ChatThreadRepository).asTransient();
         registry.register(ChatMessageRepository).useClass(ChatMessageRepository).asTransient();
         registry.register(ChatPendingActionRepository).useClass(ChatPendingActionRepository).asTransient();
+        registry.register(ChatQuestionRepository).useClass(ChatQuestionRepository).asTransient();
         registry.register(ChatCatalog).useClass(ChatCatalog).asSingleton();
         registry.register(ApiChatEngine).useClass(ApiChatEngine).asTransient();
         registry.register(CliChatEngine).useClass(CliChatEngine).asTransient();
@@ -59,6 +62,7 @@ export const ChatModule: ServerKitModule = {
                     container.get(ChatThreadRepository),
                     container.get(ChatMessageRepository),
                     container.get(ChatPendingActionRepository),
+                    container.get(ChatQuestionRepository),
                     container.get(ChatCatalog),
                     container.get(ProjectRepository),
                     { api: container.get(ApiChatEngine), cli: container.get(CliChatEngine) },

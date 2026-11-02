@@ -182,6 +182,17 @@ export interface WilsonChatPendingActions {
   threadId: bigint;
 }
 
+export interface WilsonChatQuestions {
+  answers: Json | null;
+  createdAt: Generated<DateTime>;
+  decidedAt: DateTime | null;
+  expiresAt: DateTime;
+  id: Generated<bigint>;
+  questions: Json;
+  status: Generated<"pending" | "answered" | "dismissed">;
+  threadId: bigint;
+}
+
 export interface WilsonChatThreads {
   archivedAt: DateTime | null;
   createdAt: Generated<DateTime>;
@@ -321,6 +332,7 @@ export interface DB {
   "wilson.cardVersions": WilsonCardVersions;
   "wilson.chatMessages": WilsonChatMessages;
   "wilson.chatPendingActions": WilsonChatPendingActions;
+  "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
   "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;

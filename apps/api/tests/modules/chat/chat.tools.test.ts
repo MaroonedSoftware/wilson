@@ -1,34 +1,37 @@
 import { describe, expect, it } from 'vitest';
+import { QUESTION_TTL } from '#modules/chat/chat.questions.js';
 import { chatTools, PROPOSAL_TTL, RESULT_CAP, type ChatTool, type ChatToolEvent } from '#modules/chat/chat.tools.js';
-import { fakeCatalog, fakeContainer, fakeHandler, fakeProposals, refusal, turnContext, type FakeCall } from './chat.fakes.js';
+import { fakeCatalog, fakeContainer, fakeHandler, fakeProposals, fakeQuestions, refusal, turnContext, type FakeCall } from './chat.fakes.js';
 
 /**
- * The four tools the chat's agent gets. The rule they enforce is the chat's whole safety model: the
- * agent may run a read, but a change only ever becomes a pending action for the person to decide.
+ * The five tools the chat's agent gets. The rule they enforce is the chat's whole safety model: the
+ * agent may run a read, but a change only ever becomes a pending action and a question only ever a
+ * pending question, both for the person alone to decide.
  */
 describe('the chat tools', () => {
     const setup = (calls: FakeCall[] = []) => {
         const proposals = fakeProposals();
+        const questions = fakeQuestions();
         const catalog = fakeCatalog([
             fakeHandler('list_cards', true, calls, { result: [{ id: '0007', stage: 'review' }] }),
             fakeHandler('get_card', true, calls, { fails: refusal('card 0099 not found') }),
             fakeHandler('get_card_diff', true, calls, { result: 'x'.repeat(RESULT_CAP * 2) }),
             fakeHandler('move_card', false, calls, { result: { id: '0007' } }),
         ]);
-        const context = turnContext(fakeContainer(proposals.repository), '42');
+        const context = turnContext(fakeContainer(proposals.repository, questions.repository), '42');
         const events: ChatToolEvent[] = [];
         context.emit = event => events.push(event);
         const tools = chatTools(catalog, context);
         const tool = (name: string): ChatTool => tools.find(candidate => candidate.name === name)!;
-        return { tool, context, events, proposals, calls };
+        return { tool, context, events, proposals, questions, calls };
     };
 
-    it('offers exactly four tools, none of which makes a change', () => {
+    it('offers exactly five tools, none of which makes a change', () => {
         expect(
             chatTools(fakeCatalog([]), turnContext(fakeContainer()))
                 .map(tool => tool.name)
                 .sort(),
-        ).toEqual(['describe', 'discover', 'dispatch_readonly', 'propose_change']);
+        ).toEqual(['ask_user', 'describe', 'discover', 'dispatch_readonly', 'propose_change']);
     });
 
     it('finds operations by keyword, saying which are reads', async () => {
@@ -122,5 +125,41 @@ describe('the chat tools', () => {
         expect(await tool('propose_change').execute({ name: 'list_cards', summary: 'List cards.' })).toContain('Run it directly');
         expect(await tool('propose_change').execute({ name: 'drop_everything', summary: 'Drop it.' })).toContain('There is no operation');
         expect(proposals.stored).toEqual([]);
+    });
+
+    const oneQuestion = {
+        header: 'Database',
+        text: 'Which database should this project use?',
+        options: [
+            { label: 'Postgres', description: 'The default for this repo.' },
+            { label: 'SQLite', description: 'Simpler, file-based.' },
+        ],
+        multiSelect: false,
+    };
+
+    it('asks a question, storing one pending question for the whole set, without answering it', async () => {
+        const { tool, context, events, questions } = setup();
+
+        const answer = await tool('ask_user').execute({ questions: [oneQuestion] });
+
+        expect(questions.stored).toEqual([expect.objectContaining({ threadId: '42', questions: [oneQuestion], status: 'pending' })]);
+        expect(context.asked).toEqual(questions.stored);
+        expect(events).toEqual([{ type: 'asked', question: questions.stored[0] }]);
+        expect(answer).toContain(`Asked as question ${questions.stored[0]!.id}`);
+        expect(answer).toContain('has not been answered');
+        expect(answer).toContain(`${QUESTION_TTL.as('minutes')} minutes`);
+    });
+
+    it("refuses input breaking the schema's limits, by throwing before execute is ever called", () => {
+        const { tool, questions } = setup();
+        const schema = tool('ask_user').input;
+
+        expect(schema.safeParse({ questions: Array.from({ length: 5 }, () => oneQuestion) }).success).toBe(false);
+        expect(schema.safeParse({ questions: [{ ...oneQuestion, options: [oneQuestion.options[0]] }] }).success).toBe(false);
+        expect(schema.safeParse({ questions: [{ ...oneQuestion, options: Array.from({ length: 5 }, () => oneQuestion.options[0]) }] }).success).toBe(
+            false,
+        );
+        expect(schema.safeParse({ questions: [{ ...oneQuestion, header: 'x'.repeat(61) }] }).success).toBe(false);
+        expect(questions.stored).toEqual([]);
     });
 });

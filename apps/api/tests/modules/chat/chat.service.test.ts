@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
@@ -7,6 +8,7 @@ import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatPendingActionRepository } from '#modules/chat/chat.pending.action.repository.js';
+import { ChatQuestionRepository } from '#modules/chat/chat.question.repository.js';
 import { ChatService, NEW_THREAD_TITLE, NOTHING_MORE, titleFrom } from '#modules/chat/chat.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import type { DB } from '#modules/data/db.js';
@@ -40,7 +42,8 @@ describe('ChatService', () => {
             fakeHandler('release_card', false, operationCalls, { fails: refusal('card 0007 holds no lease') }),
         ]);
         const actions = new ChatPendingActionRepository(db);
-        const container = fakeContainer(actions);
+        const questions = new ChatQuestionRepository(db);
+        const container = fakeContainer(actions, questions);
         const model = scriptedModel(steps);
         const service = new ChatService(
             container,
@@ -48,13 +51,14 @@ describe('ChatService', () => {
             new ChatThreadRepository(db),
             new ChatMessageRepository(db),
             actions,
+            questions,
             catalog,
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
             async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
             () => fakeSession,
         );
-        return { service, model, operationCalls };
+        return { service, model, operationCalls, questions };
     };
 
     const proposeMove = calls('propose_change', {
@@ -347,6 +351,91 @@ describe('ChatService', () => {
         expect(statusOf(await service.renameThread(thread.id, { title: ' ' }).catch(err => err))).toBe(400);
         expect((await service.archiveThread(thread.id)).archivedAt).toBeDefined();
         expect((await service.listThreads()).map(listed => listed.id)).not.toContain(thread.id);
+    });
+
+    describe('ask_user', () => {
+        const oneQuestion = {
+            header: 'Database',
+            text: 'Which database should this project use?',
+            options: [
+                { label: 'Postgres', description: 'The default for this repo.' },
+                { label: 'SQLite', description: 'Simpler, file-based.' },
+            ],
+            multiSelect: false,
+        };
+        const asksDatabase = calls('ask_user', { questions: [oneQuestion] });
+
+        it('asks a question, shows it on the turn and the thread, and stores no suggestions even when offered', async () => {
+            const { service } = setup([asksDatabase, says('Which database?\n<suggestions>\n- Something else?\n</suggestions>')]);
+            const thread = await service.startThread();
+
+            const turn = await service.sendMessage(thread.id, { text: 'Set up the project' });
+
+            expect(turn.asked).toEqual([expect.objectContaining({ threadId: thread.id, questions: [oneQuestion], status: 'pending' })]);
+            expect(turn.reply.suggestions).toBeUndefined();
+            expect((await service.getThread(thread.id)).questions).toEqual(turn.asked);
+        });
+
+        it("streams a turn that asks a question: each question asked, in `proposed`'s own position, then done", async () => {
+            const { service } = setup([asksDatabase, says('Asked.')]);
+            const thread = await service.startThread();
+            const heard: ChatStreamEvent[] = [];
+            const stop = onChatEvent(thread.id, event => heard.push(event));
+
+            const turn = await service.sendMessage(thread.id, { text: 'Set up the project' });
+            stop();
+
+            expect(heard.map(event => event.event)).toEqual(['asked', 'delta', 'done']);
+            expect(heard[0]).toMatchObject({ event: 'asked', data: { id: turn.asked[0]!.id } });
+        });
+
+        it('refuses a bad submission, an unknown question, one from another thread, a second submission, and an expired one', async () => {
+            const { service, questions } = setup([asksDatabase, says('Asked.')]);
+            const thread = await service.startThread();
+            const { asked } = await service.sendMessage(thread.id, { text: 'Set up the project' });
+            const questionId = asked[0]!.id;
+
+            expect(statusOf(await service.answerQuestions(thread.id, questionId, { answers: [{ chosen: [9] }] }).catch(err => err))).toBe(400);
+            expect(statusOf(await service.answerQuestions(thread.id, '999999999', { answers: [{ chosen: [0] }] }).catch(err => err))).toBe(404);
+
+            const otherThread = await service.startThread();
+            expect(statusOf(await service.answerQuestions(otherThread.id, questionId, { answers: [{ chosen: [0] }] }).catch(err => err))).toBe(404);
+
+            expect(await service.answerQuestions(thread.id, questionId, { answers: [{ chosen: [0] }] })).toMatchObject({ status: 'answered' });
+            expect(statusOf(await service.answerQuestions(thread.id, questionId, { answers: [{ chosen: [0] }] }).catch(err => err))).toBe(409);
+
+            const expired = await questions.ask(thread.id, { questions: [oneQuestion], expiresIn: Duration.fromObject({ seconds: -1 }) });
+            expect(statusOf(await service.answerQuestions(thread.id, expired.id, { answers: [{ chosen: [0] }] }).catch(err => err))).toBe(409);
+            await service.whenIdle();
+        });
+
+        it("starts a follow-up carrying what was chosen, and writes no message in the person's name", async () => {
+            const { service, model } = setup([asksDatabase, says('Asked.'), says('Postgres it is. Setting it up.')]);
+            const thread = await service.startThread();
+            const { asked } = await service.sendMessage(thread.id, { text: 'Set up the project' });
+
+            await service.answerQuestions(thread.id, asked[0]!.id, { answers: [{ chosen: [0], other: 'with replicas' }] });
+            await service.whenIdle();
+
+            const note = JSON.stringify(model.prompts[2]);
+            expect(note).toContain('not from the person');
+            expect(note).toContain('Postgres');
+            expect(note).toContain('with replicas');
+            const detail = await service.getThread(thread.id);
+            expect(detail.messages.filter(message => message.role === 'user')).toHaveLength(1);
+            expect(detail.messages.at(-1)).toMatchObject({ role: 'assistant', content: 'Postgres it is. Setting it up.' });
+        });
+
+        it('dismisses a pending question before answering a new message, and still answers it normally', async () => {
+            const { service } = setup([asksDatabase, says('Asked.'), says('Sure, noted.')]);
+            const thread = await service.startThread();
+            const { asked } = await service.sendMessage(thread.id, { text: 'Set up the project' });
+
+            const turn = await service.sendMessage(thread.id, { text: 'Actually, just use Postgres.' });
+
+            expect(turn.reply).toMatchObject({ role: 'assistant', content: 'Sure, noted.' });
+            expect((await service.getThread(thread.id)).questions).toEqual([expect.objectContaining({ id: asked[0]!.id, status: 'dismissed' })]);
+        });
     });
 });
 

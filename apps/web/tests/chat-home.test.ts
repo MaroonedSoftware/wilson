@@ -39,6 +39,7 @@ const detail = (of: ChatThread, content: string): ChatThreadDetail => ({
     thread: of,
     messages: [{ seq: 1, role: 'user', content, operations: [], createdAt: at('2026-10-29T10:00:01Z') }],
     actions: [],
+    questions: [],
 });
 
 class FakeEventSource {

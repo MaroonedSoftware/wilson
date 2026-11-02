@@ -13,6 +13,10 @@ options {
 # is on every page, the project-less dashboard included, and one conversation can touch several
 # projects. A message names the project of the page it was sent from instead.
 #
+# A question the agent asks (`ask_user`) is resolved only by the person's own act too, the same rule
+# a proposed change follows: `POST .../questions/{questionId}/answers` is the one way a pending
+# question moves, and nothing here guesses an answer in their name.
+#
 # Every operation here is `mcp: exclude`: the chat is itself the agent surface, and an agent that
 # could post to its own thread, or decide its own proposals, would undo the one rule it runs under.
 #
@@ -72,10 +76,51 @@ contract ChatPendingAction: {
     createdAt: datetime
 }
 
+# One suggested answer to a `ChatQuestion`.
+contract ChatQuestionOption: {
+    label: string
+    description: string
+}
+
+# One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it.
+contract ChatQuestion: {
+    header: string
+    text: string
+    options: array(ChatQuestionOption)
+    multiSelect: boolean
+}
+
+# One question's answer: the options chosen, by index into its own `options` (never by label — a
+# submission is validated against the stored question, not a string match), and any "Other" text.
+contract ChatQuestionAnswer: {
+    chosen: array(int)
+    other?: string
+}
+
+# A question the agent asked, waiting on the person. `pending` until they answer it or an ordinary
+# message on the thread dismisses it (`ChatService.sendMessage`); `answered` once they submit. A
+# pending question past `expiresAt` can no longer be answered.
+contract ChatPendingQuestion: {
+    id: string
+    threadId: string
+    questions: array(ChatQuestion)
+    answers?: array(ChatQuestionAnswer)
+    status: enum(pending, answered, dismissed)
+    expiresAt: datetime
+    decidedAt?: datetime
+    createdAt: datetime
+}
+
+# `POST .../questions/{questionId}/answers`'s request: one answer per question asked, in order.
+contract AnswerChatQuestionsRequest: {
+    answers: array(ChatQuestionAnswer)
+}
+
 contract ChatThreadDetail: {
     thread: ChatThread
     messages: array(ChatMessage)
     actions: array(ChatPendingAction)
+    questions: array(ChatPendingQuestion)
 }
 
 contract RenameChatThreadRequest: {
@@ -95,6 +140,7 @@ contract ChatTurnResult: {
     message: ChatMessage
     reply: ChatMessage
     proposed: array(ChatPendingAction)
+    asked: array(ChatPendingQuestion)
 }
 
 contract DecideChatActionRequest: {
@@ -225,6 +271,42 @@ operation /api/chat/actions/{id}/decision: {
                 application/json: ChatPendingAction
             }
             404:
+            409:
+        }
+    }
+}
+
+# Answers a question `ask_user` asked, choosing options by index and/or typing free text under
+# "Other". A valid submission moves the row to `answered` and starts a follow-up turn on the thread,
+# carrying the chosen labels and any "Other" text as a note from Wilson — the same mechanism a
+# confirmed change already uses (`POST .../decision`) — never a `role: 'user'` message in the
+# person's name. The second path param is `questionId`, not `id`: contractkit keys a `params` block
+# by name, so two `{id}` segments in one path cannot be expressed (see `.../context/{contextId}` in
+# `context.ck` and `.../comments/{commentId}/resolve` in `board.ck` for the same shape). One
+# consequence of nesting under the thread, which is the point of it: the same 404 below covers either
+# id not existing — the thread, or a question id that does not belong to it.
+operation /api/chat/threads/{id}/questions/{questionId}/answers: {
+    params: {
+        id: string
+        questionId: string
+    }
+    post: {
+        name: Answer chat questions
+        mcp: exclude # Only the person answers what the chat asked
+        service: ChatService.answerQuestions
+        request: {
+            application/json: AnswerChatQuestionsRequest
+        }
+        response: {
+            200: {
+                application/json: ChatPendingQuestion
+            }
+            # `validateAnswers` refused the submission — carried via `details`, the same convention
+            # every other refusal on this surface uses.
+            400:
+            404:
+            # Already answered, already dismissed, or past `expiresAt` — carried via `details`, the
+            # same shape `.../decision`'s 409 uses for a pending action.
             409:
         }
     }

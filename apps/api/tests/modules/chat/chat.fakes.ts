@@ -8,6 +8,7 @@ import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ChatCatalog } from '#modules/chat/chat.catalog.js';
 import { ChatPendingActionRepository, type NewPendingAction, type PendingAction } from '#modules/chat/chat.pending.action.repository.js';
+import { ChatQuestionRepository, type NewPendingQuestion, type PendingQuestion } from '#modules/chat/chat.question.repository.js';
 import type { ChatTurnContext } from '#modules/chat/chat.tools.js';
 import { McpToolCatalog } from '#modules/mcp/generated/mcp.tools.js';
 
@@ -89,11 +90,35 @@ export const fakeProposals = (): { stored: PendingAction[]; repository: ChatPend
     return { stored, repository };
 };
 
+/** Questions a fake question repository has stored. */
+export const fakeQuestions = (): { stored: PendingQuestion[]; repository: ChatQuestionRepository } => {
+    const stored: PendingQuestion[] = [];
+    const repository = {
+        ask: async (threadId: string, question: NewPendingQuestion): Promise<PendingQuestion> => {
+            const created: PendingQuestion = {
+                id: String(stored.length + 1),
+                threadId,
+                questions: question.questions,
+                status: 'pending',
+                expiresAt: DateTime.now().plus(question.expiresIn),
+                createdAt: DateTime.now(),
+            };
+            stored.push(created);
+            return created;
+        },
+    } as unknown as ChatQuestionRepository;
+    return { stored, repository };
+};
+
 /**
  * A container with what `ChatCatalog.run` and the tools resolve: a board fixed to `default-project`,
- * a project repository that knows only `wilson` and `other`, and the given pending-action repository.
+ * a project repository that knows only `wilson` and `other`, and the given pending-action and
+ * pending-question repositories.
  */
-export const fakeContainer = (proposals: ChatPendingActionRepository = fakeProposals().repository): ScopedContainer => {
+export const fakeContainer = (
+    proposals: ChatPendingActionRepository = fakeProposals().repository,
+    questions: ChatQuestionRepository = fakeQuestions().repository,
+): ScopedContainer => {
     const registry = new InjectKitRegistry();
     registry.register(BoardConfig).useValue(new StaticBoardConfig('default-project', '/tmp/code', '/tmp/wt', '/tmp/run'));
     registry.register(ProjectRepository).useValue({
@@ -101,6 +126,7 @@ export const fakeContainer = (proposals: ChatPendingActionRepository = fakePropo
         list: async () => ['other', 'wilson'].map(name => ({ name, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' })),
     } as unknown as ProjectRepository);
     registry.register(ChatPendingActionRepository).useValue(proposals);
+    registry.register(ChatQuestionRepository).useValue(questions);
     return registry.build();
 };
 
@@ -111,4 +137,5 @@ export const turnContext = (container: Container, threadId = '1'): ChatTurnConte
     session: fakeSession,
     operations: [],
     proposed: [],
+    asked: [],
 });

@@ -1,6 +1,12 @@
-import type { ChatMessage as WireChatMessage, ChatPendingAction as WirePendingAction, ChatThread as WireChatThread } from '#src/generated/chat.js';
+import type {
+    ChatMessage as WireChatMessage,
+    ChatPendingAction as WirePendingAction,
+    ChatPendingQuestion as WirePendingQuestion,
+    ChatThread as WireChatThread,
+} from '#src/generated/chat.js';
 import type { ChatMessage } from './chat.message.repository.js';
 import type { PendingAction } from './chat.pending.action.repository.js';
+import type { PendingQuestion } from './chat.question.repository.js';
 import type { ChatThread } from './chat.thread.repository.js';
 
 /** The chat's rows as `chat.ck` sends them: optional fields left out rather than undefined, and no engine-only state. */
@@ -38,4 +44,15 @@ export const toWireAction = (action: PendingAction): WirePendingAction => ({
     ...(action.result !== undefined ? { result: action.result as WirePendingAction['result'] } : {}),
     ...(action.error ? { error: action.error } : {}),
     ...(action.decidedAt ? { decidedAt: action.decidedAt } : {}),
+});
+
+export const toWireQuestion = (question: PendingQuestion): WirePendingQuestion => ({
+    id: question.id,
+    threadId: question.threadId,
+    questions: question.questions as WirePendingQuestion['questions'],
+    status: question.status,
+    expiresAt: question.expiresAt,
+    createdAt: question.createdAt,
+    ...(question.answers ? { answers: question.answers as WirePendingQuestion['answers'] } : {}),
+    ...(question.decidedAt ? { decidedAt: question.decidedAt } : {}),
 });

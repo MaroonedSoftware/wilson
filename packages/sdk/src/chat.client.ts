@@ -1,5 +1,7 @@
 import type {
+    AnswerChatQuestionsRequest,
     ChatPendingAction,
+    ChatPendingQuestion,
     ChatThread,
     ChatThreadDetail,
     ChatTurnResult,
@@ -7,7 +9,7 @@ import type {
     RenameChatThreadRequest,
     SendChatMessageRequest,
 } from './types/chat.js';
-import { reviveChatPendingAction, reviveChatThread, reviveChatThreadDetail, reviveChatTurnResult } from './types/chat.js';
+import { reviveChatPendingAction, reviveChatPendingQuestion, reviveChatThread, reviveChatThreadDetail, reviveChatTurnResult } from './types/chat.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -85,5 +87,26 @@ export class ChatClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return reviveChatPendingAction(await parseJson<ChatPendingAction>(result));
+    }
+
+    /**
+     * @name Answer chat questions
+     * @description Answers a question `ask_user` asked, choosing options by index and/or typing free text under
+     * "Other". A valid submission moves the row to `answered` and starts a follow-up turn on the thread,
+     * carrying the chosen labels and any "Other" text as a note from Wilson — the same mechanism a
+     * confirmed change already uses (`POST .../decision`) — never a `role: 'user'` message in the
+     * person's name. The second path param is `questionId`, not `id`: contractkit keys a `params` block
+     * by name, so two `{id}` segments in one path cannot be expressed (see `.../context/{contextId}` in
+     * `context.ck` and `.../comments/{commentId}/resolve` in `board.ck` for the same shape). One
+     * consequence of nesting under the thread, which is the point of it: the same 404 below covers either
+     * id not existing — the thread, or a question id that does not belong to it.
+     */
+    async answerChatQuestions(id: string, questionId: string, body: AnswerChatQuestionsRequest): Promise<ChatPendingQuestion> {
+        const result = await this.fetch(`/api/chat/threads/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/answers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveChatPendingQuestion(await parseJson<ChatPendingQuestion>(result));
     }
 }
