@@ -75,11 +75,14 @@ export class HostPlacer {
      * worktree, or is `any` and no host could run it. A `NoHostAvailable` means it is `remote` and
      * found none, or `any` and every usable host is only busy, which the caller defers: a slot there
      * frees when a stage ends, so an `any` stage waits for it rather than loading this machine.
+     * `preferred` is tried first, and is only a preference: a host that cannot take the stage falls
+     * through to the rest.
      */
     async place(
         project: string,
         cardId: string,
         stage: Pick<StageConfig, 'placement' | 'worktree' | 'maxWallClockMs'>,
+        preferred?: string,
     ): Promise<RemotePlacement | NoHostAvailable | undefined> {
         const wanted = stage.placement ?? 'local';
         if (wanted === 'local' || stage.worktree === 'none') return undefined;
@@ -88,7 +91,8 @@ export class HostPlacer {
         let busy = false;
         const deadline = DateTime.now().plus({ milliseconds: stage.maxWallClockMs, minutes: EXPIRY_MARGIN_MINUTES });
 
-        for (const row of await this.hosts.list()) {
+        const rows = await this.hosts.list();
+        for (const row of [...rows.filter(r => r.name === preferred), ...rows.filter(r => r.name !== preferred)]) {
             const listed = row.projects.find(p => p.project === project);
             const serves = listed ?? (await this.defaultRoots(row, project));
             if (!serves) continue;

@@ -11,7 +11,9 @@ import { filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
+import { StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
@@ -25,7 +27,7 @@ import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { cardOverBudget, withinCardBudget } from './card.budget.js';
+import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
@@ -271,7 +273,8 @@ export class StageDispatcher {
         private readonly autoSplitter?: AutoSplitter,
     ) {}
 
-    async run(cardId: string, stageName: string): Promise<StageOutcome> {
+    /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
+    async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt): Promise<StageOutcome> {
         const stages = await this.stageConfigs.load();
         const stage = findStage(stages, stageName);
 
@@ -309,14 +312,16 @@ export class StageDispatcher {
 
         // Before any worktree is cut: where it is cut is the placement. A stage waiting on a host is
         // deferred, the same "not now" an unsatisfied dependency is.
-        const placed = this.placer ? await this.placer.place(this.config.project, cardId, stage) : undefined;
+        // An interrupted stage goes back to its tree: one on this machine skips placement altogether.
+        const stayHere = interrupted !== undefined && interrupted.host === undefined;
+        const placed = this.placer && !stayHere ? await this.placer.place(this.config.project, cardId, stage, interrupted?.host) : undefined;
         if (placed instanceof NoHostAvailable) {
             throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} is waiting for a host: ${placed.message}`);
         }
         if (!placed) {
             // A stage with no tree takes no slot: a slot is a worktree, an install and an agent here.
             if (!this.placer || stage.worktree === 'none') {
-                return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+                return this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, interrupted });
             }
             const slot = await this.placer.takeLocalSlot(this.config.project, cardId);
             if ('busy' in slot) {
@@ -326,7 +331,7 @@ export class StageDispatcher {
                 );
             }
             try {
-                return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards });
+                return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, interrupted });
             } finally {
                 await this.placer.releaseSlot(slot.key, this.config.project, cardId).catch(err => {
                     this.logger.warn(`could not release ${cardId}'s ${slot.key}: ${(err as Error).message}`);
@@ -337,7 +342,10 @@ export class StageDispatcher {
         // A stage on a host gives its worktree and slot back as soon as it ends, however it ends:
         // the branch has already been fetched back if it passed, and anything uncommitted is saved
         // to this machine's patch path, so nothing the next stage needs is left on the host. A slot
-        // held past its stage would keep the next card off a host with nothing running on it.
+        // held past its stage would keep the next card off a host with nothing running on it. An
+        // interrupted stage is the exception: its tree stays for the attempt sent after it, and only
+        // the slot goes back.
+        let keepWorktree = false;
         await this.events.append({
             project: this.config.project,
             cardId,
@@ -346,8 +354,12 @@ export class StageDispatcher {
             payload: { host: placed.hostName, slot: placed.slotKey },
         });
         try {
-            return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed });
+            return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed, interrupted });
         } catch (err) {
+            if (err instanceof StageInterruptedError) {
+                keepWorktree = true;
+                throw err;
+            }
             // Anything thrown on a host, from cutting the worktree to the commit, may be the host
             // going away rather than the stage going wrong. Only a host that no longer answers turns
             // it into a retry; one that answers leaves the error to mean what it says.
@@ -355,9 +367,11 @@ export class StageDispatcher {
             await this.throwIfHostLost(placed, cardId, stageName, (err as Error).message, err);
             throw err;
         } finally {
-            await this.worktrees.reclaim(cardId, placed).catch(err => {
-                this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
-            });
+            if (!keepWorktree) {
+                await this.worktrees.reclaim(cardId, placed).catch(err => {
+                    this.logger.warn(`could not reclaim ${cardId}'s worktree on ${placed.hostName}: ${(err as Error).message}`);
+                });
+            }
             // The slot outlives the worktree by a moment on purpose: until the host's tree is gone,
             // the host is still busy with this card.
             await this.placer?.releaseSlot(placed.slotKey, this.config.project, cardId).catch(err => {
@@ -381,9 +395,17 @@ export class StageDispatcher {
         pinnedSha: string | undefined;
         boardCards: Card[];
         placement?: RemotePlacement;
+        interrupted?: InterruptedAttempt;
     }): Promise<StageOutcome> {
-        const { cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement } = input;
+        const { cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement, interrupted } = input;
         const branch = this.worktrees.resolveBranch(head);
+
+        // Only where the tree actually is. Placed anywhere else, the stage cuts one as usual, and the
+        // left-behind tree's uncommitted work is saved whenever that host next reclaims the card.
+        const reopened =
+            interrupted && interrupted.host === placement?.hostName
+                ? await this.worktrees.reopen(cardId, branch, interrupted.baseSha, placement)
+                : undefined;
 
         // `base` means "start fresh if there is nothing to resume", not "always discard". A card
         // kicked back from review carries findings citing file:line on its own branch; rebuilding
@@ -391,18 +413,21 @@ export class StageDispatcher {
         // already wrote. Since only a passing stage commits, a branch carrying work is by
         // construction the last state that satisfied an exit condition, so resuming is always safe.
         const resumable = stage.worktreeFrom === 'branch' || (await this.worktrees.hasWork(branch));
-        let worktree = placement
-            ? resumable
-                ? await this.worktrees.resume(cardId, branch, placement)
-                : await this.worktrees.create(cardId, branch, undefined, placement)
-            : resumable
-              ? await this.worktrees.resume(cardId, branch)
-              : await this.worktrees.create(cardId, branch);
+        let worktree =
+            reopened ??
+            (placement
+                ? resumable
+                    ? await this.worktrees.resume(cardId, branch, placement)
+                    : await this.worktrees.create(cardId, branch, undefined, placement)
+                : resumable
+                  ? await this.worktrees.resume(cardId, branch)
+                  : await this.worktrees.create(cardId, branch));
 
         // A resumed branch may be many merges behind. Left alone the stage implements against a tree
         // that no longer matches main, and neither its exit condition nor the review can distinguish
-        // "this does not exist" from "this does not exist here".
-        if (resumable) {
+        // "this does not exist" from "this does not exist here". A reopened tree holds uncommitted
+        // work a rebase would refuse, and is rebased when it next starts from its branch.
+        if (resumable && !reopened) {
             const rebased = await this.worktrees.rebaseOntoHead(worktree);
             if (!rebased.ok) {
                 // Not thrown as a bare Error: a conflict is not this card's code failing, and
@@ -573,7 +598,17 @@ export class StageDispatcher {
 
         let outcome: StageOutcome;
         try {
-            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, learningsPath, stages, port });
+            const ran = await this.runAgent({
+                card,
+                stage,
+                worktree,
+                scope,
+                planPath,
+                learningsPath,
+                stages,
+                port,
+                ...(reopened && { interrupted }),
+            });
 
             // A write is allowed as collateral without a `request_scope` round trip, but it is still
             // a widening — reported here, always, so the review sees it and a stage can never widen
@@ -653,6 +688,16 @@ export class StageDispatcher {
                 },
             });
         } catch (err) {
+            if (err instanceof StageInterruptedError) {
+                await this.events.append({
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'stage.interrupted',
+                    payload: { usage: err.usage },
+                });
+                throw err;
+            }
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
             this.logger.warn(
@@ -1144,8 +1189,10 @@ export class StageDispatcher {
         stages: ProjectStages;
         /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
         port?: number;
+        /** The attempt whose tree this run reopened, to continue from where it stopped. */
+        interrupted?: InterruptedAttempt;
     }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, learningsPath, stages, port } = input;
+        const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted } = input;
 
         const context: ToolContext = {
             project: this.config.project,
@@ -1181,15 +1228,30 @@ export class StageDispatcher {
         // since, and `run` reaches this through three separate call sites.
         const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.totalInputTokens(this.config.project, card.frontmatter.id);
 
+        const budgeted = withinCardBudget(stage, spent);
         const run = await adapter.run({
-            stage: withinCardBudget(stage, spent),
+            stage: interrupted?.spent ? withinInterruptedBudget(budgeted, interrupted.spent) : budgeted,
             context,
             planPath,
             learningsPath,
             title: card.frontmatter.title,
             resultSchema,
             baseSha: worktree.baseSha,
+            ...(interrupted && { resume: interrupted.sessionId ? { sessionId: interrupted.sessionId } : {} }),
         });
+        if (run.interrupted) {
+            const { sessionId, wallClockMs, steps } = run.interrupted;
+            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, {
+                baseSha: worktree.baseSha,
+                ...(worktree.placement && { host: worktree.placement.hostName }),
+                ...(sessionId && { sessionId }),
+                spent: {
+                    wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
+                    steps: (interrupted?.spent?.steps ?? 0) + steps,
+                    inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
+                },
+            });
+        }
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
         if (!verifier) {

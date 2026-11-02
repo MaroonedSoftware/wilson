@@ -20,6 +20,7 @@ import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
+import { StageInterrupt } from './stage.interrupt.js';
 import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
@@ -230,16 +231,27 @@ export class CliStageAgent extends StageAgent {
     // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
     // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
     // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
-    // `engineTokens` is optional for the same reason: none means no saved token.
+    // `engineTokens` is optional for the same reason: none means no saved token. So is `interrupts`:
+    // none means nothing can interrupt the run.
     constructor(
         private readonly logger: Logger,
         private readonly settings?: SettingsStore,
         private readonly engineTokens?: EngineTokenSettingService,
+        private readonly interrupts?: StageInterrupt,
     ) {
         super();
     }
 
-    async run({ stage, context, planPath, learningsPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
+    async run(input: AgentRunInput): Promise<AgentRunOutput> {
+        const output = await this.attempt(input);
+        if (!output.resumeFailed) return output;
+
+        // Its transcript may be gone, or on another machine. The tree is still there to work from.
+        this.logger.warn(`could not resume ${input.context.cardId}'s engine session; starting a new one in the same worktree`);
+        return this.attempt({ ...input, resume: {} });
+    }
+
+    private async attempt({ stage, context, planPath, learningsPath, title, resultSchema, baseSha, resume }: AgentRunInput): Promise<AgentRunOutput> {
         // Resolved once, up front — a setting read while a card is in flight must not change what
         // this run uses partway through (this card's Constraints: "a change applies to stages
         // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
@@ -394,6 +406,7 @@ export class CliStageAgent extends StageAgent {
         const STDERR_TAIL_CHARS = 4000;
 
         const abortController = new AbortController();
+        const startedAt = Date.now();
 
         // Racing the read rather than signalling into it, because signalling does not work. Card
         // 0052's engine exited mid-run; `abortController.abort()` fired at the wall clock and the
@@ -401,7 +414,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
@@ -497,66 +510,80 @@ export class CliStageAgent extends StageAgent {
         );
 
         const stream = query({
-            prompt: [
-                `Card: ${title}`,
-                '',
-                `Your plan is at ${planPath}. Read it before anything else. Its "Files in scope" is what`,
-                `you may change and its "Out of scope" is binding even where you could make the change.`,
-                '',
-                ...(learningsPath
-                    ? [
-                          `Before you start, also read the project's learnings at ${learningsPath}. They are`,
-                          `human-approved guidance for this project — follow them like the plan, not material to weigh.`,
-                          '',
-                      ]
-                    : []),
-                `You are in a git worktree at ${context.worktreeRoot}.`,
-                '',
-                `\`git diff ${baseSha}\` is the card's whole diff across every stage — this is what the`,
-                `verifier measures and what a finding must cite.`,
-                '',
-                // `stage.instructions` comes from board config, which must not name a tool — see
-                // the class doc comment above for why (card 0097). The lines below are this
-                // adapter's own, appended after it, naming this engine's tools the only way it can
-                // be sure they are named right: interpolated from the constants the MCP server
-                // above actually registers them under.
-                stage.instructions,
-                '',
-                ...(canWrite
-                    ? [
-                          `If the plan's "Files in scope" does not cover a file the work genuinely needs, call`,
-                          `${qualifiedRequestScopeTool()} with the path and why, rather than working around the gap.`,
-                          '',
-                          `To remove a file the work no longer needs, call ${qualifiedDeleteTool()} with its path —`,
-                          `it is scope-checked the same way a write is, and refuses a directory.`,
-                          '',
-                          ...(checksTestCounts
-                              ? [
-                                    `A test that no longer belongs gets deleted, not emptied and left as an 'it.skip':`,
-                                    `this stage's exit condition compares the skipped-test count against the baseline,`,
-                                    `and a new skip reads as a regression and fails the stage.`,
-                                    '',
-                                ]
-                              : []),
-                      ]
-                    : []),
-                `Write your finished result as JSON to ${REPORT_RESULT_PATH} in the worktree — that file, and`,
-                `only that file, is how the result is delivered. It must satisfy this schema:`,
-                JSON.stringify(z.toJSONSchema(resultSchema as z.ZodTypeAny)),
-                '',
-                `Anything you need to generate and inspect but that should not ship — a report to read,`,
-                `a probe script's output, whatever an acceptance criterion needs produced and checked —`,
-                `goes under ${SCRATCH_PREFIX} in the worktree. That path is writable in every stage,`,
-                `including this one if it is read-only, and everything under it is wiped once the run`,
-                `ends, so nothing written there is ever delivered, committed, or reviewed.`,
-                '',
-                `When the work is done and the build passes, call ${qualifiedReportTool()}; it defaults to`,
-                'that path, so no argument is needed unless you wrote the result somewhere else.',
-                'Work first, report last: that call ends the stage, and a result describing work you did',
-                'not do fails it, because the runner checks the diff and not your summary.',
-            ].join('\n'),
+            prompt: resume?.sessionId
+                ? [
+                      `The daemon restarted and interrupted this stage. The worktree at ${context.worktreeRoot} is as you`,
+                      `left it, but any tool call in progress when it stopped may not have finished. Check where your`,
+                      `last step got to, then carry on with the stage and finish it as you were told to.`,
+                  ].join('\n')
+                : [
+                      ...(resume
+                          ? [
+                                `An earlier attempt at this stage was interrupted by a restart, and its uncommitted work is`,
+                                `still in the worktree. Check it before building on it.`,
+                                '',
+                            ]
+                          : []),
+                      `Card: ${title}`,
+                      '',
+                      `Your plan is at ${planPath}. Read it before anything else. Its "Files in scope" is what`,
+                      `you may change and its "Out of scope" is binding even where you could make the change.`,
+                      '',
+                      ...(learningsPath
+                          ? [
+                                `Before you start, also read the project's learnings at ${learningsPath}. They are`,
+                                `human-approved guidance for this project — follow them like the plan, not material to weigh.`,
+                                '',
+                            ]
+                          : []),
+                      `You are in a git worktree at ${context.worktreeRoot}.`,
+                      '',
+                      `\`git diff ${baseSha}\` is the card's whole diff across every stage — this is what the`,
+                      `verifier measures and what a finding must cite.`,
+                      '',
+                      // `stage.instructions` comes from board config, which must not name a tool — see
+                      // the class doc comment above for why (card 0097). The lines below are this
+                      // adapter's own, appended after it, naming this engine's tools the only way it can
+                      // be sure they are named right: interpolated from the constants the MCP server
+                      // above actually registers them under.
+                      stage.instructions,
+                      '',
+                      ...(canWrite
+                          ? [
+                                `If the plan's "Files in scope" does not cover a file the work genuinely needs, call`,
+                                `${qualifiedRequestScopeTool()} with the path and why, rather than working around the gap.`,
+                                '',
+                                `To remove a file the work no longer needs, call ${qualifiedDeleteTool()} with its path —`,
+                                `it is scope-checked the same way a write is, and refuses a directory.`,
+                                '',
+                                ...(checksTestCounts
+                                    ? [
+                                          `A test that no longer belongs gets deleted, not emptied and left as an 'it.skip':`,
+                                          `this stage's exit condition compares the skipped-test count against the baseline,`,
+                                          `and a new skip reads as a regression and fails the stage.`,
+                                          '',
+                                      ]
+                                    : []),
+                            ]
+                          : []),
+                      `Write your finished result as JSON to ${REPORT_RESULT_PATH} in the worktree — that file, and`,
+                      `only that file, is how the result is delivered. It must satisfy this schema:`,
+                      JSON.stringify(z.toJSONSchema(resultSchema as z.ZodTypeAny)),
+                      '',
+                      `Anything you need to generate and inspect but that should not ship — a report to read,`,
+                      `a probe script's output, whatever an acceptance criterion needs produced and checked —`,
+                      `goes under ${SCRATCH_PREFIX} in the worktree. That path is writable in every stage,`,
+                      `including this one if it is read-only, and everything under it is wiped once the run`,
+                      `ends, so nothing written there is ever delivered, committed, or reviewed.`,
+                      '',
+                      `When the work is done and the build passes, call ${qualifiedReportTool()}; it defaults to`,
+                      'that path, so no argument is needed unless you wrote the result somewhere else.',
+                      'Work first, report last: that call ends the stage, and a result describing work you did',
+                      'not do fails it, because the runner checks the diff and not your summary.',
+                  ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
+                ...(resume?.sessionId ? { resume: resume.sessionId } : {}),
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
@@ -630,6 +657,17 @@ export class CliStageAgent extends StageAgent {
         // itself (`checkContext` above), so the first beat has to follow the assignment above it.
         beat();
 
+        // A stage that has already reported is left to finish: its work is done, and stopping it here
+        // would throw that away for the sake of a restart.
+        const interrupt = (): void => {
+            if (reported !== undefined) return;
+            stoppedBecause ??= 'interrupted';
+            abortController.abort();
+            stop();
+        };
+        if (this.interrupts?.signal.aborted) interrupt();
+        this.interrupts?.signal.addEventListener('abort', interrupt, { once: true });
+
         let summary = '';
         let usage: AgentRunOutput['usage'];
         // Input tokens per API message, by id: the engine emits one assistant message per content
@@ -648,6 +686,30 @@ export class CliStageAgent extends StageAgent {
 
         const droppedField = (): { resultDropped?: boolean } => (reported === undefined && reportToolSeen ? { resultDropped: true } : {});
 
+        // Summed from the turns seen, because a run stopped early never gets a `result` to read it from.
+        const spentSoFar = () =>
+            [...inputTokensByMessage.values()].reduce(
+                (total, tokens) => ({
+                    inputTokens: total.inputTokens + tokens.inputTokens,
+                    outputTokens: total.outputTokens + tokens.outputTokens,
+                    cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
+                }),
+                { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+            );
+
+        // The session last written to the event log, so one is recorded once rather than per message.
+        let engineSessionId: string | undefined;
+
+        const interruptedOutput = (): AgentRunOutput => {
+            const sessionId = engineSessionId ?? resume?.sessionId;
+            return {
+                usage: spentSoFar(),
+                truncated: true,
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps: turns },
+                ...traceField(),
+            };
+        };
+
         try {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
@@ -655,6 +717,7 @@ export class CliStageAgent extends StageAgent {
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
+                    if (stoppedBecause === 'interrupted') return interruptedOutput();
                     // No `engineStopReason` here, deliberately: the SDK has said nothing at all yet —
                     // this fires because *our own* wall-clock, idle or context guard ran out before a
                     // `result` message ever arrived, not because the SDK reported an ending.
@@ -687,6 +750,21 @@ export class CliStageAgent extends StageAgent {
                 if (next.done) break;
                 beat();
                 const message = next.value;
+
+                // Swallowed: this is only what a later attempt could resume from, and losing it costs
+                // that attempt a fresh start, which is no reason to fail the run in progress.
+                if ('session_id' in message && message.session_id && message.session_id !== engineSessionId) {
+                    engineSessionId = message.session_id;
+                    await context.events
+                        .append({
+                            project: context.project,
+                            cardId: context.cardId,
+                            stage: context.stage,
+                            type: 'stage.engine-session',
+                            payload: { sessionId: engineSessionId },
+                        })
+                        .catch((error: unknown) => this.logger.warn(`could not record engine session for ${context.cardId}: ${String(error)}`));
+                }
 
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
@@ -739,14 +817,7 @@ export class CliStageAgent extends StageAgent {
                             outputTokens: turn.output_tokens,
                             cachedInputTokens: (turn.cache_read_input_tokens ?? 0) + (turn.cache_creation_input_tokens ?? 0),
                         });
-                        const spent = [...inputTokensByMessage.values()].reduce(
-                            (total, tokens) => ({
-                                inputTokens: total.inputTokens + tokens.inputTokens,
-                                outputTokens: total.outputTokens + tokens.outputTokens,
-                                cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
-                            }),
-                            { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
-                        );
+                        const spent = spentSoFar();
                         const failure = overBudget(budgetedInputTokens(spent), stage.maxInputTokens);
                         if (failure && !stoppedBecause) {
                             stoppedBecause = 'input-tokens';
@@ -780,6 +851,9 @@ export class CliStageAgent extends StageAgent {
                     // The engine reports its own truncation; treat anything but a clean end as cut off.
                     // That covers `error_max_budget_usd` too: it is not `success`, so it lands here.
                     if (message.subtype !== 'success') {
+                        // What the engine sends for a session it cannot find: an error result, ahead
+                        // of any turn, carrying the very id it was asked for.
+                        if (resume?.sessionId && turns === 0) return { usage, truncated: true, resumeFailed: true };
                         this.logger.warn(`cli stage ended as ${message.subtype}`);
                         const output = {
                             result: reported ?? (summary ? { summary } : undefined),
@@ -861,6 +935,8 @@ export class CliStageAgent extends StageAgent {
                     ...traceField(),
                 };
             }
+            // As with the context guard below, the abort itself can be what unblocks the read.
+            if (stoppedBecause === 'interrupted') return interruptedOutput();
             if (stoppedBecause === 'wall-clock') {
                 this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
                 return {
@@ -915,6 +991,7 @@ export class CliStageAgent extends StageAgent {
             // keep propagating as the bare error it is, not be reinterpreted as an engine fault.
             const tagged = err as { message?: string; errorClass?: unknown; exitCode?: unknown; signal?: unknown };
             if (typeof tagged.errorClass !== 'string') throw err;
+            if (resume?.sessionId && turns === 0) return { truncated: true, resumeFailed: true };
 
             const exitCode = typeof tagged.exitCode === 'number' ? tagged.exitCode : undefined;
             const signal = typeof tagged.signal === 'string' ? tagged.signal : undefined;
@@ -975,6 +1052,7 @@ export class CliStageAgent extends StageAgent {
 
             clearTimeout(wallClock);
             clearTimeout(idle);
+            this.interrupts?.signal.removeEventListener('abort', interrupt);
             // Every exit from this method abandons the stream, including the successful one. Abort so
             // the engine is torn down explicitly rather than left to whatever cleanup breaking out of
             // a `for await` happens to trigger — that assumption is what leaves orphaned processes

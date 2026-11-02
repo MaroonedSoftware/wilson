@@ -34,6 +34,7 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'card.auto-split': { label: 'Split automatically', color: 'blue' },
     'card.plan-drafted': { label: 'Drafted a plan', color: 'green' },
     'job.orphaned': { label: 'Recovered an orphaned job', color: 'orange' },
+    'stage.interrupted': { label: 'Paused {stage} for a restart', color: 'orange' },
 };
 
 const record = (payload: JsonValue): Record<string, JsonValue> =>

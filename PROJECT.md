@@ -305,10 +305,35 @@ root can reach past it. The boundary is the machine, which is why a worker belon
 
 A dropped connection fails whatever was waiting on it as a lost host, which the queue retries, and
 the worker kills every process the dropped connection started before it reconnects. A daemon restart
-still abandons the stages running at the time, since the agent loop lives in the daemon. Moving the
+still ends the stages running at the time, since the agent loop lives in the daemon. Moving the
 loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
 
-**Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
+**A clean shutdown interrupts a stage rather than failing it.** On shutdown `StageInterrupt` stops
+each `cli` engine, the card records `stage.interrupted`, and the handler sends the stage again and
+completes, the same way `holdWhileDraining` does, so no retry is spent. This happens before workers
+are disconnected and inside pg-boss's stop window. A stage that has already reported is left to
+finish. Anything that does not get this far (a crash, a kill, a command stage, an `api` stage) is
+left to the boot sweep, which does spend a retry, so a stage that keeps killing the daemon still
+dead-letters.
+
+The job sent again names where the tree is, and the next attempt reopens it, uncommitted work included,
+rather than cutting a new one: on this machine, or back on the same host if that host can take it.
+Elsewhere, or with the tree gone, it cuts one as usual.
+
+In a reopened tree the engine continues its own session, told that it was interrupted and to check its
+last step, on what its interrupted runs left of the stage's time, steps and input tokens. If the engine
+cannot find the session, a new one starts in the same tree, told what it has inherited. Nothing is
+verified until the stage finishes, so a resumed run is held to the same exit condition as any other.
+
+**So a deploy does not have to wait.** A restart costs a running `cli` stage a pause of about a minute
+rather than its work: a 2026-11-02 run against a real engine stopped in under a second, resumed the same
+session, re-ran the tool the restart killed, and passed with no retry spent. Placed stages have not been
+through this against a real worker yet.
+
+**Drain when a restart must not interrupt anything.** That is a deploy that changes what a running stage
+depends on (its tools, its result contract, or how a resumed run behaves), one where a command stage,
+an `api` stage or a plan draft is running, since those are not resumed, and any restart until placed
+stages have been proven. `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage
 directly. The drain is enforced where every stage arrives, as a pre-dispatch check
 (`holdWhileDraining`): a job that would have dispatched is sent again for 30 seconds later and hands

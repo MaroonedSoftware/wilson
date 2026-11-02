@@ -265,7 +265,7 @@ describe('CardStageJob', () => {
 
         await job.run({ cardId: '0042', stageName: 'implementing' });
 
-        expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing');
+        expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing', undefined);
     });
 
     /**
@@ -936,7 +936,7 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(boardRepo.scopeConflict).toHaveBeenCalledWith(events, 'test', dispatchingCard, expect.anything());
-        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined);
         expect(events.append.mock.calls.map(c => c[0].type)).not.toContain('dispatch.deferred');
     });
 
@@ -950,6 +950,6 @@ describe('CardStageJob defers on a scope conflict before dispatching (card 0104)
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(boardRepo.scopeConflict).not.toHaveBeenCalled();
-        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing');
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined);
     });
 });

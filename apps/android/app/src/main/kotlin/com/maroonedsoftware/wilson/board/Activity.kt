@@ -41,6 +41,7 @@ private val SUMMARIES = mapOf(
     "card.auto-split" to ActivitySummary("Split automatically", ActivityTone.INFO),
     "card.plan-drafted" to ActivitySummary("Drafted a plan", ActivityTone.GOOD),
     "job.orphaned" to ActivitySummary("Recovered an orphaned job", ActivityTone.WARNING),
+    "stage.interrupted" to ActivitySummary("Paused {stage} for a restart", ActivityTone.WARNING),
 )
 
 private fun JsonElement.text(key: String): String? = ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull

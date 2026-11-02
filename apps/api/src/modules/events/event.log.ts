@@ -26,7 +26,7 @@ export interface ActivityRow extends CardEventRow {
  * shows them on the card's own page. An exclusion list, so an event type added later is shown by
  * default.
  */
-const QUIET_ACTIVITY_TYPES: CardEventType[] = ['tool.executed', 'tool.denied', 'tool.unguarded'];
+const QUIET_ACTIVITY_TYPES: CardEventType[] = ['tool.executed', 'tool.denied', 'tool.unguarded', 'stage.engine-session'];
 
 /** One stage's share of {@link CardUsage} — see {@link EventLog.usageByStage}. */
 export interface CardStageUsage {
