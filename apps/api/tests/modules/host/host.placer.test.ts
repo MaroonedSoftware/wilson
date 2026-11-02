@@ -143,16 +143,31 @@ describe('HostPlacer', () => {
         expect((await service.get(name)).running).toEqual([{ slot: 1, project, cardId: '0001', since: expect.anything() }]);
     });
 
-    it('defers a remote stage when every slot is held by a running card, and runs an `any` stage here', async () => {
+    it('defers a remote or `any` stage when every slot is held by a running card', async () => {
         const { project, name } = await setUp();
         await recordLiveClaim(project, '0001');
         await placer().place(project, '0001', stage('remote'));
 
-        const remote = await placer().place(project, '0002', stage('remote'));
-        expect(remote).toBeInstanceOf(NoHostAvailable);
-        expect((remote as NoHostAvailable).message).toContain(`${name} has all 1 slot in use`);
+        for (const placement of ['remote', 'any'] as const) {
+            const deferred = await placer().place(project, '0002', stage(placement));
+            expect(deferred).toBeInstanceOf(NoHostAvailable);
+            expect((deferred as NoHostAvailable).message).toContain(`${name} has all 1 slot in use`);
+        }
+    });
 
-        expect(await placer().place(project, '0002', stage('any'))).toBeUndefined();
+    it('runs an `any` stage here only when no host could run it', async () => {
+        const failing = await setUp({ probeOk: false });
+        expect(await placer().place(failing.project, '0001', stage('any'))).toBeUndefined();
+
+        const draining = await setUp();
+        await service.update(draining.name, { draining: true });
+        expect(await placer().place(draining.project, '0001', stage('any'))).toBeUndefined();
+
+        const unreachable = await setUp();
+        expect(await placer(unreachableSsh).place(unreachable.project, '0001', stage('any'))).toBeUndefined();
+
+        const unserved = uniqueProject();
+        expect(await placer().place(unserved, '0001', stage('any'))).toBeUndefined();
     });
 
     it('takes a slot back from a card that is no longer running', async () => {

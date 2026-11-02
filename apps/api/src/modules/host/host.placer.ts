@@ -72,8 +72,9 @@ export class HostPlacer {
 
     /**
      * Place `stage` for `cardId`. `undefined` means run it here: the stage is `local`, has no
-     * worktree, or is `any` and found no host. A `NoHostAvailable` means it is `remote` and found
-     * none, which the caller defers.
+     * worktree, or is `any` and no host could run it. A `NoHostAvailable` means it is `remote` and
+     * found none, or `any` and every usable host is only busy, which the caller defers: a slot there
+     * frees when a stage ends, so an `any` stage waits for it rather than loading this machine.
      */
     async place(
         project: string,
@@ -84,6 +85,7 @@ export class HostPlacer {
         if (wanted === 'local' || stage.worktree === 'none') return undefined;
 
         const reasons: string[] = [];
+        let busy = false;
         const deadline = DateTime.now().plus({ milliseconds: stage.maxWallClockMs, minutes: EXPIRY_MARGIN_MINUTES });
 
         for (const row of await this.hosts.list()) {
@@ -99,6 +101,7 @@ export class HostPlacer {
 
             const slotKey = await this.takeSlot(row, project, cardId);
             if (!slotKey) {
+                busy = true;
                 reasons.push(`${row.name} has all ${row.slots} slot${row.slots === 1 ? '' : 's'} in use`);
                 continue;
             }
@@ -143,7 +146,7 @@ export class HostPlacer {
             };
         }
 
-        return wanted === 'remote' ? new NoHostAvailable(reasons) : undefined;
+        return wanted === 'remote' || busy ? new NoHostAvailable(reasons) : undefined;
     }
 
     /** Whether a placed stage's host still answers. */

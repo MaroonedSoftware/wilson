@@ -58,7 +58,7 @@ export type NotDispatchableReason =
     | { readonly kind: 'empty-scope' }
     | { readonly kind: 'unsatisfied-dependency'; readonly outstanding: string[] }
     | { readonly kind: 'needs-human' }
-    /** A `placement: remote` stage found no registered host free to take it. Deferred, not poisoned. */
+    /** A `remote` stage found no host free, or an `any` stage found them all busy. Deferred, not poisoned. */
     | { readonly kind: 'no-host' }
     /** A stage that runs here found every `local-stage-slots` slot held. Deferred, not poisoned. */
     | { readonly kind: 'no-local-slot' };
@@ -307,11 +307,11 @@ export class StageDispatcher {
             }
         }
 
-        // Before any worktree is cut: where it is cut is the placement. A `remote` stage with no host
-        // free is deferred, the same "not now" an unsatisfied dependency is.
+        // Before any worktree is cut: where it is cut is the placement. A stage waiting on a host is
+        // deferred, the same "not now" an unsatisfied dependency is.
         const placed = this.placer ? await this.placer.place(this.config.project, cardId, stage) : undefined;
         if (placed instanceof NoHostAvailable) {
-            throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} must run on a host, and ${placed.message}`);
+            throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} is waiting for a host: ${placed.message}`);
         }
         if (!placed) {
             // A stage with no tree takes no slot: a slot is a worktree, an install and an agent here.
