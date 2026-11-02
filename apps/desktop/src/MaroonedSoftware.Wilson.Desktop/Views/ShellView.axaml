@@ -12,6 +12,19 @@
                 <TextBlock Text="{Binding Updates.Message, FallbackValue={x:Null}}" VerticalAlignment="Center" TextWrapping="Wrap" />
             </DockPanel>
         </Border>
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,8" IsVisible="{Binding SignedIn}">
+            <DockPanel LastChildFill="False">
+                <Button Classes="section" Command="{Binding ShowChatCommand}" Margin="-10,0,14,0" ToolTip.Tip="Home" AutomationProperties.Name="Home">
+                    <TextBlock Classes="title" Text="Wilson" />
+                </Button>
+                <Button Classes="section" Classes.current="{Binding OnChat}" Content="Chat" Command="{Binding ShowChatCommand}" VerticalAlignment="Center" />
+                <Button Classes="section" Classes.current="{Binding OnBoard}" Content="Board" Command="{Binding ShowBoardCommand}" VerticalAlignment="Center" />
+                <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding SignOutCommand}" VerticalAlignment="Center" />
+                <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding Feed.RefreshCommand, FallbackValue={x:Null}}" IsVisible="{Binding Feed, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="live" ToolTip.Tip="Updates as cards move" IsVisible="{Binding Feed.Live, FallbackValue=False}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="snapshot" ToolTip.Tip="Not connected: see Refresh" IsVisible="{Binding !Feed.Live, FallbackValue=False}" Margin="0,0,8,0" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
         <ContentControl Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
     </DockPanel>
 </UserControl>

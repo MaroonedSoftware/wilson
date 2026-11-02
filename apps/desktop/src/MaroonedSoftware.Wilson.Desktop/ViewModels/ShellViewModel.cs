@@ -12,8 +12,14 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 {
     private readonly Stack<PageViewModel> _behind = new();
     private DesktopSettings _settings = DesktopSettings.Load(settingsPath);
+    private ThreadsViewModel? _chat;
+    private BoardViewModel? _board;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SignedIn))]
+    [NotifyPropertyChangedFor(nameof(OnChat))]
+    [NotifyPropertyChangedFor(nameof(OnBoard))]
+    [NotifyPropertyChangedFor(nameof(Feed))]
     private PageViewModel? _page;
 
     [ObservableProperty]
@@ -25,6 +31,18 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public ServerConnection? Connection { get; private set; }
 
     public DesktopSettings Settings => _settings;
+
+    /// <summary>Everything but the sign-in page sits under the header.</summary>
+    public bool SignedIn => Page is not (null or SignInViewModel);
+
+    public bool OnChat => Section is ThreadsViewModel;
+
+    public bool OnBoard => Section is BoardViewModel;
+
+    public IFollowsFeed? Feed => Page as IFollowsFeed;
+
+    /// <summary>What the header marks: a card is still on the board.</summary>
+    private PageViewModel? Section => _behind.LastOrDefault() ?? Page;
 
     /// <summary>Goes to chat if a session was kept for the remembered server, and to sign-in otherwise.</summary>
     public async Task StartAsync()
@@ -58,7 +76,12 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         return Connection;
     }
 
-    public void ShowChat() => Replace(new ThreadsViewModel(this));
+    /// <summary>Kept, so an open chat and the chosen project survive a trip between sections.</summary>
+    [RelayCommand]
+    public void ShowChat() => Go(_chat ??= new ThreadsViewModel(this));
+
+    [RelayCommand]
+    public void ShowBoard() => Go(_board ??= new BoardViewModel(this));
 
     public void Push(PageViewModel page)
     {
@@ -104,7 +127,22 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         Connection?.Dispose();
     }
 
-    private void ShowSignIn() => Replace(new SignInViewModel(this));
+    private void ShowSignIn()
+    {
+        _chat?.Dispose();
+        _board?.Dispose();
+        _chat = null;
+        _board = null;
+        Replace(new SignInViewModel(this));
+    }
+
+    private void Go(PageViewModel section)
+    {
+        if (Page != section)
+        {
+            Replace(section);
+        }
+    }
 
     private void Replace(PageViewModel page)
     {

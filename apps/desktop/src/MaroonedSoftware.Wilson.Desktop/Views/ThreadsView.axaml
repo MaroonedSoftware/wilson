@@ -6,13 +6,6 @@
     x:DataType="vm:ThreadsViewModel">
     <Grid>
         <DockPanel>
-            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,10">
-                <DockPanel LastChildFill="False">
-                    <TextBlock Classes="title" Text="Wilson" Margin="0,0,16,0" VerticalAlignment="Center" />
-                    <Button Content="Board" Command="{Binding OpenBoardCommand}" VerticalAlignment="Center" />
-                    <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding Shell.SignOutCommand}" VerticalAlignment="Center" />
-                </DockPanel>
-            </Border>
             <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="16,8,16,0" />
             <Grid ColumnDefinitions="260,*">
                 <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0" Padding="10">

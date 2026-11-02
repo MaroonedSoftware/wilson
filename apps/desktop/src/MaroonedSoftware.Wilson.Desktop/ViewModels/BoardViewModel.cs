@@ -16,7 +16,7 @@ public sealed record BoardColumn(string Name, IReadOnlyList<CardSummary> Cards)
 }
 
 /// <summary>A project's cards, kept live from the feed for as long as the board is in front.</summary>
-public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
+public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel, IFollowsFeed
 {
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
 
@@ -28,8 +28,6 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     public ObservableCollection<string> Projects { get; } = [];
 
     public ObservableCollection<BoardColumn> Columns { get; } = [];
-
-    public ShellViewModel Shell => shell;
 
     [ObservableProperty]
     private string? _project;

@@ -139,6 +139,15 @@ dragging cards, comments on a diff line (`POST /api/cards/{id}/findings`), and s
 card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
 notifications.
 
+## The header
+
+`ShellView` draws the sections, as `apps/web/src/routes/__root.tsx` does, over everything but sign-in.
+A section's page is kept for the session (`ShellViewModel.ShowChat`, `ShowBoard`), so an open chat and
+the chosen project survive a trip between them, and going to one clears the Back stack. Back is for
+what opens from a section, such as a card. A page following the feed implements `IFollowsFeed`, and
+the header shows its state and Refresh. Chat follows no feed, so unlike the web app's header, this one
+shows neither there. Add a section's link in the same commit as its page, never ahead of it.
+
 ## Chat follows the web app
 
 `Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
@@ -159,6 +168,10 @@ release built, signed and published from the workflow, and that download launche
 2026-11-01, chat: with `tools/Walk`, the greeting, Tab, typing and Enter by headless keyboard, a real
 streamed turn, Markdown, the working state, rename and archive, in both appearances. A proposed
 change was posed, as nothing makes the agent propose one on cue.
+
+2026-11-02, header: with `tools/Walk`, in both appearances, the sections and their marker, live status
+and Refresh on the board and a card, leaving a card for either section, the same board and chat coming
+back, no header on sign-in, and signing out from it.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

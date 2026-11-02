@@ -17,8 +17,6 @@ public sealed partial class ThreadsViewModel(ShellViewModel shell) : PageViewMod
 
     public ObservableCollection<ThreadRow> Threads { get; } = [];
 
-    public ShellViewModel Shell => shell;
-
     [ObservableProperty]
     private ChatViewModel? _chat;
 
@@ -51,9 +49,6 @@ public sealed partial class ThreadsViewModel(ShellViewModel shell) : PageViewMod
             Show(thread.Id);
         }
     }
-
-    [RelayCommand]
-    public void OpenBoard() => shell.Push(new BoardViewModel(shell));
 
     [RelayCommand]
     public void AskRename(ThreadRow thread)

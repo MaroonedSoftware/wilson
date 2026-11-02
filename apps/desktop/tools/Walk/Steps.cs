@@ -10,7 +10,7 @@ internal static class Steps
 {
     public static async Task RunAsync(Walker walk, string origin, string email, string password)
     {
-        await walk.UntilAsync("the sign-in page", () => walk.Shell.Page is SignInViewModel);
+        await walk.UntilAsync("the sign-in page, under no header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
         var signIn = walk.Page<SignInViewModel>();
         walk.Shot("01-sign-in");
 
@@ -56,19 +56,23 @@ internal static class Steps
         await walk.UntilAsync("a chat open", () => home.Chat is not null);
         await walk.UntilAsync("the chats listed", () => home.Threads.Count > 0 || home.NoChats);
         Console.WriteLine($"     home: {home.Threads.Count} chats");
+        await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
-        home.OpenBoard();
+        walk.Shell.ShowBoardCommand.Execute(null);
 
         var board = walk.Page<BoardViewModel>();
         await walk.UntilAsync("columns", () => board.Columns.Count > 0);
-        await walk.UntilAsync("the feed live", () => board.Live);
+        await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
 
         await DiffAsync(walk, board);
         await CardsAsync(walk, board);
-        walk.Shell.Back();
+        walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
         await ChatAsync(walk, home);
+
+        await walk.Shell.SignOutCommand.ExecuteAsync(null);
+        await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
     }
 
     /// <summary>Only if the throwaway board has a card with a branch: a fresh one has none, and it takes a hand to give it one.</summary>
@@ -113,7 +117,18 @@ internal static class Steps
         var card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the card", () => card.Card is not null);
         await walk.UntilAsync("the stages to move to", () => card.Stages.Count > 0);
+        await walk.UntilAsync("the card live, still under Board", () => walk.Shell.OnBoard && walk.Shell.Feed is CardViewModel { Live: true });
+        await walk.Shell.Feed!.RefreshCommand.ExecuteAsync(null);
         walk.Shot("05-card");
+
+        walk.Shell.ShowChatCommand.Execute(null);
+        await walk.UntilAsync("chat from a card", () => walk.Shell.OnChat);
+        walk.Shell.Push(card);
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("the same board back", () => walk.Shell.Page == board && !walk.Shell.CanGoBack);
+        board.OpenCard(made);
+        card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the stages to move to again", () => card.Stages.Count > 0);
 
         card.MoveTo = card.Stages.First(stage => stage != card.Card!.Stage);
         var target = card.MoveTo;
@@ -217,9 +232,9 @@ internal static class Steps
         chat.Entries.Add(new ActionRow("posed-2", "Merge 0002", "Runs merge_card in wilson as you.", """{"id":"0002"}""", "failed", false, true, "cannot merge 0002: it is in \"planning\", not \"ready\""));
         walk.Shot("14b-chat-actions");
 
-        home.OpenBoard();
+        walk.Shell.ShowBoardCommand.Execute(null);
         walk.Page<BoardViewModel>();
-        walk.Shell.Back();
+        walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on the same chat", () => walk.Shell.Page == home && home.Chat == chat && chat.Entries.Count > 0);
 
         var current = home.Threads.First(thread => thread.Current);

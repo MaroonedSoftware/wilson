@@ -36,7 +36,7 @@ public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, 
 /// One card. Actions are offered as the web app offers them: whatever applies is the server's to
 /// decide, a refusal comes back in its own words, and only a re-read ever changes the stage shown.
 /// </summary>
-public sealed partial class CardViewModel(ShellViewModel shell, string project, string id) : PageViewModel
+public sealed partial class CardViewModel(ShellViewModel shell, string project, string id) : PageViewModel, IFollowsFeed
 {
     private const long EventLimit = 100;
     private const int DiffTab = 2;
@@ -69,6 +69,9 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
     private CardDetail? _card;
+
+    [ObservableProperty]
+    private bool _live;
 
     [ObservableProperty]
     private string? _usage;
@@ -140,6 +143,9 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     }
 
     [RelayCommand]
+    public Task RefreshAsync() => LoadAsync(CancellationToken.None);
+
+    [RelayCommand]
     public void OpenPlan() => shell.Push(new PlanViewModel(shell, project, id));
 
     [RelayCommand]
@@ -159,6 +165,11 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
             project,
             signal =>
             {
+                if (signal is StreamSignal.Live or StreamSignal.Down)
+                {
+                    Dispatcher.UIThread.Post(() => Live = signal is StreamSignal.Live);
+                }
+
                 if (signal is StreamSignal.Received received && BoardRules.FeedCardId(received.Event.Data) == id)
                 {
                     settling?.Cancel();

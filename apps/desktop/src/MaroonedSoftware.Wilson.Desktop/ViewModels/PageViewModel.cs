@@ -1,7 +1,16 @@
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
+
+/// <summary>A page following the feed, whose state the window's header shows.</summary>
+public interface IFollowsFeed
+{
+    bool Live { get; }
+
+    IAsyncRelayCommand RefreshCommand { get; }
+}
 
 /// <summary>A screen. It works only while shown: leaving it cancels whatever it was following.</summary>
 public abstract class PageViewModel : ObservableObject, IDisposable

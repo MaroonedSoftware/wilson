@@ -162,6 +162,18 @@
         <Style Selector="Button.nav:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.nav.current /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Panel}" />
         </Style>
+        <Style Selector="Button.section">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+        </Style>
+        <Style Selector="Button.section /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style Selector="Button.section:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.section.current /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Panel}" />
+        </Style>
         <Style Selector="Button.chip">
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="12,5" />
