@@ -548,8 +548,10 @@ Model and provider are properties of the stage, not a per-task choice. Defaults:
 - testing: mid-tier
 - code review: strong model, read-only tools
 
-Each project's stage config may override provider and model per stage — Anthropic,
-OpenAI, or xAI — since they are one `ToolLoopAgent` model argument apart. Provider
+Each project routes its stages to a provider and model — Anthropic, OpenAI, or xAI —
+since they are one `ToolLoopAgent` model argument apart. Routing lives in
+`wilson.stage_routing`, apart from the stage config document, so one stage can change
+without rewriting it (`wilson stages route`, or Settings in the web app). Provider
 credentials are per-deployment, not per-project.
 
 The adversarial reviewer reads the plan cold, with no access to the planning

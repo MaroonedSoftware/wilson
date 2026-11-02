@@ -46,7 +46,7 @@ describe('StageConfigService', () => {
 
         const saved = await service.set({ yaml: OTHER_VALID, message: 'be careful' });
 
-        expect(saved).toMatchObject({ yaml: OTHER_VALID, message: 'be careful' });
+        expect(saved).toMatchObject({ yaml: expect.stringContaining('build it carefully'), message: 'be careful' });
         expect(await service.get()).toMatchObject({ id: saved.id });
         expect((await store.load()).stages[0]!.instructions).toBe('build it carefully');
     });
@@ -81,5 +81,52 @@ describe('StageConfigService', () => {
         expect((await service.versions({})).map(v => v.message)).toEqual(['three', 'two', 'initial']);
         expect((await service.versions({ limit: 1 })).map(v => v.message)).toEqual(['three']);
         expect(await service.versions({ limit: 10_000 })).toHaveLength(3);
+    });
+
+    it('lists each stage as it would dispatch', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        expect(await service.routing()).toEqual([
+            { stage: 'implementing', mode: 'agent', adapter: 'api', provider: 'anthropic', model: 'claude-opus' },
+        ]);
+    });
+
+    it('answers 404 for routing on a project with no stage config', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore());
+
+        await expect(service.routing()).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('routes one stage and answers with the result', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        const routed = await service.setRouting('implementing', { adapter: 'api', provider: 'openai', model: ' gpt-5 ' });
+
+        expect(routed).toMatchObject({ provider: 'openai', model: 'gpt-5' });
+        expect(await service.routing()).toEqual([routed]);
+    });
+
+    it('answers 404 for routing a stage that does not exist', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        await expect(service.setRouting('nope', { adapter: 'api', provider: 'openai', model: 'gpt-5' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('answers 400 for an empty model', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        await expect(service.setRouting('implementing', { adapter: 'api', provider: 'anthropic', model: '  ' })).rejects.toMatchObject({
+            statusCode: 400,
+            details: { reason: 'a model is required' },
+        });
+    });
+
+    it('answers 400 for a provider the cli adapter cannot run', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        await expect(service.setRouting('implementing', { adapter: 'cli', provider: 'openai', model: 'gpt-5' })).rejects.toMatchObject({
+            statusCode: 400,
+            details: { reason: expect.stringContaining('always runs Claude') },
+        });
     });
 });

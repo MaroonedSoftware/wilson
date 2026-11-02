@@ -68,3 +68,336 @@ public sealed record StageConfigVersionsQuery
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Limit { get; init; }
 }
+
+/// <summary>
+/// Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
+/// client can tell the stages that reach a model from the manual ones that never do.
+/// </summary>
+public sealed record StageRouting
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("mode")]
+    public required StageRoutingMode Mode { get; init; }
+
+    [JsonPropertyName("adapter")]
+    public required StageRoutingAdapter Adapter { get; init; }
+
+    [JsonPropertyName("provider")]
+    public required StageRoutingProvider Provider { get; init; }
+
+    [JsonPropertyName("model")]
+    public required string Model { get; init; }
+}
+
+public sealed record SetStageRoutingRequest
+{
+    [JsonPropertyName("adapter")]
+    public required SetStageRoutingRequestAdapter Adapter { get; init; }
+
+    [JsonPropertyName("provider")]
+    public required SetStageRoutingRequestProvider Provider { get; init; }
+
+    [JsonPropertyName("model")]
+    public required string Model { get; init; }
+
+    [JsonPropertyName("message")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; init; }
+}
+
+[JsonConverter(typeof(StageRoutingModeConverter))]
+public enum StageRoutingMode
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("agent")]
+    Agent,
+
+    [JsonStringEnumMemberName("command")]
+    Command,
+
+    [JsonStringEnumMemberName("manual")]
+    Manual,
+}
+
+/// <summary>
+/// Reads and writes <see cref="StageRoutingMode"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="StageRoutingMode.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class StageRoutingModeConverter : JsonConverter<StageRoutingMode>
+{
+    public override StageRoutingMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for StageRoutingMode, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, StageRoutingMode value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override StageRoutingMode ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, StageRoutingMode value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static StageRoutingMode FromWire(string? text) => text switch
+    {
+        "agent" => StageRoutingMode.Agent,
+        "command" => StageRoutingMode.Command,
+        "manual" => StageRoutingMode.Manual,
+        _ => StageRoutingMode.Unknown,
+    };
+
+    private static string ToWire(StageRoutingMode value) => value switch
+    {
+        StageRoutingMode.Agent => "agent",
+        StageRoutingMode.Command => "command",
+        StageRoutingMode.Manual => "manual",
+        _ => throw new JsonException($"StageRoutingMode.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(StageRoutingAdapterConverter))]
+public enum StageRoutingAdapter
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("api")]
+    Api,
+
+    [JsonStringEnumMemberName("cli")]
+    Cli,
+}
+
+/// <summary>
+/// Reads and writes <see cref="StageRoutingAdapter"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="StageRoutingAdapter.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class StageRoutingAdapterConverter : JsonConverter<StageRoutingAdapter>
+{
+    public override StageRoutingAdapter Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for StageRoutingAdapter, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, StageRoutingAdapter value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override StageRoutingAdapter ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, StageRoutingAdapter value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static StageRoutingAdapter FromWire(string? text) => text switch
+    {
+        "api" => StageRoutingAdapter.Api,
+        "cli" => StageRoutingAdapter.Cli,
+        _ => StageRoutingAdapter.Unknown,
+    };
+
+    private static string ToWire(StageRoutingAdapter value) => value switch
+    {
+        StageRoutingAdapter.Api => "api",
+        StageRoutingAdapter.Cli => "cli",
+        _ => throw new JsonException($"StageRoutingAdapter.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(StageRoutingProviderConverter))]
+public enum StageRoutingProvider
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+
+    [JsonStringEnumMemberName("openai")]
+    Openai,
+
+    [JsonStringEnumMemberName("xai")]
+    Xai,
+}
+
+/// <summary>
+/// Reads and writes <see cref="StageRoutingProvider"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="StageRoutingProvider.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class StageRoutingProviderConverter : JsonConverter<StageRoutingProvider>
+{
+    public override StageRoutingProvider Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for StageRoutingProvider, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, StageRoutingProvider value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override StageRoutingProvider ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, StageRoutingProvider value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static StageRoutingProvider FromWire(string? text) => text switch
+    {
+        "anthropic" => StageRoutingProvider.Anthropic,
+        "openai" => StageRoutingProvider.Openai,
+        "xai" => StageRoutingProvider.Xai,
+        _ => StageRoutingProvider.Unknown,
+    };
+
+    private static string ToWire(StageRoutingProvider value) => value switch
+    {
+        StageRoutingProvider.Anthropic => "anthropic",
+        StageRoutingProvider.Openai => "openai",
+        StageRoutingProvider.Xai => "xai",
+        _ => throw new JsonException($"StageRoutingProvider.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(SetStageRoutingRequestAdapterConverter))]
+public enum SetStageRoutingRequestAdapter
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("api")]
+    Api,
+
+    [JsonStringEnumMemberName("cli")]
+    Cli,
+}
+
+/// <summary>
+/// Reads and writes <see cref="SetStageRoutingRequestAdapter"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="SetStageRoutingRequestAdapter.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class SetStageRoutingRequestAdapterConverter : JsonConverter<SetStageRoutingRequestAdapter>
+{
+    public override SetStageRoutingRequestAdapter Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for SetStageRoutingRequestAdapter, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, SetStageRoutingRequestAdapter value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override SetStageRoutingRequestAdapter ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, SetStageRoutingRequestAdapter value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static SetStageRoutingRequestAdapter FromWire(string? text) => text switch
+    {
+        "api" => SetStageRoutingRequestAdapter.Api,
+        "cli" => SetStageRoutingRequestAdapter.Cli,
+        _ => SetStageRoutingRequestAdapter.Unknown,
+    };
+
+    private static string ToWire(SetStageRoutingRequestAdapter value) => value switch
+    {
+        SetStageRoutingRequestAdapter.Api => "api",
+        SetStageRoutingRequestAdapter.Cli => "cli",
+        _ => throw new JsonException($"SetStageRoutingRequestAdapter.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(SetStageRoutingRequestProviderConverter))]
+public enum SetStageRoutingRequestProvider
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+
+    [JsonStringEnumMemberName("openai")]
+    Openai,
+
+    [JsonStringEnumMemberName("xai")]
+    Xai,
+}
+
+/// <summary>
+/// Reads and writes <see cref="SetStageRoutingRequestProvider"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="SetStageRoutingRequestProvider.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class SetStageRoutingRequestProviderConverter : JsonConverter<SetStageRoutingRequestProvider>
+{
+    public override SetStageRoutingRequestProvider Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for SetStageRoutingRequestProvider, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, SetStageRoutingRequestProvider value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override SetStageRoutingRequestProvider ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, SetStageRoutingRequestProvider value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static SetStageRoutingRequestProvider FromWire(string? text) => text switch
+    {
+        "anthropic" => SetStageRoutingRequestProvider.Anthropic,
+        "openai" => SetStageRoutingRequestProvider.Openai,
+        "xai" => SetStageRoutingRequestProvider.Xai,
+        _ => SetStageRoutingRequestProvider.Unknown,
+    };
+
+    private static string ToWire(SetStageRoutingRequestProvider value) => value switch
+    {
+        SetStageRoutingRequestProvider.Anthropic => "anthropic",
+        SetStageRoutingRequestProvider.Openai => "openai",
+        SetStageRoutingRequestProvider.Xai => "xai",
+        _ => throw new JsonException($"SetStageRoutingRequestProvider.{value} has no wire spelling, so it cannot be sent."),
+    };
+}

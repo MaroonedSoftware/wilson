@@ -19,7 +19,7 @@ import {
     TextInput,
     Title,
 } from '@mantine/core';
-import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequest } from '@wilson/sdk';
+import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequest, StageRouting } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -37,6 +37,7 @@ const GITHUB_APP_QUERY_KEY = ['settings', 'github-app'];
 const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
 const ENGINE_TOKENS_QUERY_KEY = ['engine-tokens'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
+const STAGE_ROUTING_QUERY_KEY = ['stages', 'routing'];
 
 // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
 // enforcement. The API refuses out of range regardless of what these let a user type up to
@@ -824,6 +825,110 @@ function ChatEngineControl() {
     );
 }
 
+/**
+ * Whether a stage can run on a provider other than Anthropic. The `cli` engine and the planning
+ * session always run Claude, and the API refuses anything else (`assertRoutable`).
+ */
+function canChooseProvider(route: Pick<StageRouting, 'stage' | 'adapter'>): boolean {
+    return route.adapter === 'api' && route.stage !== 'planning';
+}
+
+/** One stage's engine, provider and model, saved on its own. */
+function StageRoutingRow({ route }: { route: StageRouting }) {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const [draft, setDraft] = useState(route);
+
+    useEffect(() => setDraft(route), [route]);
+
+    const mutation = useMutation({
+        mutationFn: ({ stage, adapter, provider, model }: StageRouting) => wilson.stages.setStageRouting(stage, { adapter, provider, model }),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: STAGE_ROUTING_QUERY_KEY }),
+    });
+
+    const dirty = draft.adapter !== route.adapter || draft.provider !== route.provider || draft.model !== route.model;
+
+    return (
+        <Stack gap="xs">
+            <Text size="sm" fw={500}>
+                {route.stage}
+            </Text>
+            <Group gap="xs" align="flex-end">
+                {route.stage !== 'planning' && (
+                    <SegmentedControl
+                        aria-label={`${route.stage} adapter`}
+                        size="xs"
+                        value={draft.adapter}
+                        onChange={value => {
+                            const adapter = value as StageRouting['adapter'];
+                            setDraft({ ...draft, adapter, provider: adapter === 'cli' ? 'anthropic' : draft.provider });
+                        }}
+                        disabled={mutation.isPending}
+                        data={[
+                            { value: 'cli', label: 'Claude Agent SDK' },
+                            { value: 'api', label: 'AI SDK' },
+                        ]}
+                    />
+                )}
+                {canChooseProvider(draft) && (
+                    <Select
+                        aria-label={`${route.stage} provider`}
+                        size="xs"
+                        value={draft.provider}
+                        onChange={provider => provider && setDraft({ ...draft, provider: provider as StageRouting['provider'] })}
+                        data={['anthropic', 'openai', 'xai']}
+                        allowDeselect={false}
+                        disabled={mutation.isPending}
+                    />
+                )}
+                <TextInput
+                    aria-label={`${route.stage} model`}
+                    size="xs"
+                    value={draft.model}
+                    onChange={event => setDraft({ ...draft, model: event.currentTarget.value })}
+                    disabled={mutation.isPending}
+                />
+                <Button size="xs" disabled={!dirty || !draft.model.trim() || mutation.isPending} onClick={() => mutation.mutate(draft)}>
+                    Save
+                </Button>
+            </Group>
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/** Which engine, provider and model each stage runs on. Manual stages reach no model, bar planning. */
+function StageRoutingControl() {
+    const wilson = useWilsonSdk();
+    const routing = useQuery({ queryKey: STAGE_ROUTING_QUERY_KEY, queryFn: () => wilson.stages.listStageRouting() });
+
+    if (routing.error) {
+        return (
+            <Alert color="red" title="Cannot load stage routing">
+                {apiErrorMessage(routing.error)}
+            </Alert>
+        );
+    }
+    if (!routing.data) return <Loader size="sm" />;
+
+    return (
+        <Stack gap="md">
+            {routing.data
+                .filter(route => route.mode === 'agent' || route.stage === 'planning')
+                .map(route => (
+                    <StageRoutingRow key={route.stage} route={route} />
+                ))}
+            <Text size="xs" c="dimmed">
+                Applies from a stage's next run. The AI SDK needs the provider's API key in apps/api/.env and bills per token.
+            </Text>
+        </Stack>
+    );
+}
+
 /** A `project`/`head`/`startedAt`/root row: a label column and a value, greyed for the read-only roots. */
 function Fact({ label, children, muted }: { label: string; children: ReactNode; muted?: boolean }) {
     return (
@@ -957,6 +1062,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>GitHub</Title>
                     <GitHubAppControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Stage routing</Title>
+                    <StageRoutingControl />
                 </Stack>
             </Paper>
 

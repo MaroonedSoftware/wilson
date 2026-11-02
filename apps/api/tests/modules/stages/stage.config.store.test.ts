@@ -57,6 +57,116 @@ describe('PostgresStageConfigStore', () => {
         await seedStageConfig(db, project, VALID);
     });
 
+    const route = (stage: string, model: string, adapter = 'cli', provider = 'anthropic') =>
+        db.insertInto('wilson.stageRouting').values({ project, stage, adapter, provider, model, message: 'test' }).execute();
+
+    it('leaves the document alone when a project has no routing rows', async () => {
+        const stage = findStage(await store.load(), 'implementing');
+        expect(stage).toMatchObject({ adapter: 'api', provider: 'anthropic', model: 'claude-opus' });
+    });
+
+    it('lets a routing row win over the document, and the newest row win over older ones', async () => {
+        await route('implementing', 'claude-haiku');
+        await route('implementing', 'grok-5', 'api', 'xai');
+
+        const stage = findStage(await store.load(), 'implementing');
+        expect(stage).toMatchObject({ adapter: 'api', provider: 'xai', model: 'grok-5' });
+    });
+
+    it('sees a routing change straight after a cached load', async () => {
+        await store.load();
+        await route('implementing', 'claude-haiku');
+
+        expect(findStage(await store.load(), 'implementing').model).toBe('claude-haiku');
+    });
+
+    it('ignores a row for a stage the document does not have', async () => {
+        await route('retired', 'claude-haiku');
+
+        expect((await store.load()).stages.map(stage => stage.name)).toEqual(['implementing']);
+    });
+
+    it('refuses a routing row the schema would refuse from a document', async () => {
+        await route('implementing', 'whatever', 'api', 'not-a-provider');
+
+        await expect(store.load()).rejects.toThrow(/stages\.0\.provider/);
+    });
+
+    it('moves routing named in a saved document to the table and stores the document without it', async () => {
+        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku\n    adapter: cli # engine\n    # keep me'), 'moved');
+
+        const document = await store.read();
+        expect(document?.yaml).not.toMatch(/model|adapter/);
+        expect(document?.yaml).toContain('# keep me');
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', provider: 'anthropic', model: 'claude-haiku' });
+    });
+
+    it('keeps a routing row when the next document says nothing about routing', async () => {
+        await store.save(VALID, 'first');
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
+        const yaml = (await store.read())!.yaml.replace('build it', 'build it well');
+
+        await store.save(yaml, 'second');
+
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'routed', instructions: 'build it well' });
+    });
+
+    it('takes only the fields a document names, keeping the rest of the row', async () => {
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
+
+        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku'), 'second');
+
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'claude-haiku' });
+    });
+
+    it('adds no routing row for a document that changes nothing', async () => {
+        await store.save(VALID, 'first');
+        await store.save(VALID, 'second');
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
+        expect(rows).toHaveLength(1);
+    });
+
+    it('refuses a stage with neither routing in the document nor a row', async () => {
+        await expect(store.save(VALID.replace('    model: claude-opus\n', ''), 'no model')).rejects.toThrow(/stages\.0\.model/);
+        expect((await store.read())?.yaml).toBe(VALID);
+    });
+
+    it('writes nothing, row or document, when a saved document is refused', async () => {
+        await expect(store.save(BROKEN_ROUTE, 'broken')).rejects.toBeInstanceOf(StageConfigError);
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
+        expect(rows).toHaveLength(0);
+    });
+
+    it('moves routing out of a stored document on start, then does nothing', async () => {
+        await store.moveStoredRouting();
+        await store.moveStoredRouting();
+
+        const versions = await store.versions();
+        expect(versions[0]?.message).toBe('Moved routing to wilson.stage_routing');
+        expect(versions).toHaveLength(2);
+        expect((await store.read())?.yaml).not.toContain('model');
+        expect(findStage(await store.load(), 'implementing').model).toBe('claude-opus');
+    });
+
+    it('keeps an existing row over a stored document when moving on start', async () => {
+        await route('implementing', 'routed');
+
+        await store.moveStoredRouting();
+
+        expect(findStage(await store.load(), 'implementing').model).toBe('routed');
+    });
+
+    it('saves routing as a new row each time, so a change keeps its history', async () => {
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'one' }, 'first');
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'two' }, 'second');
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('message').where('project', '=', project).orderBy('id').execute();
+        expect(rows.map(row => row.message)).toEqual(['first', 'second']);
+        expect(findStage(await store.load(), 'implementing').model).toBe('two');
+    });
+
     it('returns the very same object on a repeat load of an unchanged config', async () => {
         const first = await store.load();
         const second = await store.load();
@@ -124,7 +234,8 @@ describe('PostgresStageConfigStore', () => {
         const saved = await store.save(OTHER_VALID, 'second');
 
         const current = await store.read();
-        expect(current).toMatchObject({ id: saved.id, yaml: OTHER_VALID, message: 'second' });
+        expect(current).toMatchObject({ id: saved.id, yaml: saved.yaml, message: 'second' });
+        expect(current?.yaml).toContain('review it');
 
         const versions = await store.versions();
         expect(versions.map(v => v.message)).toEqual(['second', 'test']);

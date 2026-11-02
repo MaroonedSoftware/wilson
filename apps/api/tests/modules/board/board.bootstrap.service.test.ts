@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
 import { BoardBootstrapService } from '#modules/board/board.bootstrap.service.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { NON_STAGE_STATES, parseStages } from '#modules/stages/stage.config.js';
+import { NON_STAGE_STATES } from '#modules/stages/stage.config.js';
 import { PostgresStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { DB } from '#modules/data/db.js';
@@ -39,11 +39,12 @@ describe('BoardBootstrapService', () => {
             expect(result.stages).toEqual(['planning', 'backlog', 'implementing']);
             expect(result.nonStages).toEqual([...NON_STAGE_STATES]);
 
-            // The acceptance bar itself: `parseStages` must accept the exact document `init` just
-            // stored, with every route it configures resolving to a known state.
+            // The acceptance bar itself: the config `init` just stored must load, with every route
+            // it configures resolving to a known state. `load` and not `parseStages` on the stored
+            // text, since the template's routing moves to `wilson.stage_routing` on save.
             const stored = await store.read();
             expect(stored?.message).toBe('Initialise board');
-            const stages = parseStages(stored!.yaml);
+            const stages = await store.load();
             expect(stages.stages.map(s => s.name)).toEqual(result.stages);
             const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
             for (const stage of stages.stages) {

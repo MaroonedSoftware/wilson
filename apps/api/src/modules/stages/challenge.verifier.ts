@@ -63,12 +63,8 @@ const normalize = (text: string): string => text.trim().replace(/\s+/g, ' ').toL
  * without acceptance criteria bullets — leaves the criteria accounting off entirely, the same way
  * `ReviewVerifier`'s own plan-criteria check turns itself off in that case.
  *
- * Two known limitations, left for a later card:
+ * One known limitation, left for a later card:
  *
- * - The `cli` adapter ignores `stage.model` (see that adapter's own doc comment), so a `challenge`
- *   stage configured with it runs on the engine's default model, not a cheaper one picked for this
- *   lighter-weight task. Passing `stage.model` through the `cli` adapter is out of this card's scope;
- *   a board that wants a cheaper challenge model needs `adapter: api` instead.
  * - Review's own `maxKickbacks`-th `revise` flags the card for a human before `onFail` is consulted
  *   (`kickback.ts`), so that last round never reaches `challenge` — the blockers and unmet criteria on
  *   it are never refuted or resolved, however weak they might be.

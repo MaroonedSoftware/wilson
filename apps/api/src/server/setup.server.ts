@@ -1,9 +1,12 @@
 import type { Server } from 'node:http';
 import { Settings } from 'luxon';
 import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftware/koa';
-import { ConsoleLogger } from '@maroonedsoftware/logger';
+import { ConsoleLogger, type Logger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
+import type { Container } from 'injectkit';
 import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
+import { runAsProject } from '#modules/board/project.context.js';
+import { ProjectRepository } from '#modules/board/project.repository.js';
 import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
 import { HostProber } from '#modules/host/host.prober.js';
 import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
@@ -12,6 +15,7 @@ import { attachWorkerEndpoint } from '#modules/worker/worker.endpoint.js';
 import { DeviceRepository } from '#modules/notify/device.repository.js';
 import { fcmChannelFrom } from '#modules/notify/fcm.channel.js';
 import { registerNotificationChannel } from '#modules/notify/notifier.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { configNumber, optionalConfigString, requireConfigString } from '#shared/require.config.js';
 import { buildConfig, modules } from '../cli-bootstrap.js';
 import { routers } from '../routes/routes.setup.js';
@@ -28,6 +32,19 @@ import { captureBuildHead } from './build.info.js';
  * (`JobsModule.start`). The CLI's bootstrap deliberately skips `start` hooks, which is why `wilson
  * run` starts the runner by hand instead.
  */
+/**
+ * Take routing out of every project's stored stage config, for documents from before
+ * `wilson.stage_routing`. One project's bad document must not stop the server: its stages keep
+ * dispatching from what the document says until it is fixed.
+ */
+const moveStoredRouting = async (container: Container, logger: Logger): Promise<void> => {
+    for (const { name } of await container.get(ProjectRepository).list()) {
+        await runAsProject(name, () => container.get(StageConfigStore).moveStoredRouting()).catch((err: Error) =>
+            logger.warn(`could not move ${name}'s stage routing out of its config: ${err.message}`),
+        );
+    }
+};
+
 export const setupServer = async (): Promise<Server> => {
     const serverBuilder = new ServerKitServerBuilder();
     Settings.defaultZone = 'utc'; // luxon, as fintech does
@@ -46,6 +63,8 @@ export const setupServer = async (): Promise<Server> => {
     if (fcm) registerNotificationChannel(fcm);
     // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
     // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
+    await moveStoredRouting(container, logger);
+
     await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);
     // Same signal, threaded one layer further: the LISTEN connection above drains on shutdown, and
     // this is what makes the `/api/feed` streams hanging off it do the same instead of holding the

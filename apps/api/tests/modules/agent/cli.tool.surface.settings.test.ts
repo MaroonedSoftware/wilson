@@ -93,6 +93,16 @@ describe('CliStageAgent pins the tool surface via query() options', () => {
         expect(call.options.strictMcpConfig).toBe(true);
     });
 
+    it('runs the stage on its own model rather than the engine default', async () => {
+        queryMock.mockReturnValue(streamOf([]));
+        const agent = new CliStageAgent(silentLogger as never);
+
+        await agent.run(runInput(makeStage({ model: 'claude-haiku-5-5' })) as never);
+
+        const call = queryMock.mock.calls[0]?.[0] as { options: Record<string, unknown> };
+        expect(call.options.model).toBe('claude-haiku-5-5');
+    });
+
     // Neither option is stage-shape-specific: a readonly or none stage's engine spawn must be just as
     // isolated from the operator's own config as an rw stage's, since both still spawn a real engine
     // with a real HOME.

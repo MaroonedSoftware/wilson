@@ -1,12 +1,55 @@
+import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { StageConfigService } from '#modules/stages/stage.config.service.js';
-import { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from '../generated/stages.js';
+import {
+    SetStageConfigRequest,
+    SetStageRoutingRequest,
+    StageConfigDocument,
+    StageConfigVersion,
+    StageConfigVersionsQuery,
+    StageRouting,
+} from '../generated/stages.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
  * generated from [stages.ck](../../data/contracts/stages.ck)
  */
 export const StagesRouter = ServerKitRouter();
+
+/**
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/routing`
+ */
+StagesRouter.get('/api/stages/routing', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(StageConfigService);
+    const result: StageRouting[] = await service.routing();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+ * because an agent that could choose its own model could choose the most expensive one.
+ * from [stages.ck](../../data/contracts/stages.ck) `PUT /api/stages/routing/{stage}`
+ */
+StagesRouter.put('/api/stages/routing/:stage', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
+    const { stage } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            stage: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, SetStageRoutingRequest);
+
+    const service = ctx.container.get(StageConfigService);
+    const result: StageRouting = await service.setRouting(stage, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
 
 /**
  * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/config`

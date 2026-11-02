@@ -584,6 +584,9 @@ export class CliStageAgent extends StageAgent {
             options: {
                 cwd: context.worktreeRoot,
                 ...(resume?.sessionId ? { resume: resume.sessionId } : {}),
+                // The stage's own model, not the engine's default: model is a property of the stage
+                // under either adapter. `provider` has no meaning here, since this engine runs Claude.
+                model: stage.model,
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',
