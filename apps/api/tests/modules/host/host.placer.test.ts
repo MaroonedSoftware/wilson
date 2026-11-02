@@ -143,6 +143,19 @@ describe('HostPlacer', () => {
         expect((await service.get(name)).running).toEqual([{ slot: 1, project, cardId: '0001', since: expect.anything() }]);
     });
 
+    it('tries a preferred host first, and falls through when it cannot take the stage', async () => {
+        const { project, name } = await setUp();
+        const other = `a-${uniqueProject()}`;
+        await service.create({ name: other, slots: 1 });
+        await service.putProject(other, project, { codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' });
+        await hosts.recordProbe(other, { probedAt: DateTime.now(), ok: true });
+
+        expect(await placer().place(project, '0001', stage('remote'), name)).toMatchObject({ hostName: name });
+
+        await hosts.recordProbe(name, { probedAt: DateTime.now(), ok: false });
+        expect(await placer().place(project, '0002', stage('remote'), name)).toMatchObject({ hostName: other });
+    });
+
     it('defers a remote or `any` stage when every slot is held by a running card', async () => {
         const { project, name } = await setUp();
         await recordLiveClaim(project, '0001');

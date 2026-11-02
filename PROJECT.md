@@ -314,7 +314,12 @@ completes, the same way `holdWhileDraining` does, so no retry is spent. This hap
 are disconnected and inside pg-boss's stop window. A stage that has already reported is left to
 finish. Anything that does not get this far (a crash, a kill, a command stage, an `api` stage) is
 left to the boot sweep, which does spend a retry, so a stage that keeps killing the daemon still
-dead-letters. The stage restarts from scratch: resuming its worktree and session comes later.
+dead-letters.
+
+The job sent again names where the tree is, and the next attempt reopens it, uncommitted work included,
+rather than cutting a new one: on this machine, or back on the same host if that host can take it.
+Elsewhere, or with the tree gone, it cuts one as usual. The agent starts afresh in that tree: resuming
+its session comes later.
 
 **Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage

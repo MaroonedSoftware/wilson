@@ -218,6 +218,26 @@ export class WorktreeManager {
     }
 
     /**
+     * Pick up the tree an interrupted stage left, uncommitted work included, or undefined when it is
+     * no longer there on `branch` and the caller has to cut one as usual.
+     *
+     * Reclaims nothing and rebases nothing: both would lose or refuse the work this exists to keep.
+     * `baseSha` is the attempt's own, for the same reason `resume` reports a fork point.
+     */
+    async reopen(cardId: string, branch: string, baseSha: string, placement?: RemotePlacement): Promise<Worktree | undefined> {
+        const host = placement?.host ?? localHost;
+        const path = placement ? posix.join(placement.worktreeRoot, cardId) : this.path(cardId);
+        const current = await gitOn(host, path, ['rev-parse', '--abbrev-ref', 'HEAD']).then(
+            ({ stdout }) => stdout.trim(),
+            () => undefined,
+        );
+        if (current !== branch) return undefined;
+
+        this.logger.info(`worktree ${path} reopened on ${branch}, forked at ${baseSha.slice(0, 8)}`);
+        return placement ? { path, branch, baseSha, host: placement.host, placement } : { path, branch, baseSha };
+    }
+
+    /**
      * Whether the card's branch exists and carries commits of its own.
      *
      * Only a *passing* stage commits, so a branch with work on it is a branch holding the last state

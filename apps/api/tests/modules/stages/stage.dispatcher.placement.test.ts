@@ -8,6 +8,7 @@ import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
+import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { StageVerifierMap } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import { classifyDispatchFailure } from '#modules/jobs/dispatch.outcome.js';
@@ -62,7 +63,7 @@ stages:
 const build = async (
     place: HostPlacer['place'],
     createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>,
-    options: { passes?: boolean; alive?: boolean; localBusy?: boolean } = {},
+    options: { passes?: boolean; alive?: boolean; localBusy?: boolean; interrupted?: boolean } = {},
 ) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-placement-'));
     const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
@@ -81,6 +82,13 @@ const build = async (
         commit: vi.fn(async () => 'committedsha'),
         fetchBack: vi.fn(async () => {}),
         reclaim: vi.fn(async () => {}),
+        rebaseOntoHead: vi.fn(async () => ({ ok: true, baseSha: 'deadbeef' })),
+        reopen: vi.fn(async (_cardId: string, branch: string, baseSha: string, placement?: RemotePlacement): Promise<Worktree | undefined> => ({
+            path: placement ? '/remote/wt/0001' : base,
+            branch,
+            baseSha,
+            ...(placement && { host: placement.host, placement }),
+        })),
         failedAttemptPatchPath: vi.fn((cardId: string) => join(base, 'run', 'cards', cardId, 'last-failed-attempt.patch')),
     };
 
@@ -89,6 +97,7 @@ const build = async (
     agents.set('api', {
         run: async ({ context, planPath }: { context: ToolContext; planPath: string }): Promise<AgentRunOutput> => {
             contexts.push({ ...context, planPath } as ToolContext & { planPath: string });
+            if (options.interrupted) return { usage: { inputTokens: 5 }, truncated: true, interrupted: true };
             return { result: { summary: 'did it', caveats: [] }, usage: { inputTokens: 1 }, truncated: false };
         },
     });
@@ -178,6 +187,61 @@ describe('StageDispatcher placement', () => {
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'stage.placed', payload: { host: 'agent-3', slot: 'host:agent-3:slot:1' } }),
         );
+    });
+
+    it('leaves an interrupted stage’s tree on its host, gives the slot back, and records no failure', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, worktrees, events, placer } = await build(async () => placement, undefined, { interrupted: true });
+
+        const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(StageInterruptedError);
+        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef', host: 'agent-3' });
+        expect(worktrees.reclaim).not.toHaveBeenCalled();
+        expect(placer.releaseSlot).toHaveBeenCalledWith('host:agent-3:slot:1', expect.any(String), '0001');
+        expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.interrupted', payload: { usage: { inputTokens: 5 } } }));
+        expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
+    });
+
+    it('asks for the interrupted attempt’s host and reopens its tree there, without a rebase', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, worktrees, placer } = await build(async () => placement);
+        worktrees.hasWork.mockResolvedValue(true);
+
+        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe', host: 'agent-3' });
+
+        expect(placer.place).toHaveBeenCalledWith(expect.any(String), '0001', expect.anything(), 'agent-3');
+        expect(worktrees.reopen).toHaveBeenCalledWith('0001', 'card/0001-x', 'cafe', placement);
+        expect(worktrees.create).not.toHaveBeenCalled();
+        expect(worktrees.rebaseOntoHead).not.toHaveBeenCalled();
+    });
+
+    it('cuts a tree as usual when an interrupted stage lands on another host', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, worktrees } = await build(async () => placement);
+
+        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe', host: 'agent-9' });
+
+        expect(worktrees.reopen).not.toHaveBeenCalled();
+        expect(worktrees.create).toHaveBeenCalledWith('0001', 'card/0001-x', undefined, placement);
+    });
+
+    it('cuts a tree as usual when the interrupted one is gone', async () => {
+        const { dispatcher, worktrees } = await build(async () => undefined);
+        worktrees.reopen.mockResolvedValue(undefined);
+
+        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe' });
+
+        expect(worktrees.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an interrupted stage on this machine when that is where its tree is', async () => {
+        const { dispatcher, worktrees, placer } = await build(async () => placementOn(new MemoryHost()));
+
+        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe' });
+
+        expect(placer.place).not.toHaveBeenCalled();
+        expect(worktrees.reopen).toHaveBeenCalledWith('0001', 'card/0001-x', 'cafe', undefined);
     });
 
     it('gives the host’s worktree and slot back even when cutting the worktree fails', async () => {

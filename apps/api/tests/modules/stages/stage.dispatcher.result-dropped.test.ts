@@ -113,6 +113,7 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
 
         expect(error).toBeInstanceOf(StageInterruptedError);
         expect((error as StageInterruptedError).usage).toEqual({ inputTokens: 10 });
+        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef' });
     });
 
     it('carries resultDropped from the adapter run onto the outcome', async () => {

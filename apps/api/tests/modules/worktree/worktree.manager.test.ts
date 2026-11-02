@@ -36,6 +36,26 @@ describe('WorktreeManager', () => {
         manager = new WorktreeManager(config, silentLogger as never);
     });
 
+    it('reopens an interrupted tree with its uncommitted work intact', async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await writeFile(join(worktree.path, 'src', 'new.ts'), 'export const y = 2;\n', 'utf8');
+
+        const reopened = await manager.reopen('0001', 'card/0001-thing', 'abc123');
+
+        expect(reopened).toEqual({ path: worktree.path, branch: 'card/0001-thing', baseSha: 'abc123' });
+        expect(await readFile(join(worktree.path, 'src', 'new.ts'), 'utf8')).toBe('export const y = 2;\n');
+    });
+
+    it('reopens nothing when the tree is gone', async () => {
+        expect(await manager.reopen('0001', 'card/0001-thing', 'abc123')).toBeUndefined();
+    });
+
+    it('reopens nothing when the tree is on another branch', async () => {
+        await manager.create('0001', 'card/0001-other');
+
+        expect(await manager.reopen('0001', 'card/0001-thing', 'abc123')).toBeUndefined();
+    });
+
     it('creates a worktree on its own branch at HEAD', async () => {
         const worktree = await manager.create('0001', 'card/0001-thing');
 

@@ -19,7 +19,7 @@ export const DRAIN_HOLD = Duration.fromObject({ seconds: 30 });
  * exception and is left to throw: this job has not dispatched, so a retry is safe, while returning
  * here would complete it with nothing left carrying the card.
  */
-export const holdWhileDraining: PreDispatchCheck = async (deps, cardId, stageName) => {
+export const holdWhileDraining: PreDispatchCheck = async (deps, cardId, stageName, interrupted) => {
     let draining: boolean;
     try {
         draining = await deps.settings.get(DRAIN_ENABLED);
@@ -28,7 +28,11 @@ export const holdWhileDraining: PreDispatchCheck = async (deps, cardId, stageNam
     }
     if (!draining) return false;
 
-    const jobId = await deps.broker.send('card.stage', { cardId, stageName, project: deps.board.project }, { startAfter: DRAIN_HOLD });
+    const jobId = await deps.broker.send(
+        'card.stage',
+        { cardId, stageName, project: deps.board.project, ...(interrupted && { interrupted }) },
+        { startAfter: DRAIN_HOLD },
+    );
     await deps.cardJobs.record(cardId, jobId);
 
     // One line per hold, not one every `DRAIN_HOLD`.

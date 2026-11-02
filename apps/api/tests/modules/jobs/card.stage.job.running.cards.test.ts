@@ -115,18 +115,28 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
     });
 
     it('sends an interrupted stage again, moves the claim and completes without a retry', async () => {
-        dispatcher.run.mockRejectedValue(new StageInterruptedError('0042', 'implementing', undefined));
+        dispatcher.run.mockRejectedValue(new StageInterruptedError('0042', 'implementing', undefined, { baseSha: 'abc', host: 'my-mac' }));
 
         await expect(buildJob().run({ cardId: '0042', stageName: 'implementing' })).resolves.toBeUndefined();
 
-        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0042', stageName: 'implementing', project: 'test' }, { startAfter: DRAIN_HOLD });
+        expect(broker.send).toHaveBeenCalledWith(
+            'card.stage',
+            { cardId: '0042', stageName: 'implementing', project: 'test', interrupted: { baseSha: 'abc', host: 'my-mac' } },
+            { startAfter: DRAIN_HOLD },
+        );
         expect(cardJobs.record).toHaveBeenCalledWith('0042', 'job-1');
         expect(cardJobs.clear).not.toHaveBeenCalled();
         expect(running.snapshot()).toEqual([]);
     });
 
+    it('hands the dispatcher the tree an interrupted attempt left', async () => {
+        await buildJob().run({ cardId: '0042', stageName: 'implementing', interrupted: { baseSha: 'abc' } });
+
+        expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing', { baseSha: 'abc' });
+    });
+
     it('lets the job fail when an interrupted stage cannot be sent again', async () => {
-        dispatcher.run.mockRejectedValue(new StageInterruptedError('0042', 'implementing', undefined));
+        dispatcher.run.mockRejectedValue(new StageInterruptedError('0042', 'implementing', undefined, { baseSha: 'abc' }));
         broker.send.mockRejectedValue(new Error('connection closed'));
 
         await expect(buildJob().run({ cardId: '0042', stageName: 'implementing' })).rejects.toThrow('connection closed');

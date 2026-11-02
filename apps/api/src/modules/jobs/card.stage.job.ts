@@ -1,6 +1,6 @@
 import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
-import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
+import { StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
@@ -34,6 +34,8 @@ export interface CardStagePayload {
      * own code enqueues (`Poller`, and this class's own chain continuation below) always does.
      */
     project?: string;
+    /** Set on a stage sent again after a shutdown interrupted it: where it left its worktree. */
+    interrupted?: InterruptedAttempt;
 }
 
 /**
@@ -65,7 +67,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         super();
     }
 
-    async run({ cardId, stageName, project }: CardStagePayload): Promise<void> {
+    async run({ cardId, stageName, project, interrupted }: CardStagePayload): Promise<void> {
         // Card 0149: see `CardStagePayload.project`'s own doc comment for what a missing `project`
         // means. Read here, before `runAsProject` below opens this job's own scope, so `this.board
         // .project` answers with the daemon's configured project (project.context.ts's fallback for
@@ -74,22 +76,22 @@ export class CardStageJob extends Job<CardStagePayload> {
         const resolvedProject = project ?? this.board.project;
         this.running.add(resolvedProject, cardId);
         try {
-            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName));
+            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName, interrupted));
         } finally {
             this.running.delete(resolvedProject, cardId);
         }
     }
 
-    private async runStage(cardId: string, stageName: string): Promise<void> {
+    private async runStage(cardId: string, stageName: string, interrupted?: InterruptedAttempt): Promise<void> {
         for (const check of PRE_DISPATCH_CHECKS) {
-            if (await check(this.deps(), cardId, stageName)) return;
+            if (await check(this.deps(), cardId, stageName, interrupted)) return;
         }
 
         let outcome;
         try {
-            outcome = await this.dispatcher.run(cardId, stageName);
+            outcome = await this.dispatcher.run(cardId, stageName, interrupted);
         } catch (error) {
-            if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName);
+            if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt);
 
             const failure = classifyDispatchFailure(error);
             // The only outcome that does not settle: rethrown so the queue retries under its policy.
@@ -186,8 +188,8 @@ export class CardStageJob extends Job<CardStagePayload> {
      * the card stays in flight throughout. A failed `send` is left to throw, as in `holdWhileDraining`:
      * returning would complete this job with nothing left carrying the card.
      */
-    private async requeueInterrupted(cardId: string, stageName: string): Promise<void> {
-        const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.board.project }, { startAfter: DRAIN_HOLD });
+    private async requeueInterrupted(cardId: string, stageName: string, interrupted: InterruptedAttempt): Promise<void> {
+        const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.board.project, interrupted }, { startAfter: DRAIN_HOLD });
         await this.cardJobs.record(cardId, jobId);
     }
 
