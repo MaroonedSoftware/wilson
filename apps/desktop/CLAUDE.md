@@ -152,6 +152,13 @@ shows neither there. Add a section's link in the same commit as its page, never 
 The header's appearance button steps through System, Light and Dark. `DesktopSettings.Appearance`
 keeps it across a change of server, and `ShellViewModel.StartAsync` applies it before the first page.
 
+## Feed activity
+
+`CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
+folded into a card, which only a re-read changes. Each page following the feed has its own, because the
+desktop feed is per page. A tool event changes no card summary, so it updates a tile in place. A tile
+is never redrawn for one, or for the ten-second clock, as that would lose its column's scroll.
+
 ## Chat follows the web app
 
 `Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
@@ -181,6 +188,10 @@ back, no header on sign-in, and signing out from it.
 
 2026-11-02, board filter: with `tools/Walk`, the filter and its count, a flag's reason, a blocked card and
 split progress, the last three from rows set by hand on the throwaway database.
+
+2026-11-02, tile activity: with `tools/Walk`, a `tool.executed` row and its `pg_notify` written to the
+throwaway database reached a tile through the real feed. `Walker.Emit` is that writer, as nothing
+runs a stage there. The stale style was not seen on screen: five minutes is longer than a walk.
 
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the

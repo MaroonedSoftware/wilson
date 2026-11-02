@@ -11,6 +11,9 @@ public static class BoardRules
 {
     public const string ParkingLot = "parking-lot";
 
+    /// <summary>Past this, a tile's last-event line reads as stale. Five minutes, as the web board's.</summary>
+    public static readonly TimeSpan LastEventStaleAfter = TimeSpan.FromMinutes(5);
+
     private const string Merged = "merged";
 
     /// <summary>
@@ -83,11 +86,45 @@ public static class BoardRules
         return [.. card.DependsOn.Where(id => !Finished(id))];
     }
 
+    /// <summary>The events that change nothing a card summary carries. Named rather than matched, so an event type added later still reloads.</summary>
+    public static bool IsToolType(string type) => type is "tool.executed" or "tool.denied" or "tool.unguarded";
+
     /// <summary>Whether a feed event changes what the board shows. Anything unreadable does, which is safe.</summary>
-    public static bool IsToolEvent(string data) => Read(data, "message")?.StartsWith("tool.", StringComparison.Ordinal) == true;
+    public static bool IsToolEvent(string data) => Read(data, "message") is { } type && IsToolType(type);
+
+    /// <summary>
+    /// A tile's last-event line shows only while a card's latest event is its dispatch or a tool call
+    /// in the stage it is in now: naming another stage means the card has moved on since.
+    /// </summary>
+    public static bool ShowsLastEvent(CardActivity? activity, string stage) =>
+        activity is not null && activity.Stage == stage && (activity.Type == "stage.dispatched" || activity.Type.StartsWith("tool.", StringComparison.Ordinal));
+
+    /// <summary>"3d in stage". Minutes, hours or days, as the web board rounds them.</summary>
+    public static string AgeInStage(DateTimeOffset entered, DateTimeOffset now)
+    {
+        var elapsed = Elapsed(entered, now);
+        return elapsed < TimeSpan.FromHours(1) ? $"{Rounded(elapsed.TotalMinutes)}m in stage"
+            : elapsed < TimeSpan.FromDays(1) ? $"{Rounded(elapsed.TotalHours)}h in stage"
+            : $"{Rounded(elapsed.TotalDays)}d in stage";
+    }
+
+    /// <summary>"20s ago". Seconds for the first minute, because a tile ticks every ten seconds.</summary>
+    public static string EventAge(DateTimeOffset at, DateTimeOffset now)
+    {
+        var elapsed = Elapsed(at, now);
+        return elapsed < TimeSpan.FromMinutes(1) ? $"{Rounded(elapsed.TotalSeconds)}s ago"
+            : elapsed < TimeSpan.FromHours(1) ? $"{Rounded(elapsed.TotalMinutes)}m ago"
+            : elapsed < TimeSpan.FromDays(1) ? $"{Rounded(elapsed.TotalHours)}h ago"
+            : $"{Rounded(elapsed.TotalDays)}d ago";
+    }
 
     /// <summary>A feed event's card is its `correlationId` (`card.feed.listener.ts`).</summary>
     public static string? FeedCardId(string data) => Read(data, "correlationId");
+
+    /// <summary>Never negative, as a clock a little behind the server's would otherwise read.</summary>
+    private static TimeSpan Elapsed(DateTimeOffset from, DateTimeOffset now) => now > from ? now - from : TimeSpan.Zero;
+
+    private static long Rounded(double value) => (long)Math.Round(value, MidpointRounding.AwayFromZero);
 
     private static string? Read(string data, string field)
     {

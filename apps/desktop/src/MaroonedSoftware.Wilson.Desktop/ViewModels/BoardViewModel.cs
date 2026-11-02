@@ -9,8 +9,37 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
-/// <summary>A card on the board, with what the rest of the board says about it.</summary>
-public sealed record BoardTile(CardSummary Card, string? Flag, string? Blocked, string? Deps, string? Pieces);
+/// <summary>A card on the board, with what the rest of the board says about it. A clock and the feed change it in place, as redrawing a column would lose its scroll.</summary>
+public sealed partial class BoardTile(CardSummary card, string? flag, string? blocked, string? deps, string? pieces) : ObservableObject
+{
+    public CardSummary Card => card;
+
+    public string? Flag => flag;
+
+    public string? Blocked => blocked;
+
+    public string? Deps => deps;
+
+    public string? Pieces => pieces;
+
+    [ObservableProperty]
+    private string? _inStage;
+
+    [ObservableProperty]
+    private string? _lastEvent;
+
+    [ObservableProperty]
+    private bool _stale;
+
+    /// <summary>Reads the ages again. A line is absent rather than guessed.</summary>
+    public void Tick(CardActivity? activity, DateTimeOffset now)
+    {
+        InStage = card.StageEnteredAt is { } entered ? BoardRules.AgeInStage(entered, now) : null;
+        var shows = BoardRules.ShowsLastEvent(activity, card.Stage);
+        LastEvent = shows ? $"last event {BoardRules.EventAge(activity!.Ts, now)}" : null;
+        Stale = shows && now - activity!.Ts >= BoardRules.LastEventStaleAfter;
+    }
+}
 
 /// <summary>One column of the board, as drawn.</summary>
 public sealed record BoardColumn(string Name, IReadOnlyList<BoardTile> Cards)
@@ -22,7 +51,9 @@ public sealed record BoardColumn(string Name, IReadOnlyList<BoardTile> Cards)
 public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel, IFollowsFeed
 {
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan Clock = TimeSpan.FromSeconds(10);
 
+    private readonly CardFeedLog _log = new();
     private List<CardSummary> _cards = [];
     private IReadOnlyList<string> _order = [];
     private CancellationTokenSource? _settling;
@@ -88,7 +119,9 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         }
 
         // A screen coming back has missed everything: the feed reports nothing about what happened meanwhile.
+        _log.Clear();
         await LoadAsync(cancellationToken);
+        _ = EveryAsync(Clock, Tick, cancellationToken);
         await connection.FollowAsync(
             "/api/feed",
             project,
@@ -148,11 +181,31 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
             case StreamSignal.Down:
                 Live = false;
                 break;
-            case StreamSignal.Received received when !BoardRules.IsToolEvent(received.Event.Data):
-                _ = LoadSettledAsync(cancellationToken);
+            case StreamSignal.Received received:
+                var feedEvent = FeedEvent.Parse(received.Event.Data);
+                if (feedEvent is not null)
+                {
+                    _log.Record(feedEvent);
+                    Tick();
+                }
+
+                if (feedEvent is null || !BoardRules.IsToolType(feedEvent.Type))
+                {
+                    _ = LoadSettledAsync(cancellationToken);
+                }
+
                 break;
             default:
                 break;
+        }
+    }
+
+    private void Tick()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var tile in Columns.SelectMany(column => column.Cards))
+        {
+            tile.Tick(_log.Activity(tile.Card.Id), now);
         }
     }
 
@@ -219,6 +272,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         }
 
         Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
+        Tick();
     }
 
     private BoardTile Tile(CardSummary card)

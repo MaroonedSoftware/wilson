@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -142,6 +143,18 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
 
     /// <summary>What a relaunch would read.</summary>
     public DesktopSettings Settings() => DesktopSettings.Load(Path.Combine(into, "settings.json"));
+
+    /// <summary>
+    /// Writes an event as a running stage would, on the throwaway API's own database. The feed reads
+    /// a Postgres notification, so this is the real path and only the writer is posed.
+    /// </summary>
+    public static void Emit(string card, string stage, string type, string payload)
+    {
+        var sql = $"with made as (insert into wilson.card_events (project, card_id, stage, type, payload) select project, id, '{stage}', '{type}', '{payload}'::jsonb from wilson.cards where id = '{card}' returning *) "
+            + "select pg_notify('card_events', json_build_object('id', id::text, 'project', project, 'cardId', card_id, 'stage', stage, 'type', type)::text) from made";
+        using var psql = Process.Start("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]);
+        psql.WaitForExit();
+    }
 
     public T Page<T>()
         where T : PageViewModel => shell.Page as T ?? throw new InvalidOperationException($"expected {typeof(T).Name}, on {shell.Page?.GetType().Name}");

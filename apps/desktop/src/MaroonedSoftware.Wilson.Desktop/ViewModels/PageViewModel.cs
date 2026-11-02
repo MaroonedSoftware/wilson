@@ -42,6 +42,25 @@ public abstract class PageViewModel : ObservableObject, IDisposable
     /// <summary>Reads what the page shows and follows it, for as long as the token stands.</summary>
     protected abstract Task OnShownAsync(CancellationToken cancellationToken);
 
+    /// <summary>Calls `tick` on the page's own context until the page is left, for what a clock alone changes.</summary>
+    protected static async Task EveryAsync(TimeSpan period, Action tick, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tick);
+
+        using var timer = new PeriodicTimer(period);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                tick();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Leaving the page is how the clock stops.
+        }
+    }
+
     /// <summary>For a page that holds another: what it shows has to stop with it.</summary>
     protected virtual void OnHidden()
     {

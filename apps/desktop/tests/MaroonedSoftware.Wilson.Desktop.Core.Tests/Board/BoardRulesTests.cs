@@ -70,10 +70,41 @@ public class BoardRulesTests
     }
 
     [Theory]
-    [InlineData("""{"message":"tool.started"}""", true)]
+    [InlineData("""{"message":"tool.executed"}""", true)]
+    [InlineData("""{"message":"tool.denied"}""", true)]
+    [InlineData("""{"message":"tool.unguarded"}""", true)]
+    [InlineData("""{"message":"tool.anything-later"}""", false)]
     [InlineData("""{"message":"stage.finished"}""", false)]
     [InlineData("not json", false)]
     public void ToolEventsAreRecognised(string data, bool expected) => Assert.Equal(expected, BoardRules.IsToolEvent(data));
+
+    [Theory]
+    [InlineData("stage.dispatched", "build", "build", true)]
+    [InlineData("tool.executed", "build", "build", true)]
+    [InlineData("tool.executed", "test", "build", false)]
+    [InlineData("stage.passed", "build", "build", false)]
+    public void ALastEventShowsOnlyForTheStageTheCardIsIn(string type, string eventStage, string cardStage, bool expected) =>
+        Assert.Equal(expected, BoardRules.ShowsLastEvent(new CardActivity(type, eventStage, default, DateTimeOffset.UnixEpoch), cardStage));
+
+    [Fact]
+    public void NoEventMeansNoLastEventLine() => Assert.False(BoardRules.ShowsLastEvent(null, "build"));
+
+    [Theory]
+    [InlineData(0, "0s ago")]
+    [InlineData(20, "20s ago")]
+    [InlineData(90, "2m ago")]
+    [InlineData(7200, "2h ago")]
+    [InlineData(172800, "2d ago")]
+    [InlineData(-5, "0s ago")]
+    public void EventAgeRoundsAsTheWebBoardDoes(int seconds, string expected) =>
+        Assert.Equal(expected, BoardRules.EventAge(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddSeconds(seconds)));
+
+    [Theory]
+    [InlineData(30, "1m in stage")]
+    [InlineData(7200, "2h in stage")]
+    [InlineData(259200, "3d in stage")]
+    public void AgeInStageRoundsAsTheWebBoardDoes(int seconds, string expected) =>
+        Assert.Equal(expected, BoardRules.AgeInStage(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddSeconds(seconds)));
 
     [Fact]
     public void AFeedEventNamesItsCard()

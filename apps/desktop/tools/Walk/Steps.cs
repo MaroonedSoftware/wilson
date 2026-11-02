@@ -69,6 +69,7 @@ internal static class Steps
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
         await FilterAsync(walk, board);
+        await ToolActivityAsync(walk, board);
 
         await DiffAsync(walk, board);
         await CardsAsync(walk, board);
@@ -96,6 +97,15 @@ internal static class Steps
             await walk.UntilAsync($"the app drawn {appearance}, and remembered", () => Application.Current!.RequestedThemeVariant == variant && walk.Settings().Appearance == appearance);
             walk.Shot($"03-appearance-{appearance.ToString().ToLowerInvariant()}");
         }
+    }
+
+    /// <summary>A tool call written to the throwaway database, which reaches the tile through the real feed.</summary>
+    private static async Task ToolActivityAsync(Walker walk, BoardViewModel board)
+    {
+        var tile = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Stage == "implementing");
+        Walker.Emit(tile.Card.Id, tile.Card.Stage, "tool.executed", """{"tool":"bash","command":"pnpm test"}""");
+        await walk.UntilAsync("the tool call on its tile", () => board.Columns.SelectMany(column => column.Cards).Any(other => other.Card.Id == tile.Card.Id && other.LastEvent is not null));
+        walk.Shot("03-board-tool-activity");
     }
 
     /// <summary>The first card by its id, then a filter nothing matches, then none.</summary>
