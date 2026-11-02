@@ -73,6 +73,7 @@ internal static class Steps
         await ToolActivityAsync(walk, board);
 
         await DiffAsync(walk, board);
+        await FindingsAsync(walk, board);
         await CardsAsync(walk, board);
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
@@ -141,6 +142,51 @@ internal static class Steps
         walk.Shot("03b-diff-another-file");
         walk.Shell.Back();
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
+    }
+
+    /// <summary>A ready card of the walk's own, on a real branch, sent back with a comment on a line.</summary>
+    private static async Task FindingsAsync(Walker walk, BoardViewModel board)
+    {
+        // The seeded config stops at implementing, and only a ready card takes findings. One row of history, taken back below.
+        Walker.Sql("insert into wilson.stage_configs (project, yaml, message) select project, yaml || E'    - name: ready\\n      mode: manual\\n      model: claude-sonnet-5\\n      onPass: merged\\n      onFail: implementing\\n      instructions: |\\n          Wait for the operator.\\n', 'walk' from wilson.stage_configs order by id desc limit 1");
+        Walker.ScratchBranch("walk-diff");
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'");
+        Walker.Sql("insert into wilson.cards (project, id, title, stage, body, branch) select project, '9996', 'Walked ready', 'ready', '', 'walk-diff' from wilson.cards limit 1");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the ready card", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9996")));
+        board.OpenCard(board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9996").Card);
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the card", () => card.Card is not null);
+        card.SelectedTab = 2;
+        await walk.UntilAsync("the diff", () => card.DiffRows.Any(row => row.NewNumber is not null));
+        Console.WriteLine($"     diff: {card.DiffNote}");
+
+        card.SelectedRow = card.DiffRows.First(row => row.IsHunk);
+        await walk.UntilAsync("no composer on a line with no number", () => !card.Composing);
+
+        card.SelectedRow = card.DiffRows.First(row => row.NewNumber == 2);
+        await walk.UntilAsync("a composer on the line", () => card.Composing && card.ComposingOn == "walk.txt:2");
+        walk.Shot("03c-diff-composing");
+        card.Problem = "This line is wrong.";
+        await walk.UntilAsync("half a comment not being enough", () => !card.AddFindingCommand.CanExecute(null));
+        card.Suggestion = "Say two better.";
+        card.AddFindingCommand.Execute(null);
+        card.SelectedRow = card.DiffRows.First(row => row.NewNumber == 3);
+        card.Concern = true;
+        card.Problem = "A lesser worry.";
+        card.Suggestion = "Think again.";
+        card.AddFindingCommand.Execute(null);
+        await walk.UntilAsync("two comments pending", () => card.Findings.Count == 2 && !card.Composing);
+        walk.Shot("03d-diff-pending");
+        card.RemoveFindingCommand.Execute(card.Findings[1]);
+        await card.SubmitFindingsCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the comment sent, and the card sent back", () => card.Findings.Count == 0 && card.Card?.Stage != "ready");
+        Console.WriteLine($"     findings: {card.Notice}, now {card.Card!.Stage}");
+        walk.Shot("03e-diff-sent");
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.stage_configs where message = 'walk'");
+        await board.RefreshCommand.ExecuteAsync(null);
     }
 
     private static async Task CardsAsync(Walker walk, BoardViewModel board)

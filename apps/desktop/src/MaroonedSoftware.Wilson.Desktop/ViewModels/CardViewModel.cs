@@ -27,6 +27,9 @@ public sealed record UsageLine(string Stage, string Attempts, string Input, stri
 /// <summary>One of the card's versions.</summary>
 public sealed record VersionLine(string Message, string When);
 
+/// <summary>A comment on a line, held here until the whole batch is sent.</summary>
+public sealed record FindingLine(HumanFinding Finding, string Severity, string Where, CardViewModel Page);
+
 /// <summary>A context snapshot's manifest. Its content is for the planning agent, and is not drawn.</summary>
 public sealed record ContextLine(string Id, string? Title, string Source, string Fetched, CardViewModel Page);
 
@@ -40,7 +43,7 @@ public sealed record PieceLine(string Id, string Stage, string Title, CardViewMo
 public sealed record ToolLine(string Tool, string Label, string When);
 
 /// <summary>One line of a diff, as drawn.</summary>
-public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk)
+public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk, int? NewNumber)
 {
     public static DiffRow Of(PatchLine line)
     {
@@ -52,7 +55,8 @@ public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, 
             line.Text,
             line.Kind == PatchLineKind.Added,
             line.Kind == PatchLineKind.Removed,
-            line.Kind is PatchLineKind.Hunk or PatchLineKind.Note);
+            line.Kind is PatchLineKind.Hunk or PatchLineKind.Note,
+            Patch.Commentable(line) ? line.NewNumber : null);
     }
 }
 
@@ -89,6 +93,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public ObservableCollection<ContextLine> Context { get; } = [];
 
+    public ObservableCollection<FindingLine> Findings { get; } = [];
+
     public ObservableCollection<DependencyLine> Dependencies { get; } = [];
 
     public ObservableCollection<ToolLine> Tools { get; } = [];
@@ -115,6 +121,9 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _diffNote;
 
     [ObservableProperty]
+    private string? _fileNote;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
     [NotifyPropertyChangedFor(nameof(SplitFrom))]
     private CardDetail? _card;
@@ -124,6 +133,21 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     private string? _toolsNote = "No tool calls yet.";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Composing))]
+    private DiffRow? _selectedRow;
+
+    [ObservableProperty]
+    private bool _concern;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddFindingCommand))]
+    private string? _problem;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddFindingCommand))]
+    private string? _suggestion;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AttachContextCommand))]
@@ -176,6 +200,12 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     public bool Idle => Acting is null;
 
     public string? SplitFrom => Card?.SplitFrom;
+
+    public bool Composing => SelectedRow?.NewNumber is not null;
+
+    public string ComposingOn => SelectedRow?.NewNumber is { } line ? $"{SelectedFile?.Path}:{line}" : string.Empty;
+
+    public string SubmitFindingsLabel => Findings.Count == 1 ? "Submit 1 comment" : $"Submit {Findings.Count} comments";
 
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
@@ -234,9 +264,55 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         shell.Push(new CardViewModel(shell, project, other));
     }
 
+    private bool CanAddFinding => !string.IsNullOrWhiteSpace(Problem) && !string.IsNullOrWhiteSpace(Suggestion);
+
     private bool CanAttach => !string.IsNullOrWhiteSpace(ContextUrl);
 
     private bool CanAddDependency => !string.IsNullOrWhiteSpace(NewDependency);
+
+    [RelayCommand(CanExecute = nameof(CanAddFinding))]
+    public void AddFinding()
+    {
+        if (SelectedFile is not { } file || SelectedRow?.NewNumber is not { } line)
+        {
+            return;
+        }
+
+        var severity = Concern ? HumanFindingSeverity.Concern : HumanFindingSeverity.Blocker;
+        var finding = new HumanFinding { File = file.Path, Line = line, Severity = severity, Problem = Problem!.Trim(), Suggestion = Suggestion!.Trim() };
+        Findings.Add(new FindingLine(finding, Concern ? "concern" : "blocker", $"{file.Path}:{line}", this));
+        CancelFinding();
+        OnPropertyChanged(nameof(SubmitFindingsLabel));
+    }
+
+    [RelayCommand]
+    public void CancelFinding()
+    {
+        SelectedRow = null;
+        Problem = null;
+        Suggestion = null;
+        Concern = false;
+    }
+
+    [RelayCommand]
+    public void RemoveFinding(FindingLine finding)
+    {
+        Findings.Remove(finding);
+        OnPropertyChanged(nameof(SubmitFindingsLabel));
+    }
+
+    /// <summary>One request for the batch, as the server moves the card once. A refusal keeps every comment.</summary>
+    [RelayCommand]
+    public async Task SubmitFindingsAsync()
+    {
+        var findings = new RecordFindingsRequest { Findings = [.. Findings.Select(finding => finding.Finding)] };
+        var count = findings.Findings.Count;
+        if (await ActAsync(count == 1 ? "Comment sent." : $"{count} comments sent.", token => _sdk.Board.RecordFindingsAsync(id, findings, token)))
+        {
+            Findings.Clear();
+            OnPropertyChanged(nameof(SubmitFindingsLabel));
+        }
+    }
 
     /// <summary>A refusal leaves the address in the box, to fix and send again.</summary>
     [RelayCommand(CanExecute = nameof(CanAttach))]
@@ -322,7 +398,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         {
             DiffRows.Add(DiffRow.Of(line));
         }
+
+        FileNote = value switch
+        {
+            null => null,
+            { Truncated: true } => "This file's diff is too large to show here.",
+            _ when DiffRows.Count == 0 => "No text hunks to show (binary content, or no changes to this file's text).",
+            _ => null,
+        };
     }
+
+    partial void OnSelectedRowChanged(DiffRow? value) => OnPropertyChanged(nameof(ComposingOn));
 
     private async Task LoadDiffAsync()
     {

@@ -49,8 +49,9 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
-The diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
-`wilson.projects`), so make a branch there and set `wilson.cards.branch`.
+The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
+`wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
+this for the findings step, which brings its own card.
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
 
@@ -134,8 +135,8 @@ the application menu runs the same check and also answers when there is nothing 
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
-and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
+hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second).
+Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
 
@@ -164,6 +165,12 @@ is never redrawn for one, or for the ten-second clock, as that would lose its co
 kept in step by hand as the web app keeps its own copy of the API's. The Plan tab reads as the web page
 down to the plan, with Live activity above Files in scope. Activity holds Attempts, Events, Usage and
 Versions. Context holds attached snapshots and dependencies. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
+
+## Comments on a diff
+
+Selecting a numbered line opens the composer under the diff, not under the line as on the web, as a
+`ListBox` row cannot hold a form. `CardViewModel.Findings` keeps the batch across files, and one request
+sends it, because the server moves the card once. Only a `ready` card takes findings: the server says so.
 
 ## Dragging
 
@@ -224,6 +231,9 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, comments on a diff: with `tools/Walk`, a real branch in the scratch repo, composing on a
+line, a batch across lines, removing one, and sending it, which moved the card back.
 
 2026-11-02, context and dependencies: with `tools/Walk`, adding and removing a dependency, a card that
 does not exist and an address no provider handles both refused and kept in the box, and removing a snapshot. A

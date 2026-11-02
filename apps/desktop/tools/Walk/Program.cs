@@ -157,6 +157,15 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Sql(sql);
     }
 
+    /// <summary>A branch in the throwaway API's scratch repository, as a stage would leave, with one small file on it.</summary>
+    public static void ScratchBranch(string branch)
+    {
+        const string Root = "$(docker exec wilson-test-db psql -U postgres -d wilson_android -qtAc \"select code_root from wilson.projects limit 1\")";
+        var script = $"cd \"{Root}\" && git rev-parse -q --verify {branch} >/dev/null || {{ d=$(mktemp -d) && git worktree add -q -b {branch} \"$d\" main && printf 'one\\ntwo\\nthree\\n' > \"$d/walk.txt\" && git -C \"$d\" add walk.txt && git -C \"$d\" -c user.name=walk -c user.email=walk@example.com commit -qm walk && git worktree remove --force \"$d\"; }}";
+        using var shell = Process.Start("sh", ["-c", script]);
+        shell.WaitForExit();
+    }
+
     /// <summary>Only ever the throwaway API's database, for what no request can pose.</summary>
     public static void Sql(string sql)
     {

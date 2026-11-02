@@ -206,6 +206,45 @@
             <TabItem Header="Diff">
                 <DockPanel>
                     <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding DiffNote}" Margin="0,8" />
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding !!Findings.Count}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Bottom" Classes="primary" HorizontalAlignment="Right" Padding="12,5" Margin="0,6,0,0" Content="{Binding SubmitFindingsLabel}" Command="{Binding SubmitFindingsCommand}" IsEnabled="{Binding Idle}" />
+                            <ScrollViewer MaxHeight="140">
+                                <ItemsControl ItemsSource="{Binding Findings}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FindingLine">
+                                            <DockPanel Margin="0,0,10,6">
+                                                <Button DockPanel.Dock="Right" Classes="ghost" Padding="8,2" Content="Remove" Command="{Binding Page.RemoveFindingCommand}" CommandParameter="{Binding}" VerticalAlignment="Top" />
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Severity}" />
+                                                        <TextBlock Classes="quiet" FontFamily="{StaticResource Mono}" Text="{Binding Where}" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Finding.Problem}" TextWrapping="Wrap" />
+                                                    <TextBlock Classes="quiet" Text="{Binding Finding.Suggestion}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding Composing}">
+                        <StackPanel Spacing="6">
+                            <DockPanel>
+                                <ToggleButton DockPanel.Dock="Right" Content="Concern, not a blocker" IsChecked="{Binding Concern}" />
+                                <TextBlock FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding ComposingOn}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBox Text="{Binding Problem}" PlaceholderText="What's wrong?" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44" />
+                            <TextBox Text="{Binding Suggestion}" PlaceholderText="What would fix it?" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <Button Classes="ghost" Padding="10,4" Content="Cancel" Command="{Binding CancelFindingCommand}" />
+                                <Button Classes="primary" Padding="10,4" Content="Add comment" Command="{Binding AddFindingCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding FileNote}" Margin="0,0,0,8" IsVisible="{Binding FileNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     <Grid ColumnDefinitions="260,*">
                         <ListBox ItemsSource="{Binding DiffFiles}" SelectedItem="{Binding SelectedFile}" Background="{DynamicResource Panel}">
                             <ListBox.ItemTemplate>
@@ -217,7 +256,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <ListBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding DiffRows}" FontFamily="{StaticResource Mono}" FontSize="12" Background="Transparent">
+                        <ListBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding DiffRows}" SelectedItem="{Binding SelectedRow}" FontFamily="{StaticResource Mono}" FontSize="12" Background="Transparent">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
                                 <Style Selector="Grid.added"><Setter Property="Background" Value="{DynamicResource Added}" /></Style>
