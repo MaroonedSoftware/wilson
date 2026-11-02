@@ -23,7 +23,7 @@ namespace Walk;
 // the requests are real and a picture is what a window would show. Run it against the throwaway API
 // (apps/android/tools/api.sh) and never the real board: it changes cards.
 //
-//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun]
+//     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun|dock]
 //     dotnet run --project tools/Walk -- keychain
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -128,7 +128,8 @@ internal static class Program
     {
         // A fresh file each run, because a walk begins at the first-run sign-in.
         var settings = Path.Combine(into, "settings.json");
-        new DesktopSettings { Appearance = appearance }.Save(settings);
+        // Every other walk closes the dock, so its pages keep the whole window as their steps expect.
+        new DesktopSettings { Appearance = appearance, Dock = new ChatDock { Closed = only != "dock" } }.Save(settings);
         using var shell = new ShellViewModel(new InMemorySecretStore(), settings);
         var window = new Window { Width = Width, Height = Height, Content = new ShellView { DataContext = shell } };
         window.Show();
@@ -136,7 +137,7 @@ internal static class Program
         await shell.StartAsync();
         await (only == "firstrun"
             ? Steps.FirstRunAsync(new Walker(into, window, shell), origin, email, password)
-            : Steps.RunAsync(new Walker(into, window, shell), origin, email, password, only == "admin"));
+            : Steps.RunAsync(new Walker(into, window, shell), origin, email, password, only));
         window.Close();
     }
 }
