@@ -92,7 +92,9 @@ engine's token.
     docker compose -f docker-compose.worker.yml up --build -d
     ```
 
-The image has Node, pnpm and git. A project that needs more names it at build time, with
+The image has Node, pnpm, git and a throwaway Postgres 17 on `localhost:15533`, with a `wilson_test`
+database, in memory and empty on every start: the same database as `db-test` in `docker-compose.yml`,
+so Wilson's own suite runs here with no settings. A project that needs more names it at build time, with
 `WORKER_PACKAGES="build-essential python3"` in the environment of that command. A project without a
 GitHub repository cannot be cloned into the volume, so it does not suit this image.
 
