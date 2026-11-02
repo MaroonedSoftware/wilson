@@ -3,7 +3,7 @@ import { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
-import { parseStages, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
+import { assertRoutable, findStage, parseStages, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
 
 /** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
@@ -58,6 +58,12 @@ export abstract class StageConfigStore {
 
     /** The current project's config history, newest first. */
     abstract versions(limit?: number): Promise<StageConfigVersionSummary[]>;
+
+    /**
+     * Route one stage. Refused with `StageConfigError` when the current config has no such stage or
+     * the routing is one `assertRoutable` turns down. Every change is a new row, like `save`.
+     */
+    abstract saveRouting(stage: string, routing: StageRouting, message: string): Promise<void>;
 }
 
 /**
@@ -141,6 +147,16 @@ export class PostgresStageConfigStore extends StageConfigStore {
         return rows.map(row => ({ id: String(row.id), message: row.message, createdAt: row.createdAt }));
     }
 
+    async saveRouting(stage: string, routing: StageRouting, message: string): Promise<void> {
+        findStage(await this.load(), stage);
+        assertRoutable(stage, routing);
+
+        await this.db
+            .insertInto('wilson.stageRouting')
+            .values({ project: this.config.project, stage, ...routing, message })
+            .execute();
+    }
+
     /** The newest `wilson.stage_routing` row for each of the current project's stages. */
     private currentRouting() {
         return this.db
@@ -174,6 +190,7 @@ const toDocument = (row: { id: string | number | bigint; yaml: string; message: 
  */
 export class StaticStageConfigStore extends StageConfigStore {
     private readonly documents: StageConfigDocument[] = [];
+    private readonly routing = new Map<string, StageRouting>();
 
     constructor(yaml?: string, message = 'initial') {
         super();
@@ -183,7 +200,7 @@ export class StaticStageConfigStore extends StageConfigStore {
     async load(): Promise<ProjectStages> {
         const current = this.documents.at(-1);
         if (!current) throw new StageConfigError('config-invalid', 'no stage config');
-        return parseStages(current.yaml, `stage config ${current.id}`);
+        return parseStages(current.yaml, `stage config ${current.id}`, this.routing);
     }
 
     async read(): Promise<StageConfigDocument | undefined> {
@@ -202,6 +219,12 @@ export class StaticStageConfigStore extends StageConfigStore {
             .reverse()
             .slice(0, limit)
             .map(({ id, message, createdAt }) => ({ id, message, createdAt }));
+    }
+
+    async saveRouting(stage: string, routing: StageRouting): Promise<void> {
+        findStage(await this.load(), stage);
+        assertRoutable(stage, routing);
+        this.routing.set(stage, routing);
     }
 
     private document(yaml: string, message: string): StageConfigDocument {

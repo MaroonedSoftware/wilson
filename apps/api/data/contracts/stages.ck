@@ -53,6 +53,67 @@ contract StageConfigVersionsQuery: {
     limit?: int
 }
 
+# Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
+# client can tell the stages that reach a model from the manual ones that never do.
+contract StageRouting: {
+    stage: string
+    mode: enum(agent, command, manual)
+    adapter: enum(api, cli)
+    provider: enum(anthropic, openai, xai)
+    model: string
+}
+
+contract SetStageRoutingRequest: {
+    adapter: enum(api, cli)
+    provider: enum(anthropic, openai, xai)
+    model: string
+    message?: string
+}
+
+operation /api/stages/routing: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List stage routing
+        service: StageConfigService.routing
+        response: {
+            200: {
+                application/json: array(StageRouting)
+            }
+            404:
+        }
+    }
+}
+
+# One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+# because an agent that could choose its own model could choose the most expensive one.
+operation /api/stages/routing/{stage}: {
+    params: {
+        stage: string
+    }
+    put: {
+        name: Set stage routing
+        mcp: exclude # Human-write-only machinery (PROJECT.md decision 8): set with `wilson stages route`
+        service: StageConfigService.setRouting
+        security: {
+            policy: wilson.step.up
+        }
+        request: {
+            application/json: SetStageRoutingRequest
+        }
+        response: {
+            200: {
+                application/json: StageRouting
+            }
+            # An empty model, or a provider this stage's engine cannot run. The reason is in `details`.
+            400:
+            # No stage by that name in the project's stage config.
+            404:
+        }
+    }
+}
+
 operation /api/stages/config: {
     get: {
         security: {

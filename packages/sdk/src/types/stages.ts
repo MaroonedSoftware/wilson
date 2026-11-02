@@ -63,3 +63,26 @@ export function reviveStageConfigVersion(raw: StageConfigVersion): StageConfigVe
 export interface StageConfigVersionsQuery {
     limit?: number;
 }
+
+/**
+ * Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
+ * client can tell the stages that reach a model from the manual ones that never do.
+ * generated from [StageRouting](../../../../apps/api/data/contracts/stages.ck)
+ */
+export interface StageRouting {
+    stage: string;
+    mode: 'agent' | 'command' | 'manual';
+    adapter: 'api' | 'cli';
+    provider: 'anthropic' | 'openai' | 'xai';
+    model: string;
+}
+
+/**
+ * generated from [SetStageRoutingRequest](../../../../apps/api/data/contracts/stages.ck)
+ */
+export interface SetStageRoutingRequest {
+    adapter: 'api' | 'cli';
+    provider: 'anthropic' | 'openai' | 'xai';
+    model: string;
+    message?: string;
+}

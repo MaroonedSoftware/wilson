@@ -1,7 +1,14 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
-import type { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from '../../generated/stages.js';
-import { StageConfigError } from './stage.config.js';
+import type {
+    SetStageConfigRequest,
+    SetStageRoutingRequest,
+    StageConfigDocument,
+    StageConfigVersion,
+    StageConfigVersionsQuery,
+    StageRouting,
+} from '../../generated/stages.js';
+import { findStage, StageConfigError, type StageConfig } from './stage.config.js';
 import { StageConfigStore, type StageConfigDocument as StoredDocument } from './stage.config.store.js';
 
 /** The most versions one request returns, and the default — the same numbers `BoardService` uses. */
@@ -39,10 +46,24 @@ export class StageConfigService {
         try {
             return toContract(await this.stageConfigs.save(body.yaml, body.message?.trim() || DEFAULT_MESSAGE));
         } catch (err) {
-            if (err instanceof StageConfigError) {
-                throw httpError(400).withDetails({ reason: err.message });
-            }
-            throw err;
+            throw refusal(err);
+        }
+    }
+
+    async routing(): Promise<StageRouting[]> {
+        await this.get();
+        const { stages } = await this.stageConfigs.load();
+        return stages.map(toRouting);
+    }
+
+    async setRouting(stage: string, body: SetStageRoutingRequest): Promise<StageRouting> {
+        const { adapter, provider, model } = body;
+        try {
+            const message = body.message?.trim() || `Routed ${stage} to ${model.trim()}`;
+            await this.stageConfigs.saveRouting(stage, { adapter, provider, model: model.trim() }, message);
+            return toRouting(findStage(await this.stageConfigs.load(), stage));
+        } catch (err) {
+            throw refusal(err);
         }
     }
 
@@ -52,6 +73,14 @@ export class StageConfigService {
         return versions.map(version => ({ id: version.id, message: version.message, createdAt: version.createdAt }));
     }
 }
+
+/** A `StageConfigError` as the status it means, with the validator's own sentence as the reason. */
+const refusal = (err: unknown): unknown => {
+    if (!(err instanceof StageConfigError)) return err;
+    return httpError(err.kind === 'stage-not-found' ? 404 : 400).withDetails({ reason: err.message });
+};
+
+const toRouting = ({ name, mode, adapter, provider, model }: StageConfig): StageRouting => ({ stage: name, mode, adapter, provider, model });
 
 const toContract = (document: StoredDocument): StageConfigDocument => ({
     id: document.id,

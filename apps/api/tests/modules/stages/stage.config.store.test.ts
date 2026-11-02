@@ -92,6 +92,15 @@ describe('PostgresStageConfigStore', () => {
         await expect(store.load()).rejects.toThrow(/stages\.0\.provider/);
     });
 
+    it('saves routing as a new row each time, so a change keeps its history', async () => {
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'one' }, 'first');
+        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'two' }, 'second');
+
+        const rows = await db.selectFrom('wilson.stageRouting').select('message').where('project', '=', project).orderBy('id').execute();
+        expect(rows.map(row => row.message)).toEqual(['first', 'second']);
+        expect(findStage(await store.load(), 'implementing').model).toBe('two');
+    });
+
     it('returns the very same object on a repeat load of an unchanged config', async () => {
         const first = await store.load();
         const second = await store.load();

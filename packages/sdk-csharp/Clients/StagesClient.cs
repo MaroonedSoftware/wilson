@@ -20,6 +20,33 @@ namespace MaroonedSoftware.Wilson.Sdk.Clients;
 /// <summary>Operations declared in &lt;c&gt;stages.ck&lt;/c&gt;.</summary>
 public sealed class StagesClient(SdkHttp http)
 {
+    /// <summary>List stage routing</summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<StageRouting>> ListStageRoutingAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stages", "routing"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<StageRouting>>(response);
+    }
+
+    /// <summary>
+    /// Set stage routing
+    /// One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+    /// because an agent that could choose its own model could choose the most expensive one.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<StageRouting> SetStageRoutingAsync(string stage, SetStageRoutingRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "stages", "routing", http.Segment(stage)),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<StageRouting>(response);
+    }
+
     /// <summary>Get stage config</summary>
     /// <exception cref="SdkException">On 404.</exception>
     public async Task<StageConfigDocument> GetStageConfigAsync(CancellationToken cancellationToken = default)

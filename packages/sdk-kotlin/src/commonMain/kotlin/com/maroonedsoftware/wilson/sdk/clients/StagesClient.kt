@@ -2,14 +2,41 @@
 package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.SetStageConfigRequest
+import com.maroonedsoftware.wilson.sdk.models.SetStageRoutingRequest
 import com.maroonedsoftware.wilson.sdk.models.StageConfigDocument
 import com.maroonedsoftware.wilson.sdk.models.StageConfigVersion
 import com.maroonedsoftware.wilson.sdk.models.StageConfigVersionsQuery
+import com.maroonedsoftware.wilson.sdk.models.StageRouting
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
 
 /** Operations declared in `stages.ck`. */
 class StagesClient(private val http: SdkHttp) {
+    /**
+     * List stage routing
+     * @throws SdkError on 404
+     */
+    suspend fun listStageRouting(): List<StageRouting> {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "stages", "routing")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Set stage routing
+     * One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+     * because an agent that could choose its own model could choose the most expensive one.
+     * @throws SdkError on 400, 404
+     */
+    suspend fun setStageRouting(stage: String, body: SetStageRoutingRequest): StageRouting {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "stages", "routing", segment(stage))
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
     /**
      * Get stage config
      * @throws SdkError on 404

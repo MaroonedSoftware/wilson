@@ -55,6 +55,7 @@ import stagesShowCommand from './commands/stages/show.command.js';
 import stagesEditCommand from './commands/stages/edit.command.js';
 import stagesSetCommand from './commands/stages/set.command.js';
 import stagesVersionsCommand from './commands/stages/versions.command.js';
+import stagesRouteCommand from './commands/stages/route.command.js';
 import learningsShowCommand from './commands/learnings/show.command.js';
 import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
@@ -128,6 +129,7 @@ const app = await createCliApp({
         reg(['stages', 'edit'], stagesEditCommand),
         reg(['stages', 'set'], stagesSetCommand),
         reg(['stages', 'versions'], stagesVersionsCommand),
+        reg(['stages', 'route'], stagesRouteCommand),
         reg(['learnings', 'show'], learningsShowCommand),
         reg(['learnings', 'edit'], learningsEditCommand),
         reg(['learnings', 'set'], learningsSetCommand),

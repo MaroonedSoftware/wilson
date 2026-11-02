@@ -349,6 +349,23 @@ const deepFreeze = <T>(value: T): T => {
 export type StageRouting = Pick<StageConfig, 'adapter' | 'provider' | 'model'>;
 
 /**
+ * Refuse routing a stage's engine cannot honour, in the operator's own terms.
+ *
+ * The `cli` engine and the planning session always run Claude, so any other provider there would
+ * save happily and then be ignored. Checked on a routing write and not in the schema: a document
+ * that already says this has been harmless so far, and failing to load it would stop the board.
+ */
+export const assertRoutable = (stage: string, routing: StageRouting): void => {
+    if (!routing.model.trim()) {
+        throw new StageConfigError('config-invalid', 'a model is required');
+    }
+    if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || stage === 'planning')) {
+        const engine = stage === 'planning' ? 'the planning session' : 'the cli adapter';
+        throw new StageConfigError('config-invalid', `${engine} always runs Claude, so ${stage} cannot use provider ${routing.provider}`);
+    }
+};
+
+/**
  * Lay each stage's routing over the document, before validation.
  *
  * Before, not after, so a row passes through the same schema a document's own values do, and a stage

@@ -1,4 +1,11 @@
-import type { SetStageConfigRequest, StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery } from './types/stages.js';
+import type {
+    SetStageConfigRequest,
+    SetStageRoutingRequest,
+    StageConfigDocument,
+    StageConfigVersion,
+    StageConfigVersionsQuery,
+    StageRouting,
+} from './types/stages.js';
 import { reviveStageConfigDocument, reviveStageConfigVersion } from './types/stages.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
@@ -8,6 +15,26 @@ import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
  */
 export class StagesClient {
     constructor(private fetch: SdkFetch) {}
+
+    /** @name List stage routing */
+    async listStageRouting(): Promise<StageRouting[]> {
+        const result = await this.fetch(`/api/stages/routing`, { method: 'GET' });
+        return await parseJson<StageRouting[]>(result);
+    }
+
+    /**
+     * @name Set stage routing
+     * @description One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+     * because an agent that could choose its own model could choose the most expensive one.
+     */
+    async setStageRouting(stage: string, body: SetStageRoutingRequest): Promise<StageRouting> {
+        const result = await this.fetch(`/api/stages/routing/${encodeURIComponent(stage)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<StageRouting>(result);
+    }
 
     /** @name Get stage config */
     async getStageConfig(): Promise<StageConfigDocument> {
