@@ -69,10 +69,14 @@ internal static class Steps
         await walk.UntilAsync("columns", () => board.Columns.Count > 0);
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
+        await ProjectsAsync(walk, board);
+        await FlaggedAsync(walk, board);
+        await ActivityAsync(walk, board);
         await FilterAsync(walk, board);
         await ToolActivityAsync(walk, board);
 
         await DiffAsync(walk, board);
+        await FindingsAsync(walk, board);
         await CardsAsync(walk, board);
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
@@ -80,6 +84,124 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>The project's history, kept live by the feed, with its link into a card and back.</summary>
+    private static async Task ActivityAsync(Walker walk, BoardViewModel board)
+    {
+        walk.Shell.ShowActivityCommand.Execute(null);
+        var activity = walk.Page<ActivityViewModel>();
+        await walk.UntilAsync("the project's events, and the feed live", () => activity.Events.Count > 0 && activity.Live);
+        Console.WriteLine($"     activity: {activity.Events.Count} events, more: {activity.HasMore}");
+        Walker.Emit("0003", "implementing", "card.flagged", """{"reason":"Walked: a new event reaching the page"}""");
+        await walk.UntilAsync("a new event arriving from the feed", () => activity.Events[0].Reason?.StartsWith("Walked:", StringComparison.Ordinal) == true);
+        walk.Shot("03-activity");
+        if (activity.HasMore)
+        {
+            var before = activity.Events.Count;
+            await activity.ShowOlderCommand.ExecuteAsync(null);
+            await walk.UntilAsync("older events", () => activity.Events.Count > before);
+        }
+
+        activity.OpenCardCommand.Execute(activity.Events[0].CardId);
+        await walk.UntilAsync("a row opening its card", () => walk.Shell.Page is CardViewModel { Id: "0003" });
+        walk.Shell.Back();
+        await walk.UntilAsync("back on activity", () => walk.Shell.Page == activity);
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board && board.Live);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>The header's count, from the page that has no feed, and the board narrowed to it, then nothing flagged.</summary>
+    private static async Task FlaggedAsync(Walker walk, BoardViewModel board)
+    {
+        Walker.Sql("update wilson.cards set needs_human = true, needs_human_reason = 'Walked: read me' where id = '0003'");
+        walk.Shell.ShowChatCommand.Execute(null);
+        await walk.UntilAsync("the count in the header away from the board", () => walk.Shell.Flagged is not null);
+        walk.Shell.ShowFlaggedCommand.Execute(null);
+        await walk.UntilAsync("the board narrowed to it", () => walk.Shell.Page == board && board.FlaggedOnly && board.Columns.Count > 0 && board.Columns.All(column => column.Cards.All(tile => tile.Card.NeedsHuman)));
+        walk.Shot("03-flagged");
+
+        Walker.Sql("update wilson.cards set needs_human = false, needs_human_reason = null where id = '0003'; update wilson.cards set needs_human = false where needs_human");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("nothing flagged said, and the count gone", () => board.NothingFlagged && walk.Shell.Flagged is null);
+        walk.Shot("03-flagged-none");
+        board.FlaggedOnly = false;
+        await Task.Delay(TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// A real registration on the throwaway API, onto its own scratch repo: the folder picker, the roots
+    /// following the code root, a taken name refused, then a project with a board. Its row goes afterwards.
+    /// </summary>
+    private static async Task NewProjectAsync(Walker walk, ProjectsViewModel projects, BoardViewModel board)
+    {
+        var name = $"walked-{DateTime.UtcNow:HHmmss}";
+        var root = Walker.Query("select code_root from wilson.projects order by name limit 1");
+        projects.NewProjectCommand.Execute(null);
+        var form = walk.Page<NewProjectViewModel>();
+
+        await form.BrowseCommand.ExecuteAsync(PathField.CodeRoot);
+        await walk.UntilAsync("the folders on the server", () => form.Listing is not null);
+        Console.WriteLine($"     browsing {form.Listing!.Path}: {form.Folders.Count} folders");
+        walk.Shot("03p-new-project-browse");
+        var hidden = form.Folders.Count;
+        form.ShowHidden = true;
+        await walk.UntilAsync("hidden folders shown", () => form.Folders.Count >= hidden);
+        form.ShowHidden = false;
+        await form.UpCommand.ExecuteAsync(null);
+        form.CancelPickCommand.Execute(null);
+
+        form.CodeRoot = $"{root}/does/not/exist";
+        await form.BrowseCommand.ExecuteAsync(PathField.CodeRoot);
+        await walk.UntilAsync("a missing folder opening its nearest parent", () => form.Listing?.Path == root || form.PickError is not null);
+        Console.WriteLine($"     nearest: {form.Listing?.Path}, {form.PickError}");
+        if (form.PickError is null)
+        {
+            form.SelectFolderCommand.Execute(null);
+        }
+        else
+        {
+            form.CancelPickCommand.Execute(null);
+            form.CodeRoot = root;
+            form.Name = "walked";
+        }
+
+        await walk.UntilAsync("the name taken from the folder", () => form.CodeRoot == root && !string.IsNullOrEmpty(form.Name));
+        await walk.UntilAsync("the roots following it", () => form.ShownWorktreeRoot.EndsWith($"/.worktrees/{form.Name}", StringComparison.Ordinal));
+        walk.Shot("03q-new-project");
+
+        form.Name = Walker.Query("select name from wilson.projects order by name limit 1");
+        await form.CreateCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a taken name refused", () => form.Failure is not null);
+        Console.WriteLine($"     {form.FailureTitle}: {form.Failure}");
+        walk.Shot("03r-new-project-refused");
+
+        form.Name = name;
+        await form.CreateCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the new project's board", () => walk.Shell.Page == board && board.Project == name);
+        await walk.UntilAsync("its columns", () => board.Columns.Count > 0);
+        walk.Shot("03s-new-project-board");
+        board.Project = board.Projects[0];
+        await walk.UntilAsync("the first project again", () => board.Columns.Count > 0 && board.Project != name);
+        Walker.Sql($"delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
+    }
+
+    /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
+    private static async Task ProjectsAsync(Walker walk, BoardViewModel board)
+    {
+        walk.Shell.ShowProjectsCommand.Execute(null);
+        var projects = walk.Page<ProjectsViewModel>();
+        await walk.UntilAsync("the projects listed, under Projects", () => projects.Projects.Count > 0 && walk.Shell.OnProjects);
+        walk.Shot("03-projects");
+        await NewProjectAsync(walk, projects, board);
+        walk.Shell.ShowProjectsCommand.Execute(null);
+        await walk.UntilAsync("back on the projects", () => walk.Shell.Page == projects);
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        walk.Click(walk.Center(projects.Projects[0]));
+        await walk.UntilAsync("a project opening its board", () => walk.Shell.Page == board && board.Project == projects.Projects[0]);
+        await walk.UntilAsync("that board live", () => board.Live);
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>Round all three, ending where it began, as the file records each.</summary>
@@ -143,6 +265,51 @@ internal static class Steps
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
     }
 
+    /// <summary>A ready card of the walk's own, on a real branch, sent back with a comment on a line.</summary>
+    private static async Task FindingsAsync(Walker walk, BoardViewModel board)
+    {
+        // The seeded config stops at implementing, and only a ready card takes findings. One row of history, taken back below.
+        Walker.Sql("insert into wilson.stage_configs (project, yaml, message) select project, yaml || E'    - name: ready\\n      mode: manual\\n      model: claude-sonnet-5\\n      onPass: merged\\n      onFail: implementing\\n      instructions: |\\n          Wait for the operator.\\n', 'walk' from wilson.stage_configs order by id desc limit 1");
+        Walker.ScratchBranch("walk-diff");
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'");
+        Walker.Sql("insert into wilson.cards (project, id, title, stage, body, branch) select project, '9996', 'Walked ready', 'ready', '', 'walk-diff' from wilson.cards limit 1");
+        await board.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the ready card", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9996")));
+        board.OpenCard(board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9996").Card);
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the card", () => card.Card is not null);
+        card.SelectedTab = 2;
+        await walk.UntilAsync("the diff", () => card.DiffRows.Any(row => row.NewNumber is not null));
+        Console.WriteLine($"     diff: {card.DiffNote}");
+
+        card.SelectedRow = card.DiffRows.First(row => row.IsHunk);
+        await walk.UntilAsync("no composer on a line with no number", () => !card.Composing);
+
+        card.SelectedRow = card.DiffRows.First(row => row.NewNumber == 2);
+        await walk.UntilAsync("a composer on the line", () => card.Composing && card.ComposingOn == "walk.txt:2");
+        walk.Shot("03c-diff-composing");
+        card.Problem = "This line is wrong.";
+        await walk.UntilAsync("half a comment not being enough", () => !card.AddFindingCommand.CanExecute(null));
+        card.Suggestion = "Say two better.";
+        card.AddFindingCommand.Execute(null);
+        card.SelectedRow = card.DiffRows.First(row => row.NewNumber == 3);
+        card.Concern = true;
+        card.Problem = "A lesser worry.";
+        card.Suggestion = "Think again.";
+        card.AddFindingCommand.Execute(null);
+        await walk.UntilAsync("two comments pending", () => card.Findings.Count == 2 && !card.Composing);
+        walk.Shot("03d-diff-pending");
+        card.RemoveFindingCommand.Execute(card.Findings[1]);
+        await card.SubmitFindingsCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the comment sent, and the card sent back", () => card.Findings.Count == 0 && card.Card?.Stage != "ready");
+        Console.WriteLine($"     findings: {card.Notice}, now {card.Card!.Stage}");
+        walk.Shot("03e-diff-sent");
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.stage_configs where message = 'walk'");
+        await board.RefreshCommand.ExecuteAsync(null);
+    }
+
     private static async Task CardsAsync(Walker walk, BoardViewModel board)
     {
         var title = $"Walked {DateTime.UtcNow:HHmmss}";
@@ -152,7 +319,7 @@ internal static class Steps
         await walk.UntilAsync("a card with no title refused", () => form.Error is not null);
 
         form.Title = title;
-        form.Body = "## Plan\n\nMade by the desktop walk.\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.";
+        form.Body = "## Goal\n\nMade by the desktop walk, after [[0001]].\n\n- One **bold** item\n- Another with `code`\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.\n\n## Files in scope\n\n- `apps/desktop/**`\n\n## Acceptance criteria\n\n- AC1: The walk reaches here\n- AC2: Something a review found wanting";
         walk.Shot("04-new-card");
         await form.SaveCommand.ExecuteAsync(null);
 
@@ -169,6 +336,11 @@ internal static class Steps
         await walk.Shell.Feed!.RefreshCommand.ExecuteAsync(null);
         walk.Shot("05-card");
 
+        walk.ClickText("0001");
+        await walk.UntilAsync("a reference opening its card", () => walk.Shell.Page is CardViewModel { Id: "0001" });
+        walk.Shell.Back();
+        await walk.UntilAsync("back from the reference", () => walk.Shell.Page == card);
+
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("chat from a card", () => walk.Shell.OnChat);
         walk.Shell.Push(card);
@@ -178,6 +350,8 @@ internal static class Steps
         card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the stages to move to again", () => card.Stages.Count > 0);
         await ToolCallsAsync(walk, card);
+        await HistoryAsync(walk, card);
+        await LinksAsync(walk, card);
 
         card.MoveTo = card.Stages.First(stage => stage != card.Card!.Stage);
         var target = card.MoveTo;
@@ -247,6 +421,9 @@ internal static class Steps
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
 
+        // Connecting replays every card and re-reads the board, which would drop the row below before the press.
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
         // The server allows nearly any move, so a refusal needs a card gone from under its tile: a row of the walk's own.
         Walker.Sql("insert into wilson.cards (project, id, title, stage, body) select project, '9998', 'Walked away', 'parking-lot', '' from wilson.cards limit 1");
         await board.RefreshCommand.ExecuteAsync(null);
@@ -313,7 +490,6 @@ internal static class Steps
     private static async Task ToolCallsAsync(Walker walk, CardViewModel card)
     {
         await walk.UntilAsync("no tool calls said", () => card.ToolsNote is not null && card.Tools.Count == 0);
-        card.SelectedTab = 1;
         walk.Shot("05-card-no-tools");
         await walk.UntilAsync("the card live", () => card.Live);
         Walker.Emit(card.Id, card.Card!.Stage, "tool.executed", """{"tool":"bash","command":"pnpm test --filter @wilson/api"}""");
@@ -321,6 +497,60 @@ internal static class Steps
         Walker.Emit(card.Id, card.Card.Stage, "tool.executed", """{"tool":"Edit","path":"apps/desktop/CLAUDE.md"}""");
         await walk.UntilAsync("the tool calls arriving", () => card.Tools.Count == 3);
         walk.Shot("05-card-tools");
+    }
+
+    /// <summary>A placed run with a review's result, written to the throwaway database as a stage would.</summary>
+    private static async Task HistoryAsync(Walker walk, CardViewModel card)
+    {
+        var (id, stage) = (card.Id, card.Card!.Stage);
+        Walker.Emit(id, stage, "stage.placed", """{"host":"my-mac"}""");
+        Walker.Emit(id, "review", "stage.dispatched", "{}");
+        Walker.Emit(id, "review", "tool.executed", """{"tool":"read","path":"a.ts"}""");
+        Walker.Emit(id, "review", "stage.failed", """{"result":{"criteria":[{"id":"AC1","status":"met"},{"id":"AC2","status":"unmet"}]},"usage":{"inputTokens":1200,"cachedInputTokens":300,"outputTokens":450},"trace":{"reads":2,"readPaths":["a.ts","b.ts"],"finalMessage":"One criterion is not met."},"failures":["AC2 is unmet"]}""");
+        await card.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the review on its criteria", () => card.Criteria.Any(criterion => criterion.Status == "unmet"));
+        await walk.UntilAsync("the files in scope", () => card.Scope.Count == 1);
+        await walk.UntilAsync("the run placed, and tallied", () => card.RanOn == "ran on my-mac" && card.Attempts.Any(attempt => attempt.Outcome == "failed"));
+        await walk.UntilAsync("the usage table", () => card.UsageRows.Any(row => row.Total));
+        await walk.UntilAsync("a version", () => card.Versions.Count > 0);
+        walk.Shot("05a-card-plan");
+        card.SelectedTab = 1;
+        walk.Shot("05b-card-activity");
+        card.SelectedTab = 0;
+    }
+
+    /// <summary>A dependency for real, a refused address, and a snapshot written by hand, as fetching one needs the internet.</summary>
+    private static async Task LinksAsync(Walker walk, CardViewModel card)
+    {
+        card.SelectedTab = 3;
+        walk.Shot("05c-card-context-empty");
+
+        card.NewDependency = "0001";
+        await card.AddDependencyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the dependency listed, and the box cleared", () => card.Dependencies.Count == 1 && card.NewDependency is null);
+        card.NewDependency = "9000";
+        await card.AddDependencyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a card that is not there refused, and kept in the box", () => card.Notice is not "Depends on 9000." && card.NewDependency == "9000");
+        Console.WriteLine($"     dependency: {card.Notice}");
+        card.NewDependency = null;
+
+        card.ContextUrl = "http://localhost:13150/api/health";
+        await card.AttachContextCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a private address refused, and kept in the box", () => card.Notice is not "Context attached." && card.Notice is not null && card.ContextUrl is not null);
+        Console.WriteLine($"     attach: {card.Notice}");
+        card.ContextUrl = null;
+
+        Walker.Sql($"insert into wilson.card_context (project, card_id, source_url, fetched_at, fetched_by, title, content, content_hash) select project, id, 'https://example.com/spec', now(), 'operator@example.com', 'The spec', 'Words', 'hash' from wilson.cards where id = '{card.Id}'");
+        await card.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the snapshot listed", () => card.Context.Count == 1);
+        walk.Shot("05d-card-context");
+
+        card.AskRemoveContextCommand.Execute(card.Context[0]);
+        walk.Shot("05e-card-context-remove");
+        await card.ConfirmCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the snapshot removed", () => card.Context.Count == 0);
+        await card.RemoveDependencyCommand.ExecuteAsync(card.Dependencies[0]);
+        await walk.UntilAsync("the dependency removed", () => card.Dependencies.Count == 0);
         card.SelectedTab = 0;
     }
 
@@ -340,18 +570,33 @@ internal static class Steps
 
         await walk.UntilAsync("the plan stream live", () => plan.Live);
 
-        plan.Draft = "# Plan\n\nDo the first thing.\n\nThen the second thing.";
+        plan.Draft = "# Plan\n\nDo the first thing, and **then** the second thing.\n\nDo the first thing again.";
+        await walk.UntilAsync("the edit said to be unsaved", () => plan.Unsaved && plan.CanApprove);
+        plan.AskApproveCommand.Execute(null);
+        walk.Shot("10a-plan-approve");
         await plan.SaveDraftCommand.ExecuteAsync(null);
-        await walk.UntilAsync("the draft saved", () => plan.Notice is not null);
-        Console.WriteLine($"     save: {plan.Notice}");
+        await walk.UntilAsync("the draft refused on the dialog, and kept", () => plan.ApproveError is not null && plan.Draft!.StartsWith("# Plan", StringComparison.Ordinal));
+        Console.WriteLine($"     save: {plan.ApproveError}");
+        walk.Shot("10b-plan-approve-refused");
+        plan.CancelApproveCommand.Execute(null);
 
-        plan.Quote = "the first thing";
-        plan.CommentText = "Which first thing?";
+        plan.Preview = true;
+        await walk.UntilAsync("the edit surviving the poll", () => plan.Draft!.Contains("**then**", StringComparison.Ordinal));
+        walk.Select("then the");
+        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the");
+        plan.CommentText = "Which second thing?";
         await plan.AddCommentCommand.ExecuteAsync(null);
-        await walk.UntilAsync("the comment added", () => plan.Comments.Count > 0);
+        await walk.UntilAsync("the comment added, and anchored", () => plan.Comments.Count == 1 && plan.Marks is { Count: 1 });
         walk.Shot("10-plan-commented");
-        await plan.ResolveCommentCommand.ExecuteAsync(plan.Comments[0]);
-        await walk.UntilAsync("the comment resolved", () => plan.Comments[0].Resolved);
+
+        plan.Draft = "# Plan\n\nDo the only thing.";
+        plan.Preview = false;
+        plan.Preview = true;
+        await walk.UntilAsync("the comment listed as outdated", () => plan.Outdated.Count == 1 && plan.Comments.Count == 0);
+        walk.Shot("10c-plan-outdated");
+        await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment resolved", () => plan.Outdated[0].Resolved);
+        plan.Preview = false;
 
         plan.Composer = "Reply with the single word: ok";
         await plan.SendCommand.ExecuteAsync(null);

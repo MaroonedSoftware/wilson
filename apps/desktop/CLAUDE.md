@@ -49,8 +49,9 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
-The diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
-`wilson.projects`), so make a branch there and set `wilson.cards.branch`.
+The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
+`wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
+this for the findings step, which brings its own card.
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
 
@@ -134,10 +135,9 @@ the application menu runs the same check and also answers when there is nothing 
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
-and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
-here either, but the web app has no such control: it only shows a split's progress. A
-card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
+hosts and settings.
+Splitting a card is not
+here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
 
 ## The header
@@ -152,12 +152,50 @@ shows neither there. Add a section's link in the same commit as its page, never 
 The header's appearance button steps through System, Light and Dark. `DesktopSettings.Appearance`
 keeps it across a change of server, and `ShellViewModel.StartAsync` applies it before the first page.
 
+## Projects
+
+`ProjectsViewModel` is `routes/projects.index.tsx`, names only, and pressing one opens its board through
+`ShellViewModel.ShowProject`. The board's own project menu is the web header's `ProjectSwitcher`.
+`NewProjectViewModel` is `NewProjectControl.tsx` and `DirectoryPicker.tsx`, a page and not a modal:
+two writes and no transaction, so a name that registered is remembered and a retry only initialises.
+
+The flagged page is the board narrowed by its Flagged toggle, and the header's "n needs human" goes
+there. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
+each change of page, and for the project in hand where the web app reads the server's own.
+
+`ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
+The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
+as many events as are showing, so one from the feed does not take back what Show older brought in.
+
 ## Feed activity
 
 `CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
 folded into a card, which only a re-read changes. Each page following the feed has its own, because the
 desktop feed is per page. A tool event changes no card summary, so it updates a tile in place. A tile
 is never redrawn for one, or for the ten-second clock, as that would lose its column's scroll.
+
+## A card
+
+`CardSections` is `lib/card.ts` and `CriteriaPanel.tsx`, and `CardAttempts` is `lib/attempts.ts`, both
+kept in step by hand as the web app keeps its own copy of the API's. The Plan tab reads as the web page
+down to the plan, with Live activity above Files in scope. Activity holds Attempts, Events, Usage and
+Versions. Context holds attached snapshots and dependencies. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
+
+## Planning
+
+`PlanView` follows `DraftPane.tsx` and `CommentableDraft.tsx`: `DraftEdit` is whose edit wins, the draft
+is read again every four seconds, and nothing is written until the changes have been seen. Comments
+are `PlanAnchors`, `lib/anchor.ts`, a quote and its surroundings and never an offset. **Both clients must
+anchor against the same text**, `ChatMarkdown.RenderedText`, which is the web app's `textContent`, or a
+comment made in one reads as outdated in the other. `MarkdownView` marks and selects by offsets into
+that text. A selection stays within one block, unlike the web app's, and a passage in a code block is
+found but not marked. Comments are listed under the draft rather than in a popover over the mark.
+
+## Comments on a diff
+
+Selecting a numbered line opens the composer under the diff, not under the line as on the web, as a
+`ListBox` row cannot hold a form. `CardViewModel.Findings` keeps the batch across files, and one request
+sends it, because the server moves the card once. Only a `ready` card takes findings: the server says so.
 
 ## Dragging
 
@@ -175,7 +213,9 @@ brand's SVGs cut it out with a mask, so it only suits a solid backing.
 `Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
 carries the same rules: change one and look at the other. A new chat has no thread until its first
 message. `MarkdownView` builds controls from `ChatMarkdown`'s records, the subset `Markdown.tsx` draws,
-and `[[nnnn]]` card references stay as text. The open chat is `DesktopSettings.Thread`.
+and a card's plan is drawn with it too. `[[nnnn]]` is `MarkdownInline.CardRef`, which `MarkdownView`
+raises to the shell. It opens in the project being read, and for chat, which has no project, the one
+last shown, where the web app's home page has no link at all. The open chat is `DesktopSettings.Thread`.
 
 ## Verified
 
@@ -217,6 +257,37 @@ losing the pointer mid-drag.
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
 
+2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
+picker, a missing folder opening its parent, the roots following the code root, a taken name refused
+and a real registration reaching a board. The GitHub repository list needs an app, so it was not
+walked, and neither was a failure between the two writes.
+
+2026-11-02, activity: with `tools/Walk`, the project's events, one arriving through the feed, and a row
+opening its card.
+
+2026-11-02, flagged: with `tools/Walk`, the header's count away from the board, the narrowed board, and
+nothing flagged.
+
+2026-11-02, projects: with `tools/Walk`, the page and a real press on a project opening its board.
+
+2026-11-02, planning: with `tools/Walk`, a real drag selecting a passage in the preview, a comment
+anchored and marked, a rewrite leaving it outdated, resolving it, the changes shown before a save and
+a refusal staying on that dialog. A collision is covered by `DraftEditTests` only, and a comment made
+in the web app and read here has not been tried.
+
+2026-11-02, comments on a diff: with `tools/Walk`, a real branch in the scratch repo, composing on a
+line, a batch across lines, removing one, and sending it, which moved the card back.
+
+2026-11-02, context and dependencies: with `tools/Walk`, adding and removing a dependency, a card that
+does not exist and an address no provider handles both refused and kept in the box, and removing a snapshot. A
+successful attach was not walked, as fetching needs the internet, so that snapshot was written by hand.
+
+2026-11-02, a card's history: with `tools/Walk`, criteria with a review's verdict, files in scope, a
+placed run, its attempt, the usage table and versions. The run was written to the throwaway database.
+
+2026-11-02, Markdown: with `tools/Walk`, a card's plan drawn as Markdown and a real press on `[[0001]]`
+opening that card.
+
 2026-11-02, the board: with `tools/Walk`, through headless pointer input, collapsing columns and
 dropping on one, the faces on tiles, a click surviving a re-read during its press, and Escape.
 
@@ -238,6 +309,6 @@ Not verified:
 - The app against Tower or the real board.
 - A confirmed chat action, an acknowledged flag, a successful merge, and a token refresh or reconnect
   against a real server: the seeded board offers none, and the last two are proved against `FakeServer`.
-- Pressing a link in an answer, or the options menu on a chat in the rail, in a real window: the walk
+- Pressing a web link in an answer, or the options menu on a chat in the rail, in a real window: the walk
   calls the rename and archive commands directly.
 - Either GitHub workflow.

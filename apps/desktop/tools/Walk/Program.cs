@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
@@ -156,6 +157,24 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Sql(sql);
     }
 
+    /// <summary>One value out of the throwaway API's database.</summary>
+    public static string Query(string sql)
+    {
+        using var psql = Process.Start(new ProcessStartInfo("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]) { RedirectStandardOutput = true })!;
+        var value = psql.StandardOutput.ReadToEnd().Trim();
+        psql.WaitForExit();
+        return value;
+    }
+
+    /// <summary>A branch in the throwaway API's scratch repository, as a stage would leave, with one small file on it.</summary>
+    public static void ScratchBranch(string branch)
+    {
+        const string Root = "$(docker exec wilson-test-db psql -U postgres -d wilson_android -qtAc \"select code_root from wilson.projects limit 1\")";
+        var script = $"cd \"{Root}\" && git rev-parse -q --verify {branch} >/dev/null || {{ d=$(mktemp -d) && git worktree add -q -b {branch} \"$d\" main && printf 'one\\ntwo\\nthree\\n' > \"$d/walk.txt\" && git -C \"$d\" add walk.txt && git -C \"$d\" -c user.name=walk -c user.email=walk@example.com commit -qm walk && git worktree remove --force \"$d\"; }}";
+        using var shell = Process.Start("sh", ["-c", script]);
+        shell.WaitForExit();
+    }
+
     /// <summary>Only ever the throwaway API's database, for what no request can pose.</summary>
     public static void Sql(string sql)
     {
@@ -201,6 +220,8 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     {
         Dispatcher.UIThread.RunJobs();
         var control = window.GetVisualDescendants().OfType<Control>().First(found => found.DataContext == model && found is Button or Border);
+        control.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         return control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen");
     }
 
@@ -212,6 +233,41 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         window.MouseDown(at, MouseButton.Left);
         window.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
+    }
+
+    private static string Written(SelectableTextBlock block) => string.Concat(block.Inlines!.Select(inline => inline is Run run ? run.Text : "\n"));
+
+    /// <summary>A real press on `text` where it first shows in a block of Markdown, as a person would follow a link.</summary>
+    public void ClickText(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        foreach (var block in window.GetVisualDescendants().OfType<SelectableTextBlock>().Where(block => block.Inlines is not null))
+        {
+            var index = Written(block).IndexOf(text, StringComparison.Ordinal);
+            if (index >= 0)
+            {
+                block.BringIntoView();
+                Dispatcher.UIThread.RunJobs();
+                var spot = block.TextLayout.HitTestTextPosition(index + 1).Center;
+                Click(block.TranslatePoint(spot, window) ?? throw new InvalidOperationException("not on screen"));
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"no {text} on screen");
+    }
+
+    /// <summary>A real drag across `text` in a block of Markdown, as a person would select a passage.</summary>
+    public void Select(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var block = window.GetVisualDescendants().OfType<SelectableTextBlock>().First(found => found.Inlines is not null && Written(found).Contains(text, StringComparison.Ordinal));
+        var index = Written(block).IndexOf(text, StringComparison.Ordinal);
+        block.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        var from = block.TranslatePoint(block.TextLayout.HitTestTextPosition(index).TopLeft + new Point(0.5, 6), window)!.Value;
+        var to = block.TranslatePoint(block.TextLayout.HitTestTextPosition(index + text.Length).TopLeft + new Point(0.5, 6), window)!.Value;
+        Drag(from, to);
     }
 
     /// <summary>A press that stays down, for what happens during one.</summary>
@@ -243,7 +299,7 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         window.MouseDown(from, MouseButton.Left);
         for (var step = 1; step <= Steps; step++)
         {
-            window.MouseMove(from + ((to - from) * step / Steps));
+            window.MouseMove(from + ((to - from) * step / Steps), RawInputModifiers.LeftMouseButton);
             Dispatcher.UIThread.RunJobs();
         }
 

@@ -16,6 +16,9 @@
     </NativeMenu.Menu>
 
     <Application.DataTemplates>
+        <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
+        <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
+        <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
         <DataTemplate DataType="vm:CardViewModel"><views:CardView /></DataTemplate>
@@ -53,6 +56,8 @@
                     <SolidColorBrush x:Key="Added" Color="#dcf3e1" />
                     <SolidColorBrush x:Key="Removed" Color="#fbe0de" />
                     <SolidColorBrush x:Key="Caution" Color="#a16207" />
+                    <SolidColorBrush x:Key="Marked" Color="#fbe9a8" />
+                    <SolidColorBrush x:Key="Good" Color="#2f7d4a" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="Ink" Color="#e8e8e5" />
@@ -66,6 +71,8 @@
                     <SolidColorBrush x:Key="Added" Color="#1f3d29" />
                     <SolidColorBrush x:Key="Removed" Color="#4a2523" />
                     <SolidColorBrush x:Key="Caution" Color="#e6b84d" />
+                    <SolidColorBrush x:Key="Marked" Color="#5c4a14" />
+                    <SolidColorBrush x:Key="Good" Color="#6cc58d" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -178,6 +185,15 @@
         </Style>
         <Style Selector="Button.section:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.section.current /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Panel}" />
+        </Style>
+        <Style Selector="Button.flag">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,3" />
+        </Style>
+        <Style Selector="Button.flag /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Flag}" />
+            <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
+            <Setter Property="CornerRadius" Value="10" />
         </Style>
         <Style Selector="Button.chip">
             <Setter Property="FontSize" Value="13" />

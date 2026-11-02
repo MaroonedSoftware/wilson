@@ -11,14 +11,15 @@ public static class ToolRows
 {
     /// <summary>
     /// Newest first: the feed's calls over the fetched events' tail, so a page opened mid-run is not
-    /// empty. Connecting can replay the very event the tail ends on, and the two share no id, so a
-    /// live event matching the tail's newest type at the same instant is dropped.
+    /// empty. The two share no id, and a re-read can catch up with what the feed already delivered, so
+    /// a live event is kept only if it is newer than the tail's newest, or differs from it at that instant.
+    /// The web app's merge drops only the exact match, so it shows a call twice after such a re-read.
     /// </summary>
     public static IReadOnlyList<ToolRow> Merge(IEnumerable<CardEvent> seed, IEnumerable<FeedToolEvent> live)
     {
         var tail = seed.Where(entry => entry.Type.StartsWith("tool.", StringComparison.Ordinal)).ToList();
         var newest = tail.Count > 0 ? tail[^1] : null;
-        var fresh = live.Where(entry => !(newest is not null && entry.Ts == newest.CreatedAt && entry.Type == newest.Type));
+        var fresh = live.Where(entry => newest is null || entry.Ts > newest.CreatedAt || (entry.Ts == newest.CreatedAt && entry.Type != newest.Type));
 
         return
         [

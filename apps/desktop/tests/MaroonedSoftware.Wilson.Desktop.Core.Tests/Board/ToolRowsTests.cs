@@ -4,6 +4,23 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Tests.Board;
 
+public class ToolRowsReReadTests
+{
+    [Fact]
+    public void AReReadThatCaughtUpHidesWhatTheFeedAlreadyDelivered()
+    {
+        var empty = JsonDocument.Parse("{}").RootElement;
+        var at = DateTimeOffset.UnixEpoch;
+        CardEvent Seed(string id, DateTimeOffset when) => new() { Id = id, Type = "tool.executed", Stage = null, Payload = empty, CreatedAt = when };
+
+        var rows = ToolRows.Merge(
+            [Seed("1", at), Seed("2", at.AddSeconds(1))],
+            [new FeedToolEvent(3, "tool.executed", empty, at.AddSeconds(2)), new FeedToolEvent(2, "tool.executed", empty, at.AddSeconds(1)), new FeedToolEvent(1, "tool.executed", empty, at)]);
+
+        Assert.Equal([at.AddSeconds(2), at.AddSeconds(1), at], rows.Select(row => row.At));
+    }
+}
+
 public class ToolRowsTests
 {
     private static readonly DateTimeOffset At = new(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);

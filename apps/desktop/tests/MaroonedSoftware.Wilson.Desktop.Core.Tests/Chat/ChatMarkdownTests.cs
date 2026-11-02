@@ -29,6 +29,35 @@ public class ChatMarkdownTests
     }
 
     [Fact]
+    public void ACardReferenceIsSplitOutOfItsText()
+    {
+        var paragraph = Assert.IsType<MarkdownBlock.Paragraph>(Assert.Single(ChatMarkdown.Parse("See [[0012]] and **[[34]]** too.")));
+
+        Assert.Equal(new MarkdownInline.Text("See "), paragraph.Inlines[0]);
+        Assert.Equal(new MarkdownInline.CardRef("0012"), paragraph.Inlines[1]);
+        Assert.Equal(new MarkdownInline.Text(" and "), paragraph.Inlines[2]);
+        Assert.Equal(new MarkdownInline.CardRef("34"), Assert.Single(Assert.IsType<MarkdownInline.Strong>(paragraph.Inlines[3]).Inlines));
+        Assert.Equal(new MarkdownInline.Text(" too."), paragraph.Inlines[4]);
+    }
+
+    [Fact]
+    public void AReferenceInCodeStaysCode()
+    {
+        var paragraph = Assert.IsType<MarkdownBlock.Paragraph>(Assert.Single(ChatMarkdown.Parse("`[[0012]]`")));
+
+        Assert.Equal(new MarkdownInline.Code("[[0012]]"), Assert.Single(paragraph.Inlines));
+        Assert.IsType<MarkdownBlock.Code>(Assert.Single(ChatMarkdown.Parse("```\n[[0012]]\n```")));
+    }
+
+    [Fact]
+    public void RenderedTextIsWhatAReaderSees_WithNoSeparators() =>
+        Assert.Equal("TitleOne bold\nlineItem aItem bQuotedcodesee [[0012]]", ChatMarkdown.RenderedText("# Title\n\nOne **bold**\nline\n\n- Item a\n- Item b\n\n> Quoted\n\n```\ncode\n```\n\nsee [[0012]]"));
+
+    [Fact]
+    public void ANonNumericReferenceStaysText() =>
+        Assert.Equal(new MarkdownInline.Text("[[abc]]"), Assert.Single(Assert.IsType<MarkdownBlock.Paragraph>(Assert.Single(ChatMarkdown.Parse("[[abc]]"))).Inlines));
+
+    [Fact]
     public void WhatItDoesNotKnowStaysAsItsSource()
     {
         var blocks = ChatMarkdown.Parse("a\n\n---\n\nb");

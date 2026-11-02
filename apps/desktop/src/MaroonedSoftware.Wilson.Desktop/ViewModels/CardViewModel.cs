@@ -13,13 +13,37 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 /// <summary>One line of a card's activity.</summary>
-public sealed record EventLine(string When, string What);
+public sealed record EventLine(string When, string What, string? Stage, string? Detail);
+
+/// <summary>An acceptance criterion, and what the latest review said of it.</summary>
+public sealed record CriterionLine(string Id, string Text, string? Status);
+
+/// <summary>One run of a stage, as drawn.</summary>
+public sealed record AttemptLine(string Stage, string Outcome, string When, string Tally, IReadOnlyList<string> Failures, string? FinalMessage, string? Reads);
+
+/// <summary>One row of the usage table.</summary>
+public sealed record UsageLine(string Stage, string Attempts, string Input, string Output, bool Total);
+
+/// <summary>One of the card's versions.</summary>
+public sealed record VersionLine(string Message, string When);
+
+/// <summary>A comment on a line, held here until the whole batch is sent.</summary>
+public sealed record FindingLine(HumanFinding Finding, string Severity, string Where, CardViewModel Page);
+
+/// <summary>A context snapshot's manifest. Its content is for the planning agent, and is not drawn.</summary>
+public sealed record ContextLine(string Id, string? Title, string Source, string Fetched, CardViewModel Page);
+
+/// <summary>A card this one depends on.</summary>
+public sealed record DependencyLine(string Id, CardViewModel Page);
+
+/// <summary>A card split out of this one. It carries the page because the list's own context is the row.</summary>
+public sealed record PieceLine(string Id, string Stage, string Title, CardViewModel Page);
 
 /// <summary>One tool call, as drawn.</summary>
 public sealed record ToolLine(string Tool, string Label, string When);
 
 /// <summary>One line of a diff, as drawn.</summary>
-public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk)
+public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, bool IsRemoved, bool IsHunk, int? NewNumber)
 {
     public static DiffRow Of(PatchLine line)
     {
@@ -31,7 +55,8 @@ public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, 
             line.Text,
             line.Kind == PatchLineKind.Added,
             line.Kind == PatchLineKind.Removed,
-            line.Kind is PatchLineKind.Hunk or PatchLineKind.Note);
+            line.Kind is PatchLineKind.Hunk or PatchLineKind.Note,
+            Patch.Commentable(line) ? line.NewNumber : null);
     }
 }
 
@@ -41,7 +66,7 @@ public sealed record DiffRow(string Old, string New, string Text, bool IsAdded, 
 /// </summary>
 public sealed partial class CardViewModel(ShellViewModel shell, string project, string id) : PageViewModel, IFollowsFeed
 {
-    private const long EventLimit = 100;
+    private const long HistoryLimit = 100;
     private const int DiffTab = 2;
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan Clock = TimeSpan.FromSeconds(10);
@@ -53,6 +78,24 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private Func<Task>? _confirmed;
 
     public ObservableCollection<EventLine> Events { get; } = [];
+
+    public ObservableCollection<string> Scope { get; } = [];
+
+    public ObservableCollection<CriterionLine> Criteria { get; } = [];
+
+    public ObservableCollection<AttemptLine> Attempts { get; } = [];
+
+    public ObservableCollection<UsageLine> UsageRows { get; } = [];
+
+    public ObservableCollection<VersionLine> Versions { get; } = [];
+
+    public ObservableCollection<PieceLine> Pieces { get; } = [];
+
+    public ObservableCollection<ContextLine> Context { get; } = [];
+
+    public ObservableCollection<FindingLine> Findings { get; } = [];
+
+    public ObservableCollection<DependencyLine> Dependencies { get; } = [];
 
     public ObservableCollection<ToolLine> Tools { get; } = [];
 
@@ -66,6 +109,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public string Id => id;
 
+    public string Project => project;
+
     [ObservableProperty]
     private int _selectedTab;
 
@@ -76,7 +121,11 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _diffNote;
 
     [ObservableProperty]
+    private string? _fileNote;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
+    [NotifyPropertyChangedFor(nameof(SplitFrom))]
     private CardDetail? _card;
 
     [ObservableProperty]
@@ -86,7 +135,48 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _toolsNote = "No tool calls yet.";
 
     [ObservableProperty]
-    private string? _usage;
+    [NotifyPropertyChangedFor(nameof(Composing))]
+    private DiffRow? _selectedRow;
+
+    [ObservableProperty]
+    private bool _concern;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddFindingCommand))]
+    private string? _problem;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddFindingCommand))]
+    private string? _suggestion;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AttachContextCommand))]
+    private string? _contextUrl;
+
+    [ObservableProperty]
+    private string? _contextNote;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddDependencyCommand))]
+    private string? _newDependency;
+
+    [ObservableProperty]
+    private string? _usageNote;
+
+    [ObservableProperty]
+    private string? _eventsNote;
+
+    [ObservableProperty]
+    private string? _versionsNote;
+
+    [ObservableProperty]
+    private string? _attemptsNote;
+
+    [ObservableProperty]
+    private string? _ranOn;
+
+    [ObservableProperty]
+    private bool _hasSplit;
 
     [ObservableProperty]
     private string? _flagReason;
@@ -108,6 +198,14 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _confirming;
 
     public bool Idle => Acting is null;
+
+    public string? SplitFrom => Card?.SplitFrom;
+
+    public bool Composing => SelectedRow?.NewNumber is not null;
+
+    public string ComposingOn => SelectedRow?.NewNumber is { } line ? $"{SelectedFile?.Path}:{line}" : string.Empty;
+
+    public string SubmitFindingsLabel => Findings.Count == 1 ? "Submit 1 comment" : $"Submit {Findings.Count} comments";
 
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
@@ -157,6 +255,107 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
 
+    /// <summary>A card linked from this one, in this project.</summary>
+    [RelayCommand]
+    public void OpenCard(string other)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(other);
+
+        shell.Push(new CardViewModel(shell, project, other));
+    }
+
+    private bool CanAddFinding => !string.IsNullOrWhiteSpace(Problem) && !string.IsNullOrWhiteSpace(Suggestion);
+
+    private bool CanAttach => !string.IsNullOrWhiteSpace(ContextUrl);
+
+    private bool CanAddDependency => !string.IsNullOrWhiteSpace(NewDependency);
+
+    [RelayCommand(CanExecute = nameof(CanAddFinding))]
+    public void AddFinding()
+    {
+        if (SelectedFile is not { } file || SelectedRow?.NewNumber is not { } line)
+        {
+            return;
+        }
+
+        var severity = Concern ? HumanFindingSeverity.Concern : HumanFindingSeverity.Blocker;
+        var finding = new HumanFinding { File = file.Path, Line = line, Severity = severity, Problem = Problem!.Trim(), Suggestion = Suggestion!.Trim() };
+        Findings.Add(new FindingLine(finding, Concern ? "concern" : "blocker", $"{file.Path}:{line}", this));
+        CancelFinding();
+        OnPropertyChanged(nameof(SubmitFindingsLabel));
+    }
+
+    [RelayCommand]
+    public void CancelFinding()
+    {
+        SelectedRow = null;
+        Problem = null;
+        Suggestion = null;
+        Concern = false;
+    }
+
+    [RelayCommand]
+    public void RemoveFinding(FindingLine finding)
+    {
+        Findings.Remove(finding);
+        OnPropertyChanged(nameof(SubmitFindingsLabel));
+    }
+
+    /// <summary>One request for the batch, as the server moves the card once. A refusal keeps every comment.</summary>
+    [RelayCommand]
+    public async Task SubmitFindingsAsync()
+    {
+        var findings = new RecordFindingsRequest { Findings = [.. Findings.Select(finding => finding.Finding)] };
+        var count = findings.Findings.Count;
+        if (await ActAsync(count == 1 ? "Comment sent." : $"{count} comments sent.", token => _sdk.Board.RecordFindingsAsync(id, findings, token)))
+        {
+            Findings.Clear();
+            OnPropertyChanged(nameof(SubmitFindingsLabel));
+        }
+    }
+
+    /// <summary>A refusal leaves the address in the box, to fix and send again.</summary>
+    [RelayCommand(CanExecute = nameof(CanAttach))]
+    public async Task AttachContextAsync()
+    {
+        var url = ContextUrl!.Trim();
+        if (await ActAsync("Context attached.", token => _sdk.Context.AttachContextToACardAsync(id, new AttachContextRequest { SourceUrl = url }, token)))
+        {
+            ContextUrl = null;
+        }
+    }
+
+    [RelayCommand]
+    public void AskRemoveContext(ContextLine snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        Confirming = $"Remove the snapshot fetched from {snapshot.Source}? It can be attached again, which fetches it again.";
+        _confirmed = () => ActAsync("Snapshot removed.", async token =>
+        {
+            await _sdk.Context.RemoveAContextSnapshotAsync(id, snapshot.Id, token);
+            return true;
+        });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAddDependency))]
+    public async Task AddDependencyAsync()
+    {
+        var other = NewDependency!.Trim();
+        if (await ActAsync($"Depends on {other}.", token => _sdk.Board.SetCardDependencyAsync(id, new DependCardRequest { DependsOnId = other }, token)))
+        {
+            NewDependency = null;
+        }
+    }
+
+    [RelayCommand]
+    public Task RemoveDependencyAsync(DependencyLine dependency)
+    {
+        ArgumentNullException.ThrowIfNull(dependency);
+
+        return ActAsync($"No longer depends on {dependency.Id}.", token => _sdk.Board.SetCardDependencyAsync(id, new DependCardRequest { DependsOnId = dependency.Id, Remove = true }, token));
+    }
+
     [RelayCommand]
     public void OpenPlan() => shell.Push(new PlanViewModel(shell, project, id));
 
@@ -199,7 +398,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         {
             DiffRows.Add(DiffRow.Of(line));
         }
+
+        FileNote = value switch
+        {
+            null => null,
+            { Truncated: true } => "This file's diff is too large to show here.",
+            _ when DiffRows.Count == 0 => "No text hunks to show (binary content, or no changes to this file's text).",
+            _ => null,
+        };
     }
+
+    partial void OnSelectedRowChanged(DiffRow? value) => OnPropertyChanged(nameof(ComposingOn));
 
     private async Task LoadDiffAsync()
     {
@@ -292,16 +501,10 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         try
         {
             var card = await _sdk.Board.GetCardAsync(id, cancellationToken);
-            var events = await _sdk.Board.ListCardEventsAsync(id, new ListQuery { Limit = EventLimit }, cancellationToken);
+            var events = await _sdk.Board.ListCardEventsAsync(id, new ListQuery { Limit = HistoryLimit }, cancellationToken);
             Card = card;
             FlagReason = card.NeedsHuman ? card.NeedsHumanReason ?? "This card is flagged for a human." : null;
-            Events.Clear();
-            foreach (var entry in events)
-            {
-                var when = entry.CreatedAt.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture);
-                Events.Add(new EventLine(when, entry.Stage is null ? entry.Type : $"{entry.Type} ({entry.Stage})"));
-            }
-
+            Draw(card, events);
             _seed = events;
             DrawTools();
             Error = null;
@@ -312,15 +515,112 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
             return;
         }
 
+        await LoadContextAsync(cancellationToken);
+        await LoadVersionsAsync(cancellationToken);
+        await LoadUsageAsync(cancellationToken);
+    }
+
+    private void Draw(CardDetail card, List<CardEvent> events)
+    {
+        Reset(Scope, CardSections.FilesInScope(card.Sections.GetValueOrDefault(CardSections.FilesInScopeKey)));
+
+        var statuses = CardSections.ReviewStatuses(events);
+        Reset(Criteria, CardSections.AcceptanceCriteria(card.Sections.GetValueOrDefault(CardSections.AcceptanceCriteriaKey))
+            .Select(criterion => new CriterionLine(criterion.Id, criterion.Text, statuses.GetValueOrDefault(criterion.Id))));
+
+        Reset(Dependencies, card.DependsOn.Select(other => new DependencyLine(other, this)));
+        RanOn = CardSections.LastStageHost(events) is { } host ? $"ran on {host}" : null;
+        Reset(Pieces, (card.Pieces ?? []).Select(piece => new PieceLine(piece.Id, piece.Stage, piece.Title, this)));
+        HasSplit = card.SplitFrom is not null || Pieces.Count > 0;
+
+        var attempts = CardAttempts.Group(events);
+        Reset(Attempts, attempts.Select(attempt => new AttemptLine(
+            attempt.Stage,
+            attempt.Outcome,
+            When(attempt.StartedAt),
+            attempt.Tally,
+            attempt.Failures,
+            attempt.FinalMessage,
+            attempt.ReadPaths.Count > 0 ? string.Join("  ", attempt.ReadPaths) : null)));
+        AttemptsNote = attempts.Count == 0 ? "No attempts yet." : null;
+
+        // The API returns its tail oldest first, and someone chasing a stuck card starts at the end of it.
+        Reset(Events, Enumerable.Reverse(events).Select(entry => new EventLine(When(entry.CreatedAt), entry.Type, entry.Stage, CardSections.EventDetail(entry))));
+        EventsNote = events.Count == 0 ? "No events yet."
+            : events.Count >= HistoryLimit ? $"Showing the most recent {HistoryLimit} events. More may exist."
+            : null;
+    }
+
+    private async Task LoadContextAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshots = await _sdk.Context.ListCardContextAsync(id, cancellationToken);
+            Reset(Context, snapshots.Select(snapshot => new ContextLine(snapshot.Id, snapshot.Title, snapshot.SourceUrl, $"Fetched {When(snapshot.FetchedAt)} by {snapshot.FetchedBy}", this)));
+            ContextNote = snapshots.Count == 0 ? "Nothing attached." : null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Context.Clear();
+            ContextNote = $"Could not load context: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private async Task LoadVersionsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var versions = await _sdk.Board.ListCardVersionsAsync(id, new ListQuery { Limit = HistoryLimit }, cancellationToken);
+            Reset(Versions, versions.Select(version => new VersionLine(version.Message, When(version.CreatedAt))));
+            VersionsNote = versions.Count == 0 ? "No versions yet."
+                : versions.Count >= HistoryLimit ? $"Showing the most recent {HistoryLimit} versions. More may exist."
+                : null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Versions.Clear();
+            VersionsNote = $"Could not load versions: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private async Task LoadUsageAsync(CancellationToken cancellationToken)
+    {
         try
         {
             var usage = await _sdk.Board.GetCardUsageAsync(id, cancellationToken);
-            Usage = string.Create(CultureInfo.CurrentCulture, $"{usage.Total.Attempts:N0} attempts, {usage.Total.InputTokens:N0} tokens in, {usage.Total.OutputTokens:N0} out");
+            UsageRows.Clear();
+            if (usage.Stages.Count == 0)
+            {
+                UsageNote = "No usage recorded yet.";
+                return;
+            }
+
+            UsageNote = null;
+            foreach (var stage in usage.Stages)
+            {
+                UsageRows.Add(Row(stage.Stage, stage.Attempts, stage.InputTokens, stage.OutputTokens, false));
+            }
+
+            UsageRows.Add(Row("Total", usage.Total.Attempts, usage.Total.InputTokens, usage.Total.OutputTokens, true));
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException failure)
         {
-            // Usage is a footnote, and a card without it is still a card.
-            Usage = null;
+            UsageRows.Clear();
+            UsageNote = $"Could not load usage: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private static UsageLine Row(string stage, long attempts, long input, long output, bool total) =>
+        new(stage, attempts.ToString(CultureInfo.CurrentCulture), input.ToString("N0", CultureInfo.CurrentCulture), output.ToString("N0", CultureInfo.CurrentCulture), total);
+
+    private static string When(DateTimeOffset at) => at.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture);
+
+    private static void Reset<T>(ObservableCollection<T> rows, IEnumerable<T> items)
+    {
+        rows.Clear();
+        foreach (var item in items)
+        {
+            rows.Add(item);
         }
     }
 
@@ -340,15 +640,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         }
     }
 
-    private async Task ActAsync<T>(string done, Func<CancellationToken, Task<T>> action)
+    private async Task<bool> ActAsync<T>(string done, Func<CancellationToken, Task<T>> action)
     {
         Acting = done;
         Notice = null;
         string note;
+        var acted = false;
         try
         {
             await action(CancellationToken.None);
             note = done;
+            acted = true;
         }
         catch (HttpRequestException failure)
         {
@@ -358,6 +660,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         await LoadAsync(CancellationToken.None);
         Acting = null;
         Notice = note;
+        return acted;
     }
 
     private async Task MergeAsync()

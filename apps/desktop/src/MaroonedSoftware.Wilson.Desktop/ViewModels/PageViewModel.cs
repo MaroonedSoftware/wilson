@@ -9,6 +9,9 @@ public interface IFollowsFeed
 {
     bool Live { get; }
 
+    /// <summary>The project this page is about, for the header's link to its activity.</summary>
+    string? Project { get; }
+
     IAsyncRelayCommand RefreshCommand { get; }
 }
 

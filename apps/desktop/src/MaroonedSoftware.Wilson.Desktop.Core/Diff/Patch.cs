@@ -69,6 +69,17 @@ public static partial class Patch
         return lines;
     }
 
+    /// <summary>
+    /// Whether a comment can cite this line. Only one that exists in the new file can: a removed line
+    /// has nothing left for a `file:line` to name.
+    /// </summary>
+    public static bool Commentable(PatchLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        return line.NewNumber is not null;
+    }
+
     [GeneratedRegex(@"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")]
     private static partial Regex Hunk();
 }
