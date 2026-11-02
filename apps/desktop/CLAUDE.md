@@ -190,10 +190,6 @@ while draining and every minute otherwise, from sign-in on, for the header's bad
 `EngineTokenControl` and `WorkerTokensControl` are write-only: the API gives back where a sign-in comes from
 and names, never a token, so nothing here can show one. `ChatEngineControl` is a draft and a Save.
 
-The API answers 500 to a null on notify-webhook, the Claude config directory and the GitHub App, in the web
-app too, as `SettingsStore.set` hands undefined to the query. So those cannot be cleared from either client
-yet. The engine token can: it has its own path.
-
 ## Feed activity
 
 `CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
