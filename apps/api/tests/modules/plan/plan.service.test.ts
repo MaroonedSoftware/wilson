@@ -1344,12 +1344,16 @@ describe('PlanService', () => {
                 const first = await service.turn(id, { text: 'first message' });
 
                 const contextRepo = new CardContextRepository(config, db);
-                const snapshot = await contextRepo.attach(id, 'https://example.com/tie', DateTime.now(), 'human', undefined, 'attached in the same tick', 'hash-tie');
-                await db
-                    .updateTable('wilson.cardContext')
-                    .set({ createdAt: first.createdAt })
-                    .where('id', '=', BigInt(snapshot.id))
-                    .execute();
+                const snapshot = await contextRepo.attach(
+                    id,
+                    'https://example.com/tie',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'attached in the same tick',
+                    'hash-tie',
+                );
+                await db.updateTable('wilson.cardContext').set({ createdAt: first.createdAt }).where('id', '=', BigInt(snapshot.id)).execute();
 
                 const second = await service.turn(id, { text: 'second message' });
                 expect(second.content).toContain('attached in the same tick');
@@ -1369,7 +1373,15 @@ describe('PlanService', () => {
                 const first = await service.turn(id, { text: 'first message' });
 
                 const contextRepo = new CardContextRepository(config, db);
-                const snapshot = await contextRepo.attach(id, 'https://example.com/during', DateTime.now(), 'human', undefined, 'attached mid-answer', 'hash-during');
+                const snapshot = await contextRepo.attach(
+                    id,
+                    'https://example.com/during',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'attached mid-answer',
+                    'hash-during',
+                );
                 await db
                     .updateTable('wilson.cardContext')
                     .set({ createdAt: first.createdAt.minus({ seconds: 1 }) })
@@ -1392,7 +1404,15 @@ describe('PlanService', () => {
             try {
                 await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
                 const contextRepo = new CardContextRepository(config, db);
-                const removed = await contextRepo.attach(id, 'https://example.com/gone', DateTime.now(), 'human', undefined, 'the wrong document', 'hash-gone');
+                const removed = await contextRepo.attach(
+                    id,
+                    'https://example.com/gone',
+                    DateTime.now(),
+                    'human',
+                    undefined,
+                    'the wrong document',
+                    'hash-gone',
+                );
                 await service.turn(id, { text: 'first message' });
                 await contextRepo.remove(id, removed.id);
 
