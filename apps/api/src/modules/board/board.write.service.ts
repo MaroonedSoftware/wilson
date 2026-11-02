@@ -16,6 +16,7 @@ import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
 import { describeFailingTest, redRunDetail } from '#modules/stages/testing.verifier.js';
 import { parseTestReport } from '#modules/stages/test.report.js';
+import { archiveTestReport } from '#modules/stages/test.report.archive.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
@@ -890,12 +891,14 @@ export class BoardWriteService {
         run: CommandFailure,
     ): Promise<{ ok: true } | { ok: false; reason: string }> {
         const report = await this.readTestReport(worktreePath, stage.testReportPath);
+        // Before anything else: `proveMerge` deletes this worktree, report and all, however this ends.
+        const archived = await this.archiveTestReport(id, worktreePath, stage.testReportPath);
         const failing = report?.failing ?? [];
-        if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: redRunDetail(report, run) };
+        if (failing.length === 0 || !stage.testCommand) return { ok: false, reason: redRunDetail(report, run, archived) };
 
         const files = [...new Set(failing.map(test => test.file))];
         const rerun = await runConfiguredCommand(worktreePath, `${stage.testCommand} ${files.join(' ')}`);
-        if (rerun) return { ok: false, reason: redRunDetail(report, run) };
+        if (rerun) return { ok: false, reason: redRunDetail(report, run, archived) };
 
         await this.eventLog.append({
             project: this.boardConfig.project,
@@ -918,6 +921,18 @@ export class BoardWriteService {
      * `judgeFailedMergeSuite` already has the real failure to fall back to (`run.reason`) when that
      * happens.
      */
+    /** Best effort, as `TestingVerifier.archiveReport` is: a refused merge stays refused either way. */
+    private async archiveTestReport(id: string, worktreePath: string, testReportPath: string | undefined): Promise<string | undefined> {
+        if (!testReportPath) return undefined;
+        try {
+            const raw = await readFile(join(worktreePath, testReportPath), 'utf8');
+            return await archiveTestReport(this.boardConfig.runRoot, id, 'merge-check', raw);
+        } catch (err) {
+            this.logger.warn(`could not archive ${id}'s merge-check report: ${(err as Error).message}`);
+            return undefined;
+        }
+    }
+
     private async readTestReport(worktreePath: string, testReportPath: string | undefined) {
         if (!testReportPath) return undefined;
         const raw = await readFile(join(worktreePath, testReportPath), 'utf8').catch(() => undefined);

@@ -392,6 +392,28 @@ describe('redSuiteFailure', () => {
     });
 });
 
+describe('redSuiteFailure with an archived report', () => {
+    const run: CommandFailure = { reason: 'pnpm test failed (exit 1)' };
+
+    it('says where the full report went, under the named tests and above the command output', () => {
+        const message = redSuiteFailure(
+            { total: 1, passed: 0, failed: 1, skipped: 0, failing: [{ file: 'thing.test.ts', name: 'breaks' }] },
+            run,
+            '/run/cards/0007/test-reports/a.json',
+        );
+
+        expect(message.split('\n')).toEqual([
+            'the suite is not green: 1 failing: thing.test.ts > breaks',
+            'full report: /run/cards/0007/test-reports/a.json',
+            'pnpm test failed (exit 1)',
+        ]);
+    });
+
+    it('says so when the report names no tests either', () => {
+        expect(redSuiteFailure(undefined, run, '/a.json')).toBe('the suite is not green: full report: /a.json\npnpm test failed (exit 1)');
+    });
+});
+
 describe('baselineProvesChange', () => {
     // The case that matters, measured rather than assumed: a new test that cannot import the
     // code it tests makes vitest exit 1 *and* write a parseable report saying numFailedTests: 0,
@@ -758,6 +780,11 @@ describe('TestingVerifier — red-suite failure names failing tests (card 0246)'
         const [firstLine, ...rest] = (redSuite as string).split('\n');
         expect(firstLine).toBe('the suite is not green: 1 failing: tests/thing.test.ts > thing does the correct thing');
         expect(rest.join('\n')).toMatch(/failed \(exit 1\)/);
+
+        // The worktree does not outlast the stage, so the failure points at a copy that does.
+        const archivedAt = rest[0]!.replace('full report: ', '');
+        expect(archivedAt.startsWith(join(base, 'run', 'cards', '0001', 'test-reports'))).toBe(true);
+        expect(JSON.parse(await readFile(archivedAt, 'utf8'))).toEqual(report);
     });
 });
 
