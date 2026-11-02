@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
+import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
@@ -14,6 +15,7 @@ import { recordDeferral } from './dispatch.deferred.js';
 import { classifyDispatchFailure, type SettledDispatch } from './dispatch.outcome.js';
 import { flagRebaseConflict } from './flag.rebase.conflict.js';
 import { poisonCard } from './poison.card.js';
+import { DRAIN_HOLD } from './predispatch/hold.while.draining.js';
 import { PRE_DISPATCH_CHECKS } from './predispatch/index.js';
 import { RunningCards } from './running.cards.js';
 
@@ -87,6 +89,8 @@ export class CardStageJob extends Job<CardStagePayload> {
         try {
             outcome = await this.dispatcher.run(cardId, stageName);
         } catch (error) {
+            if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName);
+
             const failure = classifyDispatchFailure(error);
             // The only outcome that does not settle: rethrown so the queue retries under its policy.
             if (failure.kind === 'retry') throw error;
@@ -173,6 +177,18 @@ export class CardStageJob extends Job<CardStagePayload> {
                 await this.notifyManualGate(cardId, outcome.transitionedTo);
             }
         }
+    }
+
+    /**
+     * Send an interrupted stage again and complete this job, which is what keeps a planned restart
+     * from spending a retry; a daemon that dies outright still spends one, through the boot sweep.
+     * `DRAIN_HOLD` keeps this process from picking the job up on its way out, and the claim moves so
+     * the card stays in flight throughout. A failed `send` is left to throw, as in `holdWhileDraining`:
+     * returning would complete this job with nothing left carrying the card.
+     */
+    private async requeueInterrupted(cardId: string, stageName: string): Promise<void> {
+        const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.board.project }, { startAfter: DRAIN_HOLD });
+        await this.cardJobs.record(cardId, jobId);
     }
 
     /**

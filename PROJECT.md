@@ -305,8 +305,16 @@ root can reach past it. The boundary is the machine, which is why a worker belon
 
 A dropped connection fails whatever was waiting on it as a lost host, which the queue retries, and
 the worker kills every process the dropped connection started before it reconnects. A daemon restart
-still abandons the stages running at the time, since the agent loop lives in the daemon. Moving the
+still ends the stages running at the time, since the agent loop lives in the daemon. Moving the
 loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
+
+**A clean shutdown interrupts a stage rather than failing it.** On shutdown `StageInterrupt` stops
+each `cli` engine, the card records `stage.interrupted`, and the handler sends the stage again and
+completes, the same way `holdWhileDraining` does, so no retry is spent. This happens before workers
+are disconnected and inside pg-boss's stop window. A stage that has already reported is left to
+finish. Anything that does not get this far (a crash, a kill, a command stage, an `api` stage) is
+left to the boot sweep, which does spend a retry, so a stage that keeps killing the daemon still
+dead-letters. The stage restarts from scratch: resuming its worktree and session comes later.
 
 **Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage

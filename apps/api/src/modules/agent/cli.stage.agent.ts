@@ -20,6 +20,7 @@ import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
+import { StageInterrupt } from './stage.interrupt.js';
 import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
@@ -230,11 +231,13 @@ export class CliStageAgent extends StageAgent {
     // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
     // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
     // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
-    // `engineTokens` is optional for the same reason: none means no saved token.
+    // `engineTokens` is optional for the same reason: none means no saved token. So is `interrupts`:
+    // none means nothing can interrupt the run.
     constructor(
         private readonly logger: Logger,
         private readonly settings?: SettingsStore,
         private readonly engineTokens?: EngineTokenSettingService,
+        private readonly interrupts?: StageInterrupt,
     ) {
         super();
     }
@@ -401,7 +404,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
@@ -630,6 +633,17 @@ export class CliStageAgent extends StageAgent {
         // itself (`checkContext` above), so the first beat has to follow the assignment above it.
         beat();
 
+        // A stage that has already reported is left to finish: its work is done, and stopping it here
+        // would throw that away for the sake of a restart.
+        const interrupt = (): void => {
+            if (reported !== undefined) return;
+            stoppedBecause ??= 'interrupted';
+            abortController.abort();
+            stop();
+        };
+        if (this.interrupts?.signal.aborted) interrupt();
+        this.interrupts?.signal.addEventListener('abort', interrupt, { once: true });
+
         let summary = '';
         let usage: AgentRunOutput['usage'];
         // Input tokens per API message, by id: the engine emits one assistant message per content
@@ -647,6 +661,7 @@ export class CliStageAgent extends StageAgent {
         const traceField = (): { trace: RunTrace } => ({ trace: buildRunTrace(reads, summary || undefined) });
 
         const droppedField = (): { resultDropped?: boolean } => (reported === undefined && reportToolSeen ? { resultDropped: true } : {});
+        const interruptedOutput = (): AgentRunOutput => ({ usage, truncated: true, interrupted: true, ...traceField() });
 
         // The session last written to the event log, so one is recorded once rather than per message.
         let engineSessionId: string | undefined;
@@ -658,6 +673,7 @@ export class CliStageAgent extends StageAgent {
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
+                    if (stoppedBecause === 'interrupted') return interruptedOutput();
                     // No `engineStopReason` here, deliberately: the SDK has said nothing at all yet —
                     // this fires because *our own* wall-clock, idle or context guard ran out before a
                     // `result` message ever arrived, not because the SDK reported an ending.
@@ -879,6 +895,8 @@ export class CliStageAgent extends StageAgent {
                     ...traceField(),
                 };
             }
+            // As with the context guard below, the abort itself can be what unblocks the read.
+            if (stoppedBecause === 'interrupted') return interruptedOutput();
             if (stoppedBecause === 'wall-clock') {
                 this.logger.warn(`cli stage aborted after ${stage.maxWallClockMs}ms wall clock`);
                 return {
@@ -993,6 +1011,7 @@ export class CliStageAgent extends StageAgent {
 
             clearTimeout(wallClock);
             clearTimeout(idle);
+            this.interrupts?.signal.removeEventListener('abort', interrupt);
             // Every exit from this method abandons the stream, including the successful one. Abort so
             // the engine is torn down explicitly rather than left to whatever cleanup breaking out of
             // a `for await` happens to trigger — that assumption is what leaves orphaned processes

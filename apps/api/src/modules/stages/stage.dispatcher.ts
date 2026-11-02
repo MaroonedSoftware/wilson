@@ -12,6 +12,7 @@ import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
+import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
@@ -653,6 +654,16 @@ export class StageDispatcher {
                 },
             });
         } catch (err) {
+            if (err instanceof StageInterruptedError) {
+                await this.events.append({
+                    project: this.config.project,
+                    cardId,
+                    stage: stageName,
+                    type: 'stage.interrupted',
+                    payload: { usage: err.usage },
+                });
+                throw err;
+            }
             const reason = err instanceof ScopeKickbackError ? err.message : (err as Error).message;
             const patchPath = this.worktrees.failedAttemptPatchPath(cardId);
             this.logger.warn(
@@ -1190,6 +1201,7 @@ export class StageDispatcher {
             resultSchema,
             baseSha: worktree.baseSha,
         });
+        if (run.interrupted) throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage);
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);
         if (!verifier) {

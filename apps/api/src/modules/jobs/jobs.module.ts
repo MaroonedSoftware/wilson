@@ -7,6 +7,7 @@ import { JobBroker, JobRunner, registerJobContext, type JobQueuePolicy, type Job
 import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
 import { PgBoss } from 'pg-boss';
 import { Duration } from 'luxon';
+import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { configNumber, requireConfigString } from '#shared/require.config.js';
 import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
@@ -311,6 +312,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         private readonly logger: Logger,
         private readonly pgboss: PgBoss,
         private readonly events: EventLog,
+        private readonly interrupts: StageInterrupt = new StageInterrupt(),
     ) {
         super();
     }
@@ -351,6 +353,9 @@ export class BoundedCardStageJobRunner extends JobRunner {
         // point of that report is to be the truth about in-flight work at the moment it is
         // written (card 0066), not a snapshot something else keeps changing underneath it.
         await this.poller.stop();
+        // Before `inner.stop()`, whose window is what gives an interrupted stage time to send itself
+        // again while pg-boss's connection is still open.
+        this.interrupts.interrupt();
         const report = await stopCardStageJobs(this.inner, this.running, this.cardJobs);
         if (report.abandoned.length > 0 || report.unconfirmed.length > 0) {
             throw new AbandonedCardJobsError(report.abandoned, report.unconfirmed);
@@ -598,6 +603,7 @@ export const JobsModule: ServerKitModule = {
                     container.get(Logger),
                     container.get(PgBoss),
                     container.get(EventLog),
+                    container.get(StageInterrupt),
                 );
             })
             .asSingleton();

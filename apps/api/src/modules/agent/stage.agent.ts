@@ -58,6 +58,8 @@ export interface AgentRunOutput {
      * (card 0092: out of scope).
      */
     resultDropped?: boolean;
+    /** True when the run was stopped by `StageInterrupt`, which says nothing about the stage itself. */
+    interrupted?: boolean;
     /**
      * The engine's own account of why its last message ended, when it said anything at all — the
      * SDK `result` message's `subtype` and `stop_reason` (card 0118). Only `cli.stage.agent.ts` can

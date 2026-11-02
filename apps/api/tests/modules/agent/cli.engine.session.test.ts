@@ -17,6 +17,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
+const { StageInterrupt } = await import('#modules/agent/stage.interrupt.js');
+type StageInterrupt = InstanceType<typeof StageInterrupt>;
 const { z } = await import('zod');
 
 const silentLogger = { info: () => {}, warn: vi.fn(), error: () => {}, debug: () => {} };
@@ -43,8 +45,8 @@ const stage = {
     maxKickbacks: 3,
 };
 
-const run = (append: (event: { type: string; payload?: unknown }) => Promise<void>) =>
-    new CliStageAgent(silentLogger as never).run({
+const run = (append: (event: { type: string; payload?: unknown }) => Promise<void>, interrupts?: StageInterrupt) =>
+    new CliStageAgent(silentLogger as never, undefined, undefined, interrupts).run({
         stage,
         context: {
             project: 'test',
@@ -110,6 +112,37 @@ describe('CliStageAgent engine session', () => {
         await run(append);
 
         expect(sessionsRecorded(append)).toEqual([]);
+    });
+
+    /** An engine that keeps working, and calls `onFirst` once it has said something. */
+    const parkedStream = (onFirst: () => void) => ({
+        async *[Symbol.asyncIterator]() {
+            yield assistant('session-1');
+            onFirst();
+            await new Promise(() => {});
+        },
+    });
+
+    it('stops a running engine and says it was interrupted, not failed', async () => {
+        const interrupts = new StageInterrupt();
+        queryMock.mockReturnValue(parkedStream(() => interrupts.interrupt()));
+
+        const output = await run(vi.fn(async () => {}), interrupts);
+
+        expect(output).toMatchObject({ interrupted: true, truncated: true });
+        expect(output.budgetFailure).toBeUndefined();
+        expect(output.engineFailure).toBeUndefined();
+        expect(output.result).toBeUndefined();
+    });
+
+    it('interrupts a run that starts after shutdown has begun', async () => {
+        const interrupts = new StageInterrupt();
+        interrupts.interrupt();
+        queryMock.mockReturnValue(parkedStream(() => {}));
+
+        const output = await run(vi.fn(async () => {}), interrupts);
+
+        expect(output.interrupted).toBe(true);
     });
 
     it('keeps running when the session cannot be recorded', async () => {

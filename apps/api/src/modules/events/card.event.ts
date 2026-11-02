@@ -17,6 +17,9 @@ export type CardEventType =
     // adapter first sees it and again if the engine moves to a new one, so the latest of these after
     // a `stage.dispatched` is what that attempt could resume from.
     | 'stage.engine-session'
+    // Carries `usage`: a daemon shutdown stopped the stage, which says nothing about the card, so
+    // this is neither a pass nor a failure. The stage is sent again without spending a retry.
+    | 'stage.interrupted'
     | 'stage.passed'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
     // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's

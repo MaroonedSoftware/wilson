@@ -5,10 +5,12 @@ import { ApiStageAgent } from './api.stage.agent.js';
 import { CliStageAgent } from './cli.stage.agent.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgentMap } from './stage.agent.js';
+import { StageInterrupt } from './stage.interrupt.js';
 
 export const AgentModule: ServerKitModule = {
     name: 'Agent',
     setup: async (registry: Registry, _: AppConfig) => {
+        registry.register(StageInterrupt).useClass(StageInterrupt).asSingleton();
         registry.register(ModelRegistry).useClass(ModelRegistry).asTransient();
         registry.register(ApiStageAgent).useClass(ApiStageAgent).asTransient();
         registry.register(CliStageAgent).useClass(CliStageAgent).asTransient();
