@@ -7,7 +7,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { BoardRepository, CardVersionSummary } from '#modules/board/board.repository.js';
 import type { EventLog, CardEventRow } from '#modules/events/event.log.js';
-import type { Card } from '#modules/board/card.js';
+import { sectionsOf, withSection, type Card } from '#modules/board/card.js';
 
 const config = new StaticBoardConfig('proj', '/tmp/code', '/tmp/wt', '/tmp/run');
 
@@ -75,7 +75,20 @@ describe('BoardService', () => {
                 differsFromPin: false,
                 criteria: [{ id: 'AC1', text: 'head' }],
             });
-            expect(await serviceOver(card('0008', {}, sections('- only'))).plan('0008', { at: 'pinned' })).toMatchObject({ at: 'head', version: '9' });
+            expect(await serviceOver(card('0008', {}, sections('- only'))).plan('0008', { at: 'pinned' })).toMatchObject({
+                at: 'head',
+                version: '9',
+            });
+        });
+
+        it("reads a section without the runner's appended sections, so it can be written back", async () => {
+            const body = '## Out of scope\n\nnothing\n\n## Review findings\n\n- a finding\n\n## Previous attempts\n\n- an attempt\n';
+
+            const plan = await serviceOver(card('0008', {}, sectionsOf(body), body)).plan('0008', { section: 'out-of-scope' });
+
+            expect(plan.text).toBe('nothing');
+            expect(plan.sectionLengths).toEqual({ 'out-of-scope': 'nothing'.length });
+            expect(withSection(body, 'Out of scope', plan.text!)).toBe(body);
         });
 
         it('leaves the text out when no section is named', async () => {

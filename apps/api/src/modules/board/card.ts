@@ -127,6 +127,16 @@ export const planGap = (body: string): string | undefined => {
 };
 
 /**
+ * A section as `sectionsOf` read it, up to the first heading the runner appended: the text a person
+ * wrote, and so the text `withSection` replaces and accepts back.
+ */
+export const authoredText = (section: string): string => {
+    const lines = section.split('\n');
+    const end = lines.findIndex(line => RUNNER_HEADINGS.includes(line.trim()));
+    return end === -1 ? section : lines.slice(0, end).join('\n').trim();
+};
+
+/**
  * `body` with one section's text replaced and every other byte kept: the sections around it and the
  * runner's own appended sections after it. The last heading wins when a section repeats, as it does
  * in `sectionsOf`. Undefined for a plan without that section, or `text` that carries a heading of its

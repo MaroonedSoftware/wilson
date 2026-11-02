@@ -20,7 +20,7 @@ import type {
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
-import { acceptanceCriteria, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
+import { acceptanceCriteria, authoredText, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
 
 /** `limit` when a caller omits it. */
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -169,8 +169,9 @@ export class BoardService {
         const sectionLengths: Record<string, number> = {};
         for (const section of PLAN_SECTIONS) {
             const text = card.sections[section];
-            if (text !== undefined) sectionLengths[sectionKey(section)] = text.length;
+            if (text !== undefined) sectionLengths[sectionKey(section)] = authoredText(text).length;
         }
+        const text = query.section ? card.sections[PLAN_SECTIONS.find(section => sectionKey(section) === query.section)!] : undefined;
 
         return {
             at: card === pinned ? 'pinned' : 'head',
@@ -179,7 +180,7 @@ export class BoardService {
             pinnedVersion,
             differsFromPin: pinned !== undefined && pinned.body !== head.body,
             sectionLengths,
-            text: query.section ? card.sections[PLAN_SECTIONS.find(section => sectionKey(section) === query.section)!] : undefined,
+            text: text === undefined ? undefined : authoredText(text),
             criteria: acceptanceCriteria(card),
         };
     }
