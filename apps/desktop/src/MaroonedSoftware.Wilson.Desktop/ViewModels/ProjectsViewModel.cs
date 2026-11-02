@@ -14,6 +14,9 @@ public sealed partial class ProjectsViewModel(ShellViewModel shell) : PageViewMo
     private string? _error;
 
     [RelayCommand]
+    public void NewProject() => shell.Push(new NewProjectViewModel(shell));
+
+    [RelayCommand]
     public void Open(string project) => shell.ShowProject(project);
 
     protected override async Task OnShownAsync(CancellationToken cancellationToken)

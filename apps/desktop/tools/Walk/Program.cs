@@ -157,6 +157,15 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Sql(sql);
     }
 
+    /// <summary>One value out of the throwaway API's database.</summary>
+    public static string Query(string sql)
+    {
+        using var psql = Process.Start(new ProcessStartInfo("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]) { RedirectStandardOutput = true })!;
+        var value = psql.StandardOutput.ReadToEnd().Trim();
+        psql.WaitForExit();
+        return value;
+    }
+
     /// <summary>A branch in the throwaway API's scratch repository, as a stage would leave, with one small file on it.</summary>
     public static void ScratchBranch(string branch)
     {

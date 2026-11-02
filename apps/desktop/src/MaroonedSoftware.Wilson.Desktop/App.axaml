@@ -17,6 +17,7 @@
 
     <Application.DataTemplates>
         <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
+        <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>

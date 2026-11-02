@@ -130,6 +130,63 @@ internal static class Steps
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>
+    /// A real registration on the throwaway API, onto its own scratch repo: the folder picker, the roots
+    /// following the code root, a taken name refused, then a project with a board. Its row goes afterwards.
+    /// </summary>
+    private static async Task NewProjectAsync(Walker walk, ProjectsViewModel projects, BoardViewModel board)
+    {
+        var name = $"walked-{DateTime.UtcNow:HHmmss}";
+        var root = Walker.Query("select code_root from wilson.projects order by name limit 1");
+        projects.NewProjectCommand.Execute(null);
+        var form = walk.Page<NewProjectViewModel>();
+
+        await form.BrowseCommand.ExecuteAsync(PathField.CodeRoot);
+        await walk.UntilAsync("the folders on the server", () => form.Listing is not null);
+        Console.WriteLine($"     browsing {form.Listing!.Path}: {form.Folders.Count} folders");
+        walk.Shot("03p-new-project-browse");
+        var hidden = form.Folders.Count;
+        form.ShowHidden = true;
+        await walk.UntilAsync("hidden folders shown", () => form.Folders.Count >= hidden);
+        form.ShowHidden = false;
+        await form.UpCommand.ExecuteAsync(null);
+        form.CancelPickCommand.Execute(null);
+
+        form.CodeRoot = $"{root}/does/not/exist";
+        await form.BrowseCommand.ExecuteAsync(PathField.CodeRoot);
+        await walk.UntilAsync("a missing folder opening its nearest parent", () => form.Listing?.Path == root || form.PickError is not null);
+        Console.WriteLine($"     nearest: {form.Listing?.Path}, {form.PickError}");
+        if (form.PickError is null)
+        {
+            form.SelectFolderCommand.Execute(null);
+        }
+        else
+        {
+            form.CancelPickCommand.Execute(null);
+            form.CodeRoot = root;
+            form.Name = "walked";
+        }
+
+        await walk.UntilAsync("the name taken from the folder", () => form.CodeRoot == root && !string.IsNullOrEmpty(form.Name));
+        await walk.UntilAsync("the roots following it", () => form.ShownWorktreeRoot.EndsWith($"/.worktrees/{form.Name}", StringComparison.Ordinal));
+        walk.Shot("03q-new-project");
+
+        form.Name = Walker.Query("select name from wilson.projects order by name limit 1");
+        await form.CreateCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a taken name refused", () => form.Failure is not null);
+        Console.WriteLine($"     {form.FailureTitle}: {form.Failure}");
+        walk.Shot("03r-new-project-refused");
+
+        form.Name = name;
+        await form.CreateCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the new project's board", () => walk.Shell.Page == board && board.Project == name);
+        await walk.UntilAsync("its columns", () => board.Columns.Count > 0);
+        walk.Shot("03s-new-project-board");
+        board.Project = board.Projects[0];
+        await walk.UntilAsync("the first project again", () => board.Columns.Count > 0 && board.Project != name);
+        Walker.Sql($"delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
+    }
+
     /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
     private static async Task ProjectsAsync(Walker walk, BoardViewModel board)
     {
@@ -137,6 +194,10 @@ internal static class Steps
         var projects = walk.Page<ProjectsViewModel>();
         await walk.UntilAsync("the projects listed, under Projects", () => projects.Projects.Count > 0 && walk.Shell.OnProjects);
         walk.Shot("03-projects");
+        await NewProjectAsync(walk, projects, board);
+        walk.Shell.ShowProjectsCommand.Execute(null);
+        await walk.UntilAsync("back on the projects", () => walk.Shell.Page == projects);
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
         walk.Click(walk.Center(projects.Projects[0]));
         await walk.UntilAsync("a project opening its board", () => walk.Shell.Page == board && board.Project == projects.Projects[0]);
         await walk.UntilAsync("that board live", () => board.Live);

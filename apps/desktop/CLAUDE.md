@@ -156,6 +156,8 @@ keeps it across a change of server, and `ShellViewModel.StartAsync` applies it b
 
 `ProjectsViewModel` is `routes/projects.index.tsx`, names only, and pressing one opens its board through
 `ShellViewModel.ShowProject`. The board's own project menu is the web header's `ProjectSwitcher`.
+`NewProjectViewModel` is `NewProjectControl.tsx` and `DirectoryPicker.tsx`, a page and not a modal:
+two writes and no transaction, so a name that registered is remembered and a retry only initialises.
 
 The flagged page is the board narrowed by its Flagged toggle, and the header's "n needs human" goes
 there. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
@@ -254,6 +256,11 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
+picker, a missing folder opening its parent, the roots following the code root, a taken name refused
+and a real registration reaching a board. The GitHub repository list needs an app, so it was not
+walked, and neither was a failure between the two writes.
 
 2026-11-02, activity: with `tools/Walk`, the project's events, one arriving through the feed, and a row
 opening its card.

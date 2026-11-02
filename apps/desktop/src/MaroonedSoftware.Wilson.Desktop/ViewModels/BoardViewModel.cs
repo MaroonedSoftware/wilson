@@ -143,6 +143,18 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     [RelayCommand]
     public Task RefreshAsync() => LoadAsync(CancellationToken.None);
 
+    /// <summary>The server's list again, as one has been added.</summary>
+    public async Task ReadProjectsAsync()
+    {
+        foreach (var project in await shell.Connection!.Sdk.Projects.ListProjectsAsync())
+        {
+            if (!Projects.Contains(project.Name))
+            {
+                Projects.Add(project.Name);
+            }
+        }
+    }
+
     /// <summary>Another project, while the board is not in front. Showing it reads that project.</summary>
     public void Choose(string project)
     {
@@ -287,7 +299,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
             _choosing = true;
             Project = Projects.FirstOrDefault(name => name == shell.Settings.Project) ?? Projects.FirstOrDefault();
             _choosing = false;
-            Error = Projects.Count == 0 ? "This server has no projects yet. Register one in the web app." : null;
+            Error = Projects.Count == 0 ? "This server has no projects yet. Add one under Projects." : null;
             return true;
         }
         catch (HttpRequestException failure)

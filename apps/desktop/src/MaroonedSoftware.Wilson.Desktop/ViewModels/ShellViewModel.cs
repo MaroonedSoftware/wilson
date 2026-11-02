@@ -121,6 +121,17 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     [RelayCommand]
     public void ShowProjects() => Go(_projects ??= new ProjectsViewModel(this));
 
+    /// <summary>A project just made: the board learns of it and shows it.</summary>
+    public async Task ProjectAddedAsync(string project)
+    {
+        if (_board is { } board)
+        {
+            await board.ReadProjectsAsync();
+        }
+
+        ShowProject(project);
+    }
+
     /// <summary>A project's board, chosen from the projects page.</summary>
     public void ShowProject(string project)
     {
