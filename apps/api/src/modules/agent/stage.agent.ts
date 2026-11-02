@@ -29,6 +29,11 @@ export interface AgentRunInput {
      * `main` has moved since the branch was cut.
      */
     baseSha: string;
+    /**
+     * Set when this run picks up a tree an interrupted attempt left, and `sessionId` when there is a
+     * conversation to continue. Only the `cli` adapter can be interrupted, so only it reads this.
+     */
+    resume?: { sessionId?: string };
 }
 
 export interface AgentRunOutput {
@@ -58,8 +63,10 @@ export interface AgentRunOutput {
      * (card 0092: out of scope).
      */
     resultDropped?: boolean;
-    /** True when the run was stopped by `StageInterrupt`, which says nothing about the stage itself. */
-    interrupted?: boolean;
+    /** Set when `StageInterrupt` stopped the run, which says nothing about the stage itself. */
+    interrupted?: { sessionId?: string; wallClockMs: number; steps: number };
+    /** The engine could not continue `AgentRunInput.resume`'s session. Never leaves `CliStageAgent`. */
+    resumeFailed?: boolean;
     /**
      * The engine's own account of why its last message ended, when it said anything at all — the
      * SDK `result` message's `subtype` and `stop_reason` (card 0118). Only `cli.stage.agent.ts` can

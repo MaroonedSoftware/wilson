@@ -1,3 +1,4 @@
+import type { InterruptedSpend } from '#modules/agent/stage.interrupt.js';
 import type { StageConfig } from './stage.config.js';
 
 /**
@@ -24,3 +25,15 @@ export const cardOverBudget = (spent: number, cap: number | undefined): string |
  */
 export const withinCardBudget = (stage: StageConfig, spent: number): StageConfig =>
     stage.maxCardInputTokens === undefined ? stage : { ...stage, maxInputTokens: Math.min(stage.maxInputTokens, stage.maxCardInputTokens - spent) };
+
+/**
+ * The stage a resumed run should be handed: what its interrupted runs left of each per-run budget.
+ * Without this every restart would hand a stage its full allowance again. A run with nothing left
+ * still starts, and fails on the budget it has used up, as an uninterrupted one would have.
+ */
+export const withinInterruptedBudget = (stage: StageConfig, spent: InterruptedSpend): StageConfig => ({
+    ...stage,
+    maxWallClockMs: Math.max(1, stage.maxWallClockMs - spent.wallClockMs),
+    maxSteps: Math.max(1, stage.maxSteps - spent.steps),
+    maxInputTokens: Math.max(1, stage.maxInputTokens - spent.inputTokens),
+});

@@ -11,6 +11,7 @@ import { filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
 import { StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
@@ -26,7 +27,7 @@ import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { cardOverBudget, withinCardBudget } from './card.budget.js';
+import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
@@ -597,7 +598,17 @@ export class StageDispatcher {
 
         let outcome: StageOutcome;
         try {
-            const ran = await this.runAgent({ card, stage, worktree, scope, planPath, learningsPath, stages, port });
+            const ran = await this.runAgent({
+                card,
+                stage,
+                worktree,
+                scope,
+                planPath,
+                learningsPath,
+                stages,
+                port,
+                ...(reopened && { interrupted }),
+            });
 
             // A write is allowed as collateral without a `request_scope` round trip, but it is still
             // a widening — reported here, always, so the review sees it and a stage can never widen
@@ -1178,8 +1189,10 @@ export class StageDispatcher {
         stages: ProjectStages;
         /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
         port?: number;
+        /** The attempt whose tree this run reopened, to continue from where it stopped. */
+        interrupted?: InterruptedAttempt;
     }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, learningsPath, stages, port } = input;
+        const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted } = input;
 
         const context: ToolContext = {
             project: this.config.project,
@@ -1215,19 +1228,28 @@ export class StageDispatcher {
         // since, and `run` reaches this through three separate call sites.
         const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.totalInputTokens(this.config.project, card.frontmatter.id);
 
+        const budgeted = withinCardBudget(stage, spent);
         const run = await adapter.run({
-            stage: withinCardBudget(stage, spent),
+            stage: interrupted?.spent ? withinInterruptedBudget(budgeted, interrupted.spent) : budgeted,
             context,
             planPath,
             learningsPath,
             title: card.frontmatter.title,
             resultSchema,
             baseSha: worktree.baseSha,
+            ...(interrupted && { resume: interrupted.sessionId ? { sessionId: interrupted.sessionId } : {} }),
         });
         if (run.interrupted) {
+            const { sessionId, wallClockMs, steps } = run.interrupted;
             throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, {
                 baseSha: worktree.baseSha,
                 ...(worktree.placement && { host: worktree.placement.hostName }),
+                ...(sessionId && { sessionId }),
+                spent: {
+                    wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
+                    steps: (interrupted?.spent?.steps ?? 0) + steps,
+                    inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
+                },
             });
         }
 

@@ -7,7 +7,7 @@ import { StageDispatcher, NotDispatchableError } from '#modules/stages/stage.dis
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
+import { StageAgentMap, type AgentRunInput, type AgentRunOutput } from '#modules/agent/stage.agent.js';
 import { StageInterruptedError } from '#modules/agent/stage.interrupt.js';
 import { StageVerifierMap } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
@@ -94,10 +94,15 @@ const build = async (
 
     const contexts: ToolContext[] = [];
     const agents = new StageAgentMap();
+    const inputs: AgentRunInput[] = [];
     agents.set('api', {
-        run: async ({ context, planPath }: { context: ToolContext; planPath: string }): Promise<AgentRunOutput> => {
+        run: async (input: AgentRunInput): Promise<AgentRunOutput> => {
+            const { context, planPath } = input;
+            inputs.push(input);
             contexts.push({ ...context, planPath } as ToolContext & { planPath: string });
-            if (options.interrupted) return { usage: { inputTokens: 5 }, truncated: true, interrupted: true };
+            if (options.interrupted) {
+                return { usage: { inputTokens: 5 }, truncated: true, interrupted: { sessionId: 'session-2', wallClockMs: 1000, steps: 2 } };
+            }
             return { result: { summary: 'did it', caveats: [] }, usage: { inputTokens: 1 }, truncated: false };
         },
     });
@@ -134,7 +139,7 @@ const build = async (
         undefined,
         placer as unknown as HostPlacer,
     );
-    return { dispatcher, worktrees, events, contexts, portAllocator, placer, board, base };
+    return { dispatcher, worktrees, events, contexts, inputs, portAllocator, placer, board, base };
 };
 
 const placementOn = (host: MemoryHost): RemotePlacement => ({
@@ -196,7 +201,12 @@ describe('StageDispatcher placement', () => {
         const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
 
         expect(error).toBeInstanceOf(StageInterruptedError);
-        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef', host: 'agent-3' });
+        expect((error as StageInterruptedError).attempt).toEqual({
+            baseSha: 'deadbeef',
+            host: 'agent-3',
+            sessionId: 'session-2',
+            spent: { wallClockMs: 1000, steps: 2, inputTokens: 5 },
+        });
         expect(worktrees.reclaim).not.toHaveBeenCalled();
         expect(placer.releaseSlot).toHaveBeenCalledWith('host:agent-3:slot:1', expect.any(String), '0001');
         expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.interrupted', payload: { usage: { inputTokens: 5 } } }));
@@ -216,23 +226,45 @@ describe('StageDispatcher placement', () => {
         expect(worktrees.rebaseOntoHead).not.toHaveBeenCalled();
     });
 
-    it('cuts a tree as usual when an interrupted stage lands on another host', async () => {
-        const placement = placementOn(new MemoryHost());
-        const { dispatcher, worktrees } = await build(async () => placement);
+    const attempt = { baseSha: 'cafe', sessionId: 'session-1', spent: { wallClockMs: 60_000, steps: 10, inputTokens: 1000 } };
 
-        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe', host: 'agent-9' });
+    it('resumes the session in a reopened tree, on what the interrupted run left', async () => {
+        const { dispatcher, inputs } = await build(async () => undefined);
+
+        await dispatcher.run('0001', 'implementing', attempt);
+
+        expect(inputs[0]?.resume).toEqual({ sessionId: 'session-1' });
+        expect(inputs[0]?.stage).toMatchObject({ maxWallClockMs: 1_800_000 - 60_000, maxSteps: 50, maxInputTokens: 15_000_000 - 1000 });
+    });
+
+    it('adds a second interruption to what the first one spent', async () => {
+        const { dispatcher } = await build(async () => undefined, undefined, { interrupted: true });
+
+        const error = await dispatcher.run('0001', 'implementing', attempt).catch((err: unknown) => err);
+
+        expect((error as StageInterruptedError).attempt.spent).toEqual({ wallClockMs: 61_000, steps: 12, inputTokens: 1005 });
+    });
+
+    it('cuts a tree as usual when an interrupted stage lands on another host, with a full budget and no session', async () => {
+        const placement = placementOn(new MemoryHost());
+        const { dispatcher, worktrees, inputs } = await build(async () => placement);
+
+        await dispatcher.run('0001', 'implementing', { ...attempt, host: 'agent-9' });
 
         expect(worktrees.reopen).not.toHaveBeenCalled();
         expect(worktrees.create).toHaveBeenCalledWith('0001', 'card/0001-x', undefined, placement);
+        expect(inputs[0]?.resume).toBeUndefined();
+        expect(inputs[0]?.stage.maxSteps).toBe(60);
     });
 
-    it('cuts a tree as usual when the interrupted one is gone', async () => {
-        const { dispatcher, worktrees } = await build(async () => undefined);
+    it('cuts a tree as usual when the interrupted one is gone, and does not resume into it', async () => {
+        const { dispatcher, worktrees, inputs } = await build(async () => undefined);
         worktrees.reopen.mockResolvedValue(undefined);
 
-        await dispatcher.run('0001', 'implementing', { baseSha: 'cafe' });
+        await dispatcher.run('0001', 'implementing', attempt);
 
         expect(worktrees.create).toHaveBeenCalledTimes(1);
+        expect(inputs[0]?.resume).toBeUndefined();
     });
 
     it('keeps an interrupted stage on this machine when that is where its tree is', async () => {

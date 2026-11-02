@@ -20,13 +20,23 @@ export class StageInterrupt {
     }
 }
 
+/** What a stage has used across its interrupted runs, so a restart cannot buy it more of any. */
+export interface InterruptedSpend {
+    wallClockMs: number;
+    steps: number;
+    inputTokens: number;
+}
+
 /**
- * Where an interrupted stage left its worktree, carried on the job that sends it again. Plain data,
- * since it travels in the job's payload. `host` is unset for a tree on this machine.
+ * Where an interrupted stage left off, carried on the job that sends it again. Plain data, since it
+ * travels in the job's payload. `host` is unset for a tree on this machine, and `sessionId` for a run
+ * stopped before the engine named one.
  */
 export interface InterruptedAttempt {
     baseSha: string;
     host?: string;
+    sessionId?: string;
+    spent?: InterruptedSpend;
 }
 
 /**

@@ -318,8 +318,12 @@ dead-letters.
 
 The job sent again names where the tree is, and the next attempt reopens it, uncommitted work included,
 rather than cutting a new one: on this machine, or back on the same host if that host can take it.
-Elsewhere, or with the tree gone, it cuts one as usual. The agent starts afresh in that tree: resuming
-its session comes later.
+Elsewhere, or with the tree gone, it cuts one as usual.
+
+In a reopened tree the engine continues its own session, told that it was interrupted and to check its
+last step, on what its interrupted runs left of the stage's time, steps and input tokens. If the engine
+cannot find the session, a new one starts in the same tree, told what it has inherited. Nothing is
+verified until the stage finishes, so a resumed run is held to the same exit condition as any other.
 
 **Drain before a restart.** `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage

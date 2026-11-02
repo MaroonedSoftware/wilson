@@ -105,7 +105,7 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
 
     it('throws rather than verifying a run that was interrupted', async () => {
         const dispatcher = buildDispatcher(
-            { usage: { inputTokens: 10 }, truncated: true, interrupted: true },
+            { usage: { inputTokens: 10 }, truncated: true, interrupted: { wallClockMs: 5, steps: 1 } },
             { passed: true, failures: [], changedPaths: [] },
         );
 
@@ -113,7 +113,7 @@ describe('StageDispatcher runAgent — resultDropped (card 0092)', () => {
 
         expect(error).toBeInstanceOf(StageInterruptedError);
         expect((error as StageInterruptedError).usage).toEqual({ inputTokens: 10 });
-        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef' });
+        expect((error as StageInterruptedError).attempt).toEqual({ baseSha: 'deadbeef', spent: { wallClockMs: 5, steps: 1, inputTokens: 10 } });
     });
 
     it('carries resultDropped from the adapter run onto the outcome', async () => {
