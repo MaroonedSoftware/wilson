@@ -474,7 +474,15 @@ describe('the engine token control', () => {
 
     it('saves a worker engine token under a name, empties both fields, and lists only names', async () => {
         load('none');
-        const saved = { name: 'pool-a', createdAt: DateTime.now(), updatedAt: DateTime.now(), hosts: ['unraid-vm'] };
+        const saved = {
+            name: 'pool-a',
+            provider: 'anthropic' as const,
+            kind: 'subscription' as const,
+            priority: 0,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            hosts: ['unraid-vm'],
+        };
         const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(saved);
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValueOnce([]).mockResolvedValue([saved]);
 

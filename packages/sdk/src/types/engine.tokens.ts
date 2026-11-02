@@ -9,11 +9,27 @@ const __dt = (v: unknown, path: string): DateTime => {
 };
 
 /**
- * What is shown of a saved token: its name and when it was saved, never the token.
+ * Who a token signs in to.
+ * generated from [EngineTokenProvider](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export type EngineTokenProvider = 'anthropic' | 'openai' | 'xai';
+
+/**
+ * How it signs in: a plan's own login, or a key billed per token.
+ * generated from [EngineTokenKind](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export type EngineTokenKind = 'subscription' | 'api_key';
+
+/**
+ * What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.
  * generated from [EngineTokenSummary](../../../../apps/api/data/contracts/engine.tokens.ck)
  */
 export interface EngineTokenSummary {
     name: string;
+    provider: EngineTokenProvider;
+    kind: EngineTokenKind;
+    /** Which of a provider's tokens comes first, lowest first. */
+    priority: number;
     createdAt: DateTime;
     updatedAt: DateTime;
     /** The worker hosts assigned this token, name ascending. */
@@ -34,4 +50,12 @@ export function reviveEngineTokenSummary(raw: EngineTokenSummary): EngineTokenSu
 export interface PutEngineTokenRequest {
     /** What `claude setup-token` prints. */
     token: string;
+    /**
+     * Each of these keeps what is saved under this name when left out, or its default on a new name:
+     * anthropic, subscription and 0.
+     */
+    provider?: EngineTokenProvider;
+    kind?: EngineTokenKind;
+    /** 0 to 1000. */
+    priority?: number;
 }

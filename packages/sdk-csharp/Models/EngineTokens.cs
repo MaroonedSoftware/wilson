@@ -11,11 +11,140 @@ using MaroonedSoftware.Wilson.Sdk.Runtime;
 
 namespace MaroonedSoftware.Wilson.Sdk.Models;
 
-/// <summary>What is shown of a saved token: its name and when it was saved, never the token.</summary>
+/// <summary>Who a token signs in to.</summary>
+[JsonConverter(typeof(EngineTokenProviderConverter))]
+public enum EngineTokenProvider
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+
+    [JsonStringEnumMemberName("openai")]
+    Openai,
+
+    [JsonStringEnumMemberName("xai")]
+    Xai,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EngineTokenProvider"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EngineTokenProvider.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EngineTokenProviderConverter : JsonConverter<EngineTokenProvider>
+{
+    public override EngineTokenProvider Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EngineTokenProvider, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EngineTokenProvider value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EngineTokenProvider ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EngineTokenProvider value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EngineTokenProvider FromWire(string? text) => text switch
+    {
+        "anthropic" => EngineTokenProvider.Anthropic,
+        "openai" => EngineTokenProvider.Openai,
+        "xai" => EngineTokenProvider.Xai,
+        _ => EngineTokenProvider.Unknown,
+    };
+
+    private static string ToWire(EngineTokenProvider value) => value switch
+    {
+        EngineTokenProvider.Anthropic => "anthropic",
+        EngineTokenProvider.Openai => "openai",
+        EngineTokenProvider.Xai => "xai",
+        _ => throw new JsonException($"EngineTokenProvider.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>How it signs in: a plan's own login, or a key billed per token.</summary>
+[JsonConverter(typeof(EngineTokenKindConverter))]
+public enum EngineTokenKind
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("subscription")]
+    Subscription,
+
+    [JsonStringEnumMemberName("api_key")]
+    ApiKey,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EngineTokenKind"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EngineTokenKind.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EngineTokenKindConverter : JsonConverter<EngineTokenKind>
+{
+    public override EngineTokenKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EngineTokenKind, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EngineTokenKind value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EngineTokenKind ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EngineTokenKind value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EngineTokenKind FromWire(string? text) => text switch
+    {
+        "subscription" => EngineTokenKind.Subscription,
+        "api_key" => EngineTokenKind.ApiKey,
+        _ => EngineTokenKind.Unknown,
+    };
+
+    private static string ToWire(EngineTokenKind value) => value switch
+    {
+        EngineTokenKind.Subscription => "subscription",
+        EngineTokenKind.ApiKey => "api_key",
+        _ => throw new JsonException($"EngineTokenKind.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.</summary>
 public sealed record EngineTokenSummary
 {
     [JsonPropertyName("name")]
     public required string Name { get; init; }
+
+    [JsonPropertyName("provider")]
+    public required EngineTokenProvider Provider { get; init; }
+
+    [JsonPropertyName("kind")]
+    public required EngineTokenKind Kind { get; init; }
+
+    /// <summary>Which of a provider's tokens comes first, lowest first.</summary>
+    [JsonPropertyName("priority")]
+    public required long Priority { get; init; }
 
     [JsonPropertyName("createdAt")]
     public required DateTimeOffset CreatedAt { get; init; }
@@ -33,4 +162,21 @@ public sealed record PutEngineTokenRequest
     /// <summary>What `claude setup-token` prints.</summary>
     [JsonPropertyName("token")]
     public required string Token { get; init; }
+
+    /// <summary>
+    /// Each of these keeps what is saved under this name when left out, or its default on a new name:
+    /// anthropic, subscription and 0.
+    /// </summary>
+    [JsonPropertyName("provider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EngineTokenProvider? Provider { get; init; }
+
+    [JsonPropertyName("kind")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EngineTokenKind? Kind { get; init; }
+
+    /// <summary>0 to 1000.</summary>
+    [JsonPropertyName("priority")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Priority { get; init; }
 }

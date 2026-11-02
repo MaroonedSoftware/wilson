@@ -259,7 +259,15 @@ describe('wilson host engine-token', () => {
 });
 
 describe('wilson engine-token', () => {
-    const summary = { name: 'pool-a', createdAt: '2026-10-31T10:00:00Z', updatedAt: '2026-10-31T11:00:00Z', hosts: ['unraid-vm'] };
+    const summary = {
+        name: 'pool-a',
+        provider: 'anthropic',
+        kind: 'subscription',
+        priority: 0,
+        createdAt: '2026-10-31T10:00:00Z',
+        updatedAt: '2026-10-31T11:00:00Z',
+        hosts: ['unraid-vm'],
+    };
 
     it('reads the token from stdin, sends it in the body, and never prints it', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(summary));
@@ -277,12 +285,25 @@ describe('wilson engine-token', () => {
         readStdin.mockRestore();
     });
 
+    it('sends the provider, kind and priority it is given', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(summary));
+        const readStdin = vi.spyOn(terminalIo, 'readStdin').mockResolvedValue('secret-value');
+        const { ctx } = buildCtx();
+
+        await (engineTokenSetCommand.run as unknown as Handler<object>)({ provider: 'openai', kind: 'api_key', priority: 2 }, ctx, ['pool-a']);
+
+        expect(sentBody()).toEqual({ token: 'secret-value', provider: 'openai', kind: 'api_key', priority: 2 });
+        readStdin.mockRestore();
+    });
+
     it('lists names and the hosts assigned each', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([summary]));
         const { ctx, logger } = buildCtx();
 
         await (engineTokenListCommand.run as unknown as Handler<object>)({}, ctx, []);
 
-        expect(String(logger.info.mock.calls[0]?.[0])).toBe('pool-a  saved 2026-10-31T11:00:00Z  assigned to unraid-vm');
+        expect(String(logger.info.mock.calls[0]?.[0])).toBe(
+            'pool-a  anthropic subscription  priority 0  saved 2026-10-31T11:00:00Z  assigned to unraid-vm',
+        );
     });
 });

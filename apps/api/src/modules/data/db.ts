@@ -206,7 +206,10 @@ export interface WilsonChatThreads {
 export interface WilsonEngineTokens {
   ciphertext: string;
   createdAt: Generated<DateTime>;
+  kind: Generated<"subscription" | "api_key">;
   name: string;
+  priority: Generated<number>;
+  provider: Generated<"anthropic" | "openai" | "xai">;
   updatedAt: Generated<DateTime>;
 }
 

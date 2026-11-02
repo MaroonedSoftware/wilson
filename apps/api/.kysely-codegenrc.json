@@ -11,6 +11,8 @@
             "wilson.account_authenticators.type": "'totp' | 'hotp'",
             "wilson.account_authenticators.algorithm": "'sha1' | 'sha256' | 'sha512'",
             "wilson.hosts.kind": "Generated<'ssh' | 'worker'>",
+            "wilson.engine_tokens.provider": "Generated<'anthropic' | 'openai' | 'xai'>",
+            "wilson.engine_tokens.kind": "Generated<'subscription' | 'api_key'>",
             "wilson.plan_turns.role": "'user' | 'assistant'",
             "wilson.chat_threads.engine": "'api' | 'cli'",
             "wilson.chat_messages.role": "'user' | 'assistant'",

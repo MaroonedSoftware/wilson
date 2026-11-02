@@ -11,7 +11,9 @@ const command: CommandModule = {
         }
         for (const token of tokens) {
             const hosts = token.hosts.length > 0 ? `  assigned to ${token.hosts.join(', ')}` : '  assigned to no host';
-            ctx.logger.info(`${token.name}  saved ${token.updatedAt.toUTC().toISO({ suppressMilliseconds: true })}${hosts}`);
+            ctx.logger.info(
+                `${token.name}  ${token.provider} ${token.kind}  priority ${token.priority}  saved ${token.updatedAt.toUTC().toISO({ suppressMilliseconds: true })}${hosts}`,
+            );
         }
         return 0;
     }),
