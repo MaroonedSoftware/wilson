@@ -163,7 +163,7 @@ is never redrawn for one, or for the ten-second clock, as that would lose its co
 `CardSections` is `lib/card.ts` and `CriteriaPanel.tsx`, and `CardAttempts` is `lib/attempts.ts`, both
 kept in step by hand as the web app keeps its own copy of the API's. The Plan tab reads as the web page
 down to the plan, with Live activity above Files in scope. Activity holds Attempts, Events, Usage and
-Versions. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
+Versions. Context holds attached snapshots and dependencies. The web app's history is 50 rows and this one's 100, as the tool list seeds from it.
 
 ## Dragging
 
@@ -224,6 +224,10 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, context and dependencies: with `tools/Walk`, adding and removing a dependency, a card that
+does not exist and an address no provider handles both refused and kept in the box, and removing a snapshot. A
+successful attach was not walked, as fetching needs the internet, so that snapshot was written by hand.
 
 2026-11-02, a card's history: with `tools/Walk`, criteria with a review's verdict, files in scope, a
 placed run, its attempt, the usage table and versions. The run was written to the throwaway database.

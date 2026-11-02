@@ -27,6 +27,12 @@ public sealed record UsageLine(string Stage, string Attempts, string Input, stri
 /// <summary>One of the card's versions.</summary>
 public sealed record VersionLine(string Message, string When);
 
+/// <summary>A context snapshot's manifest. Its content is for the planning agent, and is not drawn.</summary>
+public sealed record ContextLine(string Id, string? Title, string Source, string Fetched, CardViewModel Page);
+
+/// <summary>A card this one depends on.</summary>
+public sealed record DependencyLine(string Id, CardViewModel Page);
+
 /// <summary>A card split out of this one. It carries the page because the list's own context is the row.</summary>
 public sealed record PieceLine(string Id, string Stage, string Title, CardViewModel Page);
 
@@ -81,6 +87,10 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public ObservableCollection<PieceLine> Pieces { get; } = [];
 
+    public ObservableCollection<ContextLine> Context { get; } = [];
+
+    public ObservableCollection<DependencyLine> Dependencies { get; } = [];
+
     public ObservableCollection<ToolLine> Tools { get; } = [];
 
     public ObservableCollection<string> Stages { get; } = [];
@@ -114,6 +124,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     private string? _toolsNote = "No tool calls yet.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AttachContextCommand))]
+    private string? _contextUrl;
+
+    [ObservableProperty]
+    private string? _contextNote;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddDependencyCommand))]
+    private string? _newDependency;
 
     [ObservableProperty]
     private string? _usageNote;
@@ -211,6 +232,52 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         ArgumentException.ThrowIfNullOrEmpty(other);
 
         shell.Push(new CardViewModel(shell, project, other));
+    }
+
+    private bool CanAttach => !string.IsNullOrWhiteSpace(ContextUrl);
+
+    private bool CanAddDependency => !string.IsNullOrWhiteSpace(NewDependency);
+
+    /// <summary>A refusal leaves the address in the box, to fix and send again.</summary>
+    [RelayCommand(CanExecute = nameof(CanAttach))]
+    public async Task AttachContextAsync()
+    {
+        var url = ContextUrl!.Trim();
+        if (await ActAsync("Context attached.", token => _sdk.Context.AttachContextToACardAsync(id, new AttachContextRequest { SourceUrl = url }, token)))
+        {
+            ContextUrl = null;
+        }
+    }
+
+    [RelayCommand]
+    public void AskRemoveContext(ContextLine snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        Confirming = $"Remove the snapshot fetched from {snapshot.Source}? It can be attached again, which fetches it again.";
+        _confirmed = () => ActAsync("Snapshot removed.", async token =>
+        {
+            await _sdk.Context.RemoveAContextSnapshotAsync(id, snapshot.Id, token);
+            return true;
+        });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAddDependency))]
+    public async Task AddDependencyAsync()
+    {
+        var other = NewDependency!.Trim();
+        if (await ActAsync($"Depends on {other}.", token => _sdk.Board.SetCardDependencyAsync(id, new DependCardRequest { DependsOnId = other }, token)))
+        {
+            NewDependency = null;
+        }
+    }
+
+    [RelayCommand]
+    public Task RemoveDependencyAsync(DependencyLine dependency)
+    {
+        ArgumentNullException.ThrowIfNull(dependency);
+
+        return ActAsync($"No longer depends on {dependency.Id}.", token => _sdk.Board.SetCardDependencyAsync(id, new DependCardRequest { DependsOnId = dependency.Id, Remove = true }, token));
     }
 
     [RelayCommand]
@@ -362,6 +429,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
             return;
         }
 
+        await LoadContextAsync(cancellationToken);
         await LoadVersionsAsync(cancellationToken);
         await LoadUsageAsync(cancellationToken);
     }
@@ -374,6 +442,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         Reset(Criteria, CardSections.AcceptanceCriteria(card.Sections.GetValueOrDefault(CardSections.AcceptanceCriteriaKey))
             .Select(criterion => new CriterionLine(criterion.Id, criterion.Text, statuses.GetValueOrDefault(criterion.Id))));
 
+        Reset(Dependencies, card.DependsOn.Select(other => new DependencyLine(other, this)));
         RanOn = CardSections.LastStageHost(events) is { } host ? $"ran on {host}" : null;
         Reset(Pieces, (card.Pieces ?? []).Select(piece => new PieceLine(piece.Id, piece.Stage, piece.Title, this)));
         HasSplit = card.SplitFrom is not null || Pieces.Count > 0;
@@ -394,6 +463,21 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         EventsNote = events.Count == 0 ? "No events yet."
             : events.Count >= HistoryLimit ? $"Showing the most recent {HistoryLimit} events. More may exist."
             : null;
+    }
+
+    private async Task LoadContextAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshots = await _sdk.Context.ListCardContextAsync(id, cancellationToken);
+            Reset(Context, snapshots.Select(snapshot => new ContextLine(snapshot.Id, snapshot.Title, snapshot.SourceUrl, $"Fetched {When(snapshot.FetchedAt)} by {snapshot.FetchedBy}", this)));
+            ContextNote = snapshots.Count == 0 ? "Nothing attached." : null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Context.Clear();
+            ContextNote = $"Could not load context: {ApiError.Reason(failure)}";
+        }
     }
 
     private async Task LoadVersionsAsync(CancellationToken cancellationToken)
@@ -470,15 +554,17 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         }
     }
 
-    private async Task ActAsync<T>(string done, Func<CancellationToken, Task<T>> action)
+    private async Task<bool> ActAsync<T>(string done, Func<CancellationToken, Task<T>> action)
     {
         Acting = done;
         Notice = null;
         string note;
+        var acted = false;
         try
         {
             await action(CancellationToken.None);
             note = done;
+            acted = true;
         }
         catch (HttpRequestException failure)
         {
@@ -488,6 +574,7 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
         await LoadAsync(CancellationToken.None);
         Acting = null;
         Notice = note;
+        return acted;
     }
 
     private async Task MergeAsync()

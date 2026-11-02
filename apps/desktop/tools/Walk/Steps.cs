@@ -184,6 +184,7 @@ internal static class Steps
         await walk.UntilAsync("the stages to move to again", () => card.Stages.Count > 0);
         await ToolCallsAsync(walk, card);
         await HistoryAsync(walk, card);
+        await LinksAsync(walk, card);
 
         card.MoveTo = card.Stages.First(stage => stage != card.Card!.Stage);
         var target = card.MoveTo;
@@ -348,6 +349,41 @@ internal static class Steps
         walk.Shot("05a-card-plan");
         card.SelectedTab = 1;
         walk.Shot("05b-card-activity");
+        card.SelectedTab = 0;
+    }
+
+    /// <summary>A dependency for real, a refused address, and a snapshot written by hand, as fetching one needs the internet.</summary>
+    private static async Task LinksAsync(Walker walk, CardViewModel card)
+    {
+        card.SelectedTab = 3;
+        walk.Shot("05c-card-context-empty");
+
+        card.NewDependency = "0001";
+        await card.AddDependencyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the dependency listed, and the box cleared", () => card.Dependencies.Count == 1 && card.NewDependency is null);
+        card.NewDependency = "9000";
+        await card.AddDependencyCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a card that is not there refused, and kept in the box", () => card.Notice is not "Depends on 9000." && card.NewDependency == "9000");
+        Console.WriteLine($"     dependency: {card.Notice}");
+        card.NewDependency = null;
+
+        card.ContextUrl = "http://localhost:13150/api/health";
+        await card.AttachContextCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a private address refused, and kept in the box", () => card.Notice is not "Context attached." && card.Notice is not null && card.ContextUrl is not null);
+        Console.WriteLine($"     attach: {card.Notice}");
+        card.ContextUrl = null;
+
+        Walker.Sql($"insert into wilson.card_context (project, card_id, source_url, fetched_at, fetched_by, title, content, content_hash) select project, id, 'https://example.com/spec', now(), 'operator@example.com', 'The spec', 'Words', 'hash' from wilson.cards where id = '{card.Id}'");
+        await card.RefreshCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the snapshot listed", () => card.Context.Count == 1);
+        walk.Shot("05d-card-context");
+
+        card.AskRemoveContextCommand.Execute(card.Context[0]);
+        walk.Shot("05e-card-context-remove");
+        await card.ConfirmCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the snapshot removed", () => card.Context.Count == 0);
+        await card.RemoveDependencyCommand.ExecuteAsync(card.Dependencies[0]);
+        await walk.UntilAsync("the dependency removed", () => card.Dependencies.Count == 0);
         card.SelectedTab = 0;
     }
 
