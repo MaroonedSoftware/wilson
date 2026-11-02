@@ -66,6 +66,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public string Id => id;
 
+    public string Project => project;
+
     [ObservableProperty]
     private int _selectedTab;
 

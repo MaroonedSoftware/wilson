@@ -136,8 +136,7 @@ Here: sign-in, the board and its feed, card detail and every card action, creati
 planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
 hosts and settings, the activity and flagged pages (the board's Flagged toggle covers the second),
 and comments on a diff line (`POST /api/cards/{id}/findings`). Splitting a card is not
-here either, but the web app has no such control: it only shows a split's progress. A
-card's plan shows as plain text, not rendered Markdown, though a chat answer is rendered. There are no
+here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
 
 ## The header
@@ -175,7 +174,9 @@ brand's SVGs cut it out with a mask, so it only suits a solid backing.
 `Views/ChatView.axaml` and `ThreadsView.axaml` follow `apps/web/src/components/Chat*.tsx`, and `ChatRules`
 carries the same rules: change one and look at the other. A new chat has no thread until its first
 message. `MarkdownView` builds controls from `ChatMarkdown`'s records, the subset `Markdown.tsx` draws,
-and `[[nnnn]]` card references stay as text. The open chat is `DesktopSettings.Thread`.
+and a card's plan is drawn with it too. `[[nnnn]]` is `MarkdownInline.CardRef`, which `MarkdownView`
+raises to the shell. It opens in the project being read, and for chat, which has no project, the one
+last shown, where the web app's home page has no link at all. The open chat is `DesktopSettings.Thread`.
 
 ## Verified
 
@@ -217,6 +218,9 @@ losing the pointer mid-drag.
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
 
+2026-11-02, Markdown: with `tools/Walk`, a card's plan drawn as Markdown and a real press on `[[0001]]`
+opening that card.
+
 2026-11-02, the board: with `tools/Walk`, through headless pointer input, collapsing columns and
 dropping on one, the faces on tiles, a click surviving a re-read during its press, and Escape.
 
@@ -238,6 +242,6 @@ Not verified:
 - The app against Tower or the real board.
 - A confirmed chat action, an acknowledged flag, a successful merge, and a token refresh or reconnect
   against a real server: the seeded board offers none, and the last two are proved against `FakeServer`.
-- Pressing a link in an answer, or the options menu on a chat in the rail, in a real window: the walk
+- Pressing a web link in an answer, or the options menu on a chat in the rail, in a real window: the walk
   calls the rename and archive commands directly.
 - Either GitHub workflow.

@@ -9,12 +9,22 @@ using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 
 namespace MaroonedSoftware.Wilson.Desktop.Views;
 
+/// <summary>A `[[nnnn]]` pressed, for the shell to open.</summary>
+public sealed class CardReferencedEventArgs(RoutedEvent routedEvent, string id) : RoutedEventArgs(routedEvent)
+{
+    public string Id => id;
+}
+
 /// <summary>An answer's Markdown, built from typed nodes as the web app's `Markdown.tsx` is, so an agent's text is never markup.</summary>
 public sealed class MarkdownView : UserControl
 {
     public static readonly StyledProperty<string?> TextProperty = AvaloniaProperty.Register<MarkdownView, string?>(nameof(Text));
 
+    public static readonly RoutedEvent<CardReferencedEventArgs> CardReferencedEvent =
+        RoutedEvent.Register<MarkdownView, CardReferencedEventArgs>("CardReferenced", RoutingStrategies.Bubble);
+
     private const double Gap = 8;
+    private const string CardScheme = "wilson-card:";
 
     public string? Text
     {
@@ -102,7 +112,14 @@ public sealed class MarkdownView : UserControl
             {
                 if (text.SelectionStart == text.SelectionEnd && At(e) is { } url)
                 {
-                    _ = TopLevel.GetTopLevel(text)?.Launcher.LaunchUriAsync(new Uri(url));
+                    if (url.StartsWith(CardScheme, StringComparison.Ordinal))
+                    {
+                        text.RaiseEvent(new CardReferencedEventArgs(CardReferencedEvent, url[CardScheme.Length..]));
+                    }
+                    else
+                    {
+                        _ = TopLevel.GetTopLevel(text)?.Launcher.LaunchUriAsync(new Uri(url));
+                    }
                 }
             },
             RoutingStrategies.Bubble,
@@ -127,6 +144,12 @@ public sealed class MarkdownView : UserControl
                 break;
             case MarkdownInline.Break:
                 into.Add(new LineBreak());
+                break;
+            case MarkdownInline.CardRef reference:
+                var from = Length(into);
+                var cited = $"[[{reference.Id}]]";
+                into.Add(new Run(cited) { FontWeight = weight, FontStyle = style, TextDecorations = TextDecorations.Underline });
+                links.Add((from, from + cited.Length, CardScheme + reference.Id));
                 break;
             case MarkdownInline.Link link when ChatMarkdown.CanOpen(link.Url):
                 var start = Length(into);
@@ -159,6 +182,7 @@ public sealed class MarkdownView : UserControl
         MarkdownInline.Strong strong => Plain(strong.Inlines),
         MarkdownInline.Emphasis emphasis => Plain(emphasis.Inlines),
         MarkdownInline.Link link => Plain(link.Inlines),
+        MarkdownInline.CardRef reference => $"[[{reference.Id}]]",
         _ => " ",
     }));
 

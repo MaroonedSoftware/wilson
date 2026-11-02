@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Styling;
+using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -99,6 +100,25 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         }
 
         Front(page);
+    }
+
+    /// <summary>A card cited in text: in the project being read, or for chat, which has none, the last one shown.</summary>
+    public async Task OpenReferenceAsync(string id)
+    {
+        var project = (Page as CardViewModel)?.Project ?? _board?.Project ?? _settings.Project;
+        try
+        {
+            project ??= (await Connection!.Sdk.Projects.ListProjectsAsync()).FirstOrDefault()?.Name;
+        }
+        catch (HttpRequestException failure)
+        {
+            Trace.WriteLine($"reference: {failure.Message}");
+        }
+
+        if (project is not null)
+        {
+            Push(new CardViewModel(this, project, id));
+        }
     }
 
     [RelayCommand]

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
@@ -212,6 +213,25 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         window.MouseDown(at, MouseButton.Left);
         window.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A real press on `text` where it first shows in a block of Markdown, as a person would follow a link.</summary>
+    public void ClickText(string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        foreach (var block in window.GetVisualDescendants().OfType<SelectableTextBlock>().Where(block => block.Inlines is not null))
+        {
+            var written = string.Concat(block.Inlines!.Select(inline => inline is Run run ? run.Text : "\n"));
+            var index = written.IndexOf(text, StringComparison.Ordinal);
+            if (index >= 0)
+            {
+                var spot = block.TextLayout.HitTestTextPosition(index + 1).Center;
+                Click(block.TranslatePoint(spot, window) ?? throw new InvalidOperationException("not on screen"));
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"no {text} on screen");
     }
 
     /// <summary>A press that stays down, for what happens during one.</summary>

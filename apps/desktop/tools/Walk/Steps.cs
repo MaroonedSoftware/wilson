@@ -152,7 +152,7 @@ internal static class Steps
         await walk.UntilAsync("a card with no title refused", () => form.Error is not null);
 
         form.Title = title;
-        form.Body = "## Plan\n\nMade by the desktop walk.\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.";
+        form.Body = "## Plan\n\nMade by the desktop walk, after [[0001]].\n\n- One **bold** item\n- Another with `code`\n\nA second paragraph, long enough to wrap and to show how a card's body reads at the width of a window rather than on a phone.";
         walk.Shot("04-new-card");
         await form.SaveCommand.ExecuteAsync(null);
 
@@ -168,6 +168,11 @@ internal static class Steps
         await walk.UntilAsync("the card live, still under Board", () => walk.Shell.OnBoard && walk.Shell.Feed is CardViewModel { Live: true });
         await walk.Shell.Feed!.RefreshCommand.ExecuteAsync(null);
         walk.Shot("05-card");
+
+        walk.ClickText("0001");
+        await walk.UntilAsync("a reference opening its card", () => walk.Shell.Page is CardViewModel { Id: "0001" });
+        walk.Shell.Back();
+        await walk.UntilAsync("back from the reference", () => walk.Shell.Page == card);
 
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("chat from a card", () => walk.Shell.OnChat);

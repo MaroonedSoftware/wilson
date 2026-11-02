@@ -2,6 +2,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
     xmlns:sdk="using:MaroonedSoftware.Wilson.Sdk.Models"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.CardView"
     x:DataType="vm:CardViewModel">
@@ -41,7 +42,7 @@
         <TabControl SelectedIndex="{Binding SelectedTab}">
             <TabItem Header="Plan">
                 <ScrollViewer>
-                    <SelectableTextBlock Text="{Binding Card.Body}" TextWrapping="Wrap" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,8,8" />
+                    <views:MarkdownView Text="{Binding Card.Body}" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,8,8" />
                 </ScrollViewer>
             </TabItem>
             <TabItem Header="Activity">

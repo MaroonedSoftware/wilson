@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -31,6 +32,9 @@ public abstract record MarkdownInline
 
     public sealed record Link(string Url, IReadOnlyList<MarkdownInline> Inlines) : MarkdownInline;
 
+    /// <summary>`[[nnnn]]`, citing another card by id.</summary>
+    public sealed record CardRef(string Id) : MarkdownInline;
+
     public sealed record Break : MarkdownInline;
 }
 
@@ -38,7 +42,7 @@ public abstract record MarkdownInline
 /// An answer's Markdown as plain records, for the view to build controls from. The same subset as the
 /// web app's `Markdown.tsx`, and what it does not know degrades to its source text rather than vanishing.
 /// </summary>
-public static class ChatMarkdown
+public static partial class ChatMarkdown
 {
     public static IReadOnlyList<MarkdownBlock> Parse(string markdown)
     {
@@ -82,9 +86,69 @@ public static class ChatMarkdown
             });
         }
 
-        return inlines;
+        return References(inlines);
+    }
+
+    /// <summary>
+    /// `[[nnnn]]` is syntax no parser knows, so it arrives as several runs of literal brackets, which
+    /// are joined before looking. Only text is read, so one inside code stays code.
+    /// </summary>
+    private static List<MarkdownInline> References(List<MarkdownInline> inlines)
+    {
+        var read = new List<MarkdownInline>();
+        foreach (var run in inlines.ChunkBy(inline => inline is MarkdownInline.Text))
+        {
+            if (run[0] is not MarkdownInline.Text)
+            {
+                read.AddRange(run);
+                continue;
+            }
+
+            var text = string.Concat(run.Cast<MarkdownInline.Text>().Select(part => part.Value));
+            var last = 0;
+            foreach (Match reference in CardReference().Matches(text))
+            {
+                if (reference.Index > last)
+                {
+                    read.Add(new MarkdownInline.Text(text[last..reference.Index]));
+                }
+
+                read.Add(new MarkdownInline.CardRef(reference.Groups[1].Value));
+                last = reference.Index + reference.Length;
+            }
+
+            if (last < text.Length)
+            {
+                read.Add(new MarkdownInline.Text(text[last..]));
+            }
+        }
+
+        return read;
+    }
+
+    private static IEnumerable<List<T>> ChunkBy<T>(this IEnumerable<T> items, Func<T, bool> key)
+    {
+        List<T> run = [];
+        foreach (var item in items)
+        {
+            if (run.Count > 0 && key(run[0]) != key(item))
+            {
+                yield return run;
+                run = [];
+            }
+
+            run.Add(item);
+        }
+
+        if (run.Count > 0)
+        {
+            yield return run;
+        }
     }
 
     private static string Source(SourceSpan span, string source) =>
         span.Start >= 0 && span.End < source.Length ? source[span.Start..(span.End + 1)] : string.Empty;
+
+    [GeneratedRegex(@"\[\[(\d+)\]\]")]
+    private static partial Regex CardReference();
 }
