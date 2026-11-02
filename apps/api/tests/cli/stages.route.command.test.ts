@@ -41,6 +41,24 @@ describe('wilson stages route', () => {
         expect(logger.info).toHaveBeenCalledWith('implementing now runs cli anthropic claude-haiku');
     });
 
+    // With no terminal a prompt never settles and the process exits as though it had finished.
+    it('reports why, rather than exiting silently, when a change needs a password and there is no terminal', async () => {
+        const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        fetchMock.mockResolvedValueOnce(jsonResponse([implementing]));
+        fetchMock.mockResolvedValueOnce(jsonResponse({ statusCode: 403, message: 'Forbidden', details: { kind: 'step_up_unavailable' } }, 403));
+        fetchMock.mockResolvedValueOnce(jsonResponse({ email: 'operator@example.com' }));
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, ['implementing'], { model: 'claude-haiku' });
+
+        if (tty) Object.defineProperty(process.stdin, 'isTTY', tty);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+        expect(result).toBe(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('run it from a terminal'));
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
     it('names the stages it has when asked for one it does not', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([implementing]));
         const { ctx, logger } = buildCtx();

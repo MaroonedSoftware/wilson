@@ -19,12 +19,21 @@ const readAll = async (): Promise<string> => {
     return Buffer.concat(chunks).toString('utf8');
 };
 
+/**
+ * Answers from the terminal, or undefined when there is none to ask.
+ *
+ * A prompt on a closed or piped stdin never settles, and with nothing else keeping the event loop
+ * alive the process exits as though the command had finished. Answering undefined gives the caller
+ * the same refusal as a person cancelling the prompt, which it can report.
+ */
 export const terminalIo: LoginIo = {
     ask: async message => {
+        if (!process.stdin.isTTY) return undefined;
         const answer = await promptText({ message });
         return isCancel(answer) ? undefined : answer;
     },
     askSecret: async message => {
+        if (!process.stdin.isTTY) return undefined;
         const answer = await promptPassword({ message });
         return isCancel(answer) ? undefined : answer;
     },
@@ -157,7 +166,7 @@ export const withStepUp = async <T>(ctx: CliContext, api: WilsonSdk, call: (api:
         .then(session => session.email)
         .catch(() => io.ask('Email'));
     const password = await io.askSecret(`Password for ${email ?? 'your account'} (this change needs it)`);
-    if (!email || !password) throw new SignInError('a password is needed for this change');
+    if (!email || !password) throw new SignInError('a password is needed for this change; run it from a terminal, or use the web app');
 
     const accessToken = await signInWithPassword(ctx, email, password, io);
     const session = sessionClient(ctx, accessToken);
