@@ -12,7 +12,8 @@ export interface TestCounts {
  *
  * `name` is the assertion's `fullName` for an ordinary failed test. It is `undefined` for a file
  * that failed to collect or import — vitest never produced a test name for it, so the first line of
- * its own failure `message` stands in instead.
+ * its own failure `message` stands in instead. An ordinary failed test carries `message` too: the
+ * first line of why it failed, when vitest gave one.
  */
 export interface FailingTest {
     file: string;
@@ -68,7 +69,9 @@ const failingTests = (testResults: unknown, worktreePath: string): FailingTest[]
         if (failedAssertions.length > 0) {
             for (const assertion of failedAssertions) {
                 const fullName = assertion.fullName;
-                if (typeof fullName === 'string') failing.push({ file, name: fullName });
+                if (typeof fullName !== 'string') continue;
+                const [message] = Array.isArray(assertion.failureMessages) ? assertion.failureMessages : [];
+                failing.push({ file, name: fullName, ...(typeof message === 'string' && message.length > 0 ? { message: firstLine(message) } : {}) });
             }
         } else {
             const message = result.message;

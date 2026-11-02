@@ -8,6 +8,7 @@ import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
+import { archiveTestReport } from './test.report.archive.js';
 import { parseTestReport, type FailingTest, type TestCounts, type TestReport } from './test.report.js';
 
 const TEST_FILE_PATTERN = /(^|\/)[^/]*\.test\.ts$/;
@@ -66,12 +67,26 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
 
 const MAX_NAMED_FAILURES = 5;
 
+/** A failure message's first line can be a whole serialized value; the name matters more. */
+const MAX_FAILURE_MESSAGE_CHARS = 200;
+
 /**
  * Format one failing test — or one file that failed to load — for the red-suite failure's first
  * line.
  */
 export const describeFailingTest = (test: FailingTest): string =>
     test.name === undefined ? `${test.file} failed to load: ${test.message ?? 'no message'}` : `${test.file} > ${test.name}`;
+
+/**
+ * `describeFailingTest` with why the test failed, for a person to read. Kept apart from it because
+ * that string is also a test's identity: `recurringFlake` compares it across runs, and a message that
+ * changes between runs would stop a recurring flake from being recognised.
+ */
+export const describeFailure = (test: FailingTest): string => {
+    if (test.name === undefined || test.message === undefined) return describeFailingTest(test);
+    const message = test.message.length > MAX_FAILURE_MESSAGE_CHARS ? `${test.message.slice(0, MAX_FAILURE_MESSAGE_CHARS)}…` : test.message;
+    return `${describeFailingTest(test)}: ${message}`;
+};
 
 /**
  * The red-suite failure: which tests failed, named on the first line, with the command's own exit
@@ -87,13 +102,24 @@ export const describeFailingTest = (test: FailingTest): string =>
  * or it parsed cleanly but named no failures even though the command exited non-zero — a suite that
  * failed for a reason the report cannot see.
  */
-export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure): string => {
-    const failing = report?.failing ?? [];
-    if (failing.length === 0) return `the suite is not green: ${run.reason}`;
+export const redSuiteFailure = (report: TestReport | undefined, run: CommandFailure, archivedReport?: string): string =>
+    `the suite is not green: ${redRunDetail(report, run, archivedReport)}`;
 
-    const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailingTest);
+/**
+ * What a red run has to say for itself, without saying which check it failed: the failing tests
+ * when the report names any, then the command's own reason. Shared with the merge check
+ * (`BoardWriteService.judgeFailedMergeSuite`), which frames it as a merge that fails the suite, so
+ * the two cannot drift back apart: the merge check used to keep only `run.reason`, whose last 4000
+ * characters can be nothing but warnings, and card 0007's refused merge named no test at all.
+ */
+export const redRunDetail = (report: TestReport | undefined, run: CommandFailure, archivedReport?: string): string => {
+    const failing = report?.failing ?? [];
+    const lines = archivedReport === undefined ? [run.reason] : [`full report: ${archivedReport}`, run.reason];
+    if (failing.length === 0) return lines.join('\n');
+
+    const shown = failing.slice(0, MAX_NAMED_FAILURES).map(describeFailure);
     const more = failing.length > MAX_NAMED_FAILURES ? ` and ${failing.length - MAX_NAMED_FAILURES} more` : '';
-    return `the suite is not green: ${failing.length} failing: ${shown.join('; ')}${more}\n${run.reason}`;
+    return [`${failing.length} failing: ${shown.join('; ')}${more}`, ...lines].join('\n');
 };
 
 /**
@@ -165,7 +191,8 @@ export class TestingVerifier implements StageVerifier {
         const counts = await this.readReport(worktree, stage.testReportPath, failures, startedAt);
 
         if (run) {
-            const redFailure = await this.judgeRedRun(cardId, worktree, stage, counts, run);
+            const archived = await this.archiveReport(cardId, worktree, stage);
+            const redFailure = await this.judgeRedRun(cardId, worktree, stage, counts, run, archived);
             if (redFailure) failures.push(redFailure);
         }
 
@@ -241,6 +268,22 @@ export class TestingVerifier implements StageVerifier {
     }
 
     /**
+     * Keep a red run's report past the end of its worktree. Best effort, and read apart from
+     * `readReport` because that one's failures are verdicts: a run that has already failed should
+     * not fail differently for want of a copy of its report.
+     */
+    private async archiveReport(cardId: string, tree: Worktree, stage: StageConfig): Promise<string | undefined> {
+        if (!stage.testReportPath) return undefined;
+        try {
+            const raw = await worktreeHost(tree).readFile(join(tree.path, stage.testReportPath));
+            return await archiveTestReport(this.config.runRoot, cardId, stage.name, raw);
+        } catch (err) {
+            this.logger.warn(`could not archive ${cardId}'s test report: ${(err as Error).message}`);
+            return undefined;
+        }
+    }
+
+    /**
      * Card 0261. A red run is not necessarily a regression — see the Goal this card records: three
      * cards on 2026-09-19 each cost a stage run or a human to a test that failed once and passed on
      * a bare rerun. Before a red run is judged, the files the report names as failing get one rerun,
@@ -265,9 +308,10 @@ export class TestingVerifier implements StageVerifier {
         stage: StageConfig,
         report: TestReport | undefined,
         run: CommandFailure,
+        archived: string | undefined,
     ): Promise<string | undefined> {
         const failing = report?.failing ?? [];
-        if (failing.length === 0 || !stage.testCommand) return redSuiteFailure(report, run);
+        if (failing.length === 0 || !stage.testCommand) return redSuiteFailure(report, run, archived);
 
         const files = [...new Set(failing.map(test => test.file))];
         const rerun = await runConfiguredCommand(
@@ -277,7 +321,7 @@ export class TestingVerifier implements StageVerifier {
             undefined,
             worktreeHost(worktree),
         );
-        if (rerun) return redSuiteFailure(report, run);
+        if (rerun) return redSuiteFailure(report, run, archived);
 
         const names = failing.map(describeFailingTest);
         const recurring = await this.recurringFlake(cardId, names);
