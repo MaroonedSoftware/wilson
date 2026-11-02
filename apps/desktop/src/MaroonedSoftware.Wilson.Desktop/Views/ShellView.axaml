@@ -20,6 +20,7 @@
                 <Button Classes="section" Classes.current="{Binding OnChat}" Content="Chat" Command="{Binding ShowChatCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnBoard}" Content="Board" Command="{Binding ShowBoardCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnProjects}" Content="Projects" Command="{Binding ShowProjectsCommand}" VerticalAlignment="Center" />
+                <Button Classes="section" Classes.current="{Binding OnHosts}" Content="Hosts" Command="{Binding ShowHostsCommand}" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="Sign out" Command="{Binding SignOutCommand}" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="{Binding Appearance}" Command="{Binding NextAppearanceCommand}" ToolTip.Tip="Appearance: press for the next" AutomationProperties.Name="Appearance" Margin="0,0,8,0" VerticalAlignment="Center" />
                 <Button DockPanel.Dock="Right" Content="Activity" Command="{Binding ShowActivityCommand}" IsVisible="{Binding Feed, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,8,0" VerticalAlignment="Center" />

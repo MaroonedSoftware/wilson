@@ -18,6 +18,7 @@
     <Application.DataTemplates>
         <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
+        <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
         <DataTemplate DataType="vm:ProjectsViewModel"><views:ProjectsView /></DataTemplate>
         <DataTemplate DataType="vm:SignInViewModel"><views:SignInView /></DataTemplate>
         <DataTemplate DataType="vm:BoardViewModel"><views:BoardView /></DataTemplate>
@@ -253,6 +254,31 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="3" />
             <Setter Property="Padding" Value="5,1" />
+        </Style>
+        <Style Selector="TextBlock.quiet.good">
+            <Setter Property="Foreground" Value="{DynamicResource Good}" />
+        </Style>
+        <Style Selector="TextBlock.quiet.caution">
+            <Setter Property="Foreground" Value="{DynamicResource Caution}" />
+        </Style>
+        <Style Selector="Border.panel">
+            <Setter Property="BorderBrush" Value="{DynamicResource Line}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="14,12" />
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Foreground" Value="{DynamicResource Flag}" />
+        </Style>
+        <Style Selector="Button.danger /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.danger.confirming">
+            <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
+        </Style>
+        <Style Selector="Button.danger.confirming /template/ ContentPresenter#PART_ContentPresenter, Button.danger.confirming:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Flag}" />
+            <Setter Property="Foreground" Value="{DynamicResource OnInk}" />
         </Style>
         <Style Selector="Border.badge">
             <Setter Property="Background" Value="{DynamicResource Panel}" />

@@ -18,12 +18,14 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
     private ProjectsViewModel? _projects;
+    private HostsViewModel? _hosts;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SignedIn))]
     [NotifyPropertyChangedFor(nameof(OnChat))]
     [NotifyPropertyChangedFor(nameof(OnBoard))]
     [NotifyPropertyChangedFor(nameof(OnProjects))]
+    [NotifyPropertyChangedFor(nameof(OnHosts))]
     [NotifyPropertyChangedFor(nameof(Feed))]
     private PageViewModel? _page;
 
@@ -51,6 +53,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public bool OnBoard => Section is BoardViewModel;
 
     public bool OnProjects => Section is ProjectsViewModel;
+
+    public bool OnHosts => Section is HostsViewModel;
 
     public IFollowsFeed? Feed => Page as IFollowsFeed;
 
@@ -120,6 +124,9 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     [RelayCommand]
     public void ShowProjects() => Go(_projects ??= new ProjectsViewModel(this));
+
+    [RelayCommand]
+    public void ShowHosts() => Go(_hosts ??= new HostsViewModel(this));
 
     /// <summary>A project just made: the board learns of it and shows it.</summary>
     public async Task ProjectAddedAsync(string project)
@@ -240,9 +247,11 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         _chat?.Dispose();
         _board?.Dispose();
         _projects?.Dispose();
+        _hosts?.Dispose();
         _chat = null;
         _board = null;
         _projects = null;
+        _hosts = null;
         Replace(new SignInViewModel(this));
     }
 

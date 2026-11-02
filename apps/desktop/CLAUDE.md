@@ -134,8 +134,8 @@ the application menu runs the same check and also answers when there is nothing 
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, and the diff. Not here yet, so these still need the web app: onboarding, passkeys,
-hosts and settings.
+planning, chat, the diff, projects and hosts. Not here yet, so these still need the web app: onboarding,
+passkeys and settings.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -166,6 +166,12 @@ each change of page, and for the project in hand where the web app reads the ser
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
 The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
 as many events as are showing, so one from the feed does not take back what Show older brought in.
+
+## Hosts
+
+`HostsViewModel` is `routes/hosts.tsx` and `HostRules` its wording. The feed says nothing of hosts, so the
+page reads every ten seconds, and panels are kept by name across a read, as a redraw would lose a form
+half filled in or close a menu. As on the web, there is no minting of a worker's token: `wilson host` does that.
 
 ## Feed activity
 
@@ -256,6 +262,10 @@ losing the pointer mid-drag.
 2026-11-02, parking lot: with `tools/Walk` in both appearances, a card dropped over another shown at once
 and read back from the server, put back the same way, and a refused reorder rolled back. The other
 neighbour arguments (to the bottom, down the lot) are proved in `BoardRulesTests`, not against a server.
+
+2026-11-02, hosts: with `tools/Walk`, registering, a taken name refused, drain, disable, serving a project,
+a real probe failing, an engine token assigned to a worker, and removing after being asked. A running slot
+was a `wilson.leases` row written by hand. A probe that passes needs a machine, so it was not walked.
 
 2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
 picker, a missing folder opening its parent, the roots following the code root, a taken name refused

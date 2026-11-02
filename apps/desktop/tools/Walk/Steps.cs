@@ -12,7 +12,7 @@ namespace Walk;
 /// <summary>The flows, in the order a person would meet them.</summary>
 internal static class Steps
 {
-    public static async Task RunAsync(Walker walk, string origin, string email, string password)
+    public static async Task RunAsync(Walker walk, string origin, string email, string password, bool adminOnly = false)
     {
         await walk.UntilAsync("the sign-in page, under no header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
         var signIn = walk.Page<SignInViewModel>();
@@ -62,6 +62,12 @@ internal static class Steps
         Console.WriteLine($"     home: {home.Threads.Count} chats");
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
+        if (adminOnly)
+        {
+            await AdminAsync(walk);
+            return;
+        }
+
         await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
@@ -78,12 +84,106 @@ internal static class Steps
         await DiffAsync(walk, board);
         await FindingsAsync(walk, board);
         await CardsAsync(walk, board);
+        await AdminAsync(walk);
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("back on chat", () => walk.Shell.Page == home);
         await ChatAsync(walk, home);
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("signing out from the header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
+    }
+
+    /// <summary>The deployment's own pages, which need no board. `admin` as a sixth argument walks only these.</summary>
+    private static async Task AdminAsync(Walker walk)
+    {
+        await HostsAsync(walk);
+    }
+
+    /// <summary>
+    /// Real writes on the throwaway API: a host registered, refused, drained, disabled, serving a project,
+    /// an engine token assigned to a worker, a real probe failing, and both removed. A running slot is a
+    /// row written by hand. Nothing here reaches a machine: the target does not resolve.
+    /// </summary>
+    private static async Task HostsAsync(Walker walk)
+    {
+        var stamp = DateTime.UtcNow.ToString("HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var (name, worker, token) = ($"walked-{stamp}", $"walked-w{stamp}", $"walked-t{stamp}");
+        walk.Shell.ShowHostsCommand.Execute(null);
+        var hosts = walk.Page<HostsViewModel>();
+        await walk.UntilAsync("the hosts read", () => hosts.NoHosts || hosts.Hosts.Count > 0);
+        await walk.UntilAsync("the header marking Hosts", () => walk.Shell.OnHosts);
+        walk.Shot("11-hosts-none");
+
+        hosts.Name = name;
+        hosts.SshTarget = "walked.invalid";
+        hosts.Slots = 2;
+        hosts.CommandEnv = "WALKED_ONE, WALKED_TWO";
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a host registered and the form cleared", () => hosts.Hosts.Any(panel => panel.Name == name) && hosts.Name is null);
+        hosts.Name = name;
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a taken name refused", () => hosts.RegisterError is not null);
+        Console.WriteLine($"     refused: {hosts.RegisterError}");
+        walk.Shot("11-hosts-refused");
+        hosts.Name = null;
+        hosts.RegisterError = null;
+
+        var panel = hosts.Hosts.First(found => found.Name == name);
+        await panel.ToggleDrainCommand.ExecuteAsync(null);
+        await walk.UntilAsync("draining said", () => panel.State == "draining" && panel.Drainable == "Undrain");
+        await panel.ToggleDrainCommand.ExecuteAsync(null);
+        await walk.UntilAsync("undrained", () => panel.State == "enabled");
+        await panel.ToggleEnabledCommand.ExecuteAsync(null);
+        await walk.UntilAsync("disabled, which stops a probe", () => panel.State == "disabled" && !panel.CanProbe);
+        await panel.ToggleEnabledCommand.ExecuteAsync(null);
+        await walk.UntilAsync("enabled again", () => panel.State == "enabled");
+
+        panel.ServeProject = panel.Serveable[0];
+        panel.CodeRoot = "/opt/walked/code";
+        panel.WorktreeRoot = "/opt/walked/worktrees";
+        panel.RunRoot = "/opt/walked/run";
+        await panel.ServeCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a project served", () => panel.Projects.Count == 1 && panel.ServeProject is null);
+
+        await panel.ProbeHostCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a probe answered", () => panel.Host?.Probe is not null || panel.Error is not null, 60);
+        Console.WriteLine($"     probe: {panel.Probe}: {panel.ProbeDetail}; error {panel.Error}");
+
+        await walk.Shell.Connection!.Sdk.EngineTokens.PutEngineTokenAsync(token, new MaroonedSoftware.Wilson.Sdk.Models.PutEngineTokenRequest { Token = "walked-not-a-token" });
+        hosts.Name = worker;
+        hosts.Kind = "Worker";
+        await hosts.RegisterCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a worker registered", () => hosts.Hosts.Any(found => found.Name == worker && found.EngineTokens.Contains(token)));
+        var workerPanel = hosts.Hosts.First(found => found.Name == worker);
+        workerPanel.EngineToken = token;
+        await walk.UntilAsync("an engine token assigned", () => workerPanel.Host?.EngineToken == token);
+
+        var project = panel.Projects[0].Project;
+        Walker.Sql($"insert into wilson.leases (resource_key, project, card_id, acquired_at) values ('host:{name}:slot:0', '{project}', '0001', now() - interval '12 minutes')");
+        await hosts.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("a slot in use", () => panel.Running.Count == 1, 5);
+        walk.Shot("11-hosts");
+
+        panel.OpenCardCommand.Execute(panel.Running[0]);
+        await walk.UntilAsync("a slot opening its card", () => walk.Shell.Page is CardViewModel { Id: "0001" });
+        await walk.UntilAsync("the header still on Hosts", () => walk.Shell.OnHosts);
+        walk.Shell.Back();
+        await walk.UntilAsync("back on the same page", () => walk.Shell.Page == hosts);
+        Walker.Sql($"delete from wilson.leases where resource_key = 'host:{name}:slot:0'");
+
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("removal asking first", () => panel.ConfirmingRemoval);
+        walk.Shot("11-hosts-confirm");
+        panel.ForgetRemoval();
+        await panel.StopServingCommand.ExecuteAsync(panel.Projects[0]);
+        await walk.UntilAsync("no longer serving", () => panel.NoProjects);
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await panel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the host gone", () => hosts.Hosts.All(found => found.Name != name));
+        await workerPanel.RemoveCommand.ExecuteAsync(null);
+        await workerPanel.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the worker gone", () => hosts.Hosts.All(found => found.Name != worker));
+        await walk.Shell.Connection!.Sdk.EngineTokens.RemoveEngineTokenAsync(token);
     }
 
     /// <summary>The project's history, kept live by the feed, with its link into a card and back.</summary>
