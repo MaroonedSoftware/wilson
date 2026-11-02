@@ -648,6 +648,9 @@ export class CliStageAgent extends StageAgent {
 
         const droppedField = (): { resultDropped?: boolean } => (reported === undefined && reportToolSeen ? { resultDropped: true } : {});
 
+        // The session last written to the event log, so one is recorded once rather than per message.
+        let engineSessionId: string | undefined;
+
         try {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
@@ -687,6 +690,21 @@ export class CliStageAgent extends StageAgent {
                 if (next.done) break;
                 beat();
                 const message = next.value;
+
+                // Swallowed: this is only what a later attempt could resume from, and losing it costs
+                // that attempt a fresh start, which is no reason to fail the run in progress.
+                if ('session_id' in message && message.session_id && message.session_id !== engineSessionId) {
+                    engineSessionId = message.session_id;
+                    await context.events
+                        .append({
+                            project: context.project,
+                            cardId: context.cardId,
+                            stage: context.stage,
+                            type: 'stage.engine-session',
+                            payload: { sessionId: engineSessionId },
+                        })
+                        .catch((error: unknown) => this.logger.warn(`could not record engine session for ${context.cardId}: ${String(error)}`));
+                }
 
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');

@@ -13,6 +13,10 @@ export type CardEventType =
     // Carries `host` and `reason`: a placed stage's host stopped answering before the stage ended.
     // The attempt is retried, not kicked back, and the host is marked as failing its probe.
     | 'stage.host-lost'
+    // Carries `sessionId`: the engine's own id for this run's conversation, written when the `cli`
+    // adapter first sees it and again if the engine moves to a new one, so the latest of these after
+    // a `stage.dispatched` is what that attempt could resume from.
+    | 'stage.engine-session'
     | 'stage.passed'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
     // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's
