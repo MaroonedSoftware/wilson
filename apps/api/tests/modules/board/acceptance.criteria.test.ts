@@ -139,6 +139,28 @@ describe('acceptanceCriteria', () => {
         ]);
     });
 
+    // Card 0008's plan numbered its 16 criteria, so all 41 lines were read as criteria of their own,
+    // and every review that reported the 16 failed for leaving the other 25 unaccounted for.
+    it('reads a numbered list as one criterion per number, whatever the wrapping', () => {
+        const result = acceptanceCriteria(
+            card('1. first criterion that\n   wraps onto a second line\n2. second criterion\n10) tenth, in the other style'),
+        );
+
+        expect(result).toEqual([
+            { id: 'AC1', text: 'first criterion that wraps onto a second line' },
+            { id: 'AC2', text: 'second criterion' },
+            { id: 'AC3', text: 'tenth, in the other style' },
+        ]);
+    });
+
+    it('still reads an explicit id on a numbered item', () => {
+        expect(acceptanceCriteria(card('1. AC4: labelled'))).toEqual([{ id: 'AC4', text: 'labelled' }]);
+    });
+
+    it('does not take a line that only starts with a number for a list item', () => {
+        expect(acceptanceCriteria(card('- first wraps to\n  3.5 seconds later'))).toEqual([{ id: 'AC1', text: 'first wraps to 3.5 seconds later' }]);
+    });
+
     // AC3: a blank line always ends a bullet, even when what follows looks like it could continue
     // one — it starts a fresh bullet instead of joining the one before the gap. Fails on the
     // pre-change tree, which reads four criteria here (one per non-blank line) instead of two.

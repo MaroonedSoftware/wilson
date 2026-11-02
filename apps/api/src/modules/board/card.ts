@@ -121,13 +121,13 @@ export const completeSections = (body: string): string => {
     return `${body.trimEnd()}\n\n${skeleton}`;
 };
 
-/** A line's bullet marker (`-`, `*` or `+`), with any leading indentation and trailing spaces after it. */
-const BULLET_MARKER = /^\s*[-*+]\s*/;
+/** A line's bullet marker (`-`, `*`, `+`, `1.` or `1)`), with any leading indentation and trailing spaces after it. */
+const BULLET_MARKER = /^\s*(?:[-*+]|\d+[.)](?=\s))\s*/;
 
 /**
  * Split a plan-contract section into its bullets.
  *
- * A line starting with a `-`, `*` or `+` marker begins a bullet — an indented marker still starts
+ * A line starting with a `-`, `*`, `+` or list-number marker begins a bullet — an indented marker still starts
  * its own bullet, so a nested list item is never folded into the one above it. A non-blank line
  * that follows without a marker of its own continues the bullet above it, joined with a single
  * space so a criterion wrapped across several lines reads as one sentence. A blank line ends the

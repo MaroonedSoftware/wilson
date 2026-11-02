@@ -160,7 +160,7 @@ public static partial class CardSections
     private static string? Text(JsonElement element, string field) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : null;
 
-    [GeneratedRegex(@"^\s*[-*+]\s*")]
+    [GeneratedRegex(@"^\s*(?:[-*+]|\d+[.)](?=\s))\s*")]
     private static partial Regex Marker();
 
     [GeneratedRegex(@"^AC-?(\d+)[:.]\s*(.*)$")]
