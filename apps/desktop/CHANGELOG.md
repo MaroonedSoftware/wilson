@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.13.0
+
+### Minor Changes
+
+- ab112c8: Settings has a Stage routing section: choose the engine, provider and model each lane runs on, and see when review and implementing share a provider.
+
 ## 0.12.0
 
 ### Minor Changes
