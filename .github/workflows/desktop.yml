@@ -1,5 +1,6 @@
 name: Desktop
 
+# Pull requests reach this through `pr.yml`, which decides whether it is needed and counts it in `ci-ok`.
 on:
     push:
         branches: [main]
@@ -9,13 +10,7 @@ on:
             - apps/api/data/contracts/**
             - packages/sdk-csharp/**
             - .github/workflows/desktop.yml
-    pull_request:
-        paths:
-            - apps/desktop/**
-            - apps/android/app/src/test/resources/api/**
-            - apps/api/data/contracts/**
-            - packages/sdk-csharp/**
-            - .github/workflows/desktop.yml
+    workflow_call:
 
 permissions:
     contents: read
@@ -29,8 +24,10 @@ jobs:
             run:
                 working-directory: apps/desktop
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-dotnet@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
               with:
                   global-json-file: apps/desktop/global.json
             # Two copies of one number: changesets bumps the first and the app is stamped from the second.
@@ -44,23 +41,16 @@ jobs:
             - run: dotnet build Wilson.Desktop.slnx -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx --no-build
 
-    # The C# SDK is committed output of the contracts, so a contract change must carry it, and output
-    # that does not compile is a generator bug to find here rather than in the app.
-    # `git status` rather than `git diff`, which would miss a new contract's new, untracked client.
+    # Output that does not compile is a generator bug to find here rather than in the app. Whether the
+    # SDK matches the contracts is the `generated` job's to check, in `build.yml`.
     sdk:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
-            - uses: actions/checkout@v4
-            - uses: pnpm/action-setup@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  node-version: 22
-                  cache: pnpm
-            - uses: actions/setup-dotnet@v4
+                  persist-credentials: false
+            - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
               with:
                   dotnet-version: 10.0.x
-            - run: pnpm install --frozen-lockfile
-            - run: pnpm --filter @wilson/api run codegen
-            - run: test -z "$(git status --porcelain -- packages/sdk-csharp)"
             - run: dotnet build packages/sdk-csharp/WilsonSdk.csproj -warnaserror

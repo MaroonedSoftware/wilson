@@ -1,7 +1,9 @@
 name: Images
 
 # The single-container images (Dockerfile, targets `full` and `slim`) that unraid/wilson.xml installs.
-# amd64 only: that is what an Unraid server runs.
+# amd64 only: that is what an Unraid server runs. Nothing publishes until the checks pass on this commit:
+# they passed on each pull request, but a ruleset that does not require an up-to-date branch means
+# never on the two of them together.
 on:
     push:
         branches: [main]
@@ -9,15 +11,27 @@ on:
 
 permissions:
     contents: read
-    packages: write
+
+# One at a time, so an older commit cannot finish last and leave the moving tags on itself. A run waiting
+# here gives way to a newer one. Not cancelled once started: that could leave one variant published without the other.
+concurrency:
+    group: images
+    cancel-in-progress: false
 
 env:
     IMAGE: ghcr.io/maroonedsoftware/wilson
 
 jobs:
+    check:
+        uses: ./.github/workflows/build.yml
+
     image:
+        needs: check
         runs-on: ubuntu-latest
         timeout-minutes: 60
+        permissions:
+            contents: read
+            packages: write
         strategy:
             # One variant failing should not hide the state of the other.
             fail-fast: false
@@ -28,9 +42,11 @@ jobs:
                     - variant: slim
                       tags: slim
         steps:
-            - uses: actions/checkout@v7
-            - uses: docker/setup-buildx-action@v4
-            - uses: docker/login-action@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+            - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -47,7 +63,7 @@ jobs:
               env:
                   MATRIX_TAGS: ${{ matrix.tags }}
                   MATRIX_VARIANT: ${{ matrix.variant }}
-            - uses: docker/build-push-action@v7
+            - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: .
                   target: ${{ matrix.variant }}

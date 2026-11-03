@@ -23,7 +23,7 @@ on:
                 default: true
 
 permissions:
-    contents: write
+    contents: read
 
 # Two merges in quick succession must not race to publish one version.
 concurrency: desktop-release
@@ -34,11 +34,16 @@ jobs:
     decide:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # Write, though this only reads: GitHub shows a draft release only to a token that can push.
+        permissions:
+            contents: write
         outputs:
             version: ${{ steps.version.outputs.value }}
             release: ${{ steps.version.outputs.release }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
             - id: version
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -60,12 +65,20 @@ jobs:
         # macOS because a self-contained osx-arm64 bundle is signed with codesign.
         runs-on: macos-latest
         timeout-minutes: 30
+        permissions:
+            contents: write
+        env:
+            VERSION: ${{ needs.decide.outputs.version }}
         defaults:
             run:
                 working-directory: apps/desktop
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-dotnet@v4
+            # The restore, the build and the tests run other people's code, and this token can write.
+            # Only the publishing step gets it.
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
               with:
                   global-json-file: apps/desktop/global.json
             # The same gates as the ordinary build. A release that skipped them would be the one build nobody checked.
@@ -74,10 +87,10 @@ jobs:
             - run: dotnet restore Wilson.Desktop.slnx --locked-mode
             - run: dotnet build Wilson.Desktop.slnx -c Release -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx -c Release --no-build
-            - run: tools/macos/make-app-bundle.sh "${{ needs.decide.outputs.version }}"
+            - run: tools/macos/make-app-bundle.sh "$VERSION"
             # `ditto` keeps what a plain zip drops, and macOS will not launch what a plain zip leaves.
             - working-directory: apps/desktop/artifacts
-              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip"
+              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${VERSION}-osx-arm64.zip"
             # What the app verifies before installing an update (`UpdateSignature`). The message must
             # match `UpdateSignature.Message`, and a release with no key fails here rather than
             # shipping something no copy of the app would install.
@@ -85,7 +98,6 @@ jobs:
               working-directory: apps/desktop/artifacts
               env:
                   UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-                  VERSION: ${{ needs.decide.outputs.version }}
               run: |
                   set -euo pipefail
                   zip="wilson-${VERSION}-osx-arm64.zip"
@@ -96,11 +108,12 @@ jobs:
             - name: Publish the release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  DRAFT: ${{ inputs.draft && 'yes' || '' }}
               run: |
-                  gh release create "desktop-v${{ needs.decide.outputs.version }}" \
-                      --title "Wilson desktop ${{ needs.decide.outputs.version }}" \
+                  gh release create "desktop-v${VERSION}" \
+                      --title "Wilson desktop ${VERSION}" \
                       --generate-notes \
                       --notes "Signed only ad hoc and not notarised, so macOS refuses the first launch. Open it once, let it refuse, then press Open Anyway in System Settings, Privacy & Security. Or run: xattr -dr com.apple.quarantine /Applications/Wilson.app" \
-                      ${{ inputs.draft && '--draft' || '' }} \
-                      "artifacts/wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip" \
-                      "artifacts/wilson-${{ needs.decide.outputs.version }}-osx-arm64.zip.sig"
+                      ${DRAFT:+--draft} \
+                      "artifacts/wilson-${VERSION}-osx-arm64.zip" \
+                      "artifacts/wilson-${VERSION}-osx-arm64.zip.sig"

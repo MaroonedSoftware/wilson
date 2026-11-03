@@ -93,6 +93,8 @@ macOS refuses a first launch.
 **Never edit the version by hand.** Run `pnpm changeset` and name `@wilson/desktop`, or the required
 `changeset` job in `pr.yml` fails any PR that changes `src/` or `tools/macos/`. For a change that
 should not ship, `pnpm changeset --empty` satisfies it. The paragraph becomes a line in `CHANGELOG.md`.
+Name no other package: the same job fails a changeset naming one `.changeset/config.json` ignores,
+because merging it would stop every release until it was removed.
 
 1. A changeset reaching main runs `desktop-version.yml`, which opens or rewrites one version pull
    request on `changeset-release/desktop`: the bump, `CHANGELOG.md` and the mirrored
