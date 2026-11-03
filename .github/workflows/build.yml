@@ -75,7 +75,7 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
-            # The contracts' routes, types, SDKs and MCP tools.
+            # The contracts' routes, types, MCP tools and all three SDKs, Kotlin and C# included.
             - name: Regenerate from the contracts
               run: pnpm codegen
 
