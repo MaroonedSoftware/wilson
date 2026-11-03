@@ -11,7 +11,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
-import { findStage, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, StageConfigError, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
 import { describeFailingTest, redRunDetail } from '#modules/stages/testing.verifier.js';
@@ -924,10 +924,25 @@ export class BoardWriteService {
      * card. A slot is held for the run, keyed to the card, and given back however the run ends. A
      * card in `ready` has no job behind it, so `LeaseService` reads that slot as orphaned if another
      * stage wants it: the cost of losing that race is one more suite on the host for a while.
+     *
+     * A project without a `testing` stage is unproven the same way, by name: a fact about its config
+     * an operator can act on, not a server fault.
      */
     private async proveMerge(id: string, mergeCommit: string): Promise<MergeProof> {
         const stages = await this.stageConfigs.load();
-        const stage = findStage(stages, 'testing');
+        let stage: StageConfig;
+        try {
+            stage = findStage(stages, 'testing');
+        } catch (err) {
+            if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
+                return {
+                    ok: false,
+                    reason: `project "${this.boardConfig.project}" has no "testing" stage, so the suite has nowhere to run; add one with \`wilson stages edit\``,
+                    unproven: true,
+                };
+            }
+            throw err;
+        }
 
         const placed = this.placer ? await this.placer.place(this.boardConfig.project, id, stage) : undefined;
         if (placed instanceof NoHostAvailable) return { ok: false, reason: placed.message, unproven: true };
