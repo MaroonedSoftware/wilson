@@ -10,8 +10,13 @@ using MaroonedSoftware.Wilson.Sdk.Runtime;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 
-/// <summary>What the person wrote.</summary>
-public sealed record UserEntry(string Text);
+/// <summary>What the person wrote, and any images they sent with it.</summary>
+public sealed record UserEntry(string Text, IReadOnlyList<ChatImageRow> Images)
+{
+    public bool HasText => Text.Length > 0;
+
+    public bool HasImages => Images.Count > 0;
+}
 
 /// <summary>An answer: what it ran, then what it said.</summary>
 public sealed record AnswerEntry(string Text, IReadOnlyList<ChatActivity> Activity)
@@ -31,6 +36,7 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
     private static readonly TimeSpan Listening = TimeSpan.FromSeconds(2);
 
     private readonly List<ChatOperation> _operations = [];
+    private readonly Dictionary<string, ChatImageRow> _images = [];
     private ChatThreadDetail? _read;
     private TaskCompletionSource _live = new();
     private string _rawDraft = string.Empty;
@@ -225,7 +231,7 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
             Entries.Add(step switch
             {
                 { Action: { } action } => Row(action, now),
-                { Message: { Role: ChatMessageRole.User } message } => new UserEntry(message.Content),
+                { Message: { Role: ChatMessageRole.User } message } => new UserEntry(message.Content, Images(detail.Thread.Id, message)),
                 { Message: { } message } => new AnswerEntry(message.Content, ChatRules.Activity(message.Operations)),
                 _ => throw new InvalidOperationException("a step is a message or an action"),
             });
@@ -240,6 +246,25 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
         Awaiting = detail.Actions.Any(action => ChatRules.IsAwaiting(action, now));
         _read = detail;
         Offer();
+    }
+
+    /// <summary>The images a message carries. Kept across redraws, since the thread is redrawn far more often than an image changes.</summary>
+    private List<ChatImageRow> Images(string thread, ChatMessage message)
+    {
+        var rows = new List<ChatImageRow>();
+        foreach (var attachment in message.Attachments ?? [])
+        {
+            if (!_images.TryGetValue(attachment.Id, out var row))
+            {
+                row = new ChatImageRow(attachment.Filename);
+                _images[attachment.Id] = row;
+                _ = row.LoadAsync(token => shell.Connection!.Sdk.Chat.FetchAChatImageAsync(thread, attachment.Id, token));
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
     }
 
     private void Offer()
