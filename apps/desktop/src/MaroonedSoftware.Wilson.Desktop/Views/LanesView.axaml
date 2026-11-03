@@ -1,0 +1,44 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.LanesView"
+    x:DataType="vm:LanesViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="{Binding Project, StringFormat='Lanes of {0}'}" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" TextWrapping="Wrap" Margin="0,0,0,8" Text="A change applies from a stage's next run. Settings hold only what someone chose: remove a key and it goes back to its default." />
+        <SelectableTextBlock DockPanel.Dock="Top" Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <ScrollViewer>
+            <StackPanel MaxWidth="720" HorizontalAlignment="Left" MinWidth="560" Margin="0,0,12,0" Spacing="12">
+                <Border Classes="panel">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="heading" Text="Stage routing" />
+                        <ContentControl Content="{Binding Routing}" />
+                    </StackPanel>
+                </Border>
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LaneRow">
+                            <Border Classes="panel" Margin="0,0,0,12" AutomationProperties.Name="{Binding Name}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Classes="heading" Text="{Binding Name}" />
+                                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Summary}" />
+                                    <TextBlock FontSize="13" FontWeight="Medium" Text="Instructions" Margin="0,4,0,0" />
+                                    <TextBox Text="{Binding Instructions}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxHeight="280" IsEnabled="{Binding Idle}" AutomationProperties.Name="Instructions" />
+                                    <TextBlock FontSize="13" FontWeight="Medium" Text="Settings" Margin="0,4,0,0" />
+                                    <TextBox FontFamily="{StaticResource Mono}" FontSize="12" Text="{Binding Settings}" AcceptsReturn="True" MinHeight="60" MaxHeight="280" IsEnabled="{Binding Idle}" AutomationProperties.Name="Settings" />
+                                    <TextBlock Classes="quiet caution" TextWrapping="Wrap" Text="{Binding SettingsProblem}" IsVisible="{Binding SettingsProblem, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" HorizontalAlignment="Left" />
+                                    <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

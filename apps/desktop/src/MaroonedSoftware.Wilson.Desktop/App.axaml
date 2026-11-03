@@ -16,7 +16,32 @@
     </NativeMenu.Menu>
 
     <Application.DataTemplates>
+        <DataTemplate DataType="vm:StageRoutingRow">
+            <StackPanel Spacing="6" Margin="0,0,0,10" AutomationProperties.Name="{Binding Stage}">
+                <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Stage}" />
+                <StackPanel Orientation="Horizontal" Spacing="16" IsVisible="{Binding ChoosesAdapter}">
+                    <RadioButton Content="Claude Agent SDK" IsChecked="{Binding UsesCli}" IsEnabled="{Binding Idle}" />
+                    <RadioButton Content="AI SDK" IsChecked="{Binding UsesApi}" IsEnabled="{Binding Idle}" />
+                    <RadioButton Content="Codex" IsChecked="{Binding UsesCodex}" IsEnabled="{Binding Idle}" />
+                </StackPanel>
+                <ComboBox ItemsSource="{Binding Providers}" SelectedItem="{Binding Provider}" MinWidth="180" IsEnabled="{Binding Idle}" IsVisible="{Binding ChoosesProvider}" AutomationProperties.Name="Provider" />
+                <TextBox Text="{Binding Model}" PlaceholderText="{Binding Placeholder}" IsEnabled="{Binding Idle}" AutomationProperties.Name="Model" />
+                <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" HorizontalAlignment="Left" />
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:StageRoutingControl">
+            <StackPanel Spacing="8">
+                <Border Background="{DynamicResource Panel}" CornerRadius="6" Padding="10,8" IsVisible="{Binding SharedProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <TextBlock Classes="quiet caution" TextWrapping="Wrap" Text="{Binding SharedProvider}" />
+                </Border>
+                <ItemsControl ItemsSource="{Binding Rows}" />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Applies from a stage's next run. The AI SDK needs the provider's API key in apps/api/.env and bills per token." />
+                <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
         <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
+        <DataTemplate DataType="vm:LanesViewModel"><views:LanesView /></DataTemplate>
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
         <DataTemplate DataType="vm:SettingsViewModel"><views:SettingsView /></DataTemplate>

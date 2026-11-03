@@ -152,6 +152,16 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         }
     }
 
+    /// <summary>The lanes of the project in front, to edit. Back returns to the page they were opened from.</summary>
+    [RelayCommand]
+    public void ShowLanes()
+    {
+        if (Feed?.Project is { } project)
+        {
+            Push(new LanesViewModel(this, project));
+        }
+    }
+
     /// <summary>The cards needing a human: the board narrowed to them, as the web app's flagged page is.</summary>
     [RelayCommand]
     public void ShowFlagged()
