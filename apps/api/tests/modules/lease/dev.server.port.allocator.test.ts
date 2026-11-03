@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:net';
+import { createServer, type AddressInfo, type Server } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import type { LeaseService, AcquireResult } from '#modules/lease/lease.service.js';
@@ -12,6 +12,41 @@ const occupy = (port: number): Promise<Server> =>
     });
 
 const close = (server: Server): Promise<void> => new Promise(resolve => server.close(() => resolve()));
+
+const portOf = (server: Server): number => (server.address() as AddressInfo).port;
+
+/**
+ * A port the OS just reported free, for a test whose candidate gets a real probe. Fixed numbers are
+ * not safe here: on Linux they can fall inside the ephemeral range, where any outbound connection in
+ * the parallel suite may be holding them.
+ */
+const freePort = async (): Promise<number> => {
+    const server = await occupy(0);
+    const port = portOf(server);
+    await close(server);
+    return port;
+};
+
+/**
+ * Holds an OS-assigned port whose next port up is free too, for a test where the allocator must step
+ * from one to the other. The OS only vouches for the port it assigned, so the neighbour is tried, and
+ * a taken one (or a held port of 65535, which has no neighbour) means asking for another.
+ */
+const occupyWithFreeNext = async (): Promise<{ server: Server; port: number }> => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        const server = await occupy(0);
+        const port = portOf(server);
+        const nextIsFree = await occupy(port + 1)
+            .then(close)
+            .then(
+                () => true,
+                () => false,
+            );
+        if (nextIsFree) return { server, port };
+        await close(server);
+    }
+    throw new Error('could not find two adjacent free ports');
+};
 
 /**
  * Card 0027. `DevServerPortAllocator` is the picking logic built on top of `LeaseService.acquire`
@@ -33,24 +68,28 @@ describe('DevServerPortAllocator.acquire', () => {
     it('takes the first port in the range once the lease for it is granted and the port is free on this machine', async () => {
         const acquire = vi.fn(async (): Promise<AcquireResult> => ({ acquired: true }));
         const allocator = new DevServerPortAllocator(fakeLeases(acquire));
+        const port = await freePort();
 
-        const result = await allocator.acquire({ start: 41000, end: 41002 }, 'proj', '0001');
+        const result = await allocator.acquire({ start: port, end: port + 2 }, 'proj', '0001');
 
-        expect(result).toEqual({ ok: true, port: 41000 });
-        expect(acquire).toHaveBeenCalledWith('port:41000', 'proj', '0001');
+        expect(result).toEqual({ ok: true, port });
+        expect(acquire).toHaveBeenCalledWith(`port:${port}`, 'proj', '0001');
     });
 
     it('skips a port whose lease is already held by another card, and takes the next one granted', async () => {
+        // Only the second candidate is probed, because the first loses its lease before it gets that far.
+        const port = await freePort();
+        const held = port - 1;
         const acquire = vi.fn(async (resourceKey: string): Promise<AcquireResult> =>
-            resourceKey === 'port:41010' ? { acquired: false, heldBy: { resourceKey, project: 'other', cardId: '0099' } } : { acquired: true },
+            resourceKey === `port:${held}` ? { acquired: false, heldBy: { resourceKey, project: 'other', cardId: '0099' } } : { acquired: true },
         );
         const allocator = new DevServerPortAllocator(fakeLeases(acquire));
 
-        const result = await allocator.acquire({ start: 41010, end: 41012 }, 'proj', '0001');
+        const result = await allocator.acquire({ start: held, end: port + 1 }, 'proj', '0001');
 
-        expect(result).toEqual({ ok: true, port: 41011 });
-        expect(acquire).toHaveBeenCalledWith('port:41010', 'proj', '0001');
-        expect(acquire).toHaveBeenCalledWith('port:41011', 'proj', '0001');
+        expect(result).toEqual({ ok: true, port });
+        expect(acquire).toHaveBeenCalledWith(`port:${held}`, 'proj', '0001');
+        expect(acquire).toHaveBeenCalledWith(`port:${port}`, 'proj', '0001');
     });
 
     /**
@@ -61,8 +100,8 @@ describe('DevServerPortAllocator.acquire', () => {
      * listening on.
      */
     it('skips a port that wins its lease but is already bound on this machine, releasing that lease before moving to the next candidate', async () => {
-        const port = 41020;
-        occupied.push(await occupy(port));
+        const { server, port } = await occupyWithFreeNext();
+        occupied.push(server);
 
         const acquire = vi.fn(async (): Promise<AcquireResult> => ({ acquired: true }));
         const release = vi.fn(async () => undefined);
@@ -94,8 +133,9 @@ describe('DevServerPortAllocator.acquire', () => {
     });
 
     it('gives up naming the range when every candidate is held or bound, not merely one or the other', async () => {
-        const port = 41040;
-        occupied.push(await occupy(port));
+        const server = await occupy(0);
+        occupied.push(server);
+        const port = portOf(server);
         // The first candidate wins its lease but is bound on the machine; the second loses its lease
         // outright. Either way, nothing is left to hand back.
         const acquire = vi.fn(async (resourceKey: string): Promise<AcquireResult> =>
