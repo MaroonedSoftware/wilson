@@ -23,6 +23,7 @@ import type {
     CardStageConcurrency,
     ClaudeConfigDirSetting,
     EngineTokenSetting,
+    EngineTokenSummary,
     Health,
     NotifyWebhookSetting,
     PollerInterval,
@@ -59,10 +60,10 @@ const baseHealth: Health = {
 function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
-    render(
+    const { unmount } = render(
         createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
-    return { router };
+    return { router, unmount };
 }
 
 /**
@@ -87,6 +88,9 @@ beforeEach(() => {
     // the default port; `chat-engine-setting.test.ts` covers the control itself.
     vi.spyOn(wilson.settings, 'getChatEngineSetting').mockResolvedValue({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' });
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    // jsdom has no layout engine, so the combobox's own `scrollIntoView` on the active option would
+    // throw from a timer, after the test that opened it has finished.
+    Element.prototype.scrollIntoView = vi.fn();
     // Stubbed for the same reason as the chat engine above: the local slots control sits beside the
     // concurrency control, and this file's cases are about the controls around it.
     vi.spyOn(wilson.settings, 'getLocalStageSlots').mockResolvedValue({ slots: 8 });
@@ -470,16 +474,53 @@ describe('the engine token control', () => {
         renderApp('/settings');
 
         expect(await screen.findByText(new RegExp(wording))).toBeTruthy();
+        // Write-only: nothing is on show until asked for, and then it starts empty.
+        expect(screen.queryByLabelText('Engine token')).toBeNull();
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: source === 'database' ? 'Replace token' : 'Add token' }));
+        });
         expect(((await screen.findByLabelText('Engine token')) as HTMLInputElement).value).toBe('');
     });
 
-    it('shows who is pooled and limited, including a sign-in with no saved token, and changes the pool', async () => {
+    it('groups accounts by how they are used, says which is next, and changes the rotation', async () => {
         load('none');
-        const saved = {
-            name: 'pool-a',
-            provider: 'anthropic' as const,
-            kind: 'subscription' as const,
-            priority: 3,
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([
+            account('limited'),
+            account('open', { priority: 1 }),
+            account('held', { pooled: false, priority: 7, hosts: ['my-mac'] }),
+        ]);
+        vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([
+            { account: 'limited', limitType: 'five_hour', resetsAt: DateTime.now().plus({ hours: 1 }) },
+            { account: 'worker:vm', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
+        ]);
+        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue(account('held'));
+
+        renderApp('/settings');
+
+        expect(await screen.findByText('Next engine signs in as open')).toBeTruthy();
+        expect(within(await screen.findByLabelText('account limited')).getByText(/5-hour limit, back/)).toBeTruthy();
+        expect(within(screen.getByLabelText('account open')).getByText('Next')).toBeTruthy();
+        expect(within(screen.getByLabelText('account held')).getByText('my-mac')).toBeTruthy();
+        expect(await screen.findByText(/vm's own sign-in: Weekly limit, back/)).toBeTruthy();
+        expect(await screen.findByText(/Not used while rotation has accounts/)).toBeTruthy();
+
+        // Joining goes after the accounts already working, whatever priority it last had.
+        await act(async () => {
+            fireEvent.click(within(screen.getByLabelText('account held')).getByRole('button', { name: 'Add to rotation' }));
+        });
+        expect(update).toHaveBeenCalledWith('held', { pooled: true, priority: 2 });
+
+        await chooseFromMenu('open', 'Leave rotation');
+        expect(update).toHaveBeenCalledWith('open', { pooled: false });
+    });
+
+    it('says when no account is free, and when none is in rotation', async () => {
+        load('none');
+        const saved: EngineTokenSummary = {
+            name: 'only',
+            provider: 'anthropic',
+            kind: 'subscription',
+            priority: 0,
             pooled: true,
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
@@ -487,61 +528,248 @@ describe('the engine token control', () => {
         };
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([saved]);
         vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([
-            { account: 'pool-a', limitType: 'five_hour', resetsAt: DateTime.now().plus({ hours: 1 }) },
-            { account: 'worker:vm', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
+            { account: 'only', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
         ]);
-        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue({ ...saved, pooled: false });
 
+        const { unmount } = renderApp('/settings');
+        expect(await screen.findByText('Every account in rotation is at its limit')).toBeTruthy();
+        unmount();
+
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([]);
         renderApp('/settings');
-
-        expect(await screen.findByText('pooled, priority 3')).toBeTruthy();
-        expect(await screen.findByText(/five_hour limit until/)).toBeTruthy();
-        expect(await screen.findByText(/worker:vm: seven_day limit until/)).toBeTruthy();
-
-        await act(async () => {
-            fireEvent.click(await screen.findByRole('button', { name: 'Leave pool' }));
-        });
-        expect(update).toHaveBeenCalledWith('pool-a', { pooled: false });
+        expect(await screen.findByText('No accounts in rotation')).toBeTruthy();
     });
 
-    it('saves a worker engine token under a name, empties both fields, and lists only names', async () => {
+    const account = (name: string, overrides: Partial<EngineTokenSummary> = {}): EngineTokenSummary => ({
+        name,
+        provider: 'anthropic',
+        kind: 'subscription',
+        priority: 0,
+        pooled: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        hosts: [],
+        ...overrides,
+    });
+
+    const chooseFromMenu = async (name: string, item: string) => {
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: `More actions for ${name}` }));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+        });
+    };
+
+    const fillIn = async (label: string, value: string) => {
+        await act(async () => {
+            fireEvent.change(screen.getByLabelText(label), { target: { value } });
+        });
+    };
+
+    it('adds a subscription at the end of the rotation by default, then closes the form', async () => {
         load('none');
-        const saved = {
-            name: 'pool-a',
-            provider: 'anthropic' as const,
-            kind: 'subscription' as const,
-            priority: 0,
-            pooled: false,
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-            hosts: ['unraid-vm'],
-        };
-        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(saved);
-        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValueOnce([]).mockResolvedValue([saved]);
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(account('claude-2'));
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('claude-1', { priority: 4 })]);
 
         renderApp('/settings');
 
-        const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
-        const token = screen.getByLabelText('Token') as HTMLInputElement;
         await act(async () => {
-            fireEvent.change(name, { target: { value: 'pool-a' } });
-            fireEvent.change(token, { target: { value: 'sk-ant-oat-secret' } });
+            fireEvent.click(await screen.findByRole('button', { name: 'Add account' }));
         });
+        expect(screen.getByText(/claude setup-token/)).toBeTruthy();
+        await fillIn('Name', 'claude-2');
+        await fillIn('Token', 'sk-ant-oat-secret');
         await act(async () => {
-            fireEvent.click(saveButtonFor(token));
+            fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
         });
 
-        expect(put).toHaveBeenCalledWith('pool-a', { token: 'sk-ant-oat-secret' });
-        await waitFor(() => expect(token.value).toBe(''));
-        expect(await screen.findByText('unraid-vm')).toBeTruthy();
+        expect(put).toHaveBeenCalledWith('claude-2', {
+            token: 'sk-ant-oat-secret',
+            provider: 'anthropic',
+            kind: 'subscription',
+            pooled: true,
+            priority: 5,
+        });
+        await waitFor(() => expect(screen.queryByLabelText('add account')).toBeNull());
     });
 
-    it('sends what was typed, then empties the field', async () => {
+    it('leaves a new account out of the rotation when asked', async () => {
+        load('none');
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(account('host-only', { pooled: false }));
+
+        renderApp('/settings');
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Add account' }));
+        });
+        await fillIn('Name', 'host-only');
+        await fillIn('Token', 'sk-ant-oat-secret');
+        await act(async () => {
+            fireEvent.click(screen.getByLabelText('Add to rotation'));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
+        });
+
+        expect(put).toHaveBeenCalledWith('host-only', { token: 'sk-ant-oat-secret', provider: 'anthropic', kind: 'subscription' });
+    });
+
+    it('sends an API key as one, whichever provider it is for', async () => {
+        load('none');
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(account('codex'));
+
+        renderApp('/settings');
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Add account' }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('combobox', { name: 'Type' }));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('option', { name: 'OpenAI API key', hidden: true }));
+        });
+        await fillIn('Name', 'codex');
+        await fillIn('Token', 'sk-key');
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
+        });
+
+        expect(put).toHaveBeenCalledWith('codex', expect.objectContaining({ provider: 'openai', kind: 'api_key' }));
+    });
+
+    it('refuses a name already saved, rather than replacing that token', async () => {
+        load('none');
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('claude-1')]);
+
+        renderApp('/settings');
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Add account' }));
+        });
+        await fillIn('Name', 'claude-1');
+        await fillIn('Token', 'sk-ant-oat-secret');
+
+        expect(screen.getByText(/That name is taken/)).toBeTruthy();
+        expect((screen.getByRole('button', { name: 'Save account' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(put).not.toHaveBeenCalled();
+    });
+
+    it('keeps the form and what was typed when the server refuses', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'putEngineToken').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'bad name' }, new Headers()),
+        );
+
+        renderApp('/settings');
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Add account' }));
+        });
+        await fillIn('Name', 'Bad Name');
+        await fillIn('Token', 'sk-ant-oat-secret');
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
+        });
+
+        await waitFor(() => expect(within(screen.getByLabelText('add account')).getByText(/bad name/)).toBeTruthy());
+        expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Bad Name');
+    });
+
+    it('moves an account, sending only the priorities that change, and cannot move past either end', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('a'), account('b'), account('c')]);
+        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue(account('a'));
+
+        renderApp('/settings');
+
+        expect(((await screen.findByRole('button', { name: 'Move a up' })) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole('button', { name: 'Move c down' }) as HTMLButtonElement).disabled).toBe(true);
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Move c up' }));
+        });
+
+        await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+        expect(update).toHaveBeenCalledWith('c', { priority: 1 });
+        expect(update).toHaveBeenCalledWith('b', { priority: 2 });
+    });
+
+    it('offers no ordering to an account outside the rotation', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('held', { pooled: false })]);
+
+        renderApp('/settings');
+
+        await screen.findByLabelText('account held');
+        expect(screen.queryByRole('button', { name: 'Move held up' })).toBeNull();
+    });
+
+    it('replaces only the token, under the same name', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('claude-1')]);
+        const put = vi.spyOn(wilson.engineTokens, 'putEngineToken').mockResolvedValue(account('claude-1'));
+
+        renderApp('/settings');
+
+        await chooseFromMenu('claude-1', 'Replace token');
+        const input = (await screen.findByLabelText('New token for claude-1')) as HTMLInputElement;
+        expect(input.value).toBe('');
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'sk-ant-oat-new' } });
+        });
+        await act(async () => {
+            fireEvent.click(saveButtonFor(input));
+        });
+
+        expect(put).toHaveBeenCalledWith('claude-1', { token: 'sk-ant-oat-new' });
+        await waitFor(() => expect(screen.queryByLabelText('New token for claude-1')).toBeNull());
+    });
+
+    it('asks before removing an account, naming the hosts that lose it', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('claude-1', { hosts: ['my-mac'] })]);
+        const remove = vi.spyOn(wilson.engineTokens, 'removeEngineToken').mockResolvedValue(undefined);
+
+        renderApp('/settings');
+
+        await chooseFromMenu('claude-1', 'Remove');
+        expect(await screen.findByText(/my-mac goes back to the machine's own sign-in/)).toBeTruthy();
+        expect(remove).not.toHaveBeenCalled();
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Remove account' }));
+        });
+        expect(remove).toHaveBeenCalledWith('claude-1');
+    });
+
+    it('keeps an account when the removal is called off', async () => {
+        load('none');
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([account('claude-1', { hosts: ['my-mac'] })]);
+        const remove = vi.spyOn(wilson.engineTokens, 'removeEngineToken').mockResolvedValue(undefined);
+
+        renderApp('/settings');
+
+        await chooseFromMenu('claude-1', 'Remove');
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Keep it' }));
+        });
+
+        expect(screen.queryByText(/my-mac goes back/)).toBeNull();
+        expect(remove).not.toHaveBeenCalled();
+    });
+
+    it('sends what was typed, then closes and empties the field', async () => {
         load('none');
         const setToken = vi.spyOn(wilson.settings, 'setEngineTokenSetting').mockResolvedValue({ source: 'database' });
 
         renderApp('/settings');
 
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Add token' }));
+        });
         const input = (await screen.findByLabelText('Engine token')) as HTMLInputElement;
         await act(async () => {
             fireEvent.change(input, { target: { value: 'sk-ant-oat-secret' } });
@@ -551,11 +779,11 @@ describe('the engine token control', () => {
         });
 
         expect(setToken).toHaveBeenCalledWith({ token: 'sk-ant-oat-secret' });
-        await waitFor(() => expect(input.value).toBe(''));
+        await waitFor(() => expect(screen.queryByLabelText('Engine token')).toBeNull());
         expect(await screen.findByText(/the token saved here/)).toBeTruthy();
     });
 
-    it('offers Remove only for a saved token, and sends null', async () => {
+    it('offers Remove only for a saved token, asks first, and sends null', async () => {
         load('database');
         const setToken = vi.spyOn(wilson.settings, 'setEngineTokenSetting').mockResolvedValue({ source: 'none' });
 
@@ -563,6 +791,10 @@ describe('the engine token control', () => {
 
         await act(async () => {
             fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+        });
+        expect(setToken).not.toHaveBeenCalled();
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Remove token' }));
         });
 
         expect(setToken).toHaveBeenCalledWith({ token: null });

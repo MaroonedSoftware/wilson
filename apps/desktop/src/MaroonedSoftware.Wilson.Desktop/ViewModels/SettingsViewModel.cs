@@ -79,8 +79,8 @@ public sealed partial class SettingsViewModel : PageViewModel
             "GitHub App",
             async token => Reported(await Sdk.Settings.GetGithubAppSettingAsync(token)),
             async value => Reported(await Sdk.Settings.SetGithubAppSettingAsync(new SetGitHubAppSettingRequest { AppId = value })));
-        EngineToken = new EngineTokenControl(() => Sdk);
-        WorkerTokens = new WorkerTokensControl(() => Sdk);
+        MachineSignIn = new MachineSignInControl(() => Sdk);
+        Accounts = new AccountsControl(() => Sdk, MachineSignIn);
         ChatEngine = new ChatEngineControl(() => Sdk);
         Security = new SecurityControl(shell);
     }
@@ -101,9 +101,9 @@ public sealed partial class SettingsViewModel : PageViewModel
 
     public TextSetting ClaudeConfigDir { get; }
 
-    public EngineTokenControl EngineToken { get; }
+    public MachineSignInControl MachineSignIn { get; }
 
-    public WorkerTokensControl WorkerTokens { get; }
+    public AccountsControl Accounts { get; }
 
     public TextSetting GitHubApp { get; }
 
@@ -189,8 +189,8 @@ public sealed partial class SettingsViewModel : PageViewModel
             LocalSlots.ReadAsync(cancellationToken),
             ReadWebhookAsync(cancellationToken),
             ClaudeConfigDir.ReadAsync(cancellationToken),
-            EngineToken.ReadAsync(cancellationToken),
-            WorkerTokens.ReadAsync(cancellationToken),
+            MachineSignIn.ReadAsync(cancellationToken),
+            Accounts.ReadAsync(cancellationToken),
             GitHubApp.ReadAsync(cancellationToken),
             ChatEngine.ReadAsync(cancellationToken),
             Security.ReadAsync(cancellationToken),

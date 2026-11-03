@@ -220,8 +220,12 @@ public sealed partial class TextSetting(string label, string description, string
     }
 }
 
-/// <summary>`EngineTokenControl`. Write-only: the API reports where the sign-in comes from and never the token, so the box starts empty and is emptied by a save.</summary>
-public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : ObservableObject
+/// <summary>
+/// `MachineSignInControl`. Write-only: the API reports where the sign-in comes from and never the token, so
+/// the box starts empty, is hidden until asked for, and is emptied by a save. <see cref="AccountsControl"/>
+/// reads the accounts and limits, and hands over what is said about this machine.
+/// </summary>
+public sealed partial class MachineSignInControl(Func<WilsonSdk> sdk) : ObservableObject
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSave))]
@@ -230,6 +234,7 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Source))]
     [NotifyPropertyChangedFor(nameof(CanRemove))]
+    [NotifyPropertyChangedFor(nameof(EditAction))]
     private EngineTokenSetting? _setting;
 
     [ObservableProperty]
@@ -238,13 +243,39 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
     private bool _idle = true;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Viewing))]
+    [NotifyPropertyChangedFor(nameof(CanRemove))]
+    private bool _editing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Viewing))]
+    [NotifyPropertyChangedFor(nameof(CanRemove))]
+    private bool _confirmingRemove;
+
+    [ObservableProperty]
     private string? _error;
+
+    /// <summary>The limit on this machine's own sign-in, in words.</summary>
+    [ObservableProperty]
+    private string? _limit;
+
+    /// <summary>Whether rotation has accounts, so nothing here is being used.</summary>
+    [ObservableProperty]
+    private bool _unused;
+
+    /// <summary>Limits on other sign-ins Wilson holds no token for, such as a worker's own.</summary>
+    [ObservableProperty]
+    private string? _otherLimits;
 
     public string? Source => Setting is { } setting ? SettingsRules.EngineTokenSource(setting.Source) : null;
 
+    public string EditAction => Setting?.Source == EngineTokenSettingSource.Database ? "Replace token" : "Add token";
+
+    public bool Viewing => !Editing && !ConfirmingRemove;
+
     public bool CanSave => Idle && !string.IsNullOrWhiteSpace(Draft);
 
-    public bool CanRemove => Idle && Setting?.Source == EngineTokenSettingSource.Database;
+    public bool CanRemove => Idle && Viewing && Setting?.Source == EngineTokenSettingSource.Database;
 
     public async Task ReadAsync(CancellationToken cancellationToken)
     {
@@ -257,6 +288,22 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
             Error = $"Cannot load the engine token: {ApiError.Reason(failure)}";
         }
     }
+
+    [RelayCommand]
+    private void AskEdit() => Editing = true;
+
+    [RelayCommand]
+    private void CancelEdit()
+    {
+        Draft = null;
+        Editing = false;
+    }
+
+    [RelayCommand]
+    private void AskRemove() => ConfirmingRemove = true;
+
+    [RelayCommand]
+    private void CancelRemove() => ConfirmingRemove = false;
 
     [RelayCommand]
     public Task SaveAsync() => WriteAsync(Draft);
@@ -272,6 +319,8 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
         {
             Setting = await sdk().Settings.SetEngineTokenSettingAsync(new SetEngineTokenSettingRequest { Token = token });
             Draft = null;
+            Editing = false;
+            ConfirmingRemove = false;
         }
         catch (HttpRequestException failure)
         {
@@ -282,86 +331,85 @@ public sealed partial class EngineTokenControl(Func<WilsonSdk> sdk) : Observable
     }
 }
 
-/// <summary>A worker's engine token, as drawn: its name and the hosts using it, never the token.</summary>
-public sealed record EngineTokenRow(string Name, string Hosts, string State, bool Pooled, WorkerTokensControl Control)
+/// <summary>A saved account, as drawn: what it is and what is using it, never the token. Keeps its own errors, so a refusal appears on the account it is about.</summary>
+public sealed partial class AccountRow(EngineTokenSummary token, bool next, string? limit, long joinPriority, IReadOnlyList<PriorityChange> moveUp, IReadOnlyList<PriorityChange> moveDown, AccountsControl control) : ObservableObject
 {
-    public string PoolAction => Pooled ? "Leave pool" : "Add to pool";
-}
-
-/// <summary>`WorkerEngineTokensControl`. Saving under a name already there replaces that token and no other.</summary>
-public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : ObservableObject
-{
-    public ObservableCollection<EngineTokenRow> Tokens { get; } = [];
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveReplacement))]
+    private string? _replacement;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanSave))]
-    private string? _name;
+    private bool _replacing;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanSave))]
-    private string? _token;
+    private bool _confirmingRemove;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanSave))]
+    [NotifyPropertyChangedFor(nameof(CanSaveReplacement))]
     private bool _idle = true;
 
     [ObservableProperty]
     private string? _error;
 
-    /// <summary>Limits on sign-ins Wilson holds no token for: this machine's, or a worker's own.</summary>
-    [ObservableProperty]
-    private string? _otherLimits;
+    public AccountsControl Control => control;
 
-    public bool CanSave => Idle && !string.IsNullOrWhiteSpace(Name) && !string.IsNullOrWhiteSpace(Token);
+    public string Name => token.Name;
 
-    public async Task ReadAsync(CancellationToken cancellationToken)
+    public string Type => AccountRules.TypeOf(token);
+
+    public bool Next => next;
+
+    public string? Limit => limit;
+
+    public string? Hosts => token.Hosts.Count > 0 ? string.Join(", ", token.Hosts) : null;
+
+    public bool InRotation => AccountRules.InRotation(token);
+
+    public bool CanJoin => !token.Pooled;
+
+    public bool CanLeave => token.Pooled;
+
+    public bool CanMoveUp => moveUp.Count > 0;
+
+    public bool CanMoveDown => moveDown.Count > 0;
+
+    public string RemovalWarning => AccountRules.RemovalWarning(token);
+
+    public bool CanSaveReplacement => Idle && !string.IsNullOrWhiteSpace(Replacement);
+
+    [RelayCommand]
+    private void AskReplace() => Replacing = true;
+
+    [RelayCommand]
+    private void CancelReplace()
     {
-        try
-        {
-            var tokens = await sdk().EngineTokens.ListEngineTokensAsync(cancellationToken);
-            var limits = await sdk().EngineTokens.ListEngineLimitsAsync(cancellationToken);
-            string Limits(string account) => string.Join(", ", limits.Where(limit => limit.Account == account).Select(limit => $"{limit.LimitType} limit until {limit.ResetsAt.ToLocalTime():g}"));
-
-            Tokens.Clear();
-            foreach (var token in tokens)
-            {
-                var pooled = token.Pooled ? $"pooled, priority {token.Priority}" : string.Empty;
-                var state = string.Join("; ", new[] { pooled, Limits(token.Name) }.Where(part => part.Length > 0));
-                Tokens.Add(new EngineTokenRow(token.Name, token.Hosts.Count > 0 ? string.Join(", ", token.Hosts) : "no host", state, token.Pooled, this));
-            }
-
-            var saved = tokens.Select(token => token.Name).ToHashSet();
-            OtherLimits = string.Join("\n", limits.Select(limit => limit.Account).Distinct().Where(account => !saved.Contains(account)).Select(account => $"{account}: {Limits(account)}"));
-        }
-        catch (HttpRequestException failure)
-        {
-            Error = $"Cannot load the worker engine tokens: {ApiError.Reason(failure)}";
-        }
+        Replacement = null;
+        Replacing = false;
     }
 
     [RelayCommand]
-    public Task SaveAsync() => WriteAsync(async client =>
-    {
-        await client.EngineTokens.PutEngineTokenAsync(Name!.Trim(), new PutEngineTokenRequest { Token = Token! });
-        Name = null;
-        Token = null;
-    });
+    private void AskRemove() => ConfirmingRemove = true;
 
     [RelayCommand]
-    public Task RemoveAsync(EngineTokenRow row)
-    {
-        ArgumentNullException.ThrowIfNull(row);
-
-        return WriteAsync(client => client.EngineTokens.RemoveEngineTokenAsync(row.Name));
-    }
+    private void CancelRemove() => ConfirmingRemove = false;
 
     [RelayCommand]
-    public Task TogglePoolAsync(EngineTokenRow row)
-    {
-        ArgumentNullException.ThrowIfNull(row);
+    private Task SaveReplacementAsync() => WriteAsync(client => client.EngineTokens.PutEngineTokenAsync(Name, new PutEngineTokenRequest { Token = Replacement! }));
 
-        return WriteAsync(client => client.EngineTokens.UpdateEngineTokenAsync(row.Name, new UpdateEngineTokenRequest { Pooled = !row.Pooled }));
-    }
+    [RelayCommand]
+    private Task RemoveAsync() => WriteAsync(client => client.EngineTokens.RemoveEngineTokenAsync(Name));
+
+    [RelayCommand]
+    private Task JoinAsync() => WriteAsync(client => client.EngineTokens.UpdateEngineTokenAsync(Name, new UpdateEngineTokenRequest { Pooled = true, Priority = joinPriority }));
+
+    [RelayCommand]
+    private Task LeaveAsync() => WriteAsync(client => client.EngineTokens.UpdateEngineTokenAsync(Name, new UpdateEngineTokenRequest { Pooled = false }));
+
+    [RelayCommand]
+    private Task MoveUpAsync() => control.MoveAsync(moveUp);
+
+    [RelayCommand]
+    private Task MoveDownAsync() => control.MoveAsync(moveDown);
 
     private async Task WriteAsync(Func<WilsonSdk, Task> write)
     {
@@ -369,12 +417,221 @@ public sealed partial class WorkerTokensControl(Func<WilsonSdk> sdk) : Observabl
         Error = null;
         try
         {
-            await write(sdk());
-            await ReadAsync(CancellationToken.None);
+            await control.WriteAsync(write);
         }
         catch (HttpRequestException failure)
         {
             Error = ApiError.Reason(failure);
+        }
+
+        Idle = true;
+    }
+}
+
+/// <summary>`AccountsControl`: the named accounts Wilson holds, grouped by how each is used. Write only: the list has names and no token.</summary>
+public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInControl machine) : ObservableObject
+{
+    public ObservableCollection<AccountRow> Rotation { get; } = [];
+
+    public ObservableCollection<AccountRow> CodexRotation { get; } = [];
+
+    public ObservableCollection<AccountRow> Outside { get; } = [];
+
+    public IReadOnlyList<AccountType> Types { get; } = AccountRules.Types;
+
+    private IReadOnlyList<EngineTokenSummary> _tokens = [];
+
+    [ObservableProperty]
+    private string? _headline;
+
+    [ObservableProperty]
+    private string? _detail;
+
+    [ObservableProperty]
+    private bool _hasRotation;
+
+    [ObservableProperty]
+    private bool _hasCodexRotation;
+
+    [ObservableProperty]
+    private bool _hasOutside;
+
+    [ObservableProperty]
+    private bool _adding;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TakesSetupToken))]
+    [NotifyPropertyChangedFor(nameof(TakesKey))]
+    private AccountType _newType = AccountRules.Types[0];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveNew))]
+    [NotifyPropertyChangedFor(nameof(NameTaken))]
+    private string? _newName;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveNew))]
+    private string? _newToken;
+
+    [ObservableProperty]
+    private bool _joinRotation = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveNew))]
+    private bool _idle = true;
+
+    [ObservableProperty]
+    private string? _error;
+
+    [ObservableProperty]
+    private string? _addError;
+
+    public bool TakesSetupToken => NewType.Kind == EngineTokenKind.Subscription;
+
+    public bool TakesKey => !TakesSetupToken;
+
+    /// <summary>The API would replace that token without a word, which is what Replace token is for.</summary>
+    public bool NameTaken => _tokens.Any(token => token.Name == NewName?.Trim());
+
+    public bool CanSaveNew => Idle && !string.IsNullOrWhiteSpace(NewName) && !string.IsNullOrWhiteSpace(NewToken) && !NameTaken;
+
+    public async Task ReadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var tokens = await sdk().EngineTokens.ListEngineTokensAsync(cancellationToken);
+            var limits = await sdk().EngineTokens.ListEngineLimitsAsync(cancellationToken);
+            Draw(tokens, limits, DateTimeOffset.Now);
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = $"Cannot load the accounts: {ApiError.Reason(failure)}";
+        }
+    }
+
+    private void Draw(List<EngineTokenSummary> tokens, List<EngineLimit> limits, DateTimeOffset now)
+    {
+        _tokens = tokens;
+        OnPropertyChanged(nameof(NameTaken));
+        OnPropertyChanged(nameof(CanSaveNew));
+
+        var rotation = AccountRules.RotationOf(tokens);
+        var codexRotation = AccountRules.RotationOf(tokens, EngineTokenProvider.Openai);
+        var next = AccountRules.Next(rotation, limits, now);
+        (Headline, Detail) = AccountRules.Summary(next, now);
+
+        string? Limit(string account) => AccountRules.LimitOn(account, limits, now) is { } limit ? AccountRules.DescribeLimit(limit, now) : null;
+        AccountRow Row(EngineTokenSummary token, IReadOnlyList<EngineTokenSummary>? order)
+        {
+            var index = order is null ? -1 : order.ToList().IndexOf(token);
+            var first = order is null ? null : AccountRules.Next(order, limits, now);
+            var isNext = first is { Limit: null } && first.Name == token.Name;
+            var join = AccountRules.LastPriority(AccountRules.RotationOf(tokens, token.Provider));
+            return new AccountRow(
+                token,
+                isNext,
+                Limit(token.Name),
+                join,
+                order is null ? [] : AccountRules.MovedPriorities(order, index, -1),
+                order is null ? [] : AccountRules.MovedPriorities(order, index, 1),
+                this);
+        }
+
+        Replace(Rotation, rotation.Select(token => Row(token, rotation)));
+        Replace(CodexRotation, codexRotation.Select(token => Row(token, codexRotation)));
+        Replace(Outside, AccountRules.OutsideRotation(tokens).Select(token => Row(token, null)));
+        HasRotation = Rotation.Count > 0;
+        HasCodexRotation = CodexRotation.Count > 0;
+        HasOutside = Outside.Count > 0;
+
+        var saved = tokens.Select(token => token.Name).ToHashSet();
+        machine.Limit = Limit(AccountRules.LocalAccount);
+        machine.Unused = HasRotation;
+        var others = limits
+            .Select(limit => limit.Account)
+            .Distinct()
+            .Where(account => account != AccountRules.LocalAccount && !saved.Contains(account))
+            .Select(account => (account, limit: Limit(account)))
+            .Where(each => each.limit is not null)
+            .Select(each => $"{AccountRules.DescribeSignIn(each.account)}: {each.limit}");
+        machine.OtherLimits = string.Join("\n", others) is { Length: > 0 } text ? text : null;
+    }
+
+    private static void Replace(ObservableCollection<AccountRow> rows, IEnumerable<AccountRow> drawn)
+    {
+        rows.Clear();
+        foreach (var row in drawn)
+        {
+            rows.Add(row);
+        }
+    }
+
+    /// <summary>Send a change and draw what the server then holds. A refusal is the caller's to show, where it is about.</summary>
+    public async Task WriteAsync(Func<WilsonSdk, Task> write)
+    {
+        await write(sdk());
+        await ReadAsync(CancellationToken.None);
+    }
+
+    /// <summary>One request per changed priority, so a failure can leave the order part moved. Reading it back shows where it stopped.</summary>
+    public async Task MoveAsync(IReadOnlyList<PriorityChange> changes)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+
+        Idle = false;
+        Error = null;
+        try
+        {
+            foreach (var change in changes)
+            {
+                await sdk().EngineTokens.UpdateEngineTokenAsync(change.Name, new UpdateEngineTokenRequest { Priority = change.Priority });
+            }
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = ApiError.Reason(failure);
+        }
+
+        await ReadAsync(CancellationToken.None);
+        Idle = true;
+    }
+
+    [RelayCommand]
+    private void AskAdd() => Adding = true;
+
+    [RelayCommand]
+    private void CancelAdd()
+    {
+        NewName = null;
+        NewToken = null;
+        NewType = AccountRules.Types[0];
+        JoinRotation = true;
+        AddError = null;
+        Adding = false;
+    }
+
+    [RelayCommand]
+    private async Task SaveNewAsync()
+    {
+        Idle = false;
+        AddError = null;
+        try
+        {
+            var joining = JoinRotation;
+            var type = NewType;
+            await WriteAsync(client => client.EngineTokens.PutEngineTokenAsync(NewName!.Trim(), new PutEngineTokenRequest
+            {
+                Token = NewToken!,
+                Provider = type.Provider,
+                Kind = type.Kind,
+                Pooled = joining ? true : null,
+                Priority = joining ? AccountRules.LastPriority(AccountRules.RotationOf(_tokens, type.Provider)) : null,
+            }));
+            CancelAdd();
+        }
+        catch (HttpRequestException failure)
+        {
+            AddError = ApiError.Reason(failure);
         }
 
         Idle = true;

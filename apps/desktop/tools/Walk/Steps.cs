@@ -6,6 +6,7 @@ using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Board;
 using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
+using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
 
 namespace Walk;
@@ -381,7 +382,7 @@ internal static class Steps
     /// <summary>Tokens made up for the walk, saved on the throwaway API and removed, so they sign nothing in.</summary>
     private static async Task EngineSettingsAsync(Walker walk, SettingsViewModel settings)
     {
-        await walk.UntilAsync("the engine settings read", () => settings.ClaudeConfigDir.Loaded && settings.GitHubApp.Loaded && settings.ChatEngine.Loaded && settings.EngineToken.Source is not null && settings.GitHubKey is not null);
+        await walk.UntilAsync("the engine settings read", () => settings.ClaudeConfigDir.Loaded && settings.GitHubApp.Loaded && settings.ChatEngine.Loaded && settings.MachineSignIn.Source is not null && settings.GitHubKey is not null);
         var dir = settings.ClaudeConfigDir.Stored;
         settings.ClaudeConfigDir.Draft = "not/absolute";
         await settings.ClaudeConfigDir.SaveCommand.ExecuteAsync(null);
@@ -393,24 +394,71 @@ internal static class Steps
             Walker.Sql("delete from wilson.settings where key = 'claude-config-dir'");
         }
 
-        var source = settings.EngineToken.Setting!.Source;
-        settings.EngineToken.Draft = "two words";
-        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
-        await walk.UntilAsync("a token with a space refused, the attempt kept", () => settings.EngineToken.Error is not null && settings.EngineToken.Draft == "two words");
-        settings.EngineToken.Draft = "walked-not-a-token";
-        await settings.EngineToken.SaveCommand.ExecuteAsync(null);
-        await walk.UntilAsync("a token saved, and the box emptied", () => settings.EngineToken.CanRemove && settings.EngineToken.Draft is null);
-        walk.ScrollTo("Engine credentials");
-        walk.Shot("12-settings-engine");
-        await settings.EngineToken.RemoveCommand.ExecuteAsync(null);
-        await walk.UntilAsync("the token removed", () => settings.EngineToken.Setting?.Source == source);
+        var machine = settings.MachineSignIn;
+        var source = machine.Setting!.Source;
+        machine.AskEditCommand.Execute(null);
+        machine.Draft = "two words";
+        await machine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token with a space refused, the attempt kept", () => machine.Error is not null && machine.Draft == "two words" && machine.Editing);
+        machine.Draft = "walked-not-a-token";
+        await machine.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token saved, and the box emptied and closed", () => machine.CanRemove && machine.Draft is null && !machine.Editing);
 
-        settings.WorkerTokens.Name = "walked-worker";
-        settings.WorkerTokens.Token = "walked-not-a-token";
-        await settings.WorkerTokens.SaveCommand.ExecuteAsync(null);
-        await walk.UntilAsync("a worker token listed", () => settings.WorkerTokens.Tokens.Any(row => row.Name == "walked-worker") && settings.WorkerTokens.Token is null);
-        await settings.WorkerTokens.RemoveCommand.ExecuteAsync(settings.WorkerTokens.Tokens.First(row => row.Name == "walked-worker"));
-        await walk.UntilAsync("the worker token gone", () => settings.WorkerTokens.Tokens.All(row => row.Name != "walked-worker"));
+        var accounts = settings.Accounts;
+        await walk.UntilAsync("no accounts in rotation said", () => accounts.Headline == "No accounts in rotation");
+        async Task AddAsync(string name, AccountType type, bool joining)
+        {
+            accounts.AskAddCommand.Execute(null);
+            accounts.NewType = type;
+            accounts.NewName = name;
+            accounts.NewToken = "walked-not-a-token";
+            accounts.JoinRotation = joining;
+            await accounts.SaveNewCommand.ExecuteAsync(null);
+            await walk.UntilAsync($"{name} added, and the form closed", () => !accounts.Adding && accounts.NewToken is null && accounts.Idle);
+        }
+
+        await AddAsync("walked-first", AccountRules.Types[0], true);
+        await AddAsync("walked-second", AccountRules.Types[0], true);
+        await AddAsync("walked-key", AccountRules.Types[1], true);
+        await AddAsync("walked-held", AccountRules.Types[0], false);
+        await walk.UntilAsync("the accounts grouped", () => accounts.Rotation.Select(row => row.Name).SequenceEqual(["walked-first", "walked-second", "walked-key"]) && accounts.Outside.Any(row => row.Name == "walked-held"));
+        await walk.UntilAsync("this machine's sign-in said to be unused", () => machine.Unused);
+
+        accounts.AskAddCommand.Execute(null);
+        accounts.NewName = "walked-first";
+        accounts.NewToken = "walked-not-a-token";
+        await walk.UntilAsync("a name already saved refused", () => accounts.NameTaken && !accounts.CanSaveNew);
+        accounts.CancelAddCommand.Execute(null);
+
+        await accounts.Rotation[2].MoveUpCommand.ExecuteAsync(null);
+        await walk.UntilAsync("an account moved up", () => accounts.Rotation.Select(row => row.Name).SequenceEqual(["walked-first", "walked-key", "walked-second"]) && accounts.Idle);
+        await walk.UntilAsync("the top account next, and nothing moving off either end", () => accounts.Rotation[0].Next && !accounts.Rotation[0].CanMoveUp && !accounts.Rotation[2].CanMoveDown);
+
+        Walker.Sql("insert into wilson.engine_limits (account, limit_type, resets_at) values ('walked-first', 'seven_day', now() + interval '2 days')");
+        await accounts.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("the next account is the first free", () => accounts.Headline == "Next engine signs in as walked-key" && accounts.Rotation[1].Next && accounts.Rotation[0].Limit is not null);
+        accounts.Rotation[1].AskReplaceCommand.Execute(null);
+        accounts.Rotation[1].Replacement = "walked-not-a-token";
+        accounts.Rotation[2].AskRemoveCommand.Execute(null);
+        walk.ScrollTo("Accounts");
+        walk.Shot("12-settings-accounts");
+        walk.ScrollTo("This server's own sign-in");
+        walk.Shot("12-settings-sign-in");
+
+        machine.AskRemoveCommand.Execute(null);
+        await machine.RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the token removed", () => machine.Setting?.Source == source);
+
+        await accounts.Rotation[1].SaveReplacementCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a token replaced, the name kept", () => accounts.Rotation.Any(row => row.Name == "walked-key" && !row.Replacing));
+        foreach (var name in new[] { "walked-first", "walked-second", "walked-key", "walked-held" })
+        {
+            var row = accounts.Rotation.Concat(accounts.Outside).First(each => each.Name == name);
+            row.AskRemoveCommand.Execute(null);
+            await row.RemoveCommand.ExecuteAsync(null);
+        }
+
+        await walk.UntilAsync("the accounts gone", () => accounts.Rotation.Count == 0 && accounts.Outside.Count == 0 && accounts.Headline == "No accounts in rotation");
 
         var app = settings.GitHubApp.Stored;
         settings.GitHubApp.Draft = "424242";

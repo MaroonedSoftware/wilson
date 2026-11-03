@@ -42,42 +42,136 @@
                 <SelectableTextBlock Classes="quiet" Text="{Binding StillSaved}" IsVisible="{Binding StillSaved, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </DataTemplate>
-        <DataTemplate DataType="vm:EngineTokenControl">
-            <StackPanel Spacing="4">
-                <TextBlock FontSize="13" FontWeight="Medium" Text="Engine token" />
-                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Worker hosts use the tokens below, and SSH hosts their own. A change applies to stages and planning sessions started afterwards, never one already running." />
-                <TextBox Text="{Binding Draft}" PasswordChar="•" IsEnabled="{Binding Idle}" />
-                <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding Source}" />
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-                    <Button Classes="ghost" Content="Remove" Command="{Binding RemoveCommand}" IsEnabled="{Binding Idle}" IsVisible="{Binding CanRemove}" />
+        <DataTemplate DataType="vm:AccountRow">
+            <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,4" AutomationProperties.Name="{Binding Name}">
+                <StackPanel Spacing="6">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" IsEnabled="{Binding Control.Idle}">
+                            <Button Classes="icon" Padding="4" ToolTip.Tip="Move up" AutomationProperties.Name="Move up" IsVisible="{Binding InRotation}" IsEnabled="{Binding CanMoveUp}" Command="{Binding MoveUpCommand}">
+                                <Viewbox Width="14" Height="14"><Path Classes="stroke" Data="{StaticResource IconArrowUp}" /></Viewbox>
+                            </Button>
+                            <Button Classes="icon" Padding="4" ToolTip.Tip="Move down" AutomationProperties.Name="Move down" IsVisible="{Binding InRotation}" IsEnabled="{Binding CanMoveDown}" Command="{Binding MoveDownCommand}">
+                                <Viewbox Width="14" Height="14"><Path Classes="stroke" Data="M12 19V5M18 13L12 19M6 13L12 19" /></Viewbox>
+                            </Button>
+                            <Button Padding="8,3" Content="Add to rotation" IsVisible="{Binding CanJoin}" IsEnabled="{Binding Idle}" Command="{Binding JoinCommand}" />
+                            <Button Classes="icon" Padding="4" ToolTip.Tip="More actions" AutomationProperties.Name="More actions" IsEnabled="{Binding Idle}">
+                                <Viewbox Width="14" Height="14"><Path Classes="stroke" Data="{StaticResource IconDots}" /></Viewbox>
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuItem Header="Replace token" Command="{Binding AskReplaceCommand}" />
+                                        <MenuItem Header="Leave rotation" IsVisible="{Binding CanLeave}" Command="{Binding LeaveCommand}" />
+                                        <MenuItem Header="Remove" Command="{Binding AskRemoveCommand}" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <WrapPanel>
+                                <TextBlock FontSize="13" FontWeight="Medium" Text="{Binding Name}" VerticalAlignment="Center" Margin="0,0,6,2" />
+                                <Border Classes="badge" Margin="0,0,6,2" IsVisible="{Binding Next}"><TextBlock Classes="quiet good" Text="Next" /></Border>
+                                <Border Classes="badge" Margin="0,0,6,2" IsVisible="{Binding Limit, Converter={x:Static ObjectConverters.IsNotNull}}"><TextBlock Classes="quiet caution" Text="{Binding Limit}" /></Border>
+                                <Border Classes="badge" Margin="0,0,6,2" IsVisible="{Binding Hosts, Converter={x:Static ObjectConverters.IsNotNull}}"><TextBlock Classes="quiet" Text="{Binding Hosts}" /></Border>
+                            </WrapPanel>
+                            <TextBlock Classes="quiet" Text="{Binding Type}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <StackPanel Spacing="6" IsVisible="{Binding Replacing}">
+                        <TextBlock Classes="quiet" Text="{Binding Name, StringFormat='New token for {0}'}" />
+                        <TextBox Text="{Binding Replacement}" PasswordChar="•" IsEnabled="{Binding Idle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Classes="primary" Content="Save" Command="{Binding SaveReplacementCommand}" IsEnabled="{Binding CanSaveReplacement}" />
+                            <Button Classes="ghost" Content="Cancel" Command="{Binding CancelReplaceCommand}" IsEnabled="{Binding Idle}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Spacing="6" IsVisible="{Binding ConfirmingRemove}">
+                        <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding RemovalWarning}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Classes="danger confirming" Content="Remove account" Command="{Binding RemoveCommand}" IsEnabled="{Binding Idle}" />
+                            <Button Classes="ghost" Content="Keep it" Command="{Binding CancelRemoveCommand}" IsEnabled="{Binding Idle}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate DataType="vm:AccountsControl">
+            <StackPanel Spacing="10">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Padding="8,3" Content="Add account" Command="{Binding AskAddCommand}" IsVisible="{Binding !Adding}" />
+                    <TextBlock Classes="heading" Text="Accounts" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border Background="{DynamicResource Panel}" CornerRadius="6" Padding="10,8">
+                    <StackPanel Spacing="1">
+                        <TextBlock FontSize="13" FontWeight="Medium" TextWrapping="Wrap" Text="{Binding Headline}" />
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding Detail}" />
+                    </StackPanel>
+                </Border>
+                <Border Background="{DynamicResource Panel}" CornerRadius="6" Padding="10,8" IsVisible="{Binding Adding}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding TakesSetupToken}" Text="Run claude setup-token in a terminal, signed in as the new account, then paste what it prints." />
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding TakesKey}" Text="Paste the API key. It is billed per token, so give it a place low in the rotation." />
+                        <WrapPanel>
+                            <ComboBox ItemsSource="{Binding Types}" SelectedItem="{Binding NewType}" Width="180" Margin="0,0,6,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Type" />
+                            <TextBox Text="{Binding NewName}" PlaceholderText="claude-2" Width="160" Margin="0,0,6,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Name" />
+                            <TextBox Text="{Binding NewToken}" PlaceholderText="Token" PasswordChar="•" Width="240" Margin="0,0,0,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Token" />
+                        </WrapPanel>
+                        <TextBlock Classes="quiet caution" TextWrapping="Wrap" IsVisible="{Binding NameTaken}" Text="That name is taken. Use Replace token on that account." />
+                        <CheckBox Content="Add to rotation" IsChecked="{Binding JoinRotation}" IsEnabled="{Binding Idle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Classes="primary" Content="Save account" Command="{Binding SaveNewCommand}" IsEnabled="{Binding CanSaveNew}" />
+                            <Button Classes="ghost" Content="Cancel" Command="{Binding CancelAddCommand}" IsEnabled="{Binding Idle}" />
+                        </StackPanel>
+                        <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding AddError}" IsVisible="{Binding AddError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Spacing="4" IsVisible="{Binding HasRotation}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Rotation" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Used by any engine with no account of its own, top first." />
+                    <ItemsControl ItemsSource="{Binding Rotation}" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding HasCodexRotation}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Codex rotation" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Used by Codex engines, top first." />
+                    <ItemsControl ItemsSource="{Binding CodexRotation}" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding HasOutside}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Not in rotation" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Only a host assigned one of these uses it. Assign them on the Hosts page." />
+                    <ItemsControl ItemsSource="{Binding Outside}" />
                 </StackPanel>
                 <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </DataTemplate>
-        <DataTemplate DataType="vm:WorkerTokensControl">
-            <StackPanel Spacing="4">
-                <TextBlock FontSize="13" FontWeight="Medium" Text="Worker engine tokens" />
-                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Tokens Wilson holds for worker hosts, each assigned on the Hosts page. Wilson sends one to its worker with each engine start, and a stage there can read it. Saving under an existing name replaces that token. Removing one sends its hosts back to their own sign-in, leaves running engines alone, and does not revoke it with Anthropic." />
-                <ItemsControl ItemsSource="{Binding Tokens}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:EngineTokenRow">
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,3">
-                                <TextBlock FontSize="13" Text="{Binding Name}" VerticalAlignment="Center" />
-                                <TextBlock Classes="quiet" Text="{Binding Hosts}" VerticalAlignment="Center" />
-                                <TextBlock Classes="quiet" Text="{Binding State}" VerticalAlignment="Center" />
-                                <Button Classes="ghost" Padding="8,3" Content="{Binding PoolAction}" Command="{Binding Control.TogglePoolCommand}" CommandParameter="{Binding}" />
-                                <Button Classes="ghost" Padding="8,3" Content="Remove" Command="{Binding Control.RemoveCommand}" CommandParameter="{Binding}" IsEnabled="{Binding Control.Idle}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding OtherLimits}" />
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBox Text="{Binding Name}" PlaceholderText="Name" Width="180" IsEnabled="{Binding Idle}" />
-                    <TextBox Text="{Binding Token}" PlaceholderText="Token" PasswordChar="•" Width="260" IsEnabled="{Binding Idle}" />
-                    <Button Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+        <DataTemplate DataType="vm:MachineSignInControl">
+            <StackPanel Spacing="6">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top" IsVisible="{Binding Viewing}">
+                        <Button Padding="8,3" Content="{Binding EditAction}" Command="{Binding AskEditCommand}" />
+                        <Button Classes="ghost" Padding="8,3" Content="Remove" Command="{Binding AskRemoveCommand}" IsVisible="{Binding CanRemove}" />
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding Source}" />
+                        <Border Classes="badge" HorizontalAlignment="Left" IsVisible="{Binding Limit, Converter={x:Static ObjectConverters.IsNotNull}}"><TextBlock Classes="quiet caution" Text="{Binding Limit}" /></Border>
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding Unused}" Text="Not used while rotation has accounts: engines take the first one free." />
+                    </StackPanel>
+                </DockPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding Editing}">
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="Engine token" />
+                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="What engines on this machine sign in with, ahead of the config directory below. Make one with claude setup-token. A change applies to stages and planning sessions started afterwards, never one already running." />
+                    <TextBox Text="{Binding Draft}" PasswordChar="•" IsEnabled="{Binding Idle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Classes="primary" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+                        <Button Classes="ghost" Content="Cancel" Command="{Binding CancelEditCommand}" IsEnabled="{Binding Idle}" />
+                    </StackPanel>
                 </StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding ConfirmingRemove}">
+                    <TextBlock FontSize="13" TextWrapping="Wrap" Text="Remove this machine's saved token? Engines here go back to the login in their Claude config directory." />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Classes="danger confirming" Content="Remove token" Command="{Binding RemoveCommand}" IsEnabled="{Binding Idle}" />
+                        <Button Classes="ghost" Content="Keep it" Command="{Binding CancelRemoveCommand}" IsEnabled="{Binding Idle}" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Classes="quiet caution" TextWrapping="Wrap" Text="{Binding OtherLimits}" IsVisible="{Binding OtherLimits, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </DataTemplate>
@@ -188,10 +282,10 @@
             </Border>
             <Border Classes="panel">
                 <StackPanel Spacing="12">
-                    <TextBlock Classes="heading" Text="Engine credentials" />
+                    <ContentControl Content="{Binding Accounts}" />
+                    <TextBlock FontSize="13" FontWeight="Medium" Text="This server's own sign-in" />
+                    <ContentControl Content="{Binding MachineSignIn}" />
                     <ContentControl Content="{Binding ClaudeConfigDir}" />
-                    <ContentControl Content="{Binding EngineToken}" />
-                    <ContentControl Content="{Binding WorkerTokens}" />
                 </StackPanel>
             </Border>
             <Border Classes="panel">
