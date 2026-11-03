@@ -260,6 +260,23 @@ export const ProjectStatsCounts = z.strictObject({
 export type ProjectStatsCounts = z.infer<typeof ProjectStatsCounts>;
 
 /**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ * generated from [ProjectConversationStats](../../data/contracts/board.ck)
+ */
+export const ProjectConversationStats = z.strictObject({
+    kind: z.enum(['planning', 'review']),
+    turns: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cards: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectConversationStats = z.infer<typeof ProjectConversationStats>;
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -714,8 +731,8 @@ export type SplitResult = z.infer<typeof SplitResult>;
  * `GET /api/stats`'s response: what a project spent and how its stages went, read from
  * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
  * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
- * total says little about what a run cost. Planning and review turns are not stage events, so none of
- * this includes them.
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
  * generated from [ProjectStats](../../data/contracts/board.ck)
  */
 export const ProjectStats = z.strictObject({
@@ -726,5 +743,6 @@ export const ProjectStats = z.strictObject({
     stages: z.array(ProjectStageStats),
     days: z.array(ProjectDayStats),
     topCards: z.array(ProjectCardStats),
+    conversations: z.array(ProjectConversationStats),
 });
 export type ProjectStats = z.infer<typeof ProjectStats>;

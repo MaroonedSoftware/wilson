@@ -4,7 +4,7 @@ import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
-import type { ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
+import type { ProjectConversationStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
 
 export interface CardEventRow {
@@ -304,9 +304,11 @@ export class EventLog {
      *
      * One grouped query, one row per day, stage and card, folded into each view here, so that the
      * totals, the stages, the days and the cards are all sums of the same rows and cannot disagree.
+     * `conversations` is read from the turn tables instead, since those turns are not events.
      */
     async projectStats(project: string, since: DateTime, until: DateTime): Promise<ProjectStats> {
         const zone = since.zoneName ?? 'UTC';
+        const conversations = await this.conversationStats(project, since, until);
         const rows = await this.db
             .selectFrom('wilson.cardEvents as event')
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
@@ -380,7 +382,56 @@ export class EventLog {
                 .map(([cardId, counts]) => ({ cardId, ...counts }))
                 .sort((a, b) => b.outputTokens - a.outputTokens || b.inputTokens - a.inputTokens || a.cardId.localeCompare(b.cardId))
                 .slice(0, TOP_CARDS),
+            conversations,
         };
+    }
+
+    /** What planning and review turns spent from `since` up to `until`. Only an answer with a recorded cost counts as a turn. */
+    private async conversationStats(project: string, since: DateTime, until: DateTime): Promise<ProjectConversationStats[]> {
+        const figures = (card: string) =>
+            [
+                sql<string>`count(*)`.as('turns'),
+                sql<string>`count(distinct ${sql.ref(card)})`.as('cards'),
+                sql<string>`coalesce(sum(coalesce(turn.input_tokens, 0) + coalesce(turn.cached_input_tokens, 0)), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum(turn.cached_input_tokens), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum(turn.output_tokens), 0)`.as('outputTokens'),
+            ] as const;
+
+        const [planning, review] = await Promise.all([
+            this.db
+                .selectFrom('wilson.planTurns as turn')
+                .where('turn.project', '=', project)
+                .where('turn.role', '=', 'assistant')
+                .where('turn.outputTokens', 'is not', null)
+                .where('turn.createdAt', '>=', since)
+                .where('turn.createdAt', '<', until)
+                .select(figures('turn.card_id'))
+                .executeTakeFirstOrThrow(),
+            this.db
+                .selectFrom('wilson.reviewTurns as turn')
+                .innerJoin('wilson.reviews as review', 'review.id', 'turn.reviewId')
+                .where('review.project', '=', project)
+                .where('turn.role', '=', 'assistant')
+                .where('turn.outputTokens', 'is not', null)
+                .where('turn.createdAt', '>=', since)
+                .where('turn.createdAt', '<', until)
+                .select(figures('review.card_id'))
+                .executeTakeFirstOrThrow(),
+        ]);
+
+        return (
+            [
+                ['planning', planning],
+                ['review', review],
+            ] as const
+        ).map(([kind, row]) => ({
+            kind,
+            turns: Number(row.turns),
+            cards: Number(row.cards),
+            inputTokens: Number(row.inputTokens),
+            cachedInputTokens: Number(row.cachedInputTokens),
+            outputTokens: Number(row.outputTokens),
+        }));
     }
 
     /**

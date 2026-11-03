@@ -611,6 +611,67 @@ describe('EventLog.projectStats', () => {
         expect(topCards[0]).toMatchObject({ cardId: '0001', cardTitle: 'Ship it' });
     });
 
+    it('adds up planning and review answers apart from the stage figures', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        const at = since.plus({ hours: 1 });
+
+        await db
+            .insertInto('wilson.planTurns')
+            .values([
+                { project, cardId: '0001', seq: 1, role: 'user', content: 'q', createdAt: at },
+                {
+                    project,
+                    cardId: '0001',
+                    seq: 2,
+                    role: 'assistant',
+                    content: 'a',
+                    createdAt: at,
+                    inputTokens: 5,
+                    cachedInputTokens: 100,
+                    outputTokens: 10,
+                },
+                { project, cardId: '0001', seq: 3, role: 'assistant', content: 'from before', createdAt: at },
+                {
+                    project,
+                    cardId: '0002',
+                    seq: 1,
+                    role: 'assistant',
+                    content: 'a',
+                    createdAt: at,
+                    inputTokens: 1,
+                    cachedInputTokens: 0,
+                    outputTokens: 2,
+                },
+                { project, cardId: '0003', seq: 1, role: 'assistant', content: 'too old', createdAt: since.minus({ days: 1 }), outputTokens: 1000 },
+            ])
+            .execute();
+        await db.insertInto('wilson.cards').values({ project, id: '0001', title: 'Ship it', stage: 'backlog', body: 'body' }).execute();
+        const { id: reviewId } = await db
+            .insertInto('wilson.reviews')
+            .values({ project, cardId: '0001', headSha: 'head', baseSha: 'base' })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+        await db
+            .insertInto('wilson.reviewTurns')
+            .values([
+                { reviewId, seq: 1, role: 'user', content: 'q', createdAt: at },
+                { reviewId, seq: 2, role: 'assistant', content: 'a', createdAt: at, inputTokens: 3, cachedInputTokens: 30, outputTokens: 7 },
+                { reviewId, seq: 3, role: 'assistant', content: 'output only', createdAt: at, outputTokens: 4 },
+            ])
+            .execute();
+
+        const stats = await eventLog.projectStats(project, since, until);
+
+        expect(stats.conversations).toEqual([
+            { kind: 'planning', turns: 2, cards: 2, inputTokens: 106, cachedInputTokens: 100, outputTokens: 12 },
+            { kind: 'review', turns: 2, cards: 1, inputTokens: 33, cachedInputTokens: 30, outputTokens: 11 },
+        ]);
+        expect(stats.total.outputTokens).toBe(0);
+        expect(await eventLog.totalInputTokens(project, '0001')).toBe(0);
+        expect(await eventLog.outputTokensSince(project, since)).toBe(0);
+    });
+
     it('reads a project with no history as zeros across every day', async () => {
         const eventLog = new EventLog(db, silentLogger);
 
@@ -619,6 +680,10 @@ describe('EventLog.projectStats', () => {
         expect(stats.total.cards).toBe(0);
         expect(stats.stages).toEqual([]);
         expect(stats.topCards).toEqual([]);
+        expect(stats.conversations).toEqual([
+            { kind: 'planning', turns: 0, cards: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+            { kind: 'review', turns: 0, cards: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+        ]);
         expect(stats.days).toHaveLength(3);
     });
 });

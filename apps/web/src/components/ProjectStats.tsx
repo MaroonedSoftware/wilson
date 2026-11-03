@@ -183,6 +183,39 @@ function StagesTable({ stages }: { stages: Stats['stages'] }) {
     );
 }
 
+const CONVERSATION_LABEL: Record<Stats['conversations'][number]['kind'], string> = { planning: 'Planning', review: 'Review' };
+
+function ConversationsTable({ conversations }: { conversations: Stats['conversations'] }) {
+    return (
+        <Table.ScrollContainer minWidth={560}>
+            <Table>
+                <Table.Thead>
+                    <Table.Tr>
+                        <Table.Th>Conversation</Table.Th>
+                        <Table.Th>Turns</Table.Th>
+                        <Table.Th>Cards</Table.Th>
+                        <Table.Th>Input tokens</Table.Th>
+                        <Table.Th>Of which cached</Table.Th>
+                        <Table.Th>Output tokens</Table.Th>
+                    </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                    {conversations.map(conversation => (
+                        <Table.Tr key={conversation.kind}>
+                            <Table.Td>{CONVERSATION_LABEL[conversation.kind]}</Table.Td>
+                            <Table.Td>{conversation.turns}</Table.Td>
+                            <Table.Td>{conversation.cards}</Table.Td>
+                            <Table.Td>{conversation.inputTokens.toLocaleString()}</Table.Td>
+                            <Table.Td>{conversation.cachedInputTokens.toLocaleString()}</Table.Td>
+                            <Table.Td>{conversation.outputTokens.toLocaleString()}</Table.Td>
+                        </Table.Tr>
+                    ))}
+                </Table.Tbody>
+            </Table>
+        </Table.ScrollContainer>
+    );
+}
+
 function TopCardsTable({ project, cards }: { project: string; cards: Stats['topCards'] }) {
     return (
         <Table.ScrollContainer minWidth={560}>
@@ -222,16 +255,20 @@ function TopCardsTable({ project, cards }: { project: string; cards: Stats['topC
 
 /**
  * What one project spent and how its stages went over a window. Tokens only, for the reason
- * `CardUsage` gives, and only stage runs: planning and review turns are not in these figures.
+ * `CardUsage` gives. Planning and review turns have their own table and are in no other figure here,
+ * so the stage figures keep meaning what a budget or the daily ceiling counts.
  */
 export function ProjectStats({ project, stats }: { project: string; stats: Stats }) {
     const [showDays, setShowDays] = useState(false);
     const { total } = stats;
+    const conversationOutput = stats.conversations.reduce((sum, conversation) => sum + conversation.outputTokens, 0);
+    const hasConversations = stats.conversations.some(conversation => conversation.turns > 0);
+    const hasStageRuns = total.attempts > 0 || total.interrupted > 0;
 
-    if (total.attempts === 0 && total.interrupted === 0) {
+    if (!hasStageRuns && !hasConversations) {
         return (
             <Text size="sm" c="dimmed">
-                No stage has run in this window.
+                Nothing has run in this window.
             </Text>
         );
     }
@@ -241,7 +278,11 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
     return (
         <Stack gap="lg">
             <SimpleGrid cols={{ base: 2, md: 4 }}>
-                <Tile label="Output tokens" value={compactTokens(total.outputTokens)} />
+                <Tile
+                    label="Output tokens"
+                    value={compactTokens(total.outputTokens)}
+                    detail={conversationOutput > 0 ? `plus ${compactTokens(conversationOutput)} in planning and review` : undefined}
+                />
                 <Tile label="Input tokens" value={compactTokens(total.inputTokens)} detail={`${percent(cached)} cached`} />
                 <Tile
                     label="Attempts passed"
@@ -251,7 +292,9 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                 <Tile
                     label="Cards"
                     value={total.cards.toLocaleString()}
-                    detail={`${(total.attempts / total.cards).toFixed(1)} attempts each, ${total.interrupted} interrupted`}
+                    detail={
+                        total.cards > 0 ? `${(total.attempts / total.cards).toFixed(1)} attempts each, ${total.interrupted} interrupted` : undefined
+                    }
                 />
             </SimpleGrid>
 
@@ -266,7 +309,7 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                 </Group>
                 {showDays ? <DailyTable days={stats.days} /> : <DailyOutputChart days={stats.days} />}
                 <Text size="xs" c="dimmed">
-                    Days are counted in {stats.zone}. Planning and review turns are not included.
+                    Days are counted in {stats.zone}. This chart counts stage runs only.
                 </Text>
             </Stack>
 
@@ -276,6 +319,15 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                 </Title>
                 <StagesTable stages={stats.stages} />
             </Stack>
+
+            {hasConversations && (
+                <Stack gap="xs">
+                    <Title order={5} fw={500}>
+                        Planning and review
+                    </Title>
+                    <ConversationsTable conversations={stats.conversations} />
+                </Stack>
+            )}
 
             <Stack gap="xs">
                 <Title order={5} fw={500}>

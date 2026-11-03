@@ -284,6 +284,22 @@ export interface ProjectStatsCounts {
 }
 
 /**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ * generated from [ProjectConversationStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectConversationStats {
+    kind: 'planning' | 'review';
+    turns: number;
+    cards: number;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -775,8 +791,8 @@ export function reviveSplitResult(raw: SplitResult): SplitResult {
  * `GET /api/stats`'s response: what a project spent and how its stages went, read from
  * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
  * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
- * total says little about what a run cost. Planning and review turns are not stage events, so none of
- * this includes them.
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
  * generated from [ProjectStats](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectStats {
@@ -787,6 +803,7 @@ export interface ProjectStats {
     stages: ProjectStageStats[];
     days: ProjectDayStats[];
     topCards: ProjectCardStats[];
+    conversations: ProjectConversationStats[];
 }
 
 /** Rehydrates every wire-encoded scalar in a ProjectStats into its runtime type. Mutates and returns `raw`. */

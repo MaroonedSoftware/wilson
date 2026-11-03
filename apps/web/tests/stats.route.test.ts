@@ -48,6 +48,10 @@ const stats: ProjectStats = {
         { cardId: '0001', cardTitle: 'Ship it', ...counts({ attempts: 3, outputTokens: 12_000 }) },
         { cardId: '0002', ...counts({ attempts: 1, outputTokens: 345 }) },
     ],
+    conversations: [
+        { kind: 'planning', turns: 4, cards: 2, inputTokens: 60_000, cachedInputTokens: 50_000, outputTokens: 3_000 },
+        { kind: 'review', turns: 1, cards: 1, inputTokens: 7_000, cachedInputTokens: 6_000, outputTokens: 500 },
+    ],
 };
 
 class FakeEventSource {
@@ -129,6 +133,32 @@ describe('the stats page', () => {
         expect(screen.getByRole('link', { name: 'Stats' }).getAttribute('href')).toBe('/projects/demo/stats');
     });
 
+    it('keeps planning and review in a table of their own, beside the stage total', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+
+        expect(await screen.findByText('12.3K')).toBeTruthy();
+        expect(screen.getByText('plus 3.5K in planning and review')).toBeTruthy();
+        expect(screen.getByText('Planning')).toBeTruthy();
+        expect(screen.getByText('60,000')).toBeTruthy();
+        expect(screen.getByText('Review')).toBeTruthy();
+    });
+
+    it('still shows a project that has only talked, with no stage run', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue({
+            ...stats,
+            total: { ...counts(), cards: 0 },
+            stages: [],
+            topCards: [],
+        });
+
+        renderApp();
+
+        expect(await screen.findByText('Planning and review')).toBeTruthy();
+        expect(screen.queryByText(/NaN/)).toBeNull();
+    });
+
     it('draws a bar only for a day with tokens, sized against the axis', async () => {
         vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
 
@@ -162,17 +192,18 @@ describe('the stats page', () => {
         await waitFor(() => expect(read).toHaveBeenCalledWith({ days: 7 }));
     });
 
-    it('says so when no stage has run', async () => {
+    it('says so when nothing has run', async () => {
         vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue({
             ...stats,
             total: { ...counts(), cards: 0 },
             stages: [],
             topCards: [],
+            conversations: [],
         });
 
         renderApp();
 
-        expect(await screen.findByText('No stage has run in this window.')).toBeTruthy();
+        expect(await screen.findByText('Nothing has run in this window.')).toBeTruthy();
     });
 
     it('reads again when a card event arrives', async () => {

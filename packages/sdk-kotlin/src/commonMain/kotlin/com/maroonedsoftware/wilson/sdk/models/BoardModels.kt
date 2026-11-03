@@ -266,6 +266,22 @@ data class ProjectStatsCounts(
 )
 
 /**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ */
+@Serializable
+data class ProjectConversationStats(
+    val kind: ProjectConversationStatsKind,
+    val turns: Long,
+    val cards: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+)
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -889,8 +905,8 @@ data class SplitResult(
  * `GET /api/stats`'s response: what a project spent and how its stages went, read from
  * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
  * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
- * total says little about what a run cost. Planning and review turns are not stage events, so none of
- * this includes them.
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
  */
 @Serializable
 data class ProjectStats(
@@ -901,6 +917,7 @@ data class ProjectStats(
     val stages: List<ProjectStageStats>,
     val days: List<ProjectDayStats>,
     val topCards: List<ProjectCardStats>,
+    val conversations: List<ProjectConversationStats>,
 )
 
 /** How the card ended, once it has. Absent for a card still on the board. */
@@ -1043,6 +1060,26 @@ data class CardUsageTotal(
     val inputTokens: Long,
     val cachedInputTokens: Long,
     val outputTokens: Long,
+)
+
+@Serializable(with = ProjectConversationStatsKindSerializer::class)
+enum class ProjectConversationStatsKind {
+    PLANNING,
+    REVIEW,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ProjectConversationStatsKind] by its wire spelling. A spelling it does not know reads as [ProjectConversationStatsKind.UNKNOWN]. */
+object ProjectConversationStatsKindSerializer : SdkEnumSerializer<ProjectConversationStatsKind>(
+    "ProjectConversationStatsKind",
+    ProjectConversationStatsKind.UNKNOWN,
+    ProjectConversationStatsKind.PLANNING to "planning",
+    ProjectConversationStatsKind.REVIEW to "review",
 )
 
 @Serializable(with = CardDiffFileStatusSerializer::class)
