@@ -11,6 +11,7 @@ import { ApiKeysRouter } from '#src/routes/api.keys.router.js';
 import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
+import { CodeRouter } from '#src/routes/code.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { DevicesRouter } from '#src/routes/devices.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
@@ -41,6 +42,7 @@ const ROUTERS = [
     AuthRouter,
     BoardRouter,
     ChatRouter,
+    CodeRouter,
     ContextRouter,
     DevicesRouter,
     EngineTokensRouter,

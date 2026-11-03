@@ -5,6 +5,7 @@ import { JobContext } from '@maroonedsoftware/jobbroker';
 import { Kysely } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { ApiKeysService } from '#modules/authentication/api.keys.service.js';
+import { CodeService } from '#modules/code/code.service.js';
 import { CurrentSessionService } from '#modules/authentication/current.session.service.js';
 import { FactorsService } from '#modules/authentication/factors.service.js';
 import { TokenService } from '#modules/authentication/token.service.js';
@@ -51,7 +52,7 @@ describe('container wiring (card 0112)', () => {
     // `ServerKitContext` is the same thing for a request: `@maroonedsoftware/koa` 4 registers it with
     // a factory that throws "ServerKitContext is only available inside a request scope", and the
     // real value is supplied per request by `serverKitContextMiddleware`. `CurrentSessionService`,
-    // `ApiKeysService`, `TokenService`, `FactorsService` and `DevicesService` take `ServerKitContext` as a constructor
+    // `ApiKeysService`, `TokenService`, `FactorsService`, `DevicesService` and `CodeService` take `ServerKitContext` as a constructor
     // dependency, so they inherit the same restriction.
     const NOT_RESOLVABLE_AT_BOOT = new Set<unknown>([
         JobContext,
@@ -62,6 +63,7 @@ describe('container wiring (card 0112)', () => {
         TokenService,
         FactorsService,
         DevicesService,
+        CodeService,
     ]);
 
     it("builds the app's own container and resolves every registration", async () => {

@@ -1,6 +1,7 @@
 import { Injectable, type Container, type Registry } from 'injectkit';
 import { McpToolHandlerMap } from '@maroonedsoftware/mcp';
 import { registerBoardMcpCatalog, registerBoardMcpToolClasses } from './board.mcp.js';
+import { registerCodeMcpCatalog, registerCodeMcpToolClasses } from './code.mcp.js';
 import { registerContextMcpCatalog, registerContextMcpToolClasses } from './context.mcp.js';
 import { registerHealthMcpCatalog, registerHealthMcpToolClasses } from './health.mcp.js';
 import { registerHostsMcpCatalog, registerHostsMcpToolClasses } from './hosts.mcp.js';
@@ -42,6 +43,7 @@ export class McpToolCatalog extends McpToolHandlerMap {}
 export function registerMcpCatalog(container: Container): McpToolCatalog {
     const map = new McpToolCatalog();
     registerBoardMcpCatalog(map, container);
+    registerCodeMcpCatalog(map, container);
     registerContextMcpCatalog(map, container);
     registerHealthMcpCatalog(map, container);
     registerHostsMcpCatalog(map, container);
@@ -61,6 +63,7 @@ export function registerMcpCatalog(container: Container): McpToolCatalog {
  */
 export function registerMcpToolClasses(registry: Registry): void {
     registerBoardMcpToolClasses(registry);
+    registerCodeMcpToolClasses(registry);
     registerContextMcpToolClasses(registry);
     registerHealthMcpToolClasses(registry);
     registerHostsMcpToolClasses(registry);

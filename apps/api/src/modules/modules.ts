@@ -3,6 +3,7 @@ import { AgentModule } from './agent/agent.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import { BoardModule } from './board/board.module.js';
 import { ChatModule } from './chat/chat.module.js';
+import { CodeModule } from './code/code.module.js';
 import { ContextModule } from './context/context.module.js';
 import { HealthModule } from './health/health.module.js';
 import { HostModule } from './host/host.module.js';
@@ -73,6 +74,7 @@ export const modules: ServerKitModule[] = [
     AgentModule,
     StagesModule,
     LearningsModule,
+    CodeModule,
     NotifyModule,
     SettingsModule,
     McpModule,
