@@ -73,4 +73,84 @@ public sealed class SettingsRulesTests
         Assert.Equal("Still saved: not set", SettingsRules.StillSaved(null));
         Assert.Equal("Still saved: https://a", SettingsRules.StillSaved("https://a"));
     }
+
+    private static StageRouting Route(string stage, StageRoutingMode mode = StageRoutingMode.Agent, StageRoutingProvider provider = StageRoutingProvider.Anthropic) => new()
+    {
+        Stage = stage,
+        Mode = mode,
+        Adapter = StageRoutingAdapter.Cli,
+        Provider = provider,
+    };
+
+    [Fact]
+    public void Only_lanes_reaching_a_model_are_routed()
+    {
+        var routed = SettingsRules.RoutedLanes(
+        [
+            Route("planning", StageRoutingMode.Manual),
+            Route("backlog", StageRoutingMode.Manual),
+            Route("implementing"),
+            Route("deploy", StageRoutingMode.Command),
+            Route("ready", StageRoutingMode.Manual),
+        ]);
+
+        Assert.Equal(["planning", "implementing", "ready"], routed.Select(route => route.Stage));
+    }
+
+    [Theory]
+    [InlineData("implementing", StageRoutingAdapter.Api, true, true)]
+    [InlineData("implementing", StageRoutingAdapter.Cli, true, false)]
+    [InlineData("implementing", StageRoutingAdapter.Codex, true, false)]
+    [InlineData("planning", StageRoutingAdapter.Api, false, false)]
+    [InlineData("ready", StageRoutingAdapter.Api, false, false)]
+    public void A_claude_lane_chooses_neither_engine_nor_provider(string stage, StageRoutingAdapter adapter, bool chooses, bool provider)
+    {
+        Assert.Equal(chooses, SettingsRules.ChoosesAdapter(stage));
+        Assert.Equal(provider, SettingsRules.ChoosesProvider(stage, adapter));
+    }
+
+    [Theory]
+    [InlineData(StageRoutingAdapter.Cli, StageRoutingProvider.Anthropic)]
+    [InlineData(StageRoutingAdapter.Codex, StageRoutingProvider.Openai)]
+    [InlineData(StageRoutingAdapter.Api, StageRoutingProvider.Xai)]
+    public void An_engine_fixes_its_provider_except_the_ai_sdk(StageRoutingAdapter adapter, StageRoutingProvider expected) =>
+        Assert.Equal(expected, SettingsRules.ProviderOn(adapter, StageRoutingProvider.Xai));
+
+    [Fact]
+    public void Review_sharing_implementings_provider_is_said()
+    {
+        Assert.Contains("both run on anthropic", SettingsRules.SharedProvider([Route("review"), Route("implementing")]));
+        Assert.Null(SettingsRules.SharedProvider([Route("review", provider: StageRoutingProvider.Openai), Route("implementing")]));
+    }
+
+    [Fact]
+    public void A_project_without_both_lanes_shares_nothing()
+    {
+        Assert.Null(SettingsRules.SharedProvider([Route("implementing")]));
+        Assert.Null(SettingsRules.SharedProvider([]));
+    }
+
+    [Fact]
+    public void Only_ready_has_a_model_to_fall_back_on()
+    {
+        Assert.NotNull(SettingsRules.ModelPlaceholder("ready"));
+        Assert.Null(SettingsRules.ModelPlaceholder("planning"));
+    }
+
+    [Fact]
+    public void A_route_goes_out_as_chosen()
+    {
+        var request = SettingsRules.RoutingRequest(StageRoutingAdapter.Codex, StageRoutingProvider.Openai, "gpt");
+
+        Assert.Equal(SetStageRoutingRequestAdapter.Codex, request?.Adapter);
+        Assert.Equal(SetStageRoutingRequestProvider.Openai, request?.Provider);
+        Assert.Equal("gpt", request?.Model);
+    }
+
+    [Fact]
+    public void A_value_this_sdk_does_not_know_is_never_sent()
+    {
+        Assert.Null(SettingsRules.RoutingRequest(StageRoutingAdapter.Unknown, StageRoutingProvider.Anthropic, "m"));
+        Assert.Null(SettingsRules.RoutingRequest(StageRoutingAdapter.Cli, StageRoutingProvider.Unknown, "m"));
+    }
 }

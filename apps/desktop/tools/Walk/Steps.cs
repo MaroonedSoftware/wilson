@@ -12,6 +12,7 @@ using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
+using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace Walk;
 
@@ -316,7 +317,69 @@ internal static class Steps
         // The API answers 500 to a null in this request (`SettingsStore.set` of undefined), in the web app too, so this goes by hand.
         Walker.Sql("delete from wilson.settings where key in ('notify-webhook-url', 'notify-base-url')");
 
+        await StageRoutingAsync(walk, settings);
         await EngineSettingsAsync(walk, settings);
+    }
+
+    /// <summary>A lane's model saved and put back, the AI SDK's provider shown, Codex fixing its provider, and a route the API refuses.</summary>
+    private static async Task StageRoutingAsync(Walker walk, SettingsViewModel settings)
+    {
+        var routing = settings.StageRouting;
+        await walk.UntilAsync("the stage routing read", () => routing.Rows.Count > 0);
+        Console.WriteLine($"     lanes: {string.Join(", ", routing.Rows.Select(row => $"{row.Stage}={row.Adapter}/{row.Provider}/{row.Model}"))}");
+        Console.WriteLine($"     shared: {routing.SharedProvider}");
+        walk.ScrollTo("Stage routing");
+        walk.Shot("12-stage-routing");
+
+        var implementing = routing.Rows.Single(row => row.Stage == "implementing");
+        var (adapter, provider, model) = (implementing.Adapter, implementing.Provider, implementing.Model);
+
+        implementing.Model = "walk-model";
+        await implementing.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a model saved", () => implementing.Stored.Model == "walk-model" && !implementing.CanSave && implementing.Error is null);
+
+        implementing.UsesCodex = true;
+        await walk.UntilAsync("Codex fixing the provider", () => implementing.Provider == StageRoutingProvider.Openai && !implementing.ChoosesProvider);
+
+        implementing.UsesApi = true;
+        await walk.UntilAsync("the AI SDK offering a provider", () => implementing.ChoosesProvider);
+        walk.Shot("12-stage-routing-api");
+
+        implementing.UsesCli = true;
+        implementing.Provider = StageRoutingProvider.Openai;
+        await implementing.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("Claude's engine on another provider refused, the attempt kept", () => implementing.Error is not null && implementing.Provider == StageRoutingProvider.Openai);
+        Console.WriteLine($"     refused: {implementing.Error}");
+        walk.Shot("12-stage-routing-refused");
+
+        implementing.Adapter = adapter;
+        implementing.Provider = provider;
+        implementing.Model = model;
+        await implementing.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the route put back", () => implementing.Stored.Model == model && implementing.Stored.Adapter == adapter && implementing.Stored.Provider == provider);
+
+        // The seeded board has neither lane, so these two rows go in by hand and come out again. A lane read is cached until the next revision.
+        const string revision = "insert into wilson.lane_revisions (project, lane, snapshot, message) values ('wilson', 'implementing', '{}', 'walk')";
+        const string lanes = "('wilson', 'review', 3, 'agent', 'readonly', 'ready', 'implementing', 'api', 'anthropic', 'claude-sonnet-5', 'walk'), ('wilson', 'ready', 4, 'manual', 'none', 'done', 'implementing', null, null, null, 'walk')";
+        Walker.Sql($"insert into wilson.lanes (project, name, position, mode, worktree, on_pass, on_fail, adapter, provider, model, instructions) values {lanes}");
+        Walker.Sql("update wilson.lanes set on_pass = 'review' where project = 'wilson' and name = 'implementing'");
+        Walker.Sql(revision);
+        await routing.ReadAsync(CancellationToken.None);
+        var review = routing.Rows.Single(row => row.Stage == "review");
+        var ready = routing.Rows.Single(row => row.Stage == "ready");
+        await walk.UntilAsync("sharing a provider said, and ready choosing only a model", () => routing.SharedProvider is not null && !ready.ChoosesAdapter && !ready.ChoosesProvider && ready.Placeholder is not null);
+        Console.WriteLine($"     shared: {routing.SharedProvider}");
+        walk.Shot("12-stage-routing-shared");
+
+        review.UsesApi = true;
+        review.Provider = StageRoutingProvider.Openai;
+        await review.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a different provider ending the warning", () => routing.SharedProvider is null && review.Error is null);
+
+        Walker.Sql("update wilson.lanes set on_pass = 'done' where project = 'wilson' and name = 'implementing'");
+        Walker.Sql("delete from wilson.lanes where project = 'wilson' and name in ('review', 'ready')");
+        Walker.Sql(revision);
+        await routing.ReadAsync(CancellationToken.None);
     }
 
     /// <summary>
