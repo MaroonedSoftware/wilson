@@ -686,16 +686,17 @@ function canChooseProvider(route: Pick<StageRouting, 'stage' | 'adapter'>): bool
 function StageRoutingRow({ route }: { route: StageRouting }) {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
-    const [draft, setDraft] = useState(route);
+    const [draft, setDraft] = useState({ ...route, model: route.model ?? '' });
 
-    useEffect(() => setDraft(route), [route]);
+    useEffect(() => setDraft({ ...route, model: route.model ?? '' }), [route]);
 
     const mutation = useMutation({
-        mutationFn: ({ stage, adapter, provider, model }: StageRouting) => wilson.stages.setStageRouting(stage, { adapter, provider, model }),
+        mutationFn: ({ stage, adapter, provider, model }: StageRouting & { model: string }) =>
+            wilson.stages.setStageRouting(stage, { adapter, provider, model }),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: STAGE_ROUTING_QUERY_KEY }),
     });
 
-    const dirty = draft.adapter !== route.adapter || draft.provider !== route.provider || draft.model !== route.model;
+    const dirty = draft.adapter !== route.adapter || draft.provider !== route.provider || draft.model !== (route.model ?? '');
 
     return (
         <Stack gap="xs">

@@ -7,6 +7,7 @@ import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
 import { buildTools, REPORT_TOOL } from './tools/index.js';
+import { modelOf } from '#modules/stages/stage.config.js';
 
 /**
  * Runs a stage through the AI SDK against a provider API key.
@@ -36,7 +37,7 @@ export class ApiStageAgent extends StageAgent {
         // means something where a stage actually compares test counts against a baseline.
         const checksTestCounts = stage.testReportPath !== undefined;
         const agent = new ToolLoopAgent({
-            model: this.models.resolve(stage.provider, stage.model),
+            model: this.models.resolve(stage.provider, modelOf(stage)),
             instructions: [
                 stage.instructions,
                 ...(canWrite && checksTestCounts

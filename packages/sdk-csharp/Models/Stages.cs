@@ -71,7 +71,8 @@ public sealed record StageConfigVersionsQuery
 
 /// <summary>
 /// Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
-/// client can tell the stages that reach a model from the manual ones that never do.
+/// client can tell the stages that reach a model from the manual ones that never do, which have no
+/// `model`.
 /// </summary>
 public sealed record StageRouting
 {
@@ -88,7 +89,8 @@ public sealed record StageRouting
     public required StageRoutingProvider Provider { get; init; }
 
     [JsonPropertyName("model")]
-    public required string Model { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; init; }
 }
 
 public sealed record SetStageRoutingRequest

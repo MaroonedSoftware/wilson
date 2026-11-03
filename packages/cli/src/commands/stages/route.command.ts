@@ -31,7 +31,9 @@ const command: CommandModule<RouteOpts> = {
 
         if (stage === undefined) {
             for (const route of routes) {
-                process.stdout.write(`${route.stage.padEnd(16)} ${route.adapter.padEnd(5)} ${route.provider.padEnd(10)} ${route.model}\n`);
+                process.stdout.write(
+                    `${route.stage.padEnd(16)} ${route.adapter.padEnd(5)} ${route.provider.padEnd(10)} ${route.model ?? '(none)'}\n`,
+                );
             }
             return 0;
         }
@@ -45,6 +47,10 @@ const command: CommandModule<RouteOpts> = {
         const adapter = opts.adapter ?? current.adapter;
         const provider = opts.provider ?? current.provider;
         const model = opts.model ?? current.model;
+        if (!model) {
+            ctx.logger.error(`${stage} has no model yet: name one with --model`);
+            return 1;
+        }
         await withStepUp(ctx, api, client => client.stages.setStageRouting(stage, { adapter, provider, model, message: opts.message }));
         ctx.logger.info(`${stage} now runs ${adapter} ${provider} ${model}`);
         return 0;

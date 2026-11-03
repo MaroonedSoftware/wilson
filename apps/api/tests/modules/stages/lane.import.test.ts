@@ -97,7 +97,8 @@ describe('lane tables', () => {
 
         await store.importLanes();
 
-        expect(await store.load()).toEqual(fromDocument);
+        const withoutManualRouting = fromDocument.stages.map(({ model, ...stage }) => (stage.name === 'backlog' ? stage : { ...stage, model }));
+        expect((await store.load()).stages).toEqual(withoutManualRouting);
         expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
     });
 
@@ -120,6 +121,24 @@ describe('lane tables', () => {
             placement: 'any',
             allowedCommands: ['pnpm test'],
             setupCommand: 'pnpm install --frozen-lockfile',
+        });
+    });
+
+    it('clears routing from a lane that runs no model, and keeps it on planning', async () => {
+        await seedLive();
+        await store.importLanes();
+
+        const byName = new Map((await lanes()).map(lane => [lane.name, lane]));
+        expect(byName.get('backlog')?.model ?? undefined).toBeUndefined();
+        expect(byName.get('planning')?.model).toBe('claude-opus-5');
+    });
+
+    it('refuses routing for a lane that runs no model', async () => {
+        await seedLive();
+        await store.importLanes();
+
+        await expect(store.saveRouting('backlog', { adapter: 'api', provider: 'anthropic', model: 'x' }, 'no')).rejects.toMatchObject({
+            kind: 'config-invalid',
         });
     });
 

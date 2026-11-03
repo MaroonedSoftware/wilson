@@ -54,13 +54,14 @@ contract StageConfigVersionsQuery: {
 }
 
 # Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
-# client can tell the stages that reach a model from the manual ones that never do.
+# client can tell the stages that reach a model from the manual ones that never do, which have no
+# `model`.
 contract StageRouting: {
     stage: string
     mode: enum(agent, command, manual)
     adapter: enum(api, cli, codex)
     provider: enum(anthropic, openai, xai)
-    model: string
+    model?: string
 }
 
 contract SetStageRoutingRequest: {

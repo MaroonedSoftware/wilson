@@ -10,7 +10,7 @@ import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
 import { completeSections, planGap, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
-import { findStage, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, modelOf, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -520,7 +520,7 @@ export class PlanService {
             sessionId: id,
             worktreePath,
             draftPath,
-            model: stage.model,
+            model: modelOf(stage),
             instructions,
         };
     }
@@ -537,7 +537,7 @@ export class PlanService {
      */
     private async existingSession(id: string): Promise<Pick<PlanSession, 'worktreePath' | 'model'>> {
         const stage = await this.loadPlanningStage();
-        return { worktreePath: join(this.boardConfig.worktreeRoot, planId(id)), model: stage.model };
+        return { worktreePath: join(this.boardConfig.worktreeRoot, planId(id)), model: modelOf(stage) };
     }
 
     /** The `planning` stage's own config — shared by `cutSession` and `existingSession` so neither

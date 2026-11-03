@@ -54,7 +54,8 @@ export type StageConfigVersionsQuery = z.infer<typeof StageConfigVersionsQuery>;
 
 /**
  * Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
- * client can tell the stages that reach a model from the manual ones that never do.
+ * client can tell the stages that reach a model from the manual ones that never do, which have no
+ * `model`.
  * generated from [StageRouting](../../data/contracts/stages.ck)
  */
 export const StageRouting = z.strictObject({
@@ -62,7 +63,7 @@ export const StageRouting = z.strictObject({
     mode: z.enum(['agent', 'command', 'manual']),
     adapter: z.enum(['api', 'cli', 'codex']),
     provider: z.enum(['anthropic', 'openai', 'xai']),
-    model: z.string(),
+    model: z.string().optional(),
 });
 export type StageRouting = z.infer<typeof StageRouting>;
 

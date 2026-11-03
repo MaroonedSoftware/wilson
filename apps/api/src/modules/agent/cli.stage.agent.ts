@@ -19,6 +19,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
+import { modelOf } from '#modules/stages/stage.config.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
@@ -610,7 +611,7 @@ export class CliStageAgent extends StageAgent {
                 ...(resume?.sessionId ? { resume: resume.sessionId } : {}),
                 // The stage's own model, not the engine's default: model is a property of the stage
                 // under either adapter. `provider` has no meaning here, since this engine runs Claude.
-                model: stage.model,
+                model: modelOf(stage),
                 // 'default' so canUseTool is consulted rather than bypassed. Never
                 // 'bypassPermissions': that is precisely the guard this adapter has to re-add.
                 permissionMode: 'default',

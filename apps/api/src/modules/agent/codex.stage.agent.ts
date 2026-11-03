@@ -4,6 +4,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { z } from 'zod';
 import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
+import { modelOf } from '#modules/stages/stage.config.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { createToolGuard, ENGINE_PASSED_THROUGH } from './cli.stage.agent.js';
 import { CodexConnection, type CodexExit, type CodexNotification, type CodexServerRequest } from './codex.connection.js';
@@ -495,7 +496,7 @@ export class CodexStageAgent extends StageAgent {
                 const sandbox = canWrite ? 'workspace-write' : 'read-only';
                 const thread = {
                     cwd: context.worktreeRoot,
-                    model: stage.model,
+                    model: modelOf(stage),
                     approvalPolicy: 'untrusted',
                     approvalsReviewer: 'user',
                     sandbox,

@@ -22,6 +22,12 @@ export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
 const DEFAULT_IDLE_MS = 300_000;
 
 /**
+ * Whether a lane reaches a model. `planning` is manual, since the queue never dispatches it, but its
+ * session runs on the lane's model.
+ */
+export const runsModel = (stage: { name: string; mode: string }): boolean => stage.mode === 'agent' || stage.name === 'planning';
+
+/**
  * Stages are config, not code (PROJECT.md decision 8).
  *
  * Only `implementing` is configured today, but the shape is the full one — mode, worktree
@@ -43,7 +49,8 @@ export const StageConfigSchema = z
          */
         adapter: z.enum(['api', 'cli', 'codex']).default('api'),
         provider: z.enum(PROVIDERS).default('anthropic'),
-        model: z.string(),
+        /** Required on a lane that runs a model (`runsModel`). Any other lane has none to name. */
+        model: z.string().optional(),
         /** System guidance for the stage. The plan itself is passed as a file path, never inlined. */
         instructions: z.string(),
         /** Tool names this stage may use. Omit for all of them. */
@@ -263,6 +270,9 @@ export const StageConfigSchema = z
         maxKickbacks: z.number().int().min(0).default(3),
     })
     .superRefine((stage, ctx) => {
+        if (runsModel(stage) && !stage.model) {
+            ctx.addIssue({ code: 'custom', path: ['model'], message: `${stage.name} runs a model, so it needs one` });
+        }
         if (stage.isolated && stage.placement !== 'remote') {
             ctx.addIssue({
                 code: 'custom',
@@ -373,7 +383,13 @@ const deepFreeze = <T>(value: T): T => {
 };
 
 /** The part of a stage kept in `wilson.stage_routing` rather than in the document. */
-export type StageRouting = Pick<StageConfig, 'adapter' | 'provider' | 'model'>;
+export type StageRouting = Pick<StageConfig, 'adapter' | 'provider'> & { model: string };
+
+/** A lane's model, for code about to run it. Schema validation means only a misrouted caller can see this throw. */
+export const modelOf = (stage: StageConfig): string => {
+    if (!stage.model) throw new StageConfigError('config-invalid', `${stage.name} has no model`);
+    return stage.model;
+};
 
 const ROUTING_FIELDS = ['adapter', 'provider', 'model'] as const;
 

@@ -47,7 +47,8 @@ data class StageConfigVersionsQuery(
 
 /**
  * Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
- * client can tell the stages that reach a model from the manual ones that never do.
+ * client can tell the stages that reach a model from the manual ones that never do, which have no
+ * `model`.
  */
 @Serializable
 data class StageRouting(
@@ -55,7 +56,7 @@ data class StageRouting(
     val mode: StageRoutingMode,
     val adapter: StageRoutingAdapter,
     val provider: StageRoutingProvider,
-    val model: String,
+    val model: String? = null,
 )
 
 @Serializable

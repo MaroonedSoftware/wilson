@@ -1,5 +1,5 @@
 import { parse as parseYaml } from 'yaml';
-import { applyRouting, validateStages, type StageRouting } from './stage.config.js';
+import { applyRouting, runsModel, validateStages, type StageRouting } from './stage.config.js';
 
 /** One `wilson.lanes` row, as the store reads and writes it. */
 export interface Lane {
@@ -46,6 +46,8 @@ export const lanesFromDocument = (yaml: string, routing: ReadonlyMap<string, Sta
     return {
         lanes: stages.map((stage, position) => {
             const { name, mode, worktree, onPass, onFail, adapter, provider, model, instructions, ...settings } = stage;
+            // A manual lane's routing was only ever there because the schema once demanded a model.
+            const routed = runsModel(stage as { name: string; mode: string });
             return {
                 name,
                 position,
@@ -53,9 +55,9 @@ export const lanesFromDocument = (yaml: string, routing: ReadonlyMap<string, Sta
                 worktree: worktree ?? 'rw',
                 onPass,
                 onFail,
-                ...(adapter === undefined ? {} : { adapter }),
-                ...(provider === undefined ? {} : { provider }),
-                ...(model === undefined ? {} : { model }),
+                ...(routed && adapter !== undefined ? { adapter } : {}),
+                ...(routed && provider !== undefined ? { provider } : {}),
+                ...(routed && model !== undefined ? { model } : {}),
                 instructions,
                 settings,
             } as Lane;

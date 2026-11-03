@@ -8,6 +8,7 @@ import {
     assertRoutable,
     findStage,
     parseStages,
+    runsModel,
     splitRouting,
     StageConfigError,
     validateStages,
@@ -314,7 +315,8 @@ export class PostgresStageConfigStore extends StageConfigStore {
     }
 
     async saveRouting(stage: string, routing: StageRouting, message: string): Promise<void> {
-        const { isolated } = findStage(await this.load(), stage);
+        const { isolated, mode } = findStage(await this.load(), stage);
+        if (!runsModel({ name: stage, mode })) throw new StageConfigError('config-invalid', `${stage} runs no model, so it has no routing to set`);
         assertRoutable(stage, routing, isolated);
 
         const project = this.config.project;
@@ -404,7 +406,7 @@ const planRoutingChanges = (
     return parsed.stages.flatMap(({ name, adapter, provider, model }) => {
         const row = routing.get(name);
         const unchanged = row?.adapter === adapter && row.provider === provider && row.model === model;
-        return inline.has(name) && !unchanged ? [{ stage: name, adapter, provider, model }] : [];
+        return inline.has(name) && !unchanged && model ? [{ stage: name, adapter, provider, model }] : [];
     });
 };
 

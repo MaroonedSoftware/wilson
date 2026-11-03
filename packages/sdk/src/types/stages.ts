@@ -66,7 +66,8 @@ export interface StageConfigVersionsQuery {
 
 /**
  * Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
- * client can tell the stages that reach a model from the manual ones that never do.
+ * client can tell the stages that reach a model from the manual ones that never do, which have no
+ * `model`.
  * generated from [StageRouting](../../../../apps/api/data/contracts/stages.ck)
  */
 export interface StageRouting {
@@ -74,7 +75,7 @@ export interface StageRouting {
     mode: 'agent' | 'command' | 'manual';
     adapter: 'api' | 'cli' | 'codex';
     provider: 'anthropic' | 'openai' | 'xai';
-    model: string;
+    model?: string;
 }
 
 /**
