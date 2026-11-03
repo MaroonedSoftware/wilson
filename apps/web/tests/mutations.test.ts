@@ -107,7 +107,9 @@ describe('useMoveCard', () => {
             result.current.mutate('implementing');
         });
 
-        await waitFor(() => expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('could not be reached') })));
+        await waitFor(() =>
+            expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('could not be reached') })),
+        );
     });
 
     it('falls back to the body message when a refusal carries no details.reason', async () => {
