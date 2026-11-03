@@ -439,6 +439,19 @@ class BoardClient(private val http: SdkHttp) {
         return http.decodeJson(response)
     }
 
+    /**
+     * Reopen a plan comment
+     * Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+     * revision missed the point. The same 404 as resolving.
+     * @throws SdkError on 404
+     */
+    suspend fun reopenAPlanComment(id: String, commentId: String): PlanComment {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "plan", "comments", segment(commentId), "reopen")
+        }
+        return http.decodeJson(response)
+    }
+
     /** List card events */
     suspend fun listCardEvents(id: String, query: ListQuery? = null): List<CardEvent> {
         val response = http.execute(HttpMethod.Get) {

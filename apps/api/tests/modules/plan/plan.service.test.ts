@@ -39,7 +39,9 @@ const fakeEvents = { append: vi.fn(async () => {}) } as unknown as EventLog;
  * engine. The double echoes its prompt back one word at a time, so a turn's stored `content` is a
  * direct, checkable record of exactly what `PlanService` sent it.
  */
-const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.hoisted(() => {
+const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy, turnBehaviour } = vi.hoisted(() => {
+    // How the double's next turns end, and anything to do while one is running.
+    const turnBehaviour: { succeeds: boolean; during?: () => Promise<void> } = { succeeds: true };
     const sessionAgentCalls: Array<{ worktreeRoot: string; model: string; resume?: string; configDir?: string; engineToken?: string }> = [];
     // Every mock instance ever constructed, in construction order — the counter behind `sessionId`
     // is shared across every test in this file (it lives in this one hoisted closure), so a test
@@ -51,6 +53,7 @@ const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.ho
     class PlanSessionAgentMock {
         readonly options: { worktreeRoot: string; model: string; resume?: string; configDir?: string };
         sessionId: string | undefined;
+        lastTurnSucceeded = false;
         constructor(options: { worktreeRoot: string; model: string; resume?: string; configDir?: string }) {
             this.options = options;
             sessionAgentCalls.push(options);
@@ -59,16 +62,18 @@ const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy } = vi.ho
             instances.push(this);
         }
         async *turn(text: string): AsyncGenerator<string> {
+            await turnBehaviour.during?.();
             const words = text.split(' ');
             for (const [index, word] of words.entries()) {
                 yield index === 0 ? word : ` ${word}`;
             }
+            this.lastTurnSucceeded = turnBehaviour.succeeds;
         }
         dispose(): void {
             disposeSpy(this);
         }
     }
-    return { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy };
+    return { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy, turnBehaviour };
 });
 
 vi.mock('#modules/agent/plan.session.agent.js', () => ({ PlanSessionAgent: PlanSessionAgentMock }));
@@ -616,6 +621,25 @@ describe('PlanService', () => {
     });
 
     describe('save', () => {
+        it("writes what was approved back to an open session's draft, so the agent and the next read find it", async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0035', { stage: 'planning' }), 'seed');
+            await service.open('0035');
+
+            await service.save('0035', { body: FULL_BODY });
+
+            expect((await service.draft('0035')).body).toBe(FULL_BODY);
+        });
+
+        it('creates no draft for a card with no session', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0036', { stage: 'planning' }), 'seed');
+
+            await service.save('0036', { body: FULL_BODY });
+
+            expect((await service.draft('0036')).body).toBe('');
+        });
+
         it('refuses an incomplete draft, naming the missing heading, and writes no version', async () => {
             const { board, service } = await freshEnv();
             await board.create(card('0006', { stage: 'planning' }, 'original body'), 'seed');
@@ -814,6 +838,25 @@ describe('PlanService', () => {
             expect(list.find(c => c.id !== first.id)?.resolved).toBe(false);
         });
 
+        it('reopenComment puts a resolved comment back to open', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0033', { stage: 'planning' }), 'seed');
+            const comment = await service.addComment('0033', { quote: 'a', prefix: '', suffix: '', text: 'one' });
+            await service.resolveComment('0033', comment.id);
+
+            const reopened = await service.reopenComment('0033', comment.id);
+
+            expect(reopened.resolved).toBe(false);
+            expect((await service.comments('0033'))[0]!.resolved).toBe(false);
+        });
+
+        it('reopenComment 404s for a comment id that does not exist', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0034', { stage: 'planning' }), 'seed');
+
+            await expect(service.reopenComment('0034', '999999999')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
         it('resolveComment 404s for a comment id that does not exist', async () => {
             const { board, service } = await freshEnv();
             await board.create(card('0032', { stage: 'planning' }, FULL_BODY), 'seed');
@@ -945,6 +988,125 @@ describe('PlanService', () => {
                 expect(commentIdx).toBeGreaterThan(instructionsIdx);
                 expect(cutsIdx).toBeGreaterThan(commentIdx);
                 expect(textIdx).toBeGreaterThan(cutsIdx);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        describe('delivered comments', () => {
+            afterEach(() => {
+                turnBehaviour.succeeds = true;
+                turnBehaviour.during = undefined;
+            });
+
+            it('a finished turn resolves what it delivered, so the next turn does not send it again', async () => {
+                const { board, service } = await freshEnv();
+                const id = randomUUID();
+                try {
+                    await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                    await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+
+                    await service.turn(id, { text: 'first' });
+                    const [comment] = await service.comments(id);
+                    expect(comment!.resolved).toBe(true);
+
+                    const second = await service.turn(id, { text: 'second' });
+                    expect(second.content).not.toContain('please clarify this');
+                } finally {
+                    planSessions.dispose(id);
+                }
+            });
+
+            it('a turn the engine did not finish leaves them open, to be sent again', async () => {
+                const { board, service } = await freshEnv();
+                const id = randomUUID();
+                try {
+                    await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                    await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+                    turnBehaviour.succeeds = false;
+
+                    await service.turn(id, { text: 'first' });
+                    const [comment] = await service.comments(id);
+                    expect(comment!.resolved).toBe(false);
+
+                    turnBehaviour.succeeds = true;
+                    const second = await service.turn(id, { text: 'second' });
+                    expect(second.content).toContain('please clarify this');
+                } finally {
+                    planSessions.dispose(id);
+                }
+            });
+
+            it('a comment added while the agent was working stays open for the next turn', async () => {
+                const { board, service } = await freshEnv();
+                const id = randomUUID();
+                try {
+                    await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                    await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'sent' });
+                    turnBehaviour.during = async () => {
+                        turnBehaviour.during = undefined;
+                        await service.addComment(id, { quote: 'Keep it small.', prefix: '', suffix: '', text: 'too late for this turn' });
+                    };
+
+                    await service.turn(id, { text: 'first' });
+
+                    const comments = await service.comments(id);
+                    expect(comments.map(c => [c.text, c.resolved])).toEqual([
+                        ['sent', true],
+                        ['too late for this turn', false],
+                    ]);
+                } finally {
+                    planSessions.dispose(id);
+                }
+            });
+        });
+
+        it('a comments turn asks for the revision after the comments, and stores an empty box as a marker', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+
+                const result = await service.turn(id, { text: '', mode: 'comments' });
+
+                const commentIdx = result.content.indexOf('please clarify this');
+                const revisionIdx = result.content.indexOf('Revise the draft file now');
+                expect(commentIdx).toBeGreaterThanOrEqual(0);
+                expect(revisionIdx).toBeGreaterThan(commentIdx);
+
+                const stored = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(stored[0]!.content).toBe('[address comments]');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a comments turn keeps what was typed as guidance', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+
+                await service.turn(id, { text: 'keep it short', mode: 'comments' });
+
+                const stored = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(stored[0]!.content).toBe('keep it short');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('refuses a comments turn when no comment is open, and records no turn', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await expect(service.turn(id, { text: '', mode: 'comments' })).rejects.toMatchObject({ statusCode: 400 });
+
+                expect(await new PlanTurnRepository(config, db).since(id, 0)).toEqual([]);
             } finally {
                 planSessions.dispose(id);
             }

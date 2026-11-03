@@ -315,7 +315,8 @@ data class PlanTurnRequest(
      * `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
      * of its own because the preamble, not the request shape, is what changes. `draft` works the same
      * way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-     * through it first.
+     * through it first. `comments` submits the card's open comments as one revision request, with
+     * `text` as optional guidance, and is refused when there are none.
      */
     val mode: PlanTurnRequestMode? = null,
 )
@@ -354,7 +355,8 @@ data class PlanDraft(
  * nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
- * comment moves through, not a delete — a comment the agent addressed stays on record.
+ * comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+ * agent, and it stays on record either way.
  */
 @Serializable
 data class PlanComment(
@@ -853,13 +855,15 @@ object CardDiffFileStatusSerializer : SdkEnumSerializer<CardDiffFileStatus>(
  * `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
  * of its own because the preamble, not the request shape, is what changes. `draft` works the same
  * way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
- * through it first.
+ * through it first. `comments` submits the card's open comments as one revision request, with
+ * `text` as optional guidance, and is refused when there are none.
  */
 @Serializable(with = PlanTurnRequestModeSerializer::class)
 enum class PlanTurnRequestMode {
     CHAT,
     CUTS,
     DRAFT,
+    COMMENTS,
 
     /**
      * A value this SDK does not know, such as a member the service added after it was generated.
@@ -875,6 +879,7 @@ object PlanTurnRequestModeSerializer : SdkEnumSerializer<PlanTurnRequestMode>(
     PlanTurnRequestMode.CHAT to "chat",
     PlanTurnRequestMode.CUTS to "cuts",
     PlanTurnRequestMode.DRAFT to "draft",
+    PlanTurnRequestMode.COMMENTS to "comments",
 )
 
 @Serializable(with = PlanTurnRoleSerializer::class)

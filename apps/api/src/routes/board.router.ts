@@ -671,6 +671,28 @@ BoardRouter.post('/api/cards/:id/plan/comments/:commentId/resolve', requirePolic
 });
 
 /**
+ * Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+ * revision missed the point. The same 404 as resolving.
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/plan/comments/{commentId}/reopen`
+ */
+BoardRouter.post('/api/cards/:id/plan/comments/:commentId/reopen', requirePolicy({ policy: 'wilson.manage' }), async ctx => {
+    const { id, commentId } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+            commentId: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(PlanService);
+    const result: PlanComment = await service.reopenComment(id, commentId);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
  * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/events`
  */
 BoardRouter.get('/api/cards/:id/events', requirePolicy({ policy: 'wilson.view' }), async ctx => {

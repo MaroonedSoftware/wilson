@@ -174,6 +174,17 @@ export class PlanService {
     }
 
     /**
+     * Put a resolved comment back to open, so the next turn delivers it again. The same `404`s as
+     * `resolveComment`.
+     */
+    async reopenComment(id: string, commentId: string): Promise<PlanComment> {
+        await this.readOrThrow(id);
+        const reopened = await this.planComments.reopen(id, commentId);
+        if (!reopened) throw httpError(404);
+        return toGeneratedComment(reopened);
+    }
+
+    /**
      * One turn of the conversation the daemon can now hold for a card in `planning`, instead of
      * that conversation existing only inside an operator's terminal. Appends the user's turn, hands
      * it to the registry's live session (rehydrating it from `wilson.plan_turns`'s last
@@ -243,6 +254,9 @@ export class PlanService {
         // card existed.
         const openComments = await this.planComments.open(id);
         const commentsPreamble = commentsBlock(openComments);
+        if (mode === 'comments' && openComments.length === 0) {
+            throw httpError(400).withDetails({ reason: `${id} has no open comments to send` });
+        }
 
         // Card 0240's Constraints: `cuts` mode prepends the same fixed `cutsPreamble` (below, next
         // to `commentsBlock`) on every turn it is sent on, not only the first — unlike
@@ -305,7 +319,20 @@ export class PlanService {
             planFeed.status(this.boardConfig.project, id, chunk);
         }
 
-        return this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+        const reply = await this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+
+        // A comment is sent once. Only those this prompt carried, so one added while the agent was
+        // working still reaches the next turn, and only when the engine finished, so a failed turn
+        // sends them again. This means delivered, not addressed: the person judges that from the
+        // revised draft, and `reopenComment` is the way back.
+        if (agent.lastTurnSucceeded) {
+            await this.planComments.resolveAll(
+                id,
+                openComments.map(comment => comment.id),
+            );
+        }
+
+        return reply;
     }
 
     /**
@@ -328,6 +355,12 @@ export class PlanService {
         if (gap) throw httpError(400).withDetails({ reason: gap });
 
         await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => ({ ...current, body: request.body }));
+
+        // A person may have edited the text before approving it. The agent revises this file and
+        // clients read it back, so an open session has to find what was just approved here.
+        const draftPath = join(this.boardConfig.runRoot, 'cards', id, 'draft.md');
+        if (existsSync(draftPath)) await writeFile(draftPath, request.body, 'utf8');
+
         return toCardDetail(await this.boardRepository.read(id));
     }
 
@@ -599,11 +632,23 @@ const draftPreamble = [
     '',
 ].join('\n');
 
+/**
+ * The fixed block `appendTurn` prepends to a `comments` turn's prompt, after `commentsBlock`: what
+ * makes the comments above it a request to revise now, rather than context for whatever was typed.
+ */
+const commentsTurnPreamble = [
+    'Revise the draft file now to address every comment above. In your reply, say what you changed for',
+    'each one, and name any you chose not to act on and why.',
+    '',
+    '---',
+    '',
+].join('\n');
+
 /** The fixed block each non-`chat` turn mode prepends. */
-const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble };
+const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble, comments: commentsTurnPreamble };
 
 /** What a non-`chat` turn sent with an empty box is stored as, so the transcript still shows it. */
-const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]' };
+const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]', comments: '[address comments]' };
 
 /**
  * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each

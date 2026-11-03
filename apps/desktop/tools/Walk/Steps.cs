@@ -79,6 +79,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "plan")
+        {
+            await PlanOnlyAsync(walk);
+            return;
+        }
+
         await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
@@ -1042,6 +1048,33 @@ internal static class Steps
         card.SelectedTab = 0;
     }
 
+    /// <summary>A card of its own, in planning, and nothing else: `plan` as a sixth argument walks only this.</summary>
+    private static async Task PlanOnlyAsync(Walker walk)
+    {
+        walk.Shell.ShowBoardCommand.Execute(null);
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("columns", () => board.Columns.Count > 0);
+
+        var title = $"Walked {DateTime.UtcNow:HHmmss}";
+        board.NewCard();
+        var form = walk.Page<CardFormViewModel>();
+        form.Title = title;
+        form.Body = "## Goal\n\nMade by the desktop walk to plan.";
+        await form.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the new card on the board", () => walk.Shell.Page == board && board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Title == title)));
+
+        board.OpenCard(board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card).First(card => card.Title == title));
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the stages to move to", () => card.Card is not null && card.Stages.Count > 0);
+        if (!card.CanPlan)
+        {
+            card.MoveTo = "planning";
+            await card.MoveCommand.ExecuteAsync(null);
+        }
+
+        await PlanningAsync(walk, card);
+    }
+
     private static async Task PlanningAsync(Walker walk, CardViewModel card)
     {
         await walk.UntilAsync("the card can be planned", () => card.CanPlan);
@@ -1071,11 +1104,24 @@ internal static class Steps
         plan.Preview = true;
         await walk.UntilAsync("the edit surviving the poll", () => plan.Draft!.Contains("**then**", StringComparison.Ordinal));
         walk.Select("then the");
-        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the");
-        plan.CommentText = "Which second thing?";
-        await plan.AddCommentCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the" && plan.Composing);
+        walk.Shot("10-plan-composing");
+        // Into the box itself and off with Enter, which shows the card took the focus.
+        walk.Type("Which second thing?");
+        await walk.UntilAsync("the comment typed into the card", () => plan.CommentText == "Which second thing?");
+        walk.Press(Key.Enter, PhysicalKey.Enter);
         await walk.UntilAsync("the comment added, and anchored", () => plan.Comments.Count == 1 && plan.Marks is { Count: 1 });
         walk.Shot("10-plan-commented");
+        await walk.UntilAsync("feedback held back by the unsaved edit", () => plan.FeedbackBlocked is not null && !plan.CanSendFeedback);
+        plan.ShowCommentCommand.Execute(plan.Comments[0]);
+        await walk.UntilAsync("the comment open beside its passage", () => plan.Viewing && plan.CardAnchor is not null && plan.Comments[0].Active);
+        walk.Shot("10d-plan-comment-open");
+        plan.CloseCommentCommand.Execute(null);
+        await walk.UntilAsync("the card put away", () => !plan.Viewing);
+        walk.ClickText("then");
+        await walk.UntilAsync("a press on the highlight opening its comment", () => plan.Viewing);
+        walk.ClickText("second");
+        await walk.UntilAsync("a press beside it putting the card away", () => !plan.Viewing);
 
         plan.Draft = "# Plan\n\nDo the only thing.";
         plan.Preview = false;
@@ -1084,6 +1130,24 @@ internal static class Steps
         walk.Shot("10c-plan-outdated");
         await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
         await walk.UntilAsync("the comment resolved", () => plan.Outdated[0].Resolved);
+        await plan.ReopenCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment reopened", () => !plan.Outdated[0].Resolved);
+        await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment resolved again", () => plan.Outdated[0].Resolved);
+
+        plan.UseIncomingCommand.Execute(null);
+        await walk.UntilAsync("the edit discarded", () => !plan.Unsaved);
+        var rendered = ChatMarkdown.RenderedText(plan.Draft ?? string.Empty);
+        var passage = rendered.Length < 12 ? rendered : rendered[..12];
+        plan.SelectPassage(0, passage.Length, passage);
+        plan.CommentText = "Say this more plainly.";
+        await plan.AddCommentCommand.ExecuteAsync(null);
+        await walk.UntilAsync("feedback ready to send", () => plan.CanSendFeedback);
+        walk.Shot("10e-plan-feedback-ready");
+        await plan.SendFeedbackCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the feedback turn answered, or the refusal said", () => plan.Idle, 300);
+        Console.WriteLine($"     feedback: open comments {plan.OpenComments}, lines {plan.Lines.Count}, error: {plan.Error}");
+        walk.Shot("10f-plan-feedback-sent");
         plan.Preview = false;
 
         plan.Composer = "Reply with the single word: ok";

@@ -66,8 +66,8 @@ export class PlanCommentRepository {
 
     /**
      * A card's open comments, oldest first — what `PlanService.turn` prepends to the agent's next
-     * prompt. Never a resolved one: resolved comments stay on record but are not this card's
-     * business to keep re-raising with the agent.
+     * prompt, and resolves once that turn finishes. Never a resolved one: resolved comments stay on
+     * record but are not this card's business to keep re-raising with the agent.
      */
     async open(cardId: string): Promise<PlanComment[]> {
         const rows = await this.db
@@ -96,6 +96,31 @@ export class PlanCommentRepository {
             .returningAll()
             .executeTakeFirst();
         return row ? toPlanComment(row) : undefined;
+    }
+
+    /** Put a resolved comment back to open. `undefined` as for {@link PlanCommentRepository.resolve}. */
+    async reopen(cardId: string, id: string): Promise<PlanComment | undefined> {
+        const row = await this.db
+            .updateTable('wilson.planComments')
+            .set({ resolved: false })
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', '=', BigInt(id))
+            .returningAll()
+            .executeTakeFirst();
+        return row ? toPlanComment(row) : undefined;
+    }
+
+    /** Mark every one of `ids` resolved at once: the comments a finished turn delivered. */
+    async resolveAll(cardId: string, ids: string[]): Promise<void> {
+        if (ids.length === 0) return;
+        await this.db
+            .updateTable('wilson.planComments')
+            .set({ resolved: true })
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', 'in', ids.map(BigInt))
+            .execute();
     }
 }
 

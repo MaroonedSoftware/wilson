@@ -333,8 +333,9 @@ contract PlanTurnRequest: {
     # `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
     # of its own because the preamble, not the request shape, is what changes. `draft` works the same
     # way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-    # through it first.
-    mode?: enum(chat, cuts, draft)
+    # through it first. `comments` submits the card's open comments as one revision request, with
+    # `text` as optional guidance, and is refused when there are none.
+    mode?: enum(chat, cuts, draft, comments)
 }
 
 # One row of `wilson.plan_turns` — a turn in a card's planning conversation, whether this is
@@ -362,7 +363,8 @@ contract PlanDraft: {
 # nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
 # surrounding window — never a resolved position: the draft is rewritten whole on every planning
 # turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
-# comment moves through, not a delete — a comment the agent addressed stays on record.
+# comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+# agent, and it stays on record either way.
 contract PlanComment: {
     id: string
     quote: string
@@ -1074,6 +1076,25 @@ operation /api/cards/{id}/plan/comments/{commentId}/resolve: {
     post: {
         name: Resolve a plan comment
         service: PlanService.resolveComment
+        response: {
+            200: {
+                application/json: PlanComment
+            }
+            404:
+        }
+    }
+}
+
+# Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+# revision missed the point. The same 404 as resolving.
+operation /api/cards/{id}/plan/comments/{commentId}/reopen: {
+    params: {
+        id: string
+        commentId: string
+    }
+    post: {
+        name: Reopen a plan comment
+        service: PlanService.reopenComment
         response: {
             200: {
                 application/json: PlanComment
