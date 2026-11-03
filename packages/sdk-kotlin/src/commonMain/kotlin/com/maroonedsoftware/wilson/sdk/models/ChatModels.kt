@@ -70,6 +70,27 @@ data class RenameChatThreadRequest(
     val title: String,
 )
 
+/**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ */
+@Serializable
+data class ChatAttachment(
+    val id: String,
+    val filename: String,
+    val contentType: String,
+    val byteSize: Long,
+    val contentHash: String,
+    val createdAt: Instant,
+)
+
+/** Documentation, not validation, as `AttachImageUpload` is. */
+@Serializable
+data class AttachChatImageUpload(
+    val file: ByteArray,
+)
+
 @Serializable
 data class SendChatMessageRequest(
     val text: String,

@@ -2,6 +2,7 @@
 package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.AnswerChatQuestionsRequest
+import com.maroonedsoftware.wilson.sdk.models.ChatAttachment
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingAction
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingQuestion
 import com.maroonedsoftware.wilson.sdk.models.ChatThread
@@ -12,6 +13,7 @@ import com.maroonedsoftware.wilson.sdk.models.RenameChatThreadRequest
 import com.maroonedsoftware.wilson.sdk.models.SendChatMessageRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
+import io.ktor.http.content.PartData
 
 /** Operations declared in `chat.ck`. */
 class ChatClient(private val http: SdkHttp) {
@@ -86,6 +88,42 @@ class ChatClient(private val http: SdkHttp) {
     }
 
     /**
+     * Upload a chat image
+     * An image goes up before the message that carries it, so a message's send stays JSON. One that no
+     * message claims is removed a day later.
+     * @throws SdkError on 400, 404, 413, 415
+     */
+    suspend fun uploadAChatImage(id: String, body: List<PartData>): ChatAttachment {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "chat", "threads", segment(id), "attachments")
+            multipartBody(body)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Fetch a chat image
+     * `attachmentId`, not a second `id`: a `params` block is keyed by name. One 404 covers a thread that
+     * does not exist and an attachment id that does not exist, belongs to another thread, or is not an id.
+     * @throws SdkError on 404
+     */
+    suspend fun fetchAChatImage(id: String, attachmentId: String): FetchAChatImageResponse {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "chat", "threads", segment(id), "attachments", segment(attachmentId))
+        }
+        val headers = FetchAChatImageHeaders(
+            http.requireHeader(response, "x-content-type-options"),
+            http.requireHeader(response, "content-security-policy"),
+        )
+        return when (response.contentType) {
+            "image/jpeg" -> FetchAChatImageResponse.ImageJpeg(response.bytes, headers)
+            "image/webp" -> FetchAChatImageResponse.ImageWebp(response.bytes, headers)
+            "image/gif" -> FetchAChatImageResponse.ImageGif(response.bytes, headers)
+            else -> FetchAChatImageResponse.ImagePng(response.bytes, headers)
+        }
+    }
+
+    /**
      * Decide a chat action
      * Confirm runs the proposed operation, at most once however many times it is sent, and answers with
      * how it went: a failed operation is a 200 with `status: failed` and its `error`, since the decision
@@ -120,4 +158,34 @@ class ChatClient(private val http: SdkHttp) {
         }
         return http.decodeJson(response)
     }
+}
+
+/** Response headers declared on GET /api/chat/threads/{id}/attachments/{attachmentId}. */
+data class FetchAChatImageHeaders(
+    val xContentTypeOptions: String,
+    val contentSecurityPolicy: String,
+)
+
+/**
+ * What GET /api/chat/threads/{id}/attachments/{attachmentId} returned.
+ *
+ * The status declares several content types, so which one arrived is part of the value.
+ */
+sealed interface FetchAChatImageResponse {
+    data class ImagePng(
+        val data: ByteArray,
+    val headers: FetchAChatImageHeaders,
+    ) : FetchAChatImageResponse
+    data class ImageJpeg(
+        val data: ByteArray,
+    val headers: FetchAChatImageHeaders,
+    ) : FetchAChatImageResponse
+    data class ImageWebp(
+        val data: ByteArray,
+    val headers: FetchAChatImageHeaders,
+    ) : FetchAChatImageResponse
+    data class ImageGif(
+        val data: ByteArray,
+    val headers: FetchAChatImageHeaders,
+    ) : FetchAChatImageResponse
 }

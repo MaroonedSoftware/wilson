@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 
+const _ZodBinary = z.custom<Buffer>(val => Buffer.isBuffer(val), { error: 'Must be binary data' });
 const _ZodDatetime = z.preprocess(
     val => (typeof val === 'string' ? DateTime.fromISO(val) : val),
     z.custom<DateTime>(val => val instanceof DateTime && val.isValid, { message: 'Must be in ISO 8601 format' }),
@@ -85,6 +86,31 @@ export const RenameChatThreadRequest = z.strictObject({
     title: z.string(),
 });
 export type RenameChatThreadRequest = z.infer<typeof RenameChatThreadRequest>;
+
+/**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ * generated from [ChatAttachment](../../data/contracts/chat.ck)
+ */
+export const ChatAttachment = z.strictObject({
+    id: z.string(),
+    filename: z.string(),
+    contentType: z.string(),
+    byteSize: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    contentHash: z.string(),
+    createdAt: _ZodDatetime,
+});
+export type ChatAttachment = z.infer<typeof ChatAttachment>;
+
+/**
+ * Documentation, not validation, as `AttachImageUpload` is.
+ * generated from [AttachChatImageUpload](../../data/contracts/chat.ck)
+ */
+export const AttachChatImageUpload = z.strictObject({
+    file: _ZodBinary,
+});
+export type AttachChatImageUpload = z.infer<typeof AttachChatImageUpload>;
 
 /**
  * generated from [SendChatMessageRequest](../../data/contracts/chat.ck)

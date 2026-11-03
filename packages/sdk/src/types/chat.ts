@@ -105,6 +105,36 @@ export interface RenameChatThreadRequest {
 }
 
 /**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ * generated from [ChatAttachment](../../../../apps/api/data/contracts/chat.ck)
+ */
+export interface ChatAttachment {
+    id: string;
+    filename: string;
+    contentType: string;
+    byteSize: number;
+    contentHash: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a ChatAttachment into its runtime type. Mutates and returns `raw`. */
+export function reviveChatAttachment(raw: ChatAttachment): ChatAttachment {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'ChatAttachment.createdAt');
+    return raw;
+}
+
+/**
+ * Documentation, not validation, as `AttachImageUpload` is.
+ * generated from [AttachChatImageUpload](../../../../apps/api/data/contracts/chat.ck)
+ */
+export interface AttachChatImageUpload {
+    file: Blob;
+}
+
+/**
  * generated from [SendChatMessageRequest](../../../../apps/api/data/contracts/chat.ck)
  */
 export interface SendChatMessageRequest {

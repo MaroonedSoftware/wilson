@@ -130,6 +130,39 @@ public sealed record RenameChatThreadRequest
     public required string Title { get; init; }
 }
 
+/// <summary>
+/// An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+/// `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+/// the uploader declared.
+/// </summary>
+public sealed record ChatAttachment
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("filename")]
+    public required string Filename { get; init; }
+
+    [JsonPropertyName("contentType")]
+    public required string ContentType { get; init; }
+
+    [JsonPropertyName("byteSize")]
+    public required long ByteSize { get; init; }
+
+    [JsonPropertyName("contentHash")]
+    public required string ContentHash { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>Documentation, not validation, as `AttachImageUpload` is.</summary>
+public sealed record AttachChatImageUpload
+{
+    [JsonPropertyName("file")]
+    public required byte[] File { get; init; }
+}
+
 public sealed record SendChatMessageRequest
 {
     [JsonPropertyName("text")]

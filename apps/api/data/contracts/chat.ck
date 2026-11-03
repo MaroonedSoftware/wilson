@@ -1,6 +1,7 @@
 options {
     services: {
         ChatService: "#modules/chat/chat.service.js"
+        ChatAttachmentService: "#modules/chat/chat.attachment.service.js"
     }
     security: {
         policy: wilson.manage
@@ -127,6 +128,23 @@ contract RenameChatThreadRequest: {
     title: string
 }
 
+# An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+# `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+# the uploader declared.
+contract ChatAttachment: {
+    id: string
+    filename: string
+    contentType: string
+    byteSize: int
+    contentHash: string
+    createdAt: datetime
+}
+
+# Documentation, not validation, as `AttachImageUpload` is.
+contract AttachChatImageUpload: {
+    file: binary
+}
+
 contract SendChatMessageRequest: {
     text: string
     # The project of the page the person is on, if any: the agent assumes it unless told otherwise.
@@ -249,6 +267,68 @@ operation /api/chat/threads/{id}/messages: {
             400:
             404:
             503:
+        }
+    }
+}
+
+# An image goes up before the message that carries it, so a message's send stays JSON. One that no
+# message claims is removed a day later.
+operation /api/chat/threads/{id}/attachments: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Upload a chat image
+        mcp: exclude # The chat is itself the agent surface
+        service: ChatAttachmentService.upload
+        request: {
+            multipart/form-data: AttachChatImageUpload
+        }
+        response: {
+            200: {
+                application/json: ChatAttachment
+            }
+            # No file part, an empty file, bytes that are not one of the four image types, or bytes
+            # that disagree with the declared type. `details.reason` is that check's own sentence.
+            400:
+            # No thread with this id.
+            404:
+            # Over the per-file cap, or more than one file. The parser's own limits.
+            413:
+            # Not `multipart/form-data`.
+            415:
+        }
+    }
+}
+
+# `attachmentId`, not a second `id`: a `params` block is keyed by name. One 404 covers a thread that
+# does not exist and an attachment id that does not exist, belongs to another thread, or is not an id.
+operation /api/chat/threads/{id}/attachments/{attachmentId}: {
+    params: {
+        id: string
+        attachmentId: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Fetch a chat image
+        mcp: exclude # The chat is itself the agent surface
+        service: ChatAttachmentService.bytes
+        response: {
+            # The two headers are fixed, as on a card's attachment, so an upload can never be served
+            # as something a browser will execute.
+            200: {
+                image/png: binary
+                image/jpeg: binary
+                image/webp: binary
+                image/gif: binary
+                headers: {
+                    x-content-type-options: string
+                    content-security-policy: string
+                }
+            }
+            404:
         }
     }
 }
