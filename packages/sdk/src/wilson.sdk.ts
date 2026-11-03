@@ -4,6 +4,7 @@ import { ApiKeysClient } from './api.keys.client.js';
 import { AuthClient } from './auth.client.js';
 import { BoardClient } from './board.client.js';
 import { ChatClient } from './chat.client.js';
+import { CodeClient } from './code.client.js';
 import { ContextClient } from './context.client.js';
 import { DevicesClient } from './devices.client.js';
 import { EngineTokensClient } from './engine.tokens.client.js';
@@ -21,6 +22,7 @@ export class WilsonSdk {
     readonly auth: AuthClient;
     readonly board: BoardClient;
     readonly chat: ChatClient;
+    readonly code: CodeClient;
     readonly context: ContextClient;
     readonly devices: DevicesClient;
     readonly engineTokens: EngineTokensClient;
@@ -39,6 +41,7 @@ export class WilsonSdk {
         this.auth = new AuthClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
         this.chat = new ChatClient(sdkFetch);
+        this.code = new CodeClient(sdkFetch);
         this.context = new ContextClient(sdkFetch);
         this.devices = new DevicesClient(sdkFetch);
         this.engineTokens = new EngineTokensClient(sdkFetch);

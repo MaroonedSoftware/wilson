@@ -1,6 +1,7 @@
 import { Injectable, type Container } from 'injectkit';
 import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
+import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { runAsProject } from '#modules/board/project.context.js';
@@ -98,6 +99,9 @@ export class ChatCatalog {
         if (!handler) throw httpError(400).withDetails({ reason: `there is no operation named "${name}"` });
 
         const scope = container.createScopedContainer();
+        // A turn's scope comes from the root, where resolving this throws, and a turn can outlast its
+        // request. An operation that needs to know who is asking reads the session from here.
+        scope.override(ServerKitContext, { authenticationSession: session } as unknown as ServerKitContext);
         const board = scope.get(BoardConfig);
         if (project) {
             const row = await scope.get(ProjectRepository).find(project);

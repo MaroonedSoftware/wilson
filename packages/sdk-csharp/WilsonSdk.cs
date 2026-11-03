@@ -23,6 +23,7 @@ public sealed class WilsonSdk : IDisposable
         Auth = new AuthClient(Http);
         Board = new BoardClient(Http);
         Chat = new ChatClient(Http);
+        Code = new CodeClient(Http);
         Context = new ContextClient(Http);
         Devices = new DevicesClient(Http);
         EngineTokens = new EngineTokensClient(Http);
@@ -45,6 +46,8 @@ public sealed class WilsonSdk : IDisposable
     public BoardClient Board { get; }
 
     public ChatClient Chat { get; }
+
+    public CodeClient Code { get; }
 
     public ContextClient Context { get; }
 

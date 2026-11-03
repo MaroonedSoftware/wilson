@@ -3,6 +3,7 @@ export * from './api.keys.js';
 export * from './auth.js';
 export * from './board.js';
 export * from './chat.js';
+export * from './code.js';
 export * from './context.js';
 export * from './devices.js';
 export * from './engine.tokens.js';
