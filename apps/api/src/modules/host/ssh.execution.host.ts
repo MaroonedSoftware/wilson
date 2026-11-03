@@ -122,6 +122,10 @@ export class SshHost implements ExecutionHost {
         await this.file(`cat > ${shellQuote(path)}`, path, 'open', content);
     }
 
+    async writeBytes(path: string, data: Buffer): Promise<void> {
+        await this.file(`cat > ${shellQuote(path)}`, path, 'open', data);
+    }
+
     async mkdir(path: string): Promise<void> {
         await this.file(`mkdir -p -- ${shellQuote(path)}`, path, 'mkdir');
     }
@@ -240,7 +244,7 @@ export class SshHost implements ExecutionHost {
     }
 
     /** A file primitive: `exec`'s transport, with a missing path reported as `node:fs` would. */
-    private async file(script: string, path: string, syscall: string, input?: string): Promise<ExecResult> {
+    private async file(script: string, path: string, syscall: string, input?: string | Buffer): Promise<ExecResult> {
         try {
             return await this.run(script, { timeoutMs: FILE_OP_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 }, input);
         } catch (err) {
@@ -253,7 +257,7 @@ export class SshHost implements ExecutionHost {
     }
 
     /** Run `script` on the host through the remote user's shell, as `execFile` would run a file. */
-    private run(script: string, options: Omit<ExecOptions, 'cwd' | 'env'>, input?: string): Promise<ExecResult> {
+    private run(script: string, options: Omit<ExecOptions, 'cwd' | 'env'>, input?: string | Buffer): Promise<ExecResult> {
         const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
         return new Promise((resolve, reject) => {
             const child = spawn(this.sshCommand, [...SSH_OPTIONS, this.target, '--', script], { stdio: ['pipe', 'pipe', 'pipe'] });

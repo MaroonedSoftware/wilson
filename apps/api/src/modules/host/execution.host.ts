@@ -36,6 +36,9 @@ export interface ExecutionHost {
     /** `writeFile(path, content, 'utf8')`. Does not create parent directories; see `mkdir`. */
     writeFile(path: string, content: string): Promise<void>;
 
+    /** `writeFile(path, data)` with no encoding, so any byte arrives as sent. Does not create parent directories; see `mkdir`. */
+    writeBytes(path: string, data: Buffer): Promise<void>;
+
     /** `mkdir(path, { recursive: true })`. */
     mkdir(path: string): Promise<void>;
 

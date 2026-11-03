@@ -11,6 +11,7 @@ import type { ExecOptions, ExecResult, ExecutionHost, HostStat } from '#modules/
 export class MemoryHost implements ExecutionHost {
     readonly name = 'memory';
     readonly files = new Map<string, string>();
+    readonly bytes = new Map<string, Buffer>();
     readonly dirs = new Set<string>();
     readonly commands: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
 
@@ -24,6 +25,11 @@ export class MemoryHost implements ExecutionHost {
 
     async writeFile(path: string, content: string): Promise<void> {
         this.files.set(path, content);
+    }
+
+    /** Kept in `bytes`, apart from `files`, so a text assertion never sees a binary write. */
+    async writeBytes(path: string, data: Buffer): Promise<void> {
+        this.bytes.set(path, Buffer.from(data));
     }
 
     async mkdir(path: string): Promise<void> {
@@ -50,6 +56,7 @@ export class MemoryHost implements ExecutionHost {
 
     async removeTree(path: string): Promise<void> {
         for (const key of [...this.files.keys()]) if (key.startsWith(`${path}/`)) this.files.delete(key);
+        for (const key of [...this.bytes.keys()]) if (key.startsWith(`${path}/`)) this.bytes.delete(key);
     }
 
     async exec(file: string, args: readonly string[], options: ExecOptions): Promise<ExecResult> {

@@ -66,6 +66,27 @@ describe('WorkerExecutionHost', () => {
         expect(missing.message).toMatch(/^ENOENT: no such file or directory/);
     });
 
+    it('writes bytes that are not UTF-8 as one base64 writeBytes call, and they arrive unchanged', async () => {
+        const connection = server.connections.get('unraid-vm')!;
+        const calls: unknown[] = [];
+        const recording = Object.assign(Object.create(connection) as typeof connection, {
+            call: ((message, timeoutMs) => {
+                calls.push(message);
+                return connection.call(message, timeoutMs);
+            }) as typeof connection.call,
+        });
+        const data = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+        const path = join(root, 'all-bytes.bin');
+
+        await new WorkerExecutionHost(recording).writeBytes(path, data);
+
+        expect(calls).toHaveLength(1);
+        const [sent] = calls as { op: string; path: string; data: string }[];
+        expect(sent).toMatchObject({ op: 'writeBytes', path });
+        expect(Buffer.from(sent!.data, 'base64').equals(data)).toBe(true);
+        expect((await readFile(path)).equals(data)).toBe(true);
+    });
+
     it('resolves a symlink, copies, unlinks and removes a tree', async () => {
         const target = join(root, 'target.txt');
         await writeFile(target, 'x', 'utf8');
