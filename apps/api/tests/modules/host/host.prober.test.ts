@@ -99,12 +99,12 @@ describe('HostProber', () => {
     });
 
     describe('codex, on an isolated host', () => {
+        // Without a script, a `codex` that cannot run stands in for none at all: the stub bin is first
+        // on `PATH`, so this shadows a real `codex` the machine running the suite may have installed.
         const withCodex = async (script: string | undefined, run: () => Promise<void>) => {
             const path = join(base, 'bin', 'codex');
-            if (script) {
-                await writeFile(path, script, 'utf8');
-                await chmod(path, 0o755);
-            }
+            await writeFile(path, script ?? '#!/bin/sh\necho "codex: not found" >&2\nexit 127\n', 'utf8');
+            await chmod(path, 0o755);
             try {
                 await run();
             } finally {
