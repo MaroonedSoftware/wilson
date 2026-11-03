@@ -1,5 +1,15 @@
 # @wilson/desktop
 
+## 0.10.0
+
+### Minor Changes
+
+- 060c6fa: Show whether a worker host is connected right now, with its version and platform, on the Hosts page.
+- f19b454: A worker host on the Hosts page shows how its machine is doing: load, memory, uptime and the free space on each volume holding its projects. A volume with under a tenth free is flagged. Wilson and its workers must be updated together for this, as the worker protocol changed.
+- 163eb30: Each host on the Hosts page lists its recent runs: how each ended, how long it took, and a link to its card.
+- 6a592b4: Planning on desktop opens on the rendered draft. Select a passage to comment beside it, then send the open comments to the agent as one revision request with Send feedback. A finished turn resolves the comments it delivered, and Reopen sends one again. Approving a plan now also updates the session's draft, so edits no longer revert and the agent sees them.
+- aef3412: Adding a Claude account can now be done with a Sign in with Claude button, which runs `claude setup-token` and saves the token without showing it. Pasting a token still works.
+
 ## 0.9.0
 
 ### Minor Changes
