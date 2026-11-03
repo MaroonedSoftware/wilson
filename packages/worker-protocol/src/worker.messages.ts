@@ -13,7 +13,7 @@ import { ENGINE_CREDENTIAL_VARIABLES } from './worker.env.js';
  * Bump {@link WORKER_PROTOCOL_VERSION} for any change a worker built against the old one would
  * misread. Wilson refuses a worker whose `hello` names another version, rather than guessing.
  */
-export const WORKER_PROTOCOL_VERSION = 5;
+export const WORKER_PROTOCOL_VERSION = 6;
 
 /** The path the worker connects to, on the API's own origin. */
 export const WORKER_CONNECT_PATH = '/api/workers/connect';
@@ -56,6 +56,11 @@ export type ExecOptionsMessage = z.infer<typeof ExecOptionsMessage>;
 export const CallOp = z.discriminatedUnion('op', [
     /** Answers `pong`. How a probe tells a live connection from one that has only not closed yet. */
     z.object({ op: z.literal('ping') }),
+    /**
+     * How the machine is doing, for the Hosts page. `paths` are the host's project roots, each reported
+     * once per volume; one that is missing or refused is left out rather than failing the rest.
+     */
+    z.object({ op: z.literal('stats'), paths: z.array(z.string()) }),
     z.object({ op: z.literal('readFile'), path: z.string() }),
     z.object({ op: z.literal('writeFile'), path: z.string(), content: z.string() }),
     z.object({ op: z.literal('mkdir'), path: z.string() }),
@@ -77,9 +82,32 @@ export const CallOp = z.discriminatedUnion('op', [
 ]);
 export type CallOp = z.infer<typeof CallOp>;
 
+/** A volume holding one of a host's project roots. */
+export interface WorkerDiskStats {
+    /** The first root asked about on this volume. */
+    path: string;
+    totalBytes: number;
+    freeBytes: number;
+}
+
+/**
+ * The machine as the worker program sees it. In a container that is the container's view: on Docker
+ * Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ */
+export interface WorkerStats {
+    cpus: number;
+    /** Runnable processes averaged over the last minute. Always 0 on Windows. */
+    loadAverage: number;
+    memoryTotalBytes: number;
+    memoryFreeBytes: number;
+    uptimeSeconds: number;
+    disks: WorkerDiskStats[];
+}
+
 /** What each op resolves with, when it succeeds. */
 export interface CallResults {
     ping: 'pong';
+    stats: WorkerStats;
     readFile: string;
     writeFile: undefined;
     mkdir: undefined;

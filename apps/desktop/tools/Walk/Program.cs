@@ -200,7 +200,7 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         var socket = new System.Net.WebSockets.ClientWebSocket();
         socket.Options.SetRequestHeader("Authorization", $"Bearer {token}");
         await socket.ConnectAsync(new Uri($"{origin.Replace("http", "ws", StringComparison.Ordinal)}/api/workers/connect"), CancellationToken.None);
-        var hello = System.Text.Encoding.UTF8.GetBytes("""{"type":"hello","protocol":5,"workerVersion":"0.0.0-walk","platform":"darwin"}""");
+        var hello = System.Text.Encoding.UTF8.GetBytes("""{"type":"hello","protocol":6,"workerVersion":"0.0.0-walk","platform":"darwin"}""");
         await socket.SendAsync(hello, System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
         _ = Task.Run(async () =>
         {
