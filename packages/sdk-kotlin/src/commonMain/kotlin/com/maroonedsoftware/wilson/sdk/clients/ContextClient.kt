@@ -2,9 +2,11 @@
 package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.AttachContextRequest
+import com.maroonedsoftware.wilson.sdk.models.CardAttachment
 import com.maroonedsoftware.wilson.sdk.models.ContextSnapshot
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
+import io.ktor.http.content.PartData
 
 /** Operations declared in `context.ck`. */
 class ContextClient(private val http: SdkHttp) {
@@ -45,4 +47,93 @@ class ContextClient(private val http: SdkHttp) {
             path("api", "cards", segment(id), "context", segment(contextId))
         }
     }
+
+    /**
+     * Attach an image to a card
+     * @throws SdkError on 400, 404, 413, 415
+     */
+    suspend fun attachAnImageToACard(id: String, body: List<PartData>): CardAttachment {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "attachments")
+            multipartBody(body)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * List card attachments
+     * @throws SdkError on 404
+     */
+    suspend fun listCardAttachments(id: String): List<CardAttachment> {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "attachments")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Fetch an attachment
+     * `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+     * by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+     * that does not exist, belongs to another card, or is not an id at all.
+     * @throws SdkError on 404
+     */
+    suspend fun fetchAnAttachment(id: String, attachmentId: String): FetchAnAttachmentResponse {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "attachments", segment(attachmentId))
+        }
+        val headers = FetchAnAttachmentHeaders(
+            http.requireHeader(response, "x-content-type-options"),
+            http.requireHeader(response, "content-security-policy"),
+        )
+        return when (response.contentType) {
+            "image/jpeg" -> FetchAnAttachmentResponse.ImageJpeg(response.bytes, headers)
+            "image/webp" -> FetchAnAttachmentResponse.ImageWebp(response.bytes, headers)
+            "image/gif" -> FetchAnAttachmentResponse.ImageGif(response.bytes, headers)
+            else -> FetchAnAttachmentResponse.ImagePng(response.bytes, headers)
+        }
+    }
+
+    /**
+     * Remove an attachment
+     * `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+     * by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+     * that does not exist, belongs to another card, or is not an id at all.
+     * @throws SdkError on 404
+     */
+    suspend fun removeAnAttachment(id: String, attachmentId: String) {
+        http.execute(HttpMethod.Delete) {
+            path("api", "cards", segment(id), "attachments", segment(attachmentId))
+        }
+    }
+}
+
+/** Response headers declared on GET /api/cards/{id}/attachments/{attachmentId}. */
+data class FetchAnAttachmentHeaders(
+    val xContentTypeOptions: String,
+    val contentSecurityPolicy: String,
+)
+
+/**
+ * What GET /api/cards/{id}/attachments/{attachmentId} returned.
+ *
+ * The status declares several content types, so which one arrived is part of the value.
+ */
+sealed interface FetchAnAttachmentResponse {
+    data class ImagePng(
+        val data: ByteArray,
+    val headers: FetchAnAttachmentHeaders,
+    ) : FetchAnAttachmentResponse
+    data class ImageJpeg(
+        val data: ByteArray,
+    val headers: FetchAnAttachmentHeaders,
+    ) : FetchAnAttachmentResponse
+    data class ImageWebp(
+        val data: ByteArray,
+    val headers: FetchAnAttachmentHeaders,
+    ) : FetchAnAttachmentResponse
+    data class ImageGif(
+        val data: ByteArray,
+    val headers: FetchAnAttachmentHeaders,
+    ) : FetchAnAttachmentResponse
 }

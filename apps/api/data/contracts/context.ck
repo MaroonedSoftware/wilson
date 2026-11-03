@@ -1,6 +1,7 @@
 options {
     services: {
         ContextService: "#modules/context/context.service.js"
+        AttachmentService: "#modules/context/attachment.service.js"
     }
     security: {
         policy: wilson.manage
@@ -90,6 +91,110 @@ operation /api/cards/{id}/context/{contextId}: {
             204:
             # Either id not existing — the card, or a snapshot id not belonging to it — the same
             # 404 `board.ck`'s `.../comments/{commentId}/resolve` gives for the same shape of miss.
+            404:
+        }
+    }
+}
+
+# An image kept on a card (split from card 0006). Metadata only: the bytes are a `BYTEA` column on
+# `wilson.card_attachments`, for the reason that migration's header gives, and they are not in this
+# contract because a card at its 20 MB cap must still list as a small JSON response. One attachment's
+# bytes come from `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the
+# bytes, never the one the uploader declared.
+contract CardAttachment: {
+    id: string
+    filename: string
+    contentType: string
+    byteSize: int
+    contentHash: string
+    addedBy: string
+    createdAt: datetime
+}
+
+# Documentation, not validation: a multipart body reaches `AttachmentService.attach` as the parser's
+# own `MultipartBody`, and the SDK types it as `FormData`, so nothing checks this shape.
+contract AttachImageUpload: {
+    file: binary
+}
+
+operation /api/cards/{id}/attachments: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Attach an image to a card
+        service: AttachmentService.attach
+        mcp: exclude # isCatalogOperation refuses a multipart request body, and an agent cannot produce image bytes
+        request: {
+            multipart/form-data: AttachImageUpload
+        }
+        response: {
+            200: {
+                application/json: CardAttachment
+            }
+            # No file part, an empty file, bytes that are not one of the four image types, bytes that
+            # disagree with the declared type, or a card at its count or total-bytes cap.
+            # `details.reason` is that check's own sentence.
+            400:
+            # No card with this id.
+            404:
+            # Over the per-file cap, or more than one file. The parser's own limits.
+            413:
+            # Not `multipart/form-data`. `assertBodyExpectation` answers this before the handler runs.
+            415:
+        }
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List card attachments
+        service: AttachmentService.list
+        response: {
+            200: {
+                application/json: array(CardAttachment)
+            }
+            404:
+        }
+    }
+}
+
+# `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+# by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+# that does not exist, belongs to another card, or is not an id at all.
+operation /api/cards/{id}/attachments/{attachmentId}: {
+    params: {
+        id: string
+        attachmentId: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Fetch an attachment
+        service: AttachmentService.bytes
+        mcp: exclude # isCatalogOperation refuses a non-JSON response body
+        response: {
+            # The two headers are fixed, so an upload can never be served as something a browser
+            # will execute. SVG is not among these types for the same reason.
+            200: {
+                image/png: binary
+                image/jpeg: binary
+                image/webp: binary
+                image/gif: binary
+                headers: {
+                    x-content-type-options: string
+                    content-security-policy: string
+                }
+            }
+            404:
+        }
+    }
+    delete: {
+        name: Remove an attachment
+        service: AttachmentService.remove
+        response: {
+            204:
             404:
         }
     }

@@ -34,3 +34,30 @@ data class ContextSnapshot(
 data class AttachContextRequest(
     val sourceUrl: String,
 )
+
+/**
+ * An image kept on a card (split from card 0006). Metadata only: the bytes are a `BYTEA` column on
+ * `wilson.card_attachments`, for the reason that migration's header gives, and they are not in this
+ * contract because a card at its 20 MB cap must still list as a small JSON response. One attachment's
+ * bytes come from `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the
+ * bytes, never the one the uploader declared.
+ */
+@Serializable
+data class CardAttachment(
+    val id: String,
+    val filename: String,
+    val contentType: String,
+    val byteSize: Long,
+    val contentHash: String,
+    val addedBy: String,
+    val createdAt: Instant,
+)
+
+/**
+ * Documentation, not validation: a multipart body reaches `AttachmentService.attach` as the parser's
+ * own `MultipartBody`, and the SDK types it as `FormData`, so nothing checks this shape.
+ */
+@Serializable
+data class AttachImageUpload(
+    val file: ByteArray,
+)

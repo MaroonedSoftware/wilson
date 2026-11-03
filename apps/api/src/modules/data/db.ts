@@ -91,6 +91,19 @@ export interface WilsonCacheSetMembers {
   member: string;
 }
 
+export interface WilsonCardAttachments {
+  addedBy: string;
+  bytes: Buffer;
+  byteSize: number;
+  cardId: string;
+  contentHash: string;
+  contentType: string;
+  createdAt: Generated<DateTime>;
+  filename: string;
+  id: Generated<bigint>;
+  project: string;
+}
+
 export interface WilsonCardContext {
   cardId: string;
   content: string;
@@ -348,6 +361,7 @@ export interface DB {
   "wilson.apiKeys": WilsonApiKeys;
   "wilson.cacheEntries": WilsonCacheEntries;
   "wilson.cacheSetMembers": WilsonCacheSetMembers;
+  "wilson.cardAttachments": WilsonCardAttachments;
   "wilson.cardContext": WilsonCardContext;
   "wilson.cardDeps": WilsonCardDeps;
   "wilson.cardEvents": WilsonCardEvents;

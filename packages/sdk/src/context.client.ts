@@ -1,7 +1,7 @@
-import type { AttachContextRequest, ContextSnapshot } from './types/context.js';
-import { reviveContextSnapshot } from './types/context.js';
+import type { AttachContextRequest, CardAttachment, ContextSnapshot } from './types/context.js';
+import { reviveCardAttachment, reviveContextSnapshot } from './types/context.js';
 import type { SdkFetch } from './sdk-options.js';
-import { bigIntReplacer, parseJson } from './sdk-options.js';
+import { bigIntReplacer, parseJson, readContentType } from './sdk-options.js';
 
 /**
  * generated from [context.ck](../../../apps/api/data/contracts/context.ck)
@@ -35,5 +35,55 @@ export class ContextClient {
      */
     async removeAContextSnapshot(id: string, contextId: string): Promise<void> {
         await this.fetch(`/api/cards/${encodeURIComponent(id)}/context/${encodeURIComponent(contextId)}`, { method: 'DELETE' });
+    }
+
+    /** @name Attach an image to a card */
+    async attachAnImageToACard(id: string, body: FormData): Promise<CardAttachment> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/attachments`, {
+            method: 'POST',
+            body: body,
+        });
+        return reviveCardAttachment(await parseJson<CardAttachment>(result));
+    }
+
+    /** @name List card attachments */
+    async listCardAttachments(id: string): Promise<CardAttachment[]> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/attachments`, { method: 'GET' });
+        return (await parseJson<CardAttachment[]>(result)).map(reviveCardAttachment);
+    }
+
+    /**
+     * @name Fetch an attachment
+     * @description `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+     * by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+     * that does not exist, belongs to another card, or is not an id at all.
+     */
+    async fetchAnAttachment(
+        id: string,
+        attachmentId: string,
+    ): Promise<{
+        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+        data: Blob;
+        headers: { xContentTypeOptions: string; contentSecurityPolicy: string };
+    }> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: 'GET' });
+        return {
+            contentType: readContentType(result) as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
+            data: await result.blob(),
+            headers: {
+                xContentTypeOptions: result.headers.get('x-content-type-options')!,
+                contentSecurityPolicy: result.headers.get('content-security-policy')!,
+            },
+        };
+    }
+
+    /**
+     * @name Remove an attachment
+     * @description `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+     * by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+     * that does not exist, belongs to another card, or is not an id at all.
+     */
+    async removeAnAttachment(id: string, attachmentId: string): Promise<void> {
+        await this.fetch(`/api/cards/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: 'DELETE' });
     }
 }

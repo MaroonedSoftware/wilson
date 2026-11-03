@@ -59,4 +59,92 @@ public sealed class ContextClient(SdkHttp http)
             http.Path("api", "cards", http.Segment(id), "context", http.Segment(contextId)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Attach an image to a card</summary>
+    /// <exception cref="SdkException">On 400, 404, 413, 415.</exception>
+    public async Task<CardAttachment> AttachAnImageToACardAsync(string id, IEnumerable<SdkPart> body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "attachments"),
+            content: http.MultipartContent(body),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardAttachment>(response);
+    }
+
+    /// <summary>List card attachments</summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<CardAttachment>> ListCardAttachmentsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "cards", http.Segment(id), "attachments"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<CardAttachment>>(response);
+    }
+
+    /// <summary>
+    /// Fetch an attachment
+    /// `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+    /// by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+    /// that does not exist, belongs to another card, or is not an id at all.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<FetchAnAttachmentResponse> FetchAnAttachmentAsync(string id, string attachmentId, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "cards", http.Segment(id), "attachments", http.Segment(attachmentId)),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var headers = new FetchAnAttachmentHeaders(
+            http.RequireHeader(response, "x-content-type-options"),
+            http.RequireHeader(response, "content-security-policy"));
+        switch (response.ContentType)
+        {
+            case "image/jpeg":
+                return new FetchAnAttachmentResponse.ImageJpeg(response.Bytes, headers);
+            case "image/webp":
+                return new FetchAnAttachmentResponse.ImageWebp(response.Bytes, headers);
+            case "image/gif":
+                return new FetchAnAttachmentResponse.ImageGif(response.Bytes, headers);
+            default:
+                return new FetchAnAttachmentResponse.ImagePng(response.Bytes, headers);
+        }
+    }
+
+    /// <summary>
+    /// Remove an attachment
+    /// `attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed
+    /// by name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id
+    /// that does not exist, belongs to another card, or is not an id at all.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task RemoveAnAttachmentAsync(string id, string attachmentId, CancellationToken cancellationToken = default)
+    {
+        await http.ExecuteAsync(
+            HttpMethod.Delete,
+            http.Path("api", "cards", http.Segment(id), "attachments", http.Segment(attachmentId)),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>Response headers declared on GET /api/cards/{id}/attachments/{attachmentId}.</summary>
+public sealed record FetchAnAttachmentHeaders(string XContentTypeOptions, string ContentSecurityPolicy);
+
+/// <summary>
+/// What GET /api/cards/{id}/attachments/{attachmentId} returned.
+///
+/// The status declares several content types, so which one arrived is part of the value.
+/// </summary>
+public abstract record FetchAnAttachmentResponse
+{
+    private FetchAnAttachmentResponse() { }
+
+    public sealed record ImagePng(byte[] Data, FetchAnAttachmentHeaders Headers) : FetchAnAttachmentResponse;
+
+    public sealed record ImageJpeg(byte[] Data, FetchAnAttachmentHeaders Headers) : FetchAnAttachmentResponse;
+
+    public sealed record ImageWebp(byte[] Data, FetchAnAttachmentHeaders Headers) : FetchAnAttachmentResponse;
+
+    public sealed record ImageGif(byte[] Data, FetchAnAttachmentHeaders Headers) : FetchAnAttachmentResponse;
 }
