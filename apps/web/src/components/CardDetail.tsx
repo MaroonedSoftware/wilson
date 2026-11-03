@@ -21,8 +21,9 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardColumns, CardDetail, CardDiff, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
+import type { BoardColumns, CardAttachment, CardDetail, CardDiff, CardEvent, CardUsage, CardVersion, ContextSnapshot } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
+import { CardAttachments } from '#src/components/CardAttachments.js';
 import { CardAttempts } from '#src/components/CardAttempts.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
@@ -602,6 +603,8 @@ export function CardDetailView({
     versionsError,
     context,
     contextError,
+    attachments,
+    attachmentsError,
     usage,
     usageError,
     columns,
@@ -622,6 +625,10 @@ export function CardDetailView({
      * mounts alongside `events`/`versions`. */
     context: ContextSnapshot[] | undefined;
     contextError: Error | null | undefined;
+    /** Card 0010: the card's attached images, from the query `ProjectCardDetailRoute` mounts
+     * alongside `context`. */
+    attachments: CardAttachment[] | undefined;
+    attachmentsError: Error | null | undefined;
     /** Card 0263: what the card has cost so far, from the query `ProjectCardDetailRoute` mounts
      * alongside `events`/`versions`/`context`. */
     usage: CardUsage | undefined;
@@ -764,6 +771,10 @@ export function CardDetailView({
             <Divider />
 
             <CardContext cardId={card.id} snapshots={context} error={contextError} />
+
+            <Divider />
+
+            <CardAttachments project={project} cardId={card.id} attachments={attachments} error={attachmentsError} />
 
             <Divider />
 

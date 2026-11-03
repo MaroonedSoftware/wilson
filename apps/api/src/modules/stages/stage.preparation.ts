@@ -1,12 +1,14 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import type { Logger } from '@maroonedsoftware/logger';
 import { collateralPaths } from '#modules/agent/collateral.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import type { StageAttachment } from '#modules/agent/stage.agent.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
+import type { CardAttachmentRepository } from '#modules/context/card.attachment.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import type { LearningsStore } from '#modules/learnings/learnings.store.js';
@@ -32,6 +34,8 @@ export interface StagePreparationDeps {
     learnings?: Pick<LearningsStore, 'load'>;
     rules?: RuleStore;
     ruleJudge?: RuleJudge;
+    /** Card 0010. Left undefined, no image is materialised and the adapter gets none. */
+    attachmentRepository?: Pick<CardAttachmentRepository, 'list' | 'read'>;
 }
 
 export interface StagePreparationInput {
@@ -53,6 +57,8 @@ export interface StagePreparationInput {
 export interface PreparedStage {
     planPath: string;
     learningsPath?: string;
+    /** The card's images, materialised by `materializeAttachments`; empty when it has none. */
+    attachments: StageAttachment[];
     scoped: string[];
     scope: ScopeGuard;
     /** What the rule judges said, when any rule matched this review's diff. */
@@ -196,6 +202,53 @@ const mirrorToHost = async (
         rehome ? text.replaceAll(`${join(deps.config.runRoot, 'cards')}/`, `${posix.join(placement.runRoot, 'cards')}/`) : text,
     );
     return remotePath;
+};
+
+/**
+ * Write the card's attached images where the agent can read them — outside the worktree, at
+ * `<runRoot>/cards/<cardId>/attachments/<attachmentId>-<filename>`, for the identical reason
+ * `materializePlan` lives there: nothing written here can ever be committed to the card's branch,
+ * so no `.gitignore` entry has to keep an image out of its diff. The id prefix keeps two images
+ * with the same filename apart; the filename needs no sanitising here, since the attachment
+ * service only ever stores a safe one.
+ *
+ * The directory is deleted and rewritten on every dispatch rather than topped up, so it is always
+ * exactly the card's current attachments: a retry or a resume duplicates nothing, and an image
+ * deleted between two attempts leaves nothing behind. A card with none ends with no directory.
+ *
+ * On a placed stage the files go to the host only, under its own run root, as the plan's copy
+ * does, and each `StageAttachment.path` is the host's path. A failed host write fails the stage
+ * the way a failed `mirrorToHost` does. Returns `[]` when no repository is wired.
+ */
+const materializeAttachments = async (
+    deps: StagePreparationDeps,
+    cardId: string,
+    placement: RemotePlacement | undefined,
+): Promise<StageAttachment[]> => {
+    const repository = deps.attachmentRepository;
+    if (!repository) return [];
+    const rows = await repository.list(cardId);
+
+    const dir = placement ? posix.join(placement.runRoot, 'cards', cardId, 'attachments') : join(deps.config.runRoot, 'cards', cardId, 'attachments');
+    if (placement) await placement.host.removeTree(dir);
+    else await rm(dir, { recursive: true, force: true });
+    if (rows.length === 0) return [];
+
+    if (placement) await placement.host.mkdir(dir);
+    else await mkdir(dir, { recursive: true });
+
+    const attachments: StageAttachment[] = [];
+    for (const row of rows) {
+        const stored = await repository.read(cardId, row.id);
+        // Deleted between `list` and here: the card no longer has it, so neither does the run.
+        if (!stored) continue;
+        const path = placement ? posix.join(dir, `${stored.id}-${stored.filename}`) : join(dir, `${stored.id}-${stored.filename}`);
+        if (placement) await placement.host.writeBytes(path, stored.bytes);
+        else await writeFile(path, stored.bytes);
+        attachments.push({ path, filename: stored.filename, contentType: stored.contentType, bytes: stored.bytes });
+    }
+    deps.logger.info(`${attachments.length} attachment(s) for ${cardId} materialized at ${dir}`);
+    return attachments;
 };
 
 /** Every board card's preserved patch that exists here, copied to the host; the copies' paths. */
@@ -362,6 +415,10 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
     const localLearningsPath = learningsMarkdown.trim().length > 0 ? await materializeLearnings(deps, cardId, learningsMarkdown) : undefined;
     const learningsPath = placement && localLearningsPath ? await mirrorToHost(deps, placement, cardId, localLearningsPath) : localLearningsPath;
 
+    // Card 0010: the card's attached images, beside the plan and outside the worktree for the
+    // same reason — see `materializeAttachments`.
+    const attachments = await materializeAttachments(deps, cardId, placement);
+
     // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
     // for the file defining a type it is already using because something in scope imports it.
     const scoped = [...filesInScope(card), ...stage.extraScope];
@@ -393,10 +450,11 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         // committed to the card's branch. Without this both are also unreadable, and the agent
         // either infers its own contract or is refused the one artifact its plan told it to read.
         // `learningsPath` joins them on the same footing, present only when the document is
-        // non-empty — see its own comment above.
-        readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
+        // non-empty — see its own comment above. The card's attached images are the third kind
+        // of entry (card 0010): read-only, outside the tree, one path per image.
+        readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : []), ...attachments.map(a => a.path)],
         host: worktreeHost(worktree),
     });
 
-    return { planPath, learningsPath, scoped, scope, ...(ruleVerdicts && { ruleVerdicts }) };
+    return { planPath, learningsPath, attachments, scoped, scope, ...(ruleVerdicts && { ruleVerdicts }) };
 };

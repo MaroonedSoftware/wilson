@@ -4,6 +4,24 @@ import type { UsageLimit } from './usage.limit.js';
 import type { ToolContext } from './tools/index.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 
+/**
+ * One of the card's attached images, as a stage run sees it (card 0010).
+ *
+ * `bytes` travels with the path so no adapter has to import `node:fs` to read it back, and so the
+ * bytes are read from the database once per run: the `api` adapter hands them to the model as an
+ * image part, since its own `read` tool is UTF-8 text only. The `cli` and `codex` adapters name
+ * `path` instead.
+ */
+export interface StageAttachment {
+    /** Absolute path, on the machine the agent's tools run on — the host's, on a placed stage. */
+    path: string;
+    /** The sanitised display name, which is what a plan cites. */
+    filename: string;
+    /** The type sniffed from the bytes when the image was uploaded. */
+    contentType: string;
+    bytes: Buffer;
+}
+
 export interface AgentRunInput {
     stage: StageConfig;
     context: ToolContext;
@@ -17,6 +35,18 @@ export interface AgentRunInput {
      * same way it says nothing about a card with no preserved patch.
      */
     learningsPath?: string;
+    /**
+     * The card's attached images (card 0010), written by `StageDispatcher.run` to
+     * `<runRoot>/cards/<cardId>/attachments/` beside `planPath` — outside the worktree for the same
+     * reason the plan is, so no image can ever be committed to the card's branch or show up in its
+     * diff. On a placed stage each `path` is the host's copy under the host's run root, as `planPath`
+     * already is there.
+     *
+     * Unset and `[]` both mean "no images": an adapter must then add no prompt line about images at
+     * all, the same rule `learningsPath` follows for an absent document. Optional for the reason
+     * `learningsPath` is — dozens of tests build this input as a literal.
+     */
+    attachments?: readonly StageAttachment[];
     /** The card's title, for the prompt. */
     title: string;
     /** Zod schema the stage's result must satisfy. */

@@ -73,7 +73,9 @@ const runInput = (stage: StageConfig, baseSha = 'deadbeef') => ({
     baseSha,
 });
 
-const promptFromCall = (): string => (generateMock.mock.calls[0]?.[0] as { prompt: string }).prompt;
+// Card 0010: the prompt is now one user message whose first content part is this text.
+const promptFromCall = (): string =>
+    (generateMock.mock.calls[0]?.[0] as { prompt: { content: { type: string; text?: string }[] }[] }).prompt[0]!.content[0]!.text!;
 
 describe('ApiStageAgent prompt wiring', () => {
     afterEach(() => {
