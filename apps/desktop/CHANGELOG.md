@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.12.0
+
+### Minor Changes
+
+- 9f2d786: The chat takes images: attach them from the composer and see them in the conversation.
+
 ## 0.11.0
 
 ### Minor Changes
