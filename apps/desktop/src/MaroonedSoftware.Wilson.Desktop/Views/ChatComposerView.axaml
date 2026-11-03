@@ -6,6 +6,22 @@
     x:DataType="vm:ChatViewModel">
     <Border Classes="composer" PointerPressed="BoxPressed">
         <DockPanel>
+            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Pending}" IsVisible="{Binding HasPending}" Margin="0,0,0,8">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PendingImage">
+                        <Panel Margin="0,0,6,6" ToolTip.Tip="{Binding Filename}">
+                            <Border CornerRadius="8" ClipToBounds="True">
+                                <Image Source="{Binding Picture}" Width="64" Height="64" Stretch="UniformToFill" />
+                            </Border>
+                            <Button Classes="remove" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0" Content="×" ToolTip.Tip="Remove this image" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).RemoveImageCommand}" CommandParameter="{Binding}" />
+                        </Panel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button DockPanel.Dock="Left" Classes="attach" Click="AttachClicked" VerticalAlignment="Bottom" Margin="0,0,8,0" ToolTip.Tip="Attach images">
+                <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconPaperclip}" /></Viewbox>
+            </Button>
             <Button DockPanel.Dock="Right" Classes="send" Classes.ready="{Binding CanSend}" IsEnabled="{Binding CanSend}" Command="{Binding SendCommand}" VerticalAlignment="Bottom" Margin="8,0,0,0" ToolTip.Tip="Send (Enter). Shift+Enter for a new line">
                 <Viewbox Classes="icon"><Path Classes="stroke" Data="{StaticResource IconArrowUp}" /></Viewbox>
             </Button>

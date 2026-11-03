@@ -42,6 +42,7 @@
             <!-- Tabler's outlines, as the web app's, drawn with Path.stroke. -->
             <StreamGeometry x:Key="IconArrowUp">M12 5V19M18 11L12 5M6 11L12 5</StreamGeometry>
             <StreamGeometry x:Key="IconPlus">M12 5V19M5 12H19</StreamGeometry>
+            <StreamGeometry x:Key="IconPaperclip">M15 7L8.5 13.5A1.5 1.5 0 0 0 11.5 16.5L18 10A3 3 0 0 0 12 4L5.5 10.5A4.5 4.5 0 0 0 14.5 19.5L21 13</StreamGeometry>
             <StreamGeometry x:Key="IconDots">M5 12H5.01M12 12H12.01M19 12H19.01</StreamGeometry>
             <StreamGeometry x:Key="IconBolt">M13 3V10H19L11 21V14H5L13 3Z</StreamGeometry>
             <StreamGeometry x:Key="IconDockBottom">M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18ZM4 15H20</StreamGeometry>
@@ -224,6 +225,35 @@
         </Style>
         <Style Selector="Button.chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Panel}" />
+        </Style>
+        <Style Selector="Button.attach">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource Quiet}" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.attach /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="17" />
+        </Style>
+        <Style Selector="Button.attach:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Panel}" />
+        </Style>
+        <Style Selector="Button.remove">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.remove /template/ ContentPresenter#PART_ContentPresenter, Button.remove:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#B3000000" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="CornerRadius" Value="9" />
         </Style>
         <Style Selector="Button.send">
             <Setter Property="Width" Value="34" />

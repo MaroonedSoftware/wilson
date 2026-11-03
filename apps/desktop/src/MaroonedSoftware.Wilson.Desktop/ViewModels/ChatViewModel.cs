@@ -100,7 +100,15 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
 
     public bool Thinking => Answering && Draft.Length == 0;
 
-    public bool CanSend => !Sending && !string.IsNullOrWhiteSpace(Composer);
+    public bool CanSend => !Sending && (!string.IsNullOrWhiteSpace(Composer) || Pending.Count > 0);
+
+    /// <summary>Images in the box, waiting for the message to go.</summary>
+    public ObservableCollection<PendingImage> Pending { get; } = [];
+
+    /// <summary>The images of the message on its way, shown until the stored message takes over.</summary>
+    public ObservableCollection<PendingImage> SentImages { get; } = [];
+
+    public bool HasPending => Pending.Count > 0;
 
     /// <summary>What to ask next: shown in the empty box, and filled in with Tab.</summary>
     public string? Offered => string.IsNullOrEmpty(Composer) && !Sending
@@ -111,6 +119,39 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
 
     [RelayCommand]
     public Task SendAsync() => SayAsync(Composer?.Trim() ?? string.Empty);
+
+    /// <summary>Puts an image in the box, scaled to fit if it has to be. A refusal says why, and leaves the box as it was.</summary>
+    public void AddImage(string filename, byte[] bytes)
+    {
+        if (Pending.Count >= ChatImages.MaxPerMessage)
+        {
+            Error = $"A message can carry at most {ChatImages.MaxPerMessage} images.";
+            return;
+        }
+
+        var (image, refusal) = PendingImage.From(filename, bytes);
+        Error = refusal;
+        if (image is not null)
+        {
+            Pending.Add(image);
+            PendingChanged();
+        }
+    }
+
+    [RelayCommand]
+    public void RemoveImage(PendingImage image)
+    {
+        if (Pending.Remove(image))
+        {
+            PendingChanged();
+        }
+    }
+
+    private void PendingChanged()
+    {
+        OnPropertyChanged(nameof(HasPending));
+        OnPropertyChanged(nameof(CanSend));
+    }
 
     [RelayCommand]
     public Task SuggestAsync(string suggestion) => SayAsync(suggestion);
@@ -311,15 +352,20 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
 
     private async Task SayAsync(string text)
     {
-        if (text.Length == 0 || Sending)
+        if ((text.Length == 0 && Pending.Count == 0) || Sending)
         {
             return;
         }
 
+        var images = Pending.ToList();
+        Pending.Clear();
+        SentImages.Clear();
+        images.ForEach(SentImages.Add);
+        PendingChanged();
         Sending = true;
         Suggestions.Clear();
         Composer = null;
-        Sent = text;
+        Sent = text.Length > 0 ? text : null;
         Error = null;
         try
         {
@@ -328,17 +374,34 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
                 await StartAsync();
             }
 
-            await shell.Connection!.Sdk.Chat.SendAChatMessageAsync(Id!, new SendChatMessageRequest { Text = text, Project = shell.Settings.Project });
+            // Uploaded fresh on every try: a send that failed may have used the last try's uploads, and the
+            // API removes any that were not.
+            var attachments = new List<string>();
+            foreach (var image in images)
+            {
+                var part = SdkPart.File("file", image.Bytes, image.Filename, image.ContentType);
+                attachments.Add((await shell.Connection!.Sdk.Chat.UploadAChatImageAsync(Id!, [part])).Id);
+            }
+
+            await shell.Connection!.Sdk.Chat.SendAChatMessageAsync(Id!, new SendChatMessageRequest
+            {
+                Text = text,
+                Project = shell.Settings.Project,
+                Attachments = attachments.Count > 0 ? attachments : null,
+            });
         }
         catch (HttpRequestException failure)
         {
             // Back in the box, unless something new has been typed since.
             Composer = string.IsNullOrEmpty(Composer) ? text : Composer;
+            images.ForEach(Pending.Add);
+            PendingChanged();
             Error = ApiError.Reason(failure);
         }
 
         await LoadAsync(CancellationToken.None);
         Sent = null;
+        SentImages.Clear();
         ClearDraft();
         Sending = false;
         Offer();

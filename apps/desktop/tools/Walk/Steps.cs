@@ -1,3 +1,6 @@
+using Avalonia.Platform;
+using Avalonia.Media.Imaging;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -65,6 +68,12 @@ internal static class Steps
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
         var signedIn = DateTime.UtcNow;
+        if (only == "images")
+        {
+            await ChatImagesAsync(walk, home);
+            return;
+        }
+
         if (only == "dock")
         {
             await DockByDefaultAsync(walk);
@@ -1211,6 +1220,63 @@ internal static class Steps
         await walk.UntilAsync("back on the card", () => walk.Shell.Page == card);
     }
 
+    /// <summary>A real image through a real turn: refused, scaled, shown in the box, sent, answered and drawn from the API.</summary>
+    private static async Task ChatImagesAsync(Walker walk, ThreadsViewModel home)
+    {
+        home.NewChat();
+        var chat = home.Chat!;
+        await walk.UntilAsync("the greeting", () => chat.Empty);
+
+        chat.AddImage("note.heic", [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+        await walk.UntilAsync("a HEIC refused in words", () => chat.Error?.Contains("not a PNG", StringComparison.Ordinal) == true && !chat.HasPending);
+
+        chat.AddImage("big.png", SolidPng(3000, 1800, 0xFF, 0x00, 0x00));
+        await walk.UntilAsync("the large image in the box", () => chat.Pending.Count == 1);
+        var pending = chat.Pending[0];
+        await walk.UntilAsync("it scaled to the longest edge a model takes", () => pending.Picture.PixelSize.Width == ChatImages.MaxEdge && chat.Error is null);
+        await walk.UntilAsync("an image alone being enough to send", () => chat.CanSend);
+        chat.AddImage("second.png", SolidPng(320, 200, 0x00, 0x00, 0xFF));
+        await walk.UntilAsync("the second image in the box", () => chat.Pending.Count == 2);
+        walk.Shot("13b-chat-images-in-box");
+        chat.RemoveImageCommand.Execute(chat.Pending[1]);
+        await walk.UntilAsync("the second image removed", () => chat.Pending.Count == 1);
+
+        chat.Composer = "What colour is this image? Answer in one word.";
+        chat.SendCommand.Execute(null);
+        await walk.UntilAsync("the box empty as it goes", () => !chat.HasPending && chat.Sending);
+        walk.Shot("13c-chat-image-sending");
+        await walk.UntilAsync("the chat answered, or the refusal said", () => chat.Idle, 120);
+        Console.WriteLine($"     chat images: answer '{chat.Entries.OfType<AnswerEntry>().LastOrDefault()?.Text}', error: {chat.Error}");
+        await walk.UntilAsync(
+            "the image drawn from the API",
+            () => chat.Entries.OfType<UserEntry>().LastOrDefault()?.Images is [{ Picture: not null }]);
+        walk.Shot("13d-chat-image-sent");
+    }
+
+    /// <summary>A PNG of one colour, written the way a picture from the clipboard is.</summary>
+    private static byte[] SolidPng(int width, int height, byte red, byte green, byte blue)
+    {
+        using var picture = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Opaque);
+        using (var locked = picture.Lock())
+        {
+            var row = new byte[width * 4];
+            for (var x = 0; x < width; x++)
+            {
+                row[x * 4] = blue;
+                row[(x * 4) + 1] = green;
+                row[(x * 4) + 2] = red;
+                row[(x * 4) + 3] = 0xFF;
+            }
+
+            for (var y = 0; y < height; y++)
+            {
+                Marshal.Copy(row, 0, locked.Address + (y * locked.RowBytes), row.Length);
+            }
+        }
+
+        return PendingImage.PngOf(picture);
+    }
+
     private static async Task ChatAsync(Walker walk, ThreadsViewModel home)
     {
         home.NewChat();
@@ -1256,6 +1322,7 @@ internal static class Steps
         Console.WriteLine($"     chat: entries {chat.Entries.Count}, error: {chat.Error}");
         await walk.UntilAsync("the chat named in the rail", () => home.Threads.Any(thread => thread.Current && thread.Title != "New chat"));
         walk.Shot("13-chat");
+        await ChatImagesAsync(walk, home);
 
         walk.Type("Reply with a level two heading, a sentence with bold, italic and inline code, a link to https://example.com, a two item list, a short code block and a blockquote. Mention no tools.");
         walk.Press(Key.Enter, PhysicalKey.Enter);
