@@ -72,6 +72,12 @@ export function invalidateContextList(queryClient: QueryClient, id: string) {
     void queryClient.invalidateQueries({ predicate: query => matchesContextList(query.queryKey, id) });
 }
 
+const isGatewayStatus = (status: number): boolean => status === 502 || status === 503 || status === 504;
+
+/** A proxy's answer has no reason in it: the API sends its own failures as JSON, and Cloudflare swaps an origin's 502 for its own page. */
+const gatewayReason = (status: number): string =>
+    `Wilson's server could not be reached through the proxy in front of it (${status}). It may be restarting.`;
+
 /**
  * The reason an API refusal names, out of `SdkError.body.details.reason` — the board write surface
  * pins `message` to the generic HTTP status text and carries the actual explanation in `details`
@@ -85,7 +91,7 @@ export function invalidateContextList(queryClient: QueryClient, id: string) {
 export const reasonFor = (err: unknown): string => {
     if (err instanceof SdkError) {
         const body = err.body as { details?: { reason?: string }; message?: string } | undefined;
-        return body?.details?.reason ?? body?.message ?? err.message;
+        return body?.details?.reason ?? body?.message ?? (isGatewayStatus(err.status) ? gatewayReason(err.status) : err.message);
     }
     return err instanceof Error ? err.message : String(err);
 };

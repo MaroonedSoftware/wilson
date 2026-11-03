@@ -328,7 +328,7 @@ describe('ChatService', () => {
 
         const failure = await service.sendMessage(thread.id, { text: 'Are you there?' }).catch(err => err);
 
-        expect(statusOf(failure)).toBe(502);
+        expect(statusOf(failure)).toBe(503);
         expect(reasonOf(failure)).toContain('the chat could not answer');
         expect((await service.getThread(thread.id)).messages).toEqual([expect.objectContaining({ role: 'user', content: 'Are you there?' })]);
     });

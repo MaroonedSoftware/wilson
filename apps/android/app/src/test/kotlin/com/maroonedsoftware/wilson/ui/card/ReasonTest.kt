@@ -17,6 +17,12 @@ class ReasonTest {
     fun aBodyThatIsNotJsonHasNone() = assertNull(reasonIn(null))
 
     @Test
+    fun aGatewayAnswerSaysTheServerWasNotReached() = assertEquals(true, "could not be reached" in noReason(502))
+
+    @Test
+    fun anyOtherBareStatusIsReportedAsIs() = assertEquals("The server answered 500.", noReason(500))
+
+    @Test
     fun theFeedNamesItsCard() {
         assertEquals("0007", feedCardId("""{"id":1,"correlationId":"0007"}"""))
         assertNull(feedCardId("nonsense"))

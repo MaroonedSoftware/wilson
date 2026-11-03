@@ -71,7 +71,7 @@ describe('UsageLimitWatch', () => {
 
     it('describes a limit by account, kind and reset', () => {
         expect(describeUsageLimit({ account: 'pool-a', limitType: 'five_hour', resetsAt: Date.UTC(2026, 10, 2, 20) })).toBe(
-            'the account "pool-a" hit its five_hour usage limit, which resets at 2026-11-02T20:00:00.000Z',
+            'the account "pool-a" hit its five-hour usage limit, which resets at 2026-11-02T20:00:00.000Z',
         );
     });
 });

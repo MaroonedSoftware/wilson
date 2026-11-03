@@ -288,7 +288,7 @@ export class ChatService {
     ): Promise<{ reply?: ChatMessage; proposed: PendingAction[]; asked: PendingQuestion[] }> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
-            throw httpError(502).withDetails({ reason });
+            throw httpError(503).withDetails({ reason });
         };
 
         const engine = this.engines[thread.engine];

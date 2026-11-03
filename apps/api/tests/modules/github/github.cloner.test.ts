@@ -57,7 +57,7 @@ describe('GitHubCloner', () => {
         const { git } = cloning('fatal: repository not found');
 
         await expect(new GitHubCloner(app, git).clone('acme/app', target)).rejects.toMatchObject({
-            statusCode: 502,
+            statusCode: 503,
             details: { reason: 'could not clone acme/app: fatal: repository not found' },
         });
         expect(await readdir(join(parent, 'nested'))).toEqual([]);

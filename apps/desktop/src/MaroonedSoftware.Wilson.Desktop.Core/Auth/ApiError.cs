@@ -55,11 +55,16 @@ public static partial class ApiError
             SdkException refused when IsStepUpRequired(refused) => "This change needs you to sign in again.",
             SdkException refused => Message(refused)
                 ?? (refused.Json is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String ? message.GetString() : null)
-                ?? FormattableString.Invariant($"The server answered {refused.Status}."),
+                ?? NoReason(refused.Status),
             HttpRequestException => "Could not reach the server.",
             _ => failure.Message,
         };
     }
+
+    /// <summary>A proxy's answer has no reason in it: the API sends its own failures as JSON, and Cloudflare swaps an origin's 502 for its own page.</summary>
+    private static string NoReason(int status) => status is >= 502 and <= 504
+        ? FormattableString.Invariant($"Wilson's server could not be reached through the proxy in front of it ({status}). It may be restarting.")
+        : FormattableString.Invariant($"The server answered {status}.");
 
     /// <summary>
     /// Whether the API itself refused a refresh, which is the only answer that ends a session. A 401
