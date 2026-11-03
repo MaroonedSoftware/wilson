@@ -216,8 +216,8 @@ describe('EventLog.append publishing', () => {
 });
 
 /**
- * Card 0263. `usageByStage` reads real `stage.passed`/`stage.failed` rows back out of Postgres —
- * the JSONB `payload->'usage'->>...` extraction and the `group by stage` / `order by min(id)`
+ * Card 0263. `usageByStage` reads real `stage.passed`/`stage.failed`/`stage.interrupted` rows back
+ * out of Postgres — the JSONB `payload->'usage'->>...` extraction and the `group by stage` / `order by min(id)`
  * ordering are exactly the kind of behaviour a fake `db` would only prove agrees with itself about,
  * the same reasoning `EventLog.append publishing` above already follows. Each test uses its own
  * `uniqueProject()`/cardId pair, so no two tests' rows can be summed together by accident.
@@ -390,6 +390,51 @@ describe('EventLog.usageByStage', () => {
 
         expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, outputTokens: 0 }]);
         expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, outputTokens: 0 });
+    });
+
+    it('counts an interrupted run’s tokens without counting it as an attempt', async () => {
+        const project = uniqueProject();
+        const cardId = '0005';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.interrupted',
+            payload: { usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 100 } },
+        });
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 20, outputTokens: 7 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, outputTokens: 12 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, outputTokens: 12 });
+        expect(usage.total.inputTokens).toBe(await eventLog.totalInputTokens(project, cardId));
+    });
+
+    it('reports a stage that has only been interrupted, with its tokens and no attempts', async () => {
+        const project = uniqueProject();
+        const cardId = '0006';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.interrupted',
+            payload: { usage: { inputTokens: 10, outputTokens: 5 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 0, inputTokens: 10, outputTokens: 5 }]);
     });
 
     // AC4: a card with no stage.passed/stage.failed events gets zero totals and an empty stages

@@ -219,22 +219,24 @@ export class EventLog {
      * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
      * price.
      *
-     * One grouped query over `stage.passed`/`stage.failed` rows, keyed by `stage`. `stages` comes
-     * back in the order each stage was first run — `min(id)` ascending, since `id` is a `BIGSERIAL`
-     * assigned in insertion order (`append`) — not alphabetically. An event whose payload has no
-     * `usage` still counts as an attempt, at zero tokens, so `attempts` can never disagree with what
-     * `tail` shows for the same card: nothing here is silently skipped. `inputTokens` includes cached
-     * tokens, the same total `totalInputTokens` holds a card to.
+     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted` rows, keyed by `stage`.
+     * `stages` comes back in the order each stage was first run — `min(id)` ascending, since `id` is a
+     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted run spent
+     * its tokens but ended in no verdict and spends no retry, so it adds to the token sums and not to
+     * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
+     * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
+     * never disagree with what `tail` shows for the same card: nothing here is silently skipped.
+     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .where('type', 'in', ['stage.passed', 'stage.failed'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
             .select([
                 'stage',
-                sql<string>`count(*)`.as('attempts'),
+                sql<string>`count(*) filter (where type <> 'stage.interrupted')`.as('attempts'),
                 sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
                     'inputTokens',
                 ),
@@ -266,14 +268,13 @@ export class EventLog {
 
     /**
      * What a project has spent in output tokens since a given instant — card 0264's rollup, beside
-     * `usageByStage`'s per-card one, that a daily ceiling is checked against. Same
-     * `stage.passed`/`stage.failed` rows, summed across every card in the project rather than grouped
-     * by one card's stages, and only `outputTokens`: the ceiling this backs is output-only for the
-     * reason `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping
-     * to preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to
-     * zero rather than being skipped, the same as `usageByStage`; every event type other than the two
-     * named never carries a `usage` payload, so restricting to them is about legible intent, not
-     * correctness `usageByStage` didn't already need to state outright.
+     * `usageByStage`'s per-card one, that a daily ceiling is checked against. `stage.passed`/
+     * `stage.failed` rows, summed across every card in the project rather than grouped by one card's
+     * stages, and only `outputTokens`: the ceiling this backs is output-only for the reason
+     * `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping to
+     * preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to zero
+     * rather than being skipped, the same as `usageByStage`. Unlike `usageByStage`, this leaves out
+     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling.
      *
      * `since` is compared straight against `createdAt` — a caller means whatever zone it computed
      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's

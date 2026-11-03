@@ -214,10 +214,11 @@ export const CardVersion = z.strictObject({
 export type CardVersion = z.infer<typeof CardVersion>;
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
- * summed. `attempts` counts the passed and failed events themselves, including one whose payload
- * carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
- * events did carry, so the two can never disagree with the event log.
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
+ * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
+ * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
+ * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
  * generated from [CardStageUsage](../../data/contracts/board.ck)
  */
 export const CardStageUsage = z.strictObject({
