@@ -70,4 +70,20 @@ public sealed class ReviewClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<ReviewComment>(response);
     }
+
+    /// <summary>
+    /// Request changes
+    /// Sends every open comment to `ready`'s `onFail` stage as findings, and moves the card there. Comments are
+    /// marked `sent`, so a later review re-locates them but does not send them again.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<ReviewState> RequestChangesAsync(string id, ReviewVerdictRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "review", "request-changes"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ReviewState>(response);
+    }
 }

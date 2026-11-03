@@ -60,6 +60,11 @@ contract CreateReviewCommentRequest: {
     text: string
 }
 
+# `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+contract ReviewVerdictRequest: {
+    head: string
+}
+
 operation /api/cards/{id}/review: {
     params: {
         id: string
@@ -131,6 +136,30 @@ operation /api/cards/{id}/review/comments/{commentId}/resolve: {
             }
             400:
             404:
+        }
+    }
+}
+
+# Sends every open comment to `ready`'s `onFail` stage as findings, and moves the card there. Comments are
+# marked `sent`, so a later review re-locates them but does not send them again.
+operation /api/cards/{id}/review/request-changes: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Request changes
+        mcp: exclude # A review is a person's judgment of an agent's work
+        service: ReviewService.requestChanges
+        request: {
+            application/json: ReviewVerdictRequest
+        }
+        response: {
+            200: {
+                application/json: ReviewState
+            }
+            400:
+            404:
+            409:
         }
     }
 }

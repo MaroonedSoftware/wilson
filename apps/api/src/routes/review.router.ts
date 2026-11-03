@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { ReviewService } from '#modules/review/review.service.js';
-import { CreateReviewCommentRequest, ReviewComment, ReviewState } from '../generated/review.js';
+import { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewVerdictRequest } from '../generated/review.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -84,6 +84,29 @@ ReviewRouter.post('/api/cards/:id/review/comments/:commentId/resolve', requirePo
 
     const service = ctx.container.get(ReviewService);
     const result: ReviewComment = await service.resolveComment(id, commentId);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * Sends every open comment to `ready`'s `onFail` stage as findings, and moves the card there. Comments are
+ * marked `sent`, so a later review re-locates them but does not send them again.
+ * from [review.ck](../../data/contracts/review.ck) `POST /api/cards/{id}/review/request-changes`
+ */
+ReviewRouter.post('/api/cards/:id/review/request-changes', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, ReviewVerdictRequest);
+
+    const service = ctx.container.get(ReviewService);
+    const result: ReviewState = await service.requestChanges(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

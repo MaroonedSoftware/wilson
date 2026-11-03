@@ -52,6 +52,12 @@ data class CreateReviewCommentRequest(
     val text: String,
 )
 
+/** `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. */
+@Serializable
+data class ReviewVerdictRequest(
+    val head: String,
+)
+
 /** `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first. */
 @Serializable
 data class ReviewState(

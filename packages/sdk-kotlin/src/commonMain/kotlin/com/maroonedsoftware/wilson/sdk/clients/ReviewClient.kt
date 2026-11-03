@@ -4,6 +4,7 @@ package com.maroonedsoftware.wilson.sdk.clients
 import com.maroonedsoftware.wilson.sdk.models.CreateReviewCommentRequest
 import com.maroonedsoftware.wilson.sdk.models.ReviewComment
 import com.maroonedsoftware.wilson.sdk.models.ReviewState
+import com.maroonedsoftware.wilson.sdk.models.ReviewVerdictRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
 
@@ -52,6 +53,20 @@ class ReviewClient(private val http: SdkHttp) {
     suspend fun resolveAReviewComment(id: String, commentId: String): ReviewComment {
         val response = http.execute(HttpMethod.Post) {
             path("api", "cards", segment(id), "review", "comments", segment(commentId), "resolve")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Request changes
+     * Sends every open comment to `ready`'s `onFail` stage as findings, and moves the card there. Comments are
+     * marked `sent`, so a later review re-locates them but does not send them again.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun requestChanges(id: String, body: ReviewVerdictRequest): ReviewState {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "review", "request-changes")
+            jsonBody(body, "application/json")
         }
         return http.decodeJson(response)
     }

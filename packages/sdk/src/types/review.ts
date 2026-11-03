@@ -75,6 +75,14 @@ export interface CreateReviewCommentRequest {
 }
 
 /**
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * generated from [ReviewVerdictRequest](../../../../apps/api/data/contracts/review.ck)
+ */
+export interface ReviewVerdictRequest {
+    head: string;
+}
+
+/**
  * `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.
  * generated from [ReviewState](../../../../apps/api/data/contracts/review.ck)
  */

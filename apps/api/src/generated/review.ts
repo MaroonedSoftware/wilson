@@ -59,6 +59,15 @@ export const CreateReviewCommentRequest = z.strictObject({
 export type CreateReviewCommentRequest = z.infer<typeof CreateReviewCommentRequest>;
 
 /**
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * generated from [ReviewVerdictRequest](../../data/contracts/review.ck)
+ */
+export const ReviewVerdictRequest = z.strictObject({
+    head: z.string(),
+});
+export type ReviewVerdictRequest = z.infer<typeof ReviewVerdictRequest>;
+
+/**
  * `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.
  * generated from [ReviewState](../../data/contracts/review.ck)
  */

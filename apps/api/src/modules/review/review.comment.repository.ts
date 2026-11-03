@@ -86,6 +86,17 @@ export class ReviewCommentRepository {
         return rows.map(toStoredComment);
     }
 
+    /** Mark comments as handed to the implementer. */
+    async markSent(cardId: string, commentIds: string[]): Promise<void> {
+        await this.db
+            .updateTable('wilson.reviewComments')
+            .set({ status: 'sent' })
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', 'in', commentIds.map(BigInt))
+            .execute();
+    }
+
     /** Resolve one open comment. `undefined` when it is not this card's, or is no longer open. */
     async resolve(cardId: string, commentId: string): Promise<StoredReviewComment | undefined> {
         const row = await this.db

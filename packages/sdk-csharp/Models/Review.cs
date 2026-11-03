@@ -110,6 +110,13 @@ public sealed record CreateReviewCommentRequest
     public required string Text { get; init; }
 }
 
+/// <summary>`head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.</summary>
+public sealed record ReviewVerdictRequest
+{
+    [JsonPropertyName("head")]
+    public required string Head { get; init; }
+}
+
 /// <summary>`review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.</summary>
 public sealed record ReviewState
 {

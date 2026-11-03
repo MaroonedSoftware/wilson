@@ -3,11 +3,14 @@ import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import type { DB } from '#modules/data/db.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
-import type { CreateReviewCommentRequest, Review, ReviewComment, ReviewState } from '../../generated/review.js';
+import type { HumanFinding } from '../../generated/board.js';
+import type { CreateReviewCommentRequest, Review, ReviewComment, ReviewState, ReviewVerdictRequest } from '../../generated/review.js';
 import { captureLineAnchor, locateLineAnchor } from './review.anchor.js';
 import { ReviewCommentRepository, type StoredReviewComment } from './review.comment.repository.js';
 import { DiffSource } from './review.diff.source.js';
@@ -46,6 +49,23 @@ const toWireComment = (comment: StoredReviewComment, files: DiffFileEntry[]): Re
 };
 
 /**
+ * A comment as `recordFindings` takes it. A comment is one piece of text and a finding asks for two, so
+ * `suggestion` carries what the implementer can't get from `file:line`: the line itself, which still
+ * identifies it after a rebase, and whether it is a line the change removed.
+ */
+const toFinding = (comment: StoredReviewComment, files: DiffFileEntry[]): HumanFinding => {
+    const located = locateLineAnchor(comment, files);
+    const line = located.location === 'found' ? located.currentLine : comment.line;
+    return {
+        file: comment.file,
+        line,
+        severity: comment.severity,
+        problem: comment.text,
+        suggestion: `On ${comment.side === 'old' ? 'removed ' : ''}line ${line}: \`${comment.lineText.trim()}\``,
+    };
+};
+
+/**
  * `review.ck`: a person's review of a card's branch. Reads work in any stage. Writes need the card in
  * `ready`, the human gate, so a project with no such stage simply has no way to start one.
  */
@@ -59,6 +79,7 @@ export class ReviewService {
         private readonly boardConfig: BoardConfig,
         private readonly diffs: DiffSource,
         private readonly db: Kysely<DB>,
+        private readonly boardWrites: BoardWriteService,
     ) {
         this.reviews = new ReviewRepository(this.boardConfig, this.db);
         this.comments = new ReviewCommentRepository(this.boardConfig, this.db);
@@ -87,9 +108,7 @@ export class ReviewService {
         const card = await this.readOrThrow(id);
         this.assertReviewable(card);
         const diff = await this.currentDiff(card);
-        if (request.head !== diff.head) {
-            throw httpError(409).withDetails({ reason: `${id}'s branch has moved on from ${request.head.slice(0, 7)}; reload the diff` });
-        }
+        this.assertSameHead(id, request.head, diff.head);
 
         const file = diff.files.find(candidate => candidate.path === request.file);
         const anchor = file && captureLineAnchor(file, request.side, request.line);
@@ -119,6 +138,39 @@ export class ReviewService {
         return toWireComment(resolved, await this.filesNow(card));
     }
 
+    /**
+     * Send every open comment to the implementer, as one kickback. The card moves first and the
+     * comments are marked after, so a failure between the two leaves them open and visible rather than
+     * marked sent without having gone anywhere.
+     */
+    async requestChanges(id: string, request: ReviewVerdictRequest): Promise<ReviewState> {
+        const card = await this.readOrThrow(id);
+        this.assertReviewable(card);
+        const diff = await this.currentDiff(card);
+        this.assertSameHead(id, request.head, diff.head);
+
+        const open = (await this.comments.list(id)).filter(comment => comment.status === 'open');
+        if (open.length === 0) throw httpError(400).withDetails({ reason: `${id} has no open comments to send` });
+
+        const review = await this.reviews.openAt(id, diff.head, diff.base);
+        try {
+            await this.boardWrites.recordFindings(id, { findings: open.map(comment => toFinding(comment, diff.files)) });
+        } catch (err) {
+            if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
+                throw httpError(400).withDetails({
+                    reason: `project "${this.boardConfig.project}" has no "${REVIEW_STAGE}" stage to send findings from`,
+                });
+            }
+            throw err;
+        }
+        await this.comments.markSent(
+            id,
+            open.map(comment => comment.id),
+        );
+        await this.reviews.conclude(id, review.id, 'changes_requested');
+        return this.stateOf(await this.readOrThrow(id));
+    }
+
     private async stateOf(card: Card): Promise<ReviewState> {
         const id = card.frontmatter.id;
         const [latest, comments, read] = await Promise.all([this.reviews.latest(id), this.comments.list(id), this.diffs.read(card)]);
@@ -138,6 +190,12 @@ export class ReviewService {
         const read = await this.diffs.read(card);
         if (!read.ok) throw httpError(400).withDetails({ reason: read.reason });
         return read;
+    }
+
+    private assertSameHead(id: string, seen: string, current: string): void {
+        if (seen !== current) {
+            throw httpError(409).withDetails({ reason: `${id}'s branch has moved on from ${seen.slice(0, 7)}; reload the diff` });
+        }
     }
 
     private assertReviewable(card: Card): void {

@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import type { DB } from '#modules/data/db.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import { DiffSource, type DiffResult } from '#modules/review/review.diff.source.js';
+import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { ReviewService } from '#modules/review/review.service.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -44,12 +46,41 @@ const card = (id: string, stage = 'ready'): Card => ({
     body: 'body text',
 });
 
-const fresh = async (stage = 'ready') => {
+const STAGES = [
+    'stages:',
+    '  - name: implementing',
+    '    mode: agent',
+    '    model: claude-opus',
+    '    instructions: build it',
+    '    onPass: ready',
+    '    onFail: implementing',
+    '  - name: ready',
+    '    mode: manual',
+    '    model: claude-opus',
+    '    instructions: human review',
+    '    onPass: merged',
+    '    onFail: implementing',
+    '',
+].join('\n');
+
+const fresh = async (stage = 'ready', stages = STAGES) => {
     const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
     const board = new PostgresBoardRepository(config, db, { append: vi.fn(async () => {}) } as unknown as EventLog);
     await board.create(card('0001', stage), 'seed');
     const diffs = new FakeDiffSource();
-    return { board, diffs, service: new ReviewService(board, config, diffs, db) };
+    const writes = new BoardWriteService(
+        board,
+        config,
+        {} as never,
+        { append: vi.fn(async () => {}) } as unknown as EventLog,
+        { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        new StaticStageConfigStore(stages),
+    );
+    return { board, diffs, service: new ReviewService(board, config, diffs, db, writes) };
 };
 
 const onAdded = { head: 'sha-1', file: 'a.ts', side: 'new' as const, line: 2, text: 'not like this' };
@@ -195,6 +226,94 @@ describe('ReviewService', () => {
 
             await expect(service.resolveComment('0001', '999999999')).rejects.toMatchObject({ statusCode: 404 });
             await expect(service.resolveComment('0001', 'abc')).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    describe('requestChanges', () => {
+        const pin = async (board: PostgresBoardRepository) => {
+            const version = (await board.versions('0001', 1))[0]!.id;
+            await board.write('0001', 'pin', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: version } }));
+            return version;
+        };
+
+        it('sends open comments to the pinned plan, moves the card, and marks them sent', async () => {
+            const { board, service } = await fresh();
+            const pinned = await pin(board);
+            await service.addComment('0001', onAdded);
+            await service.addComment('0001', { ...onAdded, side: 'old', line: 2, severity: 'concern', text: 'why was this removed' });
+
+            const { review, comments } = await service.requestChanges('0001', { head: 'sha-1' });
+
+            const stored = await board.read('0001');
+            const plan = (await board.readAt('0001', stored.frontmatter.planVersionId!)).body;
+            expect(stored.frontmatter.stage).toBe('implementing');
+            expect(stored.frontmatter.planVersionId).not.toBe(pinned);
+            expect(plan).toContain('not like this');
+            expect(plan).toContain('On line 2: `added`');
+            expect(plan).toContain('why was this removed');
+            expect(plan).toContain('On removed line 2: `gone`');
+            expect(comments.map(comment => comment.status)).toEqual(['sent', 'sent']);
+            expect(review).toMatchObject({ status: 'changes_requested', verdictAt: expect.anything() });
+        });
+
+        it('leaves out resolved comments, and comments already sent in an earlier round', async () => {
+            const { board, diffs, service } = await fresh();
+            const resolved = await service.addComment('0001', { ...onAdded, text: 'never mind' });
+            await service.resolveComment('0001', resolved.id);
+            await service.addComment('0001', { ...onAdded, text: 'round one' });
+            await service.requestChanges('0001', { head: 'sha-1' });
+
+            await board.write('0001', 'back to ready', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'ready' } }));
+            diffs.moveTo('sha-2');
+            await service.addComment('0001', { ...onAdded, head: 'sha-2', text: 'round two' });
+            await service.requestChanges('0001', { head: 'sha-2' });
+
+            const { body } = await board.read('0001');
+            expect(body).toContain('round two');
+            expect(body).not.toContain('round one');
+            expect(body).not.toContain('never mind');
+        });
+
+        it('sends an outdated comment at the line it was written on', async () => {
+            const { board, diffs, service } = await fresh();
+            await service.addComment('0001', onAdded);
+            diffs.moveTo('sha-2', ['@@ -1 +1 @@', '+something else', ''].join('\n'));
+
+            await service.requestChanges('0001', { head: 'sha-2' });
+
+            expect((await board.read('0001')).body).toContain('On line 2: `added`');
+        });
+
+        it('refuses a moved branch, no open comments, and a card outside ready, changing nothing', async () => {
+            const { board, diffs, service } = await fresh();
+            await expect(service.requestChanges('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
+
+            await service.addComment('0001', onAdded);
+            diffs.moveTo('sha-2');
+            await expect(service.requestChanges('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 409 });
+            expect((await board.read('0001')).frontmatter.stage).toBe('ready');
+            expect((await service.state('0001')).comments.map(comment => comment.status)).toEqual(['open']);
+
+            const notReady = await fresh('implementing');
+            await expect(notReady.service.requestChanges('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('answers a missing ready stage with a 400 naming the project, and leaves comments open', async () => {
+            const noReady = [
+                'stages:',
+                '  - name: implementing',
+                '    mode: agent',
+                '    model: claude-opus',
+                '    instructions: x',
+                '    onPass: merged',
+                '    onFail: implementing',
+                '',
+            ];
+            const { service } = await fresh('ready', noReady.join('\n'));
+            await service.addComment('0001', onAdded);
+
+            await expect(service.requestChanges('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
+            expect((await service.state('0001')).comments.map(comment => comment.status)).toEqual(['open']);
         });
     });
 });

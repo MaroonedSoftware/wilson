@@ -1,4 +1,4 @@
-import type { CreateReviewCommentRequest, ReviewComment, ReviewState } from './types/review.js';
+import type { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewVerdictRequest } from './types/review.js';
 import { reviveReviewComment, reviveReviewState } from './types/review.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
@@ -43,5 +43,19 @@ export class ReviewClient {
             method: 'POST',
         });
         return reviveReviewComment(await parseJson<ReviewComment>(result));
+    }
+
+    /**
+     * @name Request changes
+     * @description Sends every open comment to `ready`'s `onFail` stage as findings, and moves the card there. Comments are
+     * marked `sent`, so a later review re-locates them but does not send them again.
+     */
+    async requestChanges(id: string, body: ReviewVerdictRequest): Promise<ReviewState> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/review/request-changes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveReviewState(await parseJson<ReviewState>(result));
     }
 }

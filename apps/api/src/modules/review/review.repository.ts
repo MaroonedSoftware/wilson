@@ -46,6 +46,17 @@ export class ReviewRepository {
         return row && toStoredReview(row);
     }
 
+    /** Close the card's open review at a verdict. */
+    async conclude(cardId: string, reviewId: string, status: 'changes_requested' | 'approved'): Promise<void> {
+        await this.db
+            .updateTable('wilson.reviews')
+            .set({ status, verdictAt: DateTime.now() })
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', '=', BigInt(reviewId))
+            .execute();
+    }
+
     /**
      * The card's open review at `head`, starting one if there is none and retiring any open one at
      * another commit. Two people opening at once both get the one row, because the partial unique
