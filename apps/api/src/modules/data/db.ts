@@ -363,6 +363,7 @@ export interface WilsonReviews {
   id: Generated<bigint>;
   project: string;
   status: Generated<"open" | "changes_requested" | "approved" | "superseded">;
+  tour: Json | null;
   verdictAt: DateTime | null;
 }
 

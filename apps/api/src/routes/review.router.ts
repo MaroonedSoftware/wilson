@@ -140,7 +140,7 @@ ReviewRouter.post('/api/cards/:id/review/approve', requirePolicy({ policy: 'wils
  * The conversation with the agent walking the person through the change. It reads committed code at the
  * review's commit and has no way to change anything. A turn's answer arrives as it is written over
  * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
- * response that never resolves. It sends `delta`, then `done` or `failed`.
+ * response that never resolves. It sends `delta` and `tour`, then `done` or `failed`.
  * from [review.ck](../../data/contracts/review.ck) `GET /api/cards/{id}/review/turns`
  */
 ReviewRouter.get('/api/cards/:id/review/turns', requirePolicy({ policy: 'wilson.view' }), async ctx => {
@@ -163,7 +163,7 @@ ReviewRouter.get('/api/cards/:id/review/turns', requirePolicy({ policy: 'wilson.
  * The conversation with the agent walking the person through the change. It reads committed code at the
  * review's commit and has no way to change anything. A turn's answer arrives as it is written over
  * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
- * response that never resolves. It sends `delta`, then `done` or `failed`.
+ * response that never resolves. It sends `delta` and `tour`, then `done` or `failed`.
  * from [review.ck](../../data/contracts/review.ck) `POST /api/cards/{id}/review/turns`
  */
 ReviewRouter.post('/api/cards/:id/review/turns', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {

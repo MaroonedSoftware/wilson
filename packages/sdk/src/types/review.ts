@@ -9,27 +9,16 @@ const __dt = (v: unknown, path: string): DateTime => {
 };
 
 /**
- * `stale` is true once the branch has moved past `head`.
- * generated from [Review](../../../../apps/api/data/contracts/review.ck)
+ * A place one step of a tour points at. `in-diff` can be jumped to. `outside-diff` is real code the change
+ * didn't touch, and `truncated` is in a file whose diff is too large to show, so both are only a label.
+ * generated from [ReviewTourAnchor](../../../../apps/api/data/contracts/review.ck)
  */
-export interface Review {
-    id: string;
-    head: string;
-    base: string;
-    status: 'open' | 'changes_requested' | 'approved' | 'superseded';
-    stale: boolean;
-    createdAt: DateTime;
-    verdictAt?: DateTime;
-}
-
-/** Rehydrates every wire-encoded scalar in a Review into its runtime type. Mutates and returns `raw`. */
-export function reviveReview(raw: Review): Review {
-    const __o0 = raw as unknown as Record<string, unknown>;
-    __o0['createdAt'] = __dt(__o0['createdAt'], 'Review.createdAt');
-    if (__o0['verdictAt'] != null) {
-        __o0['verdictAt'] = __dt(__o0['verdictAt'], 'Review.verdictAt');
-    }
-    return raw;
+export interface ReviewTourAnchor {
+    file: string;
+    side: 'old' | 'new';
+    startLine: number;
+    endLine: number;
+    status: 'in-diff' | 'outside-diff' | 'truncated';
 }
 
 /**
@@ -101,12 +90,51 @@ export function reviveReviewTurn(raw: ReviewTurn): ReviewTurn {
 }
 
 /**
- * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. `mode: tour` asks the
+ * agent to write the tour as well as answer. `stepIndex` is the 0-based step of the tour on screen, so a
+ * question can be about "this".
  * generated from [ReviewTurnRequest](../../../../apps/api/data/contracts/review.ck)
  */
 export interface ReviewTurnRequest {
     head: string;
     text: string;
+    mode?: 'chat' | 'tour';
+    stepIndex?: number;
+}
+
+/**
+ * generated from [ReviewTourStep](../../../../apps/api/data/contracts/review.ck)
+ */
+export interface ReviewTourStep {
+    title: string;
+    /** Markdown. */
+    explanation: string;
+    anchors: ReviewTourAnchor[];
+}
+
+/**
+ * `stale` is true once the branch has moved past `head`. `tour` is left out until the agent has written one.
+ * generated from [Review](../../../../apps/api/data/contracts/review.ck)
+ */
+export interface Review {
+    id: string;
+    head: string;
+    base: string;
+    status: 'open' | 'changes_requested' | 'approved' | 'superseded';
+    stale: boolean;
+    createdAt: DateTime;
+    verdictAt?: DateTime;
+    tour?: ReviewTourStep[];
+}
+
+/** Rehydrates every wire-encoded scalar in a Review into its runtime type. Mutates and returns `raw`. */
+export function reviveReview(raw: Review): Review {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'Review.createdAt');
+    if (__o0['verdictAt'] != null) {
+        __o0['verdictAt'] = __dt(__o0['verdictAt'], 'Review.verdictAt');
+    }
+    return raw;
 }
 
 /**

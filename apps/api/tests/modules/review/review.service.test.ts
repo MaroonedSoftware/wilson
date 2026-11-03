@@ -473,7 +473,7 @@ describe('ReviewService', () => {
             expect(third!.text).not.toContain('not like this');
         });
 
-        it('gives the agent only read tools, and asks the engine to hold it to them', async () => {
+        it('gives the agent nothing that writes to the project, and asks the engine to hold it to that', async () => {
             const { engine, service } = await fresh();
 
             await service.sendTurn('0001', ask);
@@ -485,6 +485,7 @@ describe('ReviewService', () => {
                 'read_change',
                 'read_file',
                 'search_code',
+                'set_tour',
             ]);
             expect(input!.onlyOwnTools).toBe(true);
             expect(input!.maxSteps).toBeGreaterThan(20);
@@ -601,6 +602,80 @@ describe('ReviewService', () => {
             expect(last.text).toContain('already sent these back');
             expect(last.text).toContain('round one');
             expect((await service.turns('0001')).map(turn => turn.content)).toEqual(['better?', 'the answer']);
+        });
+
+        describe('the tour', () => {
+            const STEPS = {
+                steps: [{ title: 'The change', explanation: 'What it does', anchors: [{ file: 'a.ts', side: 'new', startLine: 2, endLine: 2 }] }],
+            };
+            const publishing = (engine: FakeEngine) => {
+                engine.answer = async input => {
+                    await input.tools.find(tool => tool.name === 'set_tour')!.execute(STEPS);
+                    return { text: 'published it' };
+                };
+            };
+
+            it('asks for one only on a tour turn, and stores it on the review', async () => {
+                const { engine, service } = await fresh();
+                publishing(engine);
+
+                await service.sendTurn('0001', { ...ask, mode: 'tour', text: 'Walk me through this' });
+
+                expect(engine.inputs[0]!.text).toContain('publish it as ordered steps');
+                expect((await service.turns('0001'))[0]!.content).toBe('Walk me through this');
+                const { review } = await service.state('0001');
+                expect(review!.tour).toEqual([
+                    {
+                        title: 'The change',
+                        explanation: 'What it does',
+                        anchors: [{ file: 'a.ts', side: 'new', startLine: 2, endLine: 2, status: 'in-diff' }],
+                    },
+                ]);
+            });
+
+            it('does not ask for one on an ordinary turn', async () => {
+                const { engine, service } = await fresh();
+
+                await service.sendTurn('0001', ask);
+
+                expect(engine.inputs[0]!.text).not.toContain('publish it as ordered steps');
+            });
+
+            it('publishes the tour to whoever is watching as soon as it is written', async () => {
+                const { config, engine, service } = await fresh();
+                publishing(engine);
+                const seen: ReviewStreamEvent[] = [];
+                const stop = onReviewEvent(config.project, '0001', event => seen.push(event));
+
+                await service.sendTurn('0001', { ...ask, mode: 'tour' });
+                stop();
+
+                expect(seen.map(event => event.event)).toEqual(['tour', 'done']);
+            });
+
+            it('tells the agent which step is on screen', async () => {
+                const { engine, service } = await fresh();
+                publishing(engine);
+                await service.sendTurn('0001', { ...ask, mode: 'tour' });
+                engine.answer = async () => ({ text: 'ok' });
+
+                await service.sendTurn('0001', { ...ask, text: 'why this?', stepIndex: 0 });
+                await service.sendTurn('0001', { ...ask, text: 'and that?', stepIndex: 9 });
+
+                expect(engine.inputs[1]!.text).toContain('step 1 of your tour, "The change"');
+                expect(engine.inputs[2]!.text).toBe('and that?');
+            });
+
+            it('leaves a new commit with no tour', async () => {
+                const { diffs, engine, service } = await fresh();
+                publishing(engine);
+                await service.sendTurn('0001', { ...ask, mode: 'tour' });
+
+                diffs.moveTo('sha-2');
+                const { review } = await service.open('0001');
+
+                expect(review!.tour).toBeUndefined();
+            });
         });
     });
 });

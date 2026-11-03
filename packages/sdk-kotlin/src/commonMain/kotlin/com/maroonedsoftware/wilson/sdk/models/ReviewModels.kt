@@ -5,16 +5,17 @@ import com.maroonedsoftware.wilson.sdk.runtime.SdkEnumSerializer
 import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 
-/** `stale` is true once the branch has moved past `head`. */
+/**
+ * A place one step of a tour points at. `in-diff` can be jumped to. `outside-diff` is real code the change
+ * didn't touch, and `truncated` is in a file whose diff is too large to show, so both are only a label.
+ */
 @Serializable
-data class Review(
-    val id: String,
-    val head: String,
-    val base: String,
-    val status: ReviewStatus,
-    val stale: Boolean,
-    val createdAt: Instant,
-    val verdictAt: Instant? = null,
+data class ReviewTourAnchor(
+    val file: String,
+    val side: ReviewTourAnchorSide,
+    val startLine: Long,
+    val endLine: Long,
+    val status: ReviewTourAnchorStatus,
 )
 
 /**
@@ -67,11 +68,38 @@ data class ReviewTurn(
     val createdAt: Instant,
 )
 
-/** `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. */
+/**
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. `mode: tour` asks the
+ * agent to write the tour as well as answer. `stepIndex` is the 0-based step of the tour on screen, so a
+ * question can be about "this".
+ */
 @Serializable
 data class ReviewTurnRequest(
     val head: String,
     val text: String,
+    val mode: ReviewTurnRequestMode? = null,
+    val stepIndex: Long? = null,
+)
+
+@Serializable
+data class ReviewTourStep(
+    val title: String,
+    /** Markdown. */
+    val explanation: String,
+    val anchors: List<ReviewTourAnchor>,
+)
+
+/** `stale` is true once the branch has moved past `head`. `tour` is left out until the agent has written one. */
+@Serializable
+data class Review(
+    val id: String,
+    val head: String,
+    val base: String,
+    val status: ReviewStatus,
+    val stale: Boolean,
+    val createdAt: Instant,
+    val verdictAt: Instant? = null,
+    val tour: List<ReviewTourStep>? = null,
 )
 
 /** `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first. */
@@ -79,6 +107,48 @@ data class ReviewTurnRequest(
 data class ReviewState(
     val review: Review? = null,
     val comments: List<ReviewComment>,
+)
+
+@Serializable(with = ReviewTourAnchorSideSerializer::class)
+enum class ReviewTourAnchorSide {
+    OLD,
+    NEW,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ReviewTourAnchorSide] by its wire spelling. A spelling it does not know reads as [ReviewTourAnchorSide.UNKNOWN]. */
+object ReviewTourAnchorSideSerializer : SdkEnumSerializer<ReviewTourAnchorSide>(
+    "ReviewTourAnchorSide",
+    ReviewTourAnchorSide.UNKNOWN,
+    ReviewTourAnchorSide.OLD to "old",
+    ReviewTourAnchorSide.NEW to "new",
+)
+
+@Serializable(with = ReviewTourAnchorStatusSerializer::class)
+enum class ReviewTourAnchorStatus {
+    IN_DIFF,
+    OUTSIDE_DIFF,
+    TRUNCATED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ReviewTourAnchorStatus] by its wire spelling. A spelling it does not know reads as [ReviewTourAnchorStatus.UNKNOWN]. */
+object ReviewTourAnchorStatusSerializer : SdkEnumSerializer<ReviewTourAnchorStatus>(
+    "ReviewTourAnchorStatus",
+    ReviewTourAnchorStatus.UNKNOWN,
+    ReviewTourAnchorStatus.IN_DIFF to "in-diff",
+    ReviewTourAnchorStatus.OUTSIDE_DIFF to "outside-diff",
+    ReviewTourAnchorStatus.TRUNCATED to "truncated",
 )
 
 @Serializable(with = ReviewStatusSerializer::class)
@@ -245,4 +315,24 @@ object ReviewTurnRoleSerializer : SdkEnumSerializer<ReviewTurnRole>(
     ReviewTurnRole.UNKNOWN,
     ReviewTurnRole.USER to "user",
     ReviewTurnRole.ASSISTANT to "assistant",
+)
+
+@Serializable(with = ReviewTurnRequestModeSerializer::class)
+enum class ReviewTurnRequestMode {
+    CHAT,
+    TOUR,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ReviewTurnRequestMode] by its wire spelling. A spelling it does not know reads as [ReviewTurnRequestMode.UNKNOWN]. */
+object ReviewTurnRequestModeSerializer : SdkEnumSerializer<ReviewTurnRequestMode>(
+    "ReviewTurnRequestMode",
+    ReviewTurnRequestMode.UNKNOWN,
+    ReviewTurnRequestMode.CHAT to "chat",
+    ReviewTurnRequestMode.TOUR to "tour",
 )

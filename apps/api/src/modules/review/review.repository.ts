@@ -2,6 +2,21 @@ import { Kysely, type Selectable } from 'kysely';
 import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB, WilsonReviews } from '#modules/data/db.js';
+import type { DiffSide } from './diff.hunks.js';
+
+export interface TourAnchor {
+    file: string;
+    side: DiffSide;
+    startLine: number;
+    endLine: number;
+    status: 'in-diff' | 'outside-diff' | 'truncated';
+}
+
+export interface TourStep {
+    title: string;
+    explanation: string;
+    anchors: TourAnchor[];
+}
 
 export type ReviewStatus = 'open' | 'changes_requested' | 'approved' | 'superseded';
 
@@ -14,6 +29,7 @@ export interface StoredReview {
     engineSessionId: string | undefined;
     /** The newest comment id this review's conversation has been told about. */
     commentsSeenId: string;
+    tour: TourStep[] | undefined;
     createdAt: DateTime;
 }
 
@@ -25,6 +41,7 @@ const toStoredReview = (row: Selectable<WilsonReviews>): StoredReview => ({
     verdictAt: row.verdictAt ?? undefined,
     engineSessionId: row.engineSessionId ?? undefined,
     commentsSeenId: String(row.commentsSeenId),
+    tour: (row.tour as TourStep[] | null) ?? undefined,
     createdAt: row.createdAt,
 });
 
@@ -56,6 +73,16 @@ export class ReviewRepository {
         await this.db
             .updateTable('wilson.reviews')
             .set({ commentsSeenId: BigInt(commentsSeenId), ...(engineSessionId ? { engineSessionId } : {}) })
+            .where('project', '=', this.config.project)
+            .where('id', '=', BigInt(reviewId))
+            .execute();
+    }
+
+    /** Replace the review's tour whole. */
+    async setTour(reviewId: string, tour: TourStep[]): Promise<void> {
+        await this.db
+            .updateTable('wilson.reviews')
+            .set({ tour: JSON.stringify(tour) })
             .where('project', '=', this.config.project)
             .where('id', '=', BigInt(reviewId))
             .execute();

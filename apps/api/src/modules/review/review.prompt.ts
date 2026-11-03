@@ -2,6 +2,7 @@ import { isDeniedPath } from '#modules/code/code.reader.js';
 import { learningsBlock } from '#modules/plan/plan.service.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
 import type { StoredReviewComment } from './review.comment.repository.js';
+import type { TourStep } from './review.repository.js';
 
 /**
  * The review agent's system prompt.
@@ -68,3 +69,20 @@ export const firstTurnBlock = ({ cardId, title, plan, head, base, files, learnin
         '',
         learningsBlock(learnings),
     ].join('\n');
+
+/** What a `tour` turn asks for, as well as whatever the person typed. */
+export const TOUR_INSTRUCTION = [
+    'Walk the person through this change. Read all of it first, then publish it as ordered steps, using the tool for that.',
+    'Order the steps so each one makes sense given the last, the way you would explain it to a colleague, rather than by file. Start from what the change is for, and keep generated files and mechanical edits together and brief.',
+    'Each step should say what to check, and anything you found wrong or unsure about. Once it is published, answer in a few sentences: what the change is, and where you would look hardest.',
+    '',
+    '---',
+    '',
+    '',
+].join('\n');
+
+/** Says which step of the tour is on screen, so a question can be about "this". */
+export const stepBlock = (tour: TourStep[] | undefined, stepIndex: number | undefined): string => {
+    const step = stepIndex === undefined ? undefined : tour?.[stepIndex];
+    return step ? `(The person is looking at step ${stepIndex! + 1} of your tour, "${step.title}".)\n\n` : '';
+};

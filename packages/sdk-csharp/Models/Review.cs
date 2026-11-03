@@ -11,30 +11,26 @@ using MaroonedSoftware.Wilson.Sdk.Runtime;
 
 namespace MaroonedSoftware.Wilson.Sdk.Models;
 
-/// <summary>`stale` is true once the branch has moved past `head`.</summary>
-public sealed record Review
+/// <summary>
+/// A place one step of a tour points at. `in-diff` can be jumped to. `outside-diff` is real code the change
+/// didn't touch, and `truncated` is in a file whose diff is too large to show, so both are only a label.
+/// </summary>
+public sealed record ReviewTourAnchor
 {
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
+    [JsonPropertyName("file")]
+    public required string File { get; init; }
 
-    [JsonPropertyName("head")]
-    public required string Head { get; init; }
+    [JsonPropertyName("side")]
+    public required ReviewTourAnchorSide Side { get; init; }
 
-    [JsonPropertyName("base")]
-    public required string Base { get; init; }
+    [JsonPropertyName("startLine")]
+    public required long StartLine { get; init; }
+
+    [JsonPropertyName("endLine")]
+    public required long EndLine { get; init; }
 
     [JsonPropertyName("status")]
-    public required ReviewStatus Status { get; init; }
-
-    [JsonPropertyName("stale")]
-    public required bool Stale { get; init; }
-
-    [JsonPropertyName("createdAt")]
-    public required DateTimeOffset CreatedAt { get; init; }
-
-    [JsonPropertyName("verdictAt")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTimeOffset? VerdictAt { get; init; }
+    public required ReviewTourAnchorStatus Status { get; init; }
 }
 
 /// <summary>
@@ -133,7 +129,11 @@ public sealed record ReviewTurn
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
-/// <summary>`head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.</summary>
+/// <summary>
+/// `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. `mode: tour` asks the
+/// agent to write the tour as well as answer. `stepIndex` is the 0-based step of the tour on screen, so a
+/// question can be about "this".
+/// </summary>
 public sealed record ReviewTurnRequest
 {
     [JsonPropertyName("head")]
@@ -141,6 +141,57 @@ public sealed record ReviewTurnRequest
 
     [JsonPropertyName("text")]
     public required string Text { get; init; }
+
+    [JsonPropertyName("mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ReviewTurnRequestMode? Mode { get; init; }
+
+    [JsonPropertyName("stepIndex")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? StepIndex { get; init; }
+}
+
+public sealed record ReviewTourStep
+{
+    [JsonPropertyName("title")]
+    public required string Title { get; init; }
+
+    /// <summary>Markdown.</summary>
+    [JsonPropertyName("explanation")]
+    public required string Explanation { get; init; }
+
+    [JsonPropertyName("anchors")]
+    public required List<ReviewTourAnchor> Anchors { get; init; }
+}
+
+/// <summary>`stale` is true once the branch has moved past `head`. `tour` is left out until the agent has written one.</summary>
+public sealed record Review
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("head")]
+    public required string Head { get; init; }
+
+    [JsonPropertyName("base")]
+    public required string Base { get; init; }
+
+    [JsonPropertyName("status")]
+    public required ReviewStatus Status { get; init; }
+
+    [JsonPropertyName("stale")]
+    public required bool Stale { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("verdictAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? VerdictAt { get; init; }
+
+    [JsonPropertyName("tour")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ReviewTourStep>? Tour { get; init; }
 }
 
 /// <summary>`review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.</summary>
@@ -152,6 +203,123 @@ public sealed record ReviewState
 
     [JsonPropertyName("comments")]
     public required List<ReviewComment> Comments { get; init; }
+}
+
+[JsonConverter(typeof(ReviewTourAnchorSideConverter))]
+public enum ReviewTourAnchorSide
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("old")]
+    Old,
+
+    [JsonStringEnumMemberName("new")]
+    New,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ReviewTourAnchorSide"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ReviewTourAnchorSide.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ReviewTourAnchorSideConverter : JsonConverter<ReviewTourAnchorSide>
+{
+    public override ReviewTourAnchorSide Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ReviewTourAnchorSide, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ReviewTourAnchorSide value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ReviewTourAnchorSide ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ReviewTourAnchorSide value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ReviewTourAnchorSide FromWire(string? text) => text switch
+    {
+        "old" => ReviewTourAnchorSide.Old,
+        "new" => ReviewTourAnchorSide.New,
+        _ => ReviewTourAnchorSide.Unknown,
+    };
+
+    private static string ToWire(ReviewTourAnchorSide value) => value switch
+    {
+        ReviewTourAnchorSide.Old => "old",
+        ReviewTourAnchorSide.New => "new",
+        _ => throw new JsonException($"ReviewTourAnchorSide.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ReviewTourAnchorStatusConverter))]
+public enum ReviewTourAnchorStatus
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("in-diff")]
+    InDiff,
+
+    [JsonStringEnumMemberName("outside-diff")]
+    OutsideDiff,
+
+    [JsonStringEnumMemberName("truncated")]
+    Truncated,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ReviewTourAnchorStatus"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ReviewTourAnchorStatus.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ReviewTourAnchorStatusConverter : JsonConverter<ReviewTourAnchorStatus>
+{
+    public override ReviewTourAnchorStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ReviewTourAnchorStatus, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ReviewTourAnchorStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ReviewTourAnchorStatus ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ReviewTourAnchorStatus value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ReviewTourAnchorStatus FromWire(string? text) => text switch
+    {
+        "in-diff" => ReviewTourAnchorStatus.InDiff,
+        "outside-diff" => ReviewTourAnchorStatus.OutsideDiff,
+        "truncated" => ReviewTourAnchorStatus.Truncated,
+        _ => ReviewTourAnchorStatus.Unknown,
+    };
+
+    private static string ToWire(ReviewTourAnchorStatus value) => value switch
+    {
+        ReviewTourAnchorStatus.InDiff => "in-diff",
+        ReviewTourAnchorStatus.OutsideDiff => "outside-diff",
+        ReviewTourAnchorStatus.Truncated => "truncated",
+        _ => throw new JsonException($"ReviewTourAnchorStatus.{value} has no wire spelling, so it cannot be sent."),
+    };
 }
 
 [JsonConverter(typeof(ReviewStatusConverter))]
@@ -614,5 +782,61 @@ public sealed class ReviewTurnRoleConverter : JsonConverter<ReviewTurnRole>
         ReviewTurnRole.User => "user",
         ReviewTurnRole.Assistant => "assistant",
         _ => throw new JsonException($"ReviewTurnRole.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ReviewTurnRequestModeConverter))]
+public enum ReviewTurnRequestMode
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("chat")]
+    Chat,
+
+    [JsonStringEnumMemberName("tour")]
+    Tour,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ReviewTurnRequestMode"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ReviewTurnRequestMode.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ReviewTurnRequestModeConverter : JsonConverter<ReviewTurnRequestMode>
+{
+    public override ReviewTurnRequestMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ReviewTurnRequestMode, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ReviewTurnRequestMode value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ReviewTurnRequestMode ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ReviewTurnRequestMode value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ReviewTurnRequestMode FromWire(string? text) => text switch
+    {
+        "chat" => ReviewTurnRequestMode.Chat,
+        "tour" => ReviewTurnRequestMode.Tour,
+        _ => ReviewTurnRequestMode.Unknown,
+    };
+
+    private static string ToWire(ReviewTurnRequestMode value) => value switch
+    {
+        ReviewTurnRequestMode.Chat => "chat",
+        ReviewTurnRequestMode.Tour => "tour",
+        _ => throw new JsonException($"ReviewTurnRequestMode.{value} has no wire spelling, so it cannot be sent."),
     };
 }

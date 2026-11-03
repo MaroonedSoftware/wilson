@@ -14,7 +14,24 @@ options {
 # gets a tool for writing one. Writing needs the card to be in `ready`; reading works in any stage, so
 # an old review stays readable.
 
-# `stale` is true once the branch has moved past `head`.
+# A place one step of a tour points at. `in-diff` can be jumped to. `outside-diff` is real code the change
+# didn't touch, and `truncated` is in a file whose diff is too large to show, so both are only a label.
+contract ReviewTourAnchor: {
+    file: string
+    side: enum(old, new)
+    startLine: int
+    endLine: int
+    status: enum(in-diff, outside-diff, truncated)
+}
+
+contract ReviewTourStep: {
+    title: string
+    # Markdown.
+    explanation: string
+    anchors: array(ReviewTourAnchor)
+}
+
+# `stale` is true once the branch has moved past `head`. `tour` is left out until the agent has written one.
 contract Review: {
     id: string
     head: string
@@ -23,6 +40,7 @@ contract Review: {
     stale: boolean
     createdAt: datetime
     verdictAt?: datetime
+    tour?: array(ReviewTourStep)
 }
 
 # `line` is where the comment was written, at commit `head`. `location` and `currentLine` say where it is
@@ -196,16 +214,20 @@ contract ReviewTurn: {
     createdAt: datetime
 }
 
-# `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+# `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. `mode: tour` asks the
+# agent to write the tour as well as answer. `stepIndex` is the 0-based step of the tour on screen, so a
+# question can be about "this".
 contract ReviewTurnRequest: {
     head: string
     text: string
+    mode?: enum(chat, tour)
+    stepIndex?: int
 }
 
 # The conversation with the agent walking the person through the change. It reads committed code at the
 # review's commit and has no way to change anything. A turn's answer arrives as it is written over
 # `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
-# response that never resolves. It sends `delta`, then `done` or `failed`.
+# response that never resolves. It sends `delta` and `tour`, then `done` or `failed`.
 operation /api/cards/{id}/review/turns: {
     params: {
         id: string

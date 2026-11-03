@@ -36,7 +36,7 @@ import { captureLineAnchor, locateLineAnchor } from './review.anchor.js';
 import { ReviewCommentRepository, type StoredReviewComment } from './review.comment.repository.js';
 import { DiffSource, type DiffSnapshot } from './review.diff.source.js';
 import { publishReview } from './review.feed.js';
-import { commentsBlock, firstTurnBlock, reviewSystemPrompt } from './review.prompt.js';
+import { commentsBlock, firstTurnBlock, reviewSystemPrompt, stepBlock, TOUR_INSTRUCTION } from './review.prompt.js';
 import { ReviewRepository, type StoredReview } from './review.repository.js';
 import { reviewTools } from './review.tools.js';
 import { ReviewTurnRepository } from './review.turn.repository.js';
@@ -67,6 +67,7 @@ const toWireReview = (review: StoredReview, currentHead: string | undefined): Re
     stale: currentHead !== undefined && currentHead !== review.head,
     createdAt: review.createdAt,
     verdictAt: review.verdictAt,
+    tour: review.tour,
 });
 
 const toWireComment = (comment: StoredReviewComment, files: DiffFileEntry[]): ReviewComment => {
@@ -275,7 +276,7 @@ export class ReviewService {
             async () => {
                 const review = await this.currentReview(id, diff);
                 const history = await this.conversation.list(review.id);
-                const prompt = await this.promptFor(card, review, diff, history.length === 0, text);
+                const prompt = await this.promptFor(card, review, diff, history.length === 0, text, request);
                 await this.conversation.append(review.id, 'user', text);
 
                 const reader = new CodeReader(this.boardConfig.codeRoot, undefined, diff.head);
@@ -288,6 +289,10 @@ export class ReviewService {
                         reader,
                         audited: (operation, query, run) =>
                             auditedRead(this.reads, { project: this.boardConfig.project, operation, subject, ...query }, run),
+                        setTour: async tour => {
+                            await this.reviews.setTour(review.id, tour);
+                            publishReview(this.boardConfig.project, id, { event: 'tour', data: tour });
+                        },
                     }),
                 });
 
@@ -311,7 +316,7 @@ export class ReviewService {
         return this.reviews.openAt(id, diff.head, diff.base);
     }
 
-    private async promptFor(card: Card, review: StoredReview, diff: DiffSnapshot, isFirst: boolean, text: string) {
+    private async promptFor(card: Card, review: StoredReview, diff: DiffSnapshot, isFirst: boolean, text: string, request: ReviewTurnRequest) {
         const id = card.frontmatter.id;
         const all = await this.comments.list(id);
         const unseen = all.filter(comment => comment.status === 'open' && BigInt(comment.id) > BigInt(review.commentsSeenId));
@@ -331,7 +336,8 @@ export class ReviewService {
                 sent: all.filter(comment => comment.status === 'sent'),
             });
         }
-        return { text: `${opening}${commentsBlock(unseen)}${text}`, commentsSeenId };
+        const instruction = request.mode === 'tour' ? TOUR_INSTRUCTION : '';
+        return { text: `${opening}${commentsBlock(unseen)}${instruction}${stepBlock(review.tour, request.stepIndex)}${text}`, commentsSeenId };
     }
 
     private async runEngine(id: string, turn: Pick<Parameters<CliChatEngine['turn']>[0], 'thread' | 'history' | 'text' | 'tools'>) {

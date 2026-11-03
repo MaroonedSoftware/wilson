@@ -92,7 +92,7 @@ class ReviewClient(private val http: SdkHttp) {
      * The conversation with the agent walking the person through the change. It reads committed code at the
      * review's commit and has no way to change anything. A turn's answer arrives as it is written over
      * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
-     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     * response that never resolves. It sends `delta` and `tour`, then `done` or `failed`.
      * @throws SdkError on 404
      */
     suspend fun listReviewTurns(id: String): List<ReviewTurn> {
@@ -107,7 +107,7 @@ class ReviewClient(private val http: SdkHttp) {
      * The conversation with the agent walking the person through the change. It reads committed code at the
      * review's commit and has no way to change anything. A turn's answer arrives as it is written over
      * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
-     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     * response that never resolves. It sends `delta` and `tour`, then `done` or `failed`.
      * @throws SdkError on 400, 404, 409, 503
      */
     suspend fun sendAReviewTurn(id: String, body: ReviewTurnRequest): ReviewTurn {

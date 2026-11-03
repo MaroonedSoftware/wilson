@@ -7,19 +7,18 @@ const _ZodDatetime = z.preprocess(
 );
 
 /**
- * `stale` is true once the branch has moved past `head`.
- * generated from [Review](../../data/contracts/review.ck)
+ * A place one step of a tour points at. `in-diff` can be jumped to. `outside-diff` is real code the change
+ * didn't touch, and `truncated` is in a file whose diff is too large to show, so both are only a label.
+ * generated from [ReviewTourAnchor](../../data/contracts/review.ck)
  */
-export const Review = z.strictObject({
-    id: z.string(),
-    head: z.string(),
-    base: z.string(),
-    status: z.enum(['open', 'changes_requested', 'approved', 'superseded']),
-    stale: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
-    createdAt: _ZodDatetime,
-    verdictAt: _ZodDatetime.optional(),
+export const ReviewTourAnchor = z.strictObject({
+    file: z.string(),
+    side: z.enum(['old', 'new']),
+    startLine: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    endLine: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    status: z.enum(['in-diff', 'outside-diff', 'truncated']),
 });
-export type Review = z.infer<typeof Review>;
+export type ReviewTourAnchor = z.infer<typeof ReviewTourAnchor>;
 
 /**
  * `line` is where the comment was written, at commit `head`. `location` and `currentLine` say where it is
@@ -80,14 +79,44 @@ export const ReviewTurn = z.strictObject({
 export type ReviewTurn = z.infer<typeof ReviewTurn>;
 
 /**
- * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. `mode: tour` asks the
+ * agent to write the tour as well as answer. `stepIndex` is the 0-based step of the tour on screen, so a
+ * question can be about "this".
  * generated from [ReviewTurnRequest](../../data/contracts/review.ck)
  */
 export const ReviewTurnRequest = z.strictObject({
     head: z.string(),
     text: z.string(),
+    mode: z.enum(['chat', 'tour']).optional(),
+    stepIndex: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
 });
 export type ReviewTurnRequest = z.infer<typeof ReviewTurnRequest>;
+
+/**
+ * generated from [ReviewTourStep](../../data/contracts/review.ck)
+ */
+export const ReviewTourStep = z.strictObject({
+    title: z.string(),
+    explanation: z.string().describe('Markdown.'),
+    anchors: z.array(ReviewTourAnchor),
+});
+export type ReviewTourStep = z.infer<typeof ReviewTourStep>;
+
+/**
+ * `stale` is true once the branch has moved past `head`. `tour` is left out until the agent has written one.
+ * generated from [Review](../../data/contracts/review.ck)
+ */
+export const Review = z.strictObject({
+    id: z.string(),
+    head: z.string(),
+    base: z.string(),
+    status: z.enum(['open', 'changes_requested', 'approved', 'superseded']),
+    stale: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    createdAt: _ZodDatetime,
+    verdictAt: _ZodDatetime.optional(),
+    tour: z.array(ReviewTourStep).optional(),
+});
+export type Review = z.infer<typeof Review>;
 
 /**
  * `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.

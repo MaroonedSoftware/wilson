@@ -2,10 +2,13 @@ import { ServerFeed } from '@maroonedsoftware/serverfeed';
 
 /**
  * What a review's turn in progress sends a person watching: the answer's text as it is written
- * (`delta`), then `done` once it is stored or `failed` with the reason it could not be.
+ * (`delta`), the tour whenever the agent writes one (`tour`), then `done` once it is stored or `failed` with the reason it could not be.
  */
 export type ReviewStreamEvent =
-    { event: 'delta'; data: string } | { event: 'done'; data: { seq: number } } | { event: 'failed'; data: { reason: string } };
+    | { event: 'delta'; data: string }
+    | { event: 'tour'; data: unknown }
+    | { event: 'done'; data: { seq: number } }
+    | { event: 'failed'; data: { reason: string } };
 
 /**
  * Live review turns, keyed by card under its project, since two projects' cards can share an id. A
