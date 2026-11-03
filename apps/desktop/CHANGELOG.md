@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.7.0
+
+### Minor Changes
+
+- 9aba73a: Settings shows which worker engine tokens are pooled and any usage limit in force, and adds or removes a token from the pool.
+
 ## 0.6.0
 
 ### Minor Changes
