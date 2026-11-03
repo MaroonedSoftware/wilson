@@ -1,5 +1,12 @@
 # @wilson/desktop
 
+## 0.11.0
+
+### Minor Changes
+
+- 1ae790c: A board tile says how a finished card ended: merged, poisoned, dropped or split.
+- 22dac86: Approving a plan shows its scope check: a tile and card say when it is checking or refused, with the reason, and a refused card can be split as proposed.
+
 ## 0.10.0
 
 ### Minor Changes
