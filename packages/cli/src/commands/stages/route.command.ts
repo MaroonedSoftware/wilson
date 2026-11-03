@@ -1,4 +1,5 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
+import type { StageRouting } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
 import { withStepUp } from '../../sign.in.js';
 
@@ -8,6 +9,14 @@ interface RouteOpts {
     model?: string;
     message?: string;
 }
+
+/** Worth saying, never refused: an adversarial review catches more from a different provider. */
+const warnOnSharedProvider = (ctx: { logger: { warn: (message: string) => void } }, routes: StageRouting[]): void => {
+    const provider = (stage: string) => routes.find(route => route.stage === stage)?.provider;
+    if (provider('review') !== undefined && provider('review') === provider('implementing')) {
+        ctx.logger.warn(`review and implementing both run on ${provider('review')}; a different provider makes a stronger adversarial review`);
+    }
+};
 
 /**
  * Show or change which engine, provider and model a stage runs on.
@@ -30,6 +39,7 @@ const command: CommandModule<RouteOpts> = {
         const stage = args[0] === undefined ? undefined : String(args[0]);
 
         if (stage === undefined) {
+            warnOnSharedProvider(ctx, routes);
             for (const route of routes) {
                 process.stdout.write(
                     `${route.stage.padEnd(16)} ${route.adapter.padEnd(5)} ${route.provider.padEnd(10)} ${route.model ?? '(none)'}\n`,
@@ -53,6 +63,10 @@ const command: CommandModule<RouteOpts> = {
         }
         await withStepUp(ctx, api, client => client.stages.setStageRouting(stage, { adapter, provider, model, message: opts.message }));
         ctx.logger.info(`${stage} now runs ${adapter} ${provider} ${model}`);
+        warnOnSharedProvider(
+            ctx,
+            routes.map(route => (route.stage === stage ? { ...route, provider } : route)),
+        );
         return 0;
     }),
 };

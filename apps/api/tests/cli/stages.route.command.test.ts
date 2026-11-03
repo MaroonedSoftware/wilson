@@ -69,4 +69,23 @@ describe('wilson stages route', () => {
         expect(logger.error).toHaveBeenCalledWith('no stage named "nope" (have: implementing)');
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it('warns when review shares a provider with implementing, but saves all the same', async () => {
+        const routes = [
+            { stage: 'implementing', mode: 'agent', adapter: 'cli', provider: 'anthropic', model: 'claude' },
+            { stage: 'review', mode: 'agent', adapter: 'api', provider: 'openai', model: 'gpt-5' },
+        ];
+        fetchMock.mockResolvedValueOnce(jsonResponse(routes));
+        fetchMock.mockResolvedValueOnce(jsonResponse(routes[1]));
+        const { ctx, logger } = buildCtx();
+
+        const result = await (command.run as unknown as Handler<{ adapter?: string; provider?: string }>)(
+            { adapter: 'cli', provider: 'anthropic' },
+            ctx,
+            ['review'],
+        );
+
+        expect(result).toBe(0);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('review and implementing both run on anthropic'));
+    });
 });

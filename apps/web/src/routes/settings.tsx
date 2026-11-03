@@ -760,6 +760,12 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
     );
 }
 
+/** The provider `review` and `implementing` both run on, if they do. Worth saying, never refused. */
+export function reviewSharesProvider(routes: StageRouting[]): string | undefined {
+    const provider = (stage: string) => routes.find(route => route.stage === stage)?.provider;
+    return provider('review') === provider('implementing') ? provider('review') : undefined;
+}
+
 /** Which engine, provider and model each lane runs on. Manual lanes reach no model, bar planning and ready. */
 function StageRoutingControl() {
     const wilson = useWilsonSdk();
@@ -774,8 +780,15 @@ function StageRoutingControl() {
     }
     if (!routing.data) return <Loader size="sm" />;
 
+    const sharedProvider = reviewSharesProvider(routing.data);
+
     return (
         <Stack gap="md">
+            {sharedProvider && (
+                <Alert color="yellow" title="Review and implementing share a provider">
+                    Both run on {sharedProvider}. An adversarial review catches more from a different provider than the one that wrote the code.
+                </Alert>
+            )}
             {routing.data
                 .filter(route => route.mode === 'agent' || CLAUDE_ONLY_LANES.includes(route.stage))
                 .map(route => (

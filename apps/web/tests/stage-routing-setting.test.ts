@@ -80,6 +80,23 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
+describe('the warning about review and implementing sharing a provider', () => {
+    const review: StageRouting = { stage: 'review', mode: 'agent', adapter: 'cli', provider: 'anthropic', model: 'claude' };
+
+    it('names the provider when they share one, and says nothing otherwise', async () => {
+        vi.spyOn(wilson.stages, 'listStageRouting').mockResolvedValue([implementing, review]);
+        renderSettings();
+        expect(await screen.findByText('Review and implementing share a provider')).toBeTruthy();
+    });
+
+    it('stays quiet when they differ, or when a project has no review lane', async () => {
+        vi.spyOn(wilson.stages, 'listStageRouting').mockResolvedValue([implementing, { ...review, adapter: 'api', provider: 'openai' }]);
+        renderSettings();
+        await screen.findByLabelText('implementing model');
+        expect(screen.queryByText('Review and implementing share a provider')).toBeNull();
+    });
+});
+
 describe('the stage routing control', () => {
     it('offers ready a model only, falling back to the chat engine', async () => {
         renderSettings();
