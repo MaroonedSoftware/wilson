@@ -30,6 +30,8 @@ jobs:
                 working-directory: apps/desktop
         steps:
             - uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
             - uses: actions/setup-dotnet@v4
               with:
                   global-json-file: apps/desktop/global.json
@@ -51,6 +53,8 @@ jobs:
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
             - uses: actions/setup-dotnet@v4
               with:
                   dotnet-version: 10.0.x

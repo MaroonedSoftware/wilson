@@ -27,6 +27,8 @@ jobs:
                 working-directory: apps/android
         steps:
             - uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
             - uses: actions/setup-java@v4
               with:
                   distribution: temurin
