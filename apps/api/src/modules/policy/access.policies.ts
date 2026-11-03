@@ -71,7 +71,7 @@ export const STEP_UP_WINDOW = Duration.fromObject({ minutes: 5 });
  * An API key never satisfies it, whatever its scope: a key is a standing credential, and the point
  * is that a leaked one cannot mint more keys, rewrite the exit conditions stages are judged by
  * (decision 8), or register a worker of its own. The refusal says so (`step_up_unavailable`), and a client answers it by signing in
- * fresh for that one call, as `wilson stages edit` does. A signed-in session that is merely old gets
+ * fresh for that one call, as `wilson stages set` does. A signed-in session that is merely old gets
  * `step_up_required` with the window, and proving a factor again satisfies it. Until a strong
  * factor (an authenticator app, a passkey) is enrolled the password counts; after, only that does.
  */

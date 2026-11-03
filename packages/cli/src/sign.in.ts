@@ -148,7 +148,7 @@ export const isStepUpRefusal = (err: unknown): boolean => {
 /**
  * Make `call` with `api` (this machine's key), and if the API answers that it needs a recently
  * proved factor, ask for the password and make it once more with a fresh session, signed out again
- * straight after. That is how `wilson stages edit|set` save and how the `wilson host` commands that
+ * straight after. That is how `wilson stages set` saves and how the `wilson host` commands that
  * say which machine receives card work do theirs: an API key never satisfies `wilson.step.up`
  * (PROJECT.md, Authentication: Factors), so a leaked key can do neither, and the operator types the password at the moment it matters instead of on every command.
  *

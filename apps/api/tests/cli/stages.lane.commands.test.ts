@@ -72,6 +72,15 @@ describe('wilson stages set <lane> <field>', () => {
 });
 
 describe('wilson stages show <lane>', () => {
+    it('lists every lane with no argument', async () => {
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        fetchMock.mockResolvedValue(jsonResponse([LANE]));
+        const { ctx } = buildCtx();
+
+        expect(await invoke(show, ctx, [])).toBe(0);
+        expect(stdout.mock.calls.map(([chunk]) => String(chunk)).join('')).toContain('ready / implementing');
+    });
+
     it('prints the lane, and fails naming the lanes there are for one that is not', async () => {
         const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         fetchMock.mockResolvedValue(jsonResponse([LANE]));

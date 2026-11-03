@@ -14,7 +14,7 @@ interface RouteOpts {
  *
  * With no arguments it lists every stage. With a stage, any option left out keeps its current value,
  * so moving a stage to another model takes one flag. The API refuses a stage or provider that cannot
- * work, and the change needs the password, as `wilson stages edit` does (`withStepUp`).
+ * work, and the change needs the password, as `wilson stages set` does (`withStepUp`).
  */
 const command: CommandModule<RouteOpts> = {
     description: 'List stage routing, or set the adapter, provider and model of one stage',

@@ -46,7 +46,7 @@ const sessionProvedAgo = async (minutes: number): Promise<string> => {
 
 const kindOf = async (res: Response) => ((await res.json()) as { details?: { kind?: string } }).details?.kind;
 
-const STAGE_SAVE = { yaml: 'not: [valid', message: 'step-up check' };
+const STAGE_SAVE = { instructions: 'x' };
 
 describe('step-up', () => {
     it('lets a session that just signed in mint a key', async () => {
@@ -61,7 +61,7 @@ describe('step-up', () => {
     });
 
     it('refuses a manage key saving stage config, as step_up_unavailable', async () => {
-        const res = await request(server, 'PUT', '/api/stages/config', { token: manageKey, body: STAGE_SAVE });
+        const res = await request(server, 'PATCH', '/api/stages/lanes/implementing', { token: manageKey, body: STAGE_SAVE });
 
         expect(res.status).toBe(403);
         expect(await kindOf(res)).toBe('step_up_unavailable');
@@ -79,8 +79,8 @@ describe('step-up', () => {
     it('admits a session proved within the window to the stage config save', async () => {
         const recent = await sessionProvedAgo(4);
 
-        // Past the gate: the invalid document is refused by the service itself, with 400.
-        expect((await request(server, 'PUT', '/api/stages/config', { token: recent, body: STAGE_SAVE })).status).toBe(400);
+        // Past the gate: this project has no such lane, which the service itself answers with 404.
+        expect((await request(server, 'PATCH', '/api/stages/lanes/implementing', { token: recent, body: STAGE_SAVE })).status).toBe(404);
     });
 
     describe('hosts', () => {
@@ -159,6 +159,6 @@ describe('step-up', () => {
     });
 
     it('still lets a manage key read stage config', async () => {
-        expect((await request(server, 'GET', '/api/stages/config', { token: manageKey })).status).not.toBe(403);
+        expect((await request(server, 'GET', '/api/stages/lanes', { token: manageKey })).status).not.toBe(403);
     });
 });

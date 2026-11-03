@@ -1275,7 +1275,7 @@ operation /api/board/init: {
                 application/json: BoardColumns
             }
             # The project already has a stage config. init scaffolds; it does not reset, so this
-            # writes nothing — `wilson stages edit` is how a config changes.
+            # writes nothing — `wilson stages set` is how a lane changes.
             409:
         }
     }

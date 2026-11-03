@@ -5,11 +5,7 @@ import com.maroonedsoftware.wilson.sdk.models.Lane
 import com.maroonedsoftware.wilson.sdk.models.LaneRevision
 import com.maroonedsoftware.wilson.sdk.models.LaneRevisionsQuery
 import com.maroonedsoftware.wilson.sdk.models.PatchLaneRequest
-import com.maroonedsoftware.wilson.sdk.models.SetStageConfigRequest
 import com.maroonedsoftware.wilson.sdk.models.SetStageRoutingRequest
-import com.maroonedsoftware.wilson.sdk.models.StageConfigDocument
-import com.maroonedsoftware.wilson.sdk.models.StageConfigVersion
-import com.maroonedsoftware.wilson.sdk.models.StageConfigVersionsQuery
 import com.maroonedsoftware.wilson.sdk.models.StageRouting
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
@@ -61,7 +57,7 @@ class StagesClient(private val http: SdkHttp) {
 
     /**
      * Set stage routing
-     * One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+     * One lane at a time. Behind step-up for the same reason lane edits are, and
      * because an agent that could choose its own model could choose the most expensive one.
      * @throws SdkError on 400, 404
      */
@@ -69,41 +65,6 @@ class StagesClient(private val http: SdkHttp) {
         val response = http.execute(HttpMethod.Put) {
             path("api", "stages", "routing", segment(stage))
             jsonBody(body, "application/json")
-        }
-        return http.decodeJson(response)
-    }
-
-    /**
-     * Get stage config
-     * @throws SdkError on 404
-     */
-    suspend fun getStageConfig(): StageConfigDocument {
-        val response = http.execute(HttpMethod.Get) {
-            path("api", "stages", "config")
-        }
-        return http.decodeJson(response)
-    }
-
-    /**
-     * Set stage config
-     * `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
-     * document is still there in the history, so a bad edit is undone by saving the earlier text
-     * again, never by deleting anything.
-     * @throws SdkError on 400
-     */
-    suspend fun setStageConfig(body: SetStageConfigRequest): StageConfigDocument {
-        val response = http.execute(HttpMethod.Put) {
-            path("api", "stages", "config")
-            jsonBody(body, "application/json")
-        }
-        return http.decodeJson(response)
-    }
-
-    /** List stage config versions */
-    suspend fun listStageConfigVersions(query: StageConfigVersionsQuery? = null): List<StageConfigVersion> {
-        val response = http.execute(HttpMethod.Get) {
-            path("api", "stages", "config", "versions")
-            params(query)
         }
         return http.decodeJson(response)
     }

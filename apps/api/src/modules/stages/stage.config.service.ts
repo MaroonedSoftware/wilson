@@ -1,62 +1,29 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
-import type {
-    Lane,
-    LaneRevision,
-    LaneRevisionsQuery,
-    PatchLaneRequest,
-    SetStageConfigRequest,
-    SetStageRoutingRequest,
-    StageConfigDocument,
-    StageConfigVersion,
-    StageConfigVersionsQuery,
-    StageRouting,
-} from '../../generated/stages.js';
+import type { Lane, LaneRevision, LaneRevisionsQuery, PatchLaneRequest, SetStageRoutingRequest, StageRouting } from '../../generated/stages.js';
 import { findStage, StageConfigError, type StageConfig } from './stage.config.js';
 import type { Lane as StoredLane } from './lane.rows.js';
-import { StageConfigStore, type StageConfigDocument as StoredDocument } from './stage.config.store.js';
+import { StageConfigStore } from './stage.config.store.js';
 
 /** The most versions one request returns, and the default — the same numbers `BoardService` uses. */
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 200;
 
-/** What a save with no message of its own is recorded as. */
-const DEFAULT_MESSAGE = 'Edited stage config';
-
 /**
- * The stage config document's read and write surface — the service `stages.ck`'s operations bind
- * to, over `StageConfigStore`.
+ * The lanes' read and write surface: the service `stages.ck`'s operations bind to, over
+ * `StageConfigStore`.
  *
- * Thin on purpose, like `StagesService` beside it: the store already validates on write and keeps
- * the history, so all this adds is the translation of "no row" into a 404 and of a
- * `StageConfigError` into a 400 whose `details.reason` is the validator's own sentence — the same
- * way every card mutation on `board.ck` refuses, so `wilson stages edit` and `curl` read the same
- * reason.
+ * Thin on purpose, like `StagesService` beside it: the store already validates on write and keeps the
+ * history, so all this adds is the translation of a `StageConfigError` into a 400 or 404 whose
+ * `details.reason` is the validator's own sentence, the same way every card mutation on `board.ck`
+ * refuses, so `wilson stages set` and `curl` read the same reason.
  */
 @Injectable()
 export class StageConfigService {
     constructor(private readonly stageConfigs: StageConfigStore) {}
 
-    async get(): Promise<StageConfigDocument> {
-        const document = await this.stageConfigs.read();
-        if (!document) {
-            throw httpError(404).withDetails({
-                reason: 'this project has no stage config yet; run `wilson board init` or `wilson stages set <file>`',
-            });
-        }
-        return toContract(document);
-    }
-
-    async set(body: SetStageConfigRequest): Promise<StageConfigDocument> {
-        try {
-            return toContract(await this.stageConfigs.save(body.yaml, body.message?.trim() || DEFAULT_MESSAGE));
-        } catch (err) {
-            throw refusal(err);
-        }
-    }
-
     async routing(): Promise<StageRouting[]> {
-        await this.get();
+        await this.assertHasLanes();
         const { stages } = await this.stageConfigs.load();
         return stages.map(toRouting);
     }
@@ -73,8 +40,14 @@ export class StageConfigService {
     }
 
     async lanes(): Promise<Lane[]> {
-        await this.get();
+        await this.assertHasLanes();
         return (await this.stageConfigs.lanes()).map(toLaneContract);
+    }
+
+    private async assertHasLanes(): Promise<void> {
+        if ((await this.stageConfigs.lanes()).length === 0) {
+            throw httpError(404).withDetails({ reason: 'this project has no lanes yet; run `wilson board init`' });
+        }
     }
 
     async patchLane(name: string, body: PatchLaneRequest): Promise<Lane> {
@@ -94,12 +67,6 @@ export class StageConfigService {
         const limit = Math.min(query.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
         return (await this.stageConfigs.laneRevisions(query.lane, limit)) as LaneRevision[];
     }
-
-    async versions(query: StageConfigVersionsQuery): Promise<StageConfigVersion[]> {
-        const limit = Math.min(query.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
-        const versions = await this.stageConfigs.versions(limit);
-        return versions.map(version => ({ id: version.id, message: version.message, createdAt: version.createdAt }));
-    }
 }
 
 /** A `StageConfigError` as the status it means, with the validator's own sentence as the reason. */
@@ -112,10 +79,3 @@ const toRouting = ({ name, mode, adapter, provider, model }: StageConfig): Stage
 
 /** The enums here are what `StageConfigSchema` validated on the way in, on every write. */
 const toLaneContract = (lane: StoredLane): Lane => lane as Lane;
-
-const toContract = (document: StoredDocument): StageConfigDocument => ({
-    id: document.id,
-    yaml: document.yaml,
-    message: document.message,
-    createdAt: document.createdAt,
-});

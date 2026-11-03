@@ -7,7 +7,7 @@ interface VersionsOpts {
 
 /**
  * The learnings document's history, newest first — what `git log` on a committed learnings file
- * would have answered. Mirrors `wilson stages versions`.
+ * would have answered. Mirrors `wilson card versions`.
  */
 const command: CommandModule<VersionsOpts> = {
     description: "Show the learnings document's version history, newest first",

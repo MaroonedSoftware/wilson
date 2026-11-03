@@ -3,7 +3,7 @@ import type { Kysely } from 'kysely';
 import { parse as parseYaml } from 'yaml';
 import type { DB } from '#modules/data/db.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
-import { findStage } from '#modules/stages/stage.config.js';
+import { findStage, parseStages, type StageRouting } from '#modules/stages/stage.config.js';
 import { PostgresStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.js';
 
@@ -81,7 +81,7 @@ describe('lane tables', () => {
     });
 
     const seedLive = async () => {
-        await seedStageConfig(db, project, LIVE);
+        await db.insertInto('wilson.stageConfigs').values({ project, yaml: LIVE, message: 'test' }).execute();
         await db
             .insertInto('wilson.stageRouting')
             .values(ROUTES.map(([stage, adapter, provider, model]) => ({ project, stage, adapter, provider, model, message: 'test' })))
@@ -93,7 +93,8 @@ describe('lane tables', () => {
 
     it('loads exactly what the document said, routing included', async () => {
         await seedLive();
-        const fromDocument = await store.load();
+        const routing = new Map(ROUTES.map(([stage, adapter, provider, model]) => [stage, { adapter, provider, model } as StageRouting]));
+        const fromDocument = parseStages(LIVE, 'test', routing);
 
         await store.importLanes();
 
@@ -170,12 +171,15 @@ describe('lane tables', () => {
         await expect(store.load()).rejects.toMatchObject({ kind: 'config-invalid' });
     });
 
-    it('refuses an invalid document, writes nothing, and keeps reading the document', async () => {
-        await seedStageConfig(
-            db,
-            project,
-            'stages:\n  - name: a\n    mode: agent\n    model: x\n    instructions: t\n    onPass: nowhere\n    onFail: a\n',
-        );
+    it('refuses an invalid document and writes nothing', async () => {
+        await db
+            .insertInto('wilson.stageConfigs')
+            .values({
+                project,
+                message: 'test',
+                yaml: 'stages:\n  - name: a\n    mode: agent\n    model: x\n    instructions: t\n    onPass: nowhere\n    onFail: a\n',
+            })
+            .execute();
 
         await expect(store.importLanes()).rejects.toMatchObject({ kind: 'config-invalid' });
 
@@ -183,19 +187,7 @@ describe('lane tables', () => {
         expect(await revisions()).toEqual([]);
     });
 
-    it('reads a document written behind the tables, until the next import catches up', async () => {
-        await seedLive();
-        await store.importLanes();
-
-        await seedStageConfig(db, project, LIVE.replace('Build it.', 'Build it differently.'));
-        expect(findStage(await store.load(), 'implementing').instructions).toBe('Build it differently.');
-
-        await store.importLanes();
-        expect((await lanes()).find(lane => lane.name === 'implementing')?.instructions).toBe('Build it differently.');
-        expect(findStage(await store.load(), 'implementing').instructions).toBe('Build it differently.');
-    });
-
-    it('records one revision per lane a saved document changes, and removes a lane it drops', async () => {
+    it('catches up with a newer document on the next import, one revision per lane it changes', async () => {
         await seedLive();
         await store.importLanes();
         const before = (await revisions()).length;
@@ -203,13 +195,14 @@ describe('lane tables', () => {
         const withoutCheck = LIVE.replace(/ {2}- name: scope-check[\s\S]*?Judge the plan\.\n/, '')
             .replace('onPass: scope-check', 'onPass: implementing')
             .replace('Build it.', 'Build it better.');
-        await store.save(withoutCheck, 'drop scope-check');
+        await db.insertInto('wilson.stageConfigs').values({ project, yaml: withoutCheck, message: 'test' }).execute();
+        await store.importLanes();
 
         const added = (await revisions()).slice(before);
-        expect(added.map(({ lane, snapshot, message }) => ({ lane, removed: snapshot == null, message }))).toEqual(
+        expect(added.map(({ lane, snapshot }) => ({ lane, removed: snapshot == null }))).toEqual(
             expect.arrayContaining([
-                { lane: 'implementing', removed: false, message: 'drop scope-check' },
-                { lane: 'scope-check', removed: true, message: 'drop scope-check' },
+                { lane: 'implementing', removed: false },
+                { lane: 'scope-check', removed: true },
             ]),
         );
         expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'implementing']);
@@ -227,18 +220,6 @@ describe('lane tables', () => {
         const added = (await revisions()).slice(before);
         expect(added).toHaveLength(1);
         expect(added[0]).toMatchObject({ lane: 'implementing', message: 'try openai' });
-    });
-
-    it('fills the tables on the first save of a brand new project', async () => {
-        await store.save(
-            LIVE.replaceAll('mode: manual', 'mode: manual\n    model: claude-opus-5').replaceAll(
-                'mode: agent',
-                'mode: agent\n    model: claude-opus-5',
-            ),
-            'init',
-        );
-
-        expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
     });
 
     describe('patchLane', () => {

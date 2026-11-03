@@ -947,7 +947,7 @@ export class BoardWriteService {
             if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
                 return {
                     ok: false,
-                    reason: `project "${this.boardConfig.project}" has no "testing" stage, so the suite has nowhere to run; add one with \`wilson stages edit\``,
+                    reason: `project "${this.boardConfig.project}" has no "testing" stage, so the suite has nowhere to run; a project gets one from \`wilson board init\`, or a migration`,
                     unproven: true,
                 };
             }

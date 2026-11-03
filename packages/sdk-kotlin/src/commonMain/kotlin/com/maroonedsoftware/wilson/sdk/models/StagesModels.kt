@@ -7,46 +7,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 /**
- * One stored document. `yaml` is the text verbatim, comments included — the document is the config,
- * not a rendering of columns. `message` is what the commit message on `stages.yaml` used to be.
- */
-@Serializable
-data class StageConfigDocument(
-    val id: String,
-    val yaml: String,
-    val message: String,
-    val createdAt: Instant,
-)
-
-/**
- * `message` optional: `wilson stages edit` has no commit-message prompt the way `git commit` does,
- * and a default ("Edited stage config") beats forcing one. Supply it when the change is worth a
- * sentence — "Raise the review step budget to 150" is what the history is for.
- */
-@Serializable
-data class SetStageConfigRequest(
-    val yaml: String,
-    val message: String? = null,
-)
-
-@Serializable
-data class StageConfigVersion(
-    val id: String,
-    val message: String,
-    val createdAt: Instant,
-)
-
-/**
- * Same shape as board.ck's `ListQuery`, declared here rather than shared: a contract file is the
- * unit contractkit generates from, and a cross-file reference is not worth a coupling for one
- * optional field.
- */
-@Serializable
-data class StageConfigVersionsQuery(
-    val limit: Long? = null,
-)
-
-/**
  * Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
  * client can tell the stages that reach a model from the manual ones that never do, which have no
  * `model`.

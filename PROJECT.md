@@ -50,11 +50,11 @@ These are settled. Challenge them only if you find a concrete blocker.
    rather than by a deny rule, so the corollary holds absolutely: the board is not
    readable state for an agent, and the plan is its only input. The write tool's deny
    list still covers `.runner/` for decision 8.
-7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
-   a provider is a config edit. The config is a versioned `wilson.stage_configs` row —
-   one YAML document per project, comments and all — read through `StageConfigStore` and
-   edited with `wilson stages edit` (or `wilson stages set <file>`); every save is a new
-   version, and the next dispatch reads it, no restart involved.
+7. **Stages are config, not code.** Re-routing models, changing a provider or tuning a
+   budget is a data edit, not a release. A project's lanes are rows in `wilson.lanes`, read
+   through `StageConfigStore` and edited with `wilson stages set`, `instructions` and `route`;
+   every change is a revision in `wilson.lane_revisions`, and the next dispatch reads it, no
+   restart involved. Lanes rarely change shape, so adding or removing one takes a migration.
 8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
    everything under `.runner/` are human-write-only. What actually enforces that differs by
    path. The board is unreachable from a worktree by construction (decision 6) — there is no
@@ -684,14 +684,18 @@ file, because that is what the agent reads.
 constraint retired there is nothing clever to do here — no fractional ranks, no merge
 semantics. A reorder is one `UPDATE` per moved card in one transaction.
 
-**Stage config is a row too**, `wilson.stage_configs`: the whole YAML document, stored
-verbatim so its commentary survives, validated on every write and read, and versioned the
-way cards are (the newest row per project is current; the rest are what `git log` on
-`config/stages.yaml` used to be). It is machinery, not board state: human-write-only
-(decision 8), edited with `wilson stages edit`, and reachable only through
-`/api/stages/config` — which no agent runs with, since the bash tool is an argv allowlist
-and the board is unreachable from a worktree by construction. The sibling board repo that
-held the file is gone, and `boardRoot` with it.
+**Lanes are rows too**: `wilson.lanes`, one row per lane per project, with the fields something
+reads or edits on its own as columns and the rest in `settings`, which holds only what someone
+chose, so a default stays a default. What a project's lanes share is in
+`wilson.project_lane_settings`, and every change to either adds to `wilson.lane_revisions`. They
+are validated on every write and read, and are machinery, not board state: human-write-only
+(decision 8), and reachable only through `/api/stages/lanes` and `/api/stages/routing`, which no
+agent runs with, since the bash tool is an argv allowlist and the board is unreachable from a
+worktree by construction.
+
+`wilson.stage_configs` and `wilson.stage_routing` are what lanes were before, kept unread but for a
+one-time import at startup. The YAML's commentary is only there. The sibling board repo that held
+the file is gone, and `boardRoot` with it.
 
 ## Scope enforcement
 
@@ -802,7 +806,7 @@ bound to the origin it was made at, and the API takes that origin from the reque
 one of `WEB_ORIGINS`, so a page anywhere else is never handed a challenge one of ours would answer.
 Passkeys work only in the web app, which has a browser: the CLI completes a sign-in with the
 authenticator app, and tells a passkey-only account to set one up as well. Step-up, meaning a strong factor proven within the last five
-minutes, guards minting an API key, editing stage config (`wilson stages edit` / `set`), and
+minutes, guards minting an API key, editing lanes (`wilson stages set`, `instructions`, `route`), and
 saying which machine receives card work and engine tokens (`wilson host add`, `host set
 --ssh-target`, `host token`, `host engine-token`), because those are the actions that hand out or
 rewrite authority. An API-key session never satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI

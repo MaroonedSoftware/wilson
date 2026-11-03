@@ -34,21 +34,8 @@ import { captureBuildHead } from './build.info.js';
  * run` starts the runner by hand instead.
  */
 /**
- * Take routing out of every project's stored stage config, for documents from before
- * `wilson.stage_routing`. One project's bad document must not stop the server: its stages keep
- * dispatching from what the document says until it is fixed.
- */
-const moveStoredRouting = async (container: Container, logger: Logger): Promise<void> => {
-    for (const { name } of await container.get(ProjectRepository).list()) {
-        await runAsProject(name, () => container.get(StageConfigStore).moveStoredRouting()).catch((err: Error) =>
-            logger.warn(`could not move ${name}'s stage routing out of its config: ${err.message}`),
-        );
-    }
-};
-
-/**
  * Fill every project's lane tables from its stored stage config. One project's bad document must not
- * stop the server: it keeps reading that document until it is fixed.
+ * stop the server: that project answers `config-invalid` until it is fixed.
  */
 const importLanes = async (container: Container, logger: Logger): Promise<void> => {
     for (const { name } of await container.get(ProjectRepository).list()) {
@@ -76,7 +63,6 @@ export const setupServer = async (): Promise<Server> => {
     if (fcm) registerNotificationChannel(fcm);
     // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
     // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
-    await moveStoredRouting(container, logger);
     await importLanes(container, logger);
 
     await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);

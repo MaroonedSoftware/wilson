@@ -37,7 +37,7 @@ contract Project: {
 # this same process's own environment on first boot (`resolveProjectRow`, board.module.ts), and
 # registering a second project needs the same three values from somewhere, since nothing else on this
 # machine knows them. (`boardRoot` was a fourth until the board repo went: stage config is a
-# `wilson.stage_configs` row now, and a new project gets its first one from `wilson board init`.)
+# set of lane rows now, and a new project gets its first ones from `wilson board init`.)
 #
 # Decided 2026-08-31: this endpoint takes them from the caller, which is the opposite of
 # `BoardBootstrapService.init`'s stance — its own doc comment refuses a caller-supplied path because

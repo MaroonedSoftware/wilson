@@ -550,7 +550,7 @@ export class PlanService {
         } catch (err) {
             if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
                 throw httpError(400).withDetails({
-                    reason: `project "${this.boardConfig.project}" has no "planning" stage, so a card cannot be talked through yet; add one with \`wilson stages edit\``,
+                    reason: `project "${this.boardConfig.project}" has no "planning" stage, so a card cannot be talked through yet; a project gets one from \`wilson board init\`, or a migration`,
                 });
             }
             throw err;

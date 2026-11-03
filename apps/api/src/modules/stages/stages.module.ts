@@ -56,7 +56,7 @@ export const StagesModule: ServerKitModule = {
         registry.register(AutoSplitter).useClass(AutoSplitter).asTransient();
         registry.register(StageDispatcher).useClass(StageDispatcher).asTransient();
         registry.register(StagesService).useClass(StagesService).asTransient();
-        // The document's own surface (`stages.ck`): `wilson stages show|edit|set|versions`.
+        // The lanes' own surface (`stages.ck`): `wilson stages show|set|instructions|history|route`.
         registry.register(StageConfigService).useClass(StageConfigService).asTransient();
     },
 };

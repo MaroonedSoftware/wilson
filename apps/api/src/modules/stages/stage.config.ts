@@ -1,4 +1,4 @@
-import { isMap, isSeq, parse as parseYaml, parseDocument } from 'yaml';
+import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
 
@@ -321,7 +321,7 @@ export const ProjectStagesSchema = z.object({
      * `allowedDomains`; every sandboxed stage in the project shares the one list.
      *
      * Off, with no domains, until an operator turns it on for a stage they have measured
-     * (`wilson stages edit` — this card does not touch the live config). Strict, unlike the rest of
+     * (`wilson stages set` — this card does not touch the live config). Strict, unlike the rest of
      * this schema's own blocks: an unrecognised key here is almost certainly a typo for one of the
      * two real ones, and failing config validation loudly beats silently doing nothing with it.
      */
@@ -382,41 +382,13 @@ const deepFreeze = <T>(value: T): T => {
     return value;
 };
 
-/** The part of a stage kept in `wilson.stage_routing` rather than in the document. */
+/** The part of a lane that says what runs it, set on its own (`wilson stages route`). */
 export type StageRouting = Pick<StageConfig, 'adapter' | 'provider'> & { model: string };
 
 /** A lane's model, for code about to run it. Schema validation means only a misrouted caller can see this throw. */
 export const modelOf = (stage: StageConfig): string => {
     if (!stage.model) throw new StageConfigError('config-invalid', `${stage.name} has no model`);
     return stage.model;
-};
-
-const ROUTING_FIELDS = ['adapter', 'provider', 'model'] as const;
-
-/**
- * Take the routing fields out of a document, keeping the rest of its text and comments.
- *
- * `wilson.stage_routing` is the only source of routing, so a stored document never carries it. A
- * document submitted with those fields is saying what it wants, so the store moves them to the table
- * rather than keeping values nothing would read. `inline` holds what each stage named, by stage.
- *
- * A document with no routing comes back verbatim, not re-rendered, and one that cannot be read comes
- * back as it arrived for `parseStages` to refuse.
- */
-export const splitRouting = (raw: string): { yaml: string; inline: Map<string, Partial<StageRouting>> } => {
-    const inline = new Map<string, Partial<StageRouting>>();
-    const document = parseDocument(raw);
-    const stages = document.errors.length === 0 ? document.get('stages') : undefined;
-    if (!isSeq(stages)) return { yaml: raw, inline };
-
-    for (const stage of stages.items) {
-        if (!isMap(stage)) continue;
-        const fields = Object.fromEntries(ROUTING_FIELDS.filter(field => stage.has(field)).map(field => [field, stage.get(field)]));
-        if (Object.keys(fields).length === 0) continue;
-        inline.set(String(stage.get('name')), fields as Partial<StageRouting>);
-        for (const field of ROUTING_FIELDS) stage.delete(field);
-    }
-    return { yaml: inline.size > 0 ? document.toString() : raw, inline };
 };
 
 /**
@@ -466,18 +438,9 @@ export const applyRouting = (document: unknown, routing: ReadonlyMap<string, Sta
 };
 
 /**
- * Parse and validate one stage config document.
- *
- * Stage config is a `wilson.stage_configs` row, not a file in the code repo, and the write tool
- * denies the file name anyway — an agent that can edit its own exit condition passes every time
- * (PROJECT.md decision 8). This is the one place the document's text becomes a `ProjectStages`:
- * `StageConfigStore.load` runs it on read and `StageConfigStore.save` runs it on write, so a
- * document that cannot be parsed is refused before it is stored, and one that was stored before a
- * schema change is refused when it is read. Pure, so a test can hand it a string.
- *
- * `source` names the document in the error — a row id, or the file a seed read — the way the path
- * did when this read `stages.yaml`. `routing` holds the project's `wilson.stage_routing` rows by
- * stage name, and each one wins over the document's own values.
+ * Parse and validate one stage config document, as an import reads one and a test writes one. Pure, so
+ * a test can hand it a string. `source` names the document in any refusal, and `routing` holds routing
+ * by stage, each one winning over the document's own values.
  */
 export const parseStages = (raw: string, source = 'stage config', routing: ReadonlyMap<string, StageRouting> = new Map()): ProjectStages => {
     let document: unknown;

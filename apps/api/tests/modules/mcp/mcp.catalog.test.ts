@@ -109,7 +109,7 @@ describe('the MCP operation catalog', () => {
     it('marks reads read-only', async () => {
         const tools = await catalog();
 
-        for (const name of ['list_cards', 'get_card', 'list_card_events', 'get_card_diff', 'get_stage_config', 'list_projects']) {
+        for (const name of ['list_cards', 'get_card', 'list_card_events', 'get_card_diff', 'list_lanes', 'list_projects']) {
             expect(readOnly(tools, name), name).toBe(true);
         }
     });

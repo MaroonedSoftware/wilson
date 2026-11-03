@@ -729,7 +729,7 @@ internal static class Steps
         walk.Shot("03s-new-project-board");
         board.Project = board.Projects[0];
         await walk.UntilAsync("the first project again", () => board.Columns.Count > 0 && board.Project != name);
-        Walker.Sql($"delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
+        Walker.Sql($"delete from wilson.lane_revisions where project = '{name}'; delete from wilson.lanes where project = '{name}'; delete from wilson.project_lane_settings where project = '{name}'; delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
     }
 
     /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
@@ -813,8 +813,8 @@ internal static class Steps
     /// <summary>A ready card of the walk's own, on a real branch, sent back with a comment on a line.</summary>
     private static async Task FindingsAsync(Walker walk, BoardViewModel board)
     {
-        // The seeded config stops at implementing, and only a ready card takes findings. One row of history, taken back below.
-        Walker.Sql("insert into wilson.stage_configs (project, yaml, message) select project, yaml || E'    - name: ready\\n      mode: manual\\n      model: claude-sonnet-5\\n      onPass: merged\\n      onFail: implementing\\n      instructions: |\\n          Wait for the operator.\\n', 'walk' from wilson.stage_configs order by id desc limit 1");
+        // The seeded config stops at implementing, and only a ready card takes findings. One lane, taken back below.
+        Walker.Sql("insert into wilson.lanes (project, name, position, mode, worktree, on_pass, on_fail, instructions) select project, 'ready', 99, 'manual', 'none', 'merged', 'implementing', 'Wait for the operator.' from wilson.project_lane_settings; insert into wilson.lane_revisions (project, lane, message) select project, 'ready', 'walk' from wilson.project_lane_settings");
         Walker.ScratchBranch("walk-diff");
         Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'");
         Walker.Sql("insert into wilson.cards (project, id, title, stage, body, branch) select project, '9996', 'Walked ready', 'ready', '', 'walk-diff' from wilson.cards limit 1");
@@ -851,7 +851,7 @@ internal static class Steps
         walk.Shot("03e-diff-sent");
         walk.Shell.Back();
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
-        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.stage_configs where message = 'walk'");
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.lanes where name = 'ready'; insert into wilson.lane_revisions (project, lane, message) select project, 'ready', 'walk' from wilson.project_lane_settings");
         await board.RefreshCommand.ExecuteAsync(null);
     }
 
