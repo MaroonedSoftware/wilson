@@ -1,5 +1,6 @@
 import { Kysely } from 'kysely';
 import type { DateTime } from 'luxon';
+import type { ChatTurnOutput } from '#modules/chat/chat.engine.js';
 import type { DB } from '#modules/data/db.js';
 
 export interface StoredReviewTurn {
@@ -26,7 +27,7 @@ export class ReviewTurnRepository {
     }
 
     /** Append the next turn. Callers hold the review's lock, so the next `seq` can't be taken from under them. */
-    async append(reviewId: string, role: StoredReviewTurn['role'], content: string, outputTokens?: number): Promise<StoredReviewTurn> {
+    async append(reviewId: string, role: StoredReviewTurn['role'], content: string, usage?: ChatTurnOutput['usage']): Promise<StoredReviewTurn> {
         const { next } = await this.db
             .selectFrom('wilson.reviewTurns')
             .select(eb => eb.fn.coalesce(eb.fn.max('seq'), eb.lit(0)).as('next'))
@@ -34,7 +35,15 @@ export class ReviewTurnRepository {
             .executeTakeFirstOrThrow();
         return this.db
             .insertInto('wilson.reviewTurns')
-            .values({ reviewId: BigInt(reviewId), seq: Number(next) + 1, role, content, outputTokens })
+            .values({
+                reviewId: BigInt(reviewId),
+                seq: Number(next) + 1,
+                role,
+                content,
+                inputTokens: usage?.inputTokens,
+                cachedInputTokens: usage?.cachedInputTokens,
+                outputTokens: usage?.outputTokens,
+            })
             .returning(['seq', 'role', 'content', 'createdAt'])
             .executeTakeFirstOrThrow();
     }

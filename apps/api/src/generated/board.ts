@@ -214,19 +214,67 @@ export const CardVersion = z.strictObject({
 export type CardVersion = z.infer<typeof CardVersion>;
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
- * summed. `attempts` counts the passed and failed events themselves, including one whose payload
- * carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
- * events did carry, so the two can never disagree with the event log.
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
+ * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
+ * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
+ * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
+ * `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
+ * how many of them were cached, not an addition to it.
  * generated from [CardStageUsage](../../data/contracts/board.ck)
  */
 export const CardStageUsage = z.strictObject({
     stage: z.string(),
     attempts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type CardStageUsage = z.infer<typeof CardStageUsage>;
+
+/**
+ * How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+ * held to between 1 and 365.
+ * generated from [ProjectStatsQuery](../../data/contracts/board.ck)
+ */
+export const ProjectStatsQuery = z.strictObject({
+    days: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type ProjectStatsQuery = z.infer<typeof ProjectStatsQuery>;
+
+/**
+ * The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+ * `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+ * adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+ * generated from [ProjectStatsCounts](../../data/contracts/board.ck)
+ */
+export const ProjectStatsCounts = z.strictObject({
+    attempts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    passed: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    failed: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    interrupted: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectStatsCounts = z.infer<typeof ProjectStatsCounts>;
+
+/**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ * generated from [ProjectConversationStats](../../data/contracts/board.ck)
+ */
+export const ProjectConversationStats = z.strictObject({
+    kind: z.enum(['planning', 'review']),
+    turns: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cards: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectConversationStats = z.infer<typeof ProjectConversationStats>;
 
 /**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
@@ -516,11 +564,53 @@ export const CardUsage = z.strictObject({
     total: z.strictObject({
         attempts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
         inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
         outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     }),
     stages: z.array(CardStageUsage),
 });
 export type CardUsage = z.infer<typeof CardUsage>;
+
+/**
+ * One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+ * many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+ * generated from [ProjectStageStats](../../data/contracts/board.ck)
+ */
+export const ProjectStageStats = ProjectStatsCounts.extend({
+    stage: z.string(),
+    cards: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectStageStats = z.infer<typeof ProjectStageStats>;
+
+/**
+ * One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+ * zero, so a chart of these cannot close up a gap.
+ * generated from [ProjectDayStats](../../data/contracts/board.ck)
+ */
+export const ProjectDayStats = ProjectStatsCounts.extend({
+    date: z.string(),
+});
+export type ProjectDayStats = z.infer<typeof ProjectDayStats>;
+
+/**
+ * One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+ * exists: `wilson.card_events` has no foreign key to it.
+ * generated from [ProjectCardStats](../../data/contracts/board.ck)
+ */
+export const ProjectCardStats = ProjectStatsCounts.extend({
+    cardId: z.string(),
+    cardTitle: z.string().optional(),
+});
+export type ProjectCardStats = z.infer<typeof ProjectCardStats>;
+
+/**
+ * The whole window. `cards` is how many different cards ran anything in it.
+ * generated from [ProjectStatsTotal](../../data/contracts/board.ck)
+ */
+export const ProjectStatsTotal = ProjectStatsCounts.extend({
+    cards: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectStatsTotal = z.infer<typeof ProjectStatsTotal>;
 
 /**
  * `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
@@ -636,3 +726,23 @@ export const SplitResult = z.strictObject({
     pieces: z.array(CardDetail),
 });
 export type SplitResult = z.infer<typeof SplitResult>;
+
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+ * generated from [ProjectStats](../../data/contracts/board.ck)
+ */
+export const ProjectStats = z.strictObject({
+    since: _ZodDatetime,
+    until: _ZodDatetime,
+    zone: z.string(),
+    total: ProjectStatsTotal,
+    stages: z.array(ProjectStageStats),
+    days: z.array(ProjectDayStats),
+    topCards: z.array(ProjectCardStats),
+    conversations: z.array(ProjectConversationStats),
+});
+export type ProjectStats = z.infer<typeof ProjectStats>;

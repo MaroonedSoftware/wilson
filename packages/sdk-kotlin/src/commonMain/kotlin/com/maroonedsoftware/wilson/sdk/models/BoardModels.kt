@@ -223,16 +223,61 @@ data class CardVersion(
 )
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
- * summed. `attempts` counts the passed and failed events themselves, including one whose payload
- * carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
- * events did carry, so the two can never disagree with the event log.
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
+ * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
+ * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
+ * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
+ * `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
+ * how many of them were cached, not an addition to it.
  */
 @Serializable
 data class CardStageUsage(
     val stage: String,
     val attempts: Long,
     val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+)
+
+/**
+ * How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+ * held to between 1 and 365.
+ */
+@Serializable
+data class ProjectStatsQuery(
+    val days: Long? = null,
+)
+
+/**
+ * The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+ * `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+ * adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+ */
+@Serializable
+data class ProjectStatsCounts(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+)
+
+/**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ */
+@Serializable
+data class ProjectConversationStats(
+    val kind: ProjectConversationStatsKind,
+    val turns: Long,
+    val cards: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
     val outputTokens: Long,
 )
 
@@ -571,6 +616,69 @@ data class CardUsage(
 )
 
 /**
+ * One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+ * many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+ */
+@Serializable
+data class ProjectStageStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val stage: String,
+    val cards: Long,
+)
+
+/**
+ * One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+ * zero, so a chart of these cannot close up a gap.
+ */
+@Serializable
+data class ProjectDayStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val date: String,
+)
+
+/**
+ * One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+ * exists: `wilson.card_events` has no foreign key to it.
+ */
+@Serializable
+data class ProjectCardStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val cardId: String,
+    val cardTitle: String? = null,
+)
+
+/** The whole window. `cards` is how many different cards ran anything in it. */
+@Serializable
+data class ProjectStatsTotal(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val cards: Long,
+)
+
+/**
  * `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
  * `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
  * (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
@@ -793,6 +901,25 @@ data class SplitResult(
     val pieces: List<CardDetail>,
 )
 
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+ */
+@Serializable
+data class ProjectStats(
+    val since: Instant,
+    val until: Instant,
+    val zone: String,
+    val total: ProjectStatsTotal,
+    val stages: List<ProjectStageStats>,
+    val days: List<ProjectDayStats>,
+    val topCards: List<ProjectCardStats>,
+    val conversations: List<ProjectConversationStats>,
+)
+
 /** How the card ended, once it has. Absent for a card still on the board. */
 @Serializable(with = CardSummaryDoneReasonSerializer::class)
 enum class CardSummaryDoneReason {
@@ -931,7 +1058,28 @@ object CardPlanAtSerializer : SdkEnumSerializer<CardPlanAt>(
 data class CardUsageTotal(
     val attempts: Long,
     val inputTokens: Long,
+    val cachedInputTokens: Long,
     val outputTokens: Long,
+)
+
+@Serializable(with = ProjectConversationStatsKindSerializer::class)
+enum class ProjectConversationStatsKind {
+    PLANNING,
+    REVIEW,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ProjectConversationStatsKind] by its wire spelling. A spelling it does not know reads as [ProjectConversationStatsKind.UNKNOWN]. */
+object ProjectConversationStatsKindSerializer : SdkEnumSerializer<ProjectConversationStatsKind>(
+    "ProjectConversationStatsKind",
+    ProjectConversationStatsKind.UNKNOWN,
+    ProjectConversationStatsKind.PLANNING to "planning",
+    ProjectConversationStatsKind.REVIEW to "review",
 )
 
 @Serializable(with = CardDiffFileStatusSerializer::class)

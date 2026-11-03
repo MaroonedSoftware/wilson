@@ -54,6 +54,7 @@ const { PlanSessionAgentMock, sessionAgentCalls, instances, disposeSpy, turnBeha
         readonly options: { worktreeRoot: string; model: string; resume?: string; configDir?: string };
         sessionId: string | undefined;
         lastTurnSucceeded = false;
+        lastTurnUsage = { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 };
         constructor(options: { worktreeRoot: string; model: string; resume?: string; configDir?: string }) {
             this.options = options;
             sessionAgentCalls.push(options);
@@ -1287,6 +1288,26 @@ describe('PlanService', () => {
                 expect(result).not.toHaveProperty('engineSessionId');
                 expect(result.role).toBe('assistant');
                 expect(result.seq).toBe(2); // 1 is the user turn just appended, 2 the assistant reply
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('records what the reply spent on the reply alone', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.turn(id, { text: 'hello there' });
+
+                const rows = await db
+                    .selectFrom('wilson.planTurns')
+                    .where('project', '=', config.project)
+                    .where('cardId', '=', id)
+                    .orderBy('seq')
+                    .select(['role', 'outputTokens'])
+                    .execute();
+                expect(rows).toEqual([{ role: 'user' }, { role: 'assistant', outputTokens: 42 }]);
             } finally {
                 planSessions.dispose(id);
             }

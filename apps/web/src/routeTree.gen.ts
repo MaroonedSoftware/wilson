@@ -16,6 +16,7 @@ import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectActivityRouteImport } from './routes/projects.$project.activity'
 import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
+import { Route as ProjectsProjectStatsRouteImport } from './routes/projects.$project.stats'
 import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +54,11 @@ const ProjectsProjectFlaggedRoute = ProjectsProjectFlaggedRouteImport.update({
   path: '/projects/$project/flagged',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectsProjectStatsRoute = ProjectsProjectStatsRouteImport.update({
+  id: '/projects/$project/stats',
+  path: '/projects/$project/stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectCardsCardIdRoute =
   ProjectsProjectCardsCardIdRouteImport.update({
     id: '/projects/$project/cards/$cardId',
@@ -67,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/projects': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
   '/projects/$project': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
   '/projects/$project/': typeof ProjectsProjectIndexRoute
   '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
 }
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | '/projects/'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
+    | '/projects/$project/stats'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesByTo: FileRoutesByTo
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
     | '/projects'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
+    | '/projects/$project/stats'
     | '/projects/$project'
     | '/projects/$project/cards/$cardId'
   id:
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | '/projects/'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
+    | '/projects/$project/stats'
     | '/projects/$project/'
     | '/projects/$project/cards/$cardId'
   fileRoutesById: FileRoutesById
@@ -131,6 +143,7 @@ export interface RootRouteChildren {
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectActivityRoute: typeof ProjectsProjectActivityRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
+  ProjectsProjectStatsRoute: typeof ProjectsProjectStatsRoute
   ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
   ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
 }
@@ -186,6 +199,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectFlaggedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$project/stats': {
+      id: '/projects/$project/stats'
+      path: '/projects/$project/stats'
+      fullPath: '/projects/$project/stats'
+      preLoaderRoute: typeof ProjectsProjectStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$project/cards/$cardId': {
       id: '/projects/$project/cards/$cardId'
       path: '/projects/$project/cards/$cardId'
@@ -203,6 +223,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectActivityRoute: ProjectsProjectActivityRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
+  ProjectsProjectStatsRoute: ProjectsProjectStatsRoute,
   ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
   ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,
 }

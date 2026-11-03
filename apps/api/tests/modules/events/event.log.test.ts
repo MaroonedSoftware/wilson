@@ -216,8 +216,8 @@ describe('EventLog.append publishing', () => {
 });
 
 /**
- * Card 0263. `usageByStage` reads real `stage.passed`/`stage.failed` rows back out of Postgres —
- * the JSONB `payload->'usage'->>...` extraction and the `group by stage` / `order by min(id)`
+ * Card 0263. `usageByStage` reads real `stage.passed`/`stage.failed`/`stage.interrupted` rows back
+ * out of Postgres — the JSONB `payload->'usage'->>...` extraction and the `group by stage` / `order by min(id)`
  * ordering are exactly the kind of behaviour a fake `db` would only prove agrees with itself about,
  * the same reasoning `EventLog.append publishing` above already follows. Each test uses its own
  * `uniqueProject()`/cardId pair, so no two tests' rows can be summed together by accident.
@@ -308,7 +308,7 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, '0001');
 
-        expect(usage.total).toEqual({ attempts: 2, inputTokens: 1106, outputTokens: 10 });
+        expect(usage.total).toEqual({ attempts: 2, inputTokens: 1106, cachedInputTokens: 1000, outputTokens: 10 });
     });
 
     // AC1: two implementing attempts and one review attempt come back as three attempts across
@@ -342,10 +342,10 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.total).toEqual({ attempts: 3, inputTokens: 350, outputTokens: 60 });
+        expect(usage.total).toEqual({ attempts: 3, inputTokens: 350, cachedInputTokens: 0, outputTokens: 60 });
         expect(usage.stages).toEqual([
-            { stage: 'implementing', attempts: 2, inputTokens: 300, outputTokens: 50 },
-            { stage: 'review', attempts: 1, inputTokens: 50, outputTokens: 10 },
+            { stage: 'implementing', attempts: 2, inputTokens: 300, cachedInputTokens: 0, outputTokens: 50 },
+            { stage: 'review', attempts: 1, inputTokens: 50, cachedInputTokens: 0, outputTokens: 10 },
         ]);
     });
 
@@ -388,8 +388,53 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, outputTokens: 0 }]);
-        expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, outputTokens: 0 });
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 });
+    });
+
+    it('counts an interrupted run’s tokens without counting it as an attempt', async () => {
+        const project = uniqueProject();
+        const cardId = '0005';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.interrupted',
+            payload: { usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 100 } },
+        });
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.passed',
+            payload: { usage: { inputTokens: 20, outputTokens: 7 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 });
+        expect(usage.total.inputTokens).toBe(await eventLog.totalInputTokens(project, cardId));
+    });
+
+    it('reports a stage that has only been interrupted, with its tokens and no attempts', async () => {
+        const project = uniqueProject();
+        const cardId = '0006';
+        const eventLog = new EventLog(db, silentLogger);
+
+        await eventLog.append({
+            project,
+            cardId,
+            stage: 'implementing',
+            type: 'stage.interrupted',
+            payload: { usage: { inputTokens: 10, outputTokens: 5 } },
+        });
+
+        const usage = await eventLog.usageByStage(project, cardId);
+
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 0, inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 }]);
     });
 
     // AC4: a card with no stage.passed/stage.failed events gets zero totals and an empty stages
@@ -403,7 +448,243 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+        expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] });
+    });
+});
+
+/**
+ * Real rows for the same reason as `EventLog.usageByStage` above, and more so here: bucketing by day in
+ * a zone happens in the SQL. Each test backdates its own project's events, so the windows are fixed.
+ */
+describe('EventLog.projectStats', () => {
+    let db: Kysely<DB>;
+    const zone = 'America/New_York';
+    const since = DateTime.fromISO('2026-01-13T00:00:00', { zone });
+    const until = DateTime.fromISO('2026-01-15T12:00:00', { zone });
+
+    beforeAll(() => {
+        db = testDb();
+    });
+
+    afterAll(async () => {
+        await db.destroy();
+    });
+
+    /** Appends one event and moves it to `at`, since `append` always stamps the present. */
+    const record = async (
+        eventLog: EventLog,
+        project: string,
+        event: {
+            cardId: string;
+            stage: string;
+            type: 'stage.passed' | 'stage.failed' | 'stage.interrupted' | 'stage.dispatched';
+            usage?: Record<string, number>;
+        },
+        at: DateTime,
+    ) => {
+        await eventLog.append({
+            project,
+            cardId: event.cardId,
+            stage: event.stage,
+            type: event.type,
+            payload: event.usage ? { usage: event.usage } : {},
+        });
+        await db
+            .updateTable('wilson.cardEvents')
+            .set({ createdAt: at })
+            .where('project', '=', project)
+            .where('id', '=', eb => eb.selectFrom('wilson.cardEvents').where('project', '=', project).select(eb.fn.max('id').as('id')))
+            .execute();
+    };
+
+    it('sums a stage across cards, counting each outcome, with interrupted runs as tokens and no attempt', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        const at = since.plus({ hours: 12 });
+
+        await record(
+            eventLog,
+            project,
+            { cardId: '0001', stage: 'implementing', type: 'stage.failed', usage: { inputTokens: 10, outputTokens: 1 } },
+            at,
+        );
+        await record(
+            eventLog,
+            project,
+            { cardId: '0001', stage: 'implementing', type: 'stage.interrupted', usage: { inputTokens: 20, outputTokens: 2 } },
+            at,
+        );
+        await record(
+            eventLog,
+            project,
+            { cardId: '0001', stage: 'implementing', type: 'stage.passed', usage: { inputTokens: 30, outputTokens: 3, cachedInputTokens: 100 } },
+            at,
+        );
+        await record(
+            eventLog,
+            project,
+            { cardId: '0002', stage: 'implementing', type: 'stage.passed', usage: { inputTokens: 40, outputTokens: 4 } },
+            at,
+        );
+        await record(eventLog, project, { cardId: '0002', stage: 'review', type: 'stage.passed' }, at);
+        await record(eventLog, project, { cardId: '0002', stage: 'review', type: 'stage.dispatched' }, at);
+
+        const stats = await eventLog.projectStats(project, since, until);
+
+        expect(stats.total).toEqual({
+            cards: 2,
+            attempts: 4,
+            passed: 3,
+            failed: 1,
+            interrupted: 1,
+            inputTokens: 200,
+            cachedInputTokens: 100,
+            outputTokens: 10,
+        });
+        expect(stats.stages).toEqual([
+            {
+                stage: 'implementing',
+                cards: 2,
+                attempts: 3,
+                passed: 2,
+                failed: 1,
+                interrupted: 1,
+                inputTokens: 200,
+                cachedInputTokens: 100,
+                outputTokens: 10,
+            },
+            { stage: 'review', cards: 1, attempts: 1, passed: 1, failed: 0, interrupted: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+        ]);
+    });
+
+    it('counts days in the zone asked for, keeps quiet days at zero and leaves out what is outside the window', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        const passed = { cardId: '0001', stage: 'implementing', type: 'stage.passed' as const };
+
+        // 02:00 UTC on the 15th is still the 14th in New York.
+        await record(eventLog, project, { ...passed, usage: { outputTokens: 1 } }, DateTime.fromISO('2026-01-15T02:00:00Z'));
+        await record(eventLog, project, { ...passed, usage: { outputTokens: 2 } }, since.plus({ hours: 1 }));
+        await record(eventLog, project, { ...passed, usage: { outputTokens: 4 } }, since.minus({ seconds: 1 }));
+        await record(eventLog, project, { ...passed, usage: { outputTokens: 8 } }, until);
+
+        const stats = await eventLog.projectStats(project, since, until);
+
+        expect(stats.zone).toBe(zone);
+        expect(stats.days.map(day => [day.date, day.outputTokens])).toEqual([
+            ['2026-01-13', 2],
+            ['2026-01-14', 1],
+            ['2026-01-15', 0],
+        ]);
+        expect(stats.total.outputTokens).toBe(3);
+    });
+
+    it('names the cards that wrote the most, ten at most, with no title for a card that is gone', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+
+        for (let n = 1; n <= 11; n++) {
+            const cardId = String(n).padStart(4, '0');
+            await record(
+                eventLog,
+                project,
+                { cardId, stage: 'implementing', type: 'stage.passed', usage: { outputTokens: n } },
+                since.plus({ hours: 1 }),
+            );
+        }
+
+        const { topCards, total } = await eventLog.projectStats(project, since, until);
+
+        expect(total.cards).toBe(11);
+        expect(topCards.map(card => card.cardId)).toEqual(['0011', '0010', '0009', '0008', '0007', '0006', '0005', '0004', '0003', '0002']);
+        expect(topCards[0]).not.toHaveProperty('cardTitle');
+    });
+
+    it('titles a card that still exists', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        await db.insertInto('wilson.cards').values({ project, id: '0001', title: 'Ship it', stage: 'backlog', body: 'body' }).execute();
+        await record(eventLog, project, { cardId: '0001', stage: 'implementing', type: 'stage.passed' }, since.plus({ hours: 1 }));
+
+        const { topCards } = await eventLog.projectStats(project, since, until);
+
+        expect(topCards[0]).toMatchObject({ cardId: '0001', cardTitle: 'Ship it' });
+    });
+
+    it('adds up planning and review answers apart from the stage figures', async () => {
+        const project = uniqueProject();
+        const eventLog = new EventLog(db, silentLogger);
+        const at = since.plus({ hours: 1 });
+
+        await db
+            .insertInto('wilson.planTurns')
+            .values([
+                { project, cardId: '0001', seq: 1, role: 'user', content: 'q', createdAt: at },
+                {
+                    project,
+                    cardId: '0001',
+                    seq: 2,
+                    role: 'assistant',
+                    content: 'a',
+                    createdAt: at,
+                    inputTokens: 5,
+                    cachedInputTokens: 100,
+                    outputTokens: 10,
+                },
+                { project, cardId: '0001', seq: 3, role: 'assistant', content: 'from before', createdAt: at },
+                {
+                    project,
+                    cardId: '0002',
+                    seq: 1,
+                    role: 'assistant',
+                    content: 'a',
+                    createdAt: at,
+                    inputTokens: 1,
+                    cachedInputTokens: 0,
+                    outputTokens: 2,
+                },
+                { project, cardId: '0003', seq: 1, role: 'assistant', content: 'too old', createdAt: since.minus({ days: 1 }), outputTokens: 1000 },
+            ])
+            .execute();
+        await db.insertInto('wilson.cards').values({ project, id: '0001', title: 'Ship it', stage: 'backlog', body: 'body' }).execute();
+        const { id: reviewId } = await db
+            .insertInto('wilson.reviews')
+            .values({ project, cardId: '0001', headSha: 'head', baseSha: 'base' })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+        await db
+            .insertInto('wilson.reviewTurns')
+            .values([
+                { reviewId, seq: 1, role: 'user', content: 'q', createdAt: at },
+                { reviewId, seq: 2, role: 'assistant', content: 'a', createdAt: at, inputTokens: 3, cachedInputTokens: 30, outputTokens: 7 },
+                { reviewId, seq: 3, role: 'assistant', content: 'output only', createdAt: at, outputTokens: 4 },
+            ])
+            .execute();
+
+        const stats = await eventLog.projectStats(project, since, until);
+
+        expect(stats.conversations).toEqual([
+            { kind: 'planning', turns: 2, cards: 2, inputTokens: 106, cachedInputTokens: 100, outputTokens: 12 },
+            { kind: 'review', turns: 2, cards: 1, inputTokens: 33, cachedInputTokens: 30, outputTokens: 11 },
+        ]);
+        expect(stats.total.outputTokens).toBe(0);
+        expect(await eventLog.totalInputTokens(project, '0001')).toBe(0);
+        expect(await eventLog.outputTokensSince(project, since)).toBe(0);
+    });
+
+    it('reads a project with no history as zeros across every day', async () => {
+        const eventLog = new EventLog(db, silentLogger);
+
+        const stats = await eventLog.projectStats(uniqueProject(), since, until);
+
+        expect(stats.total.cards).toBe(0);
+        expect(stats.stages).toEqual([]);
+        expect(stats.topCards).toEqual([]);
+        expect(stats.conversations).toEqual([
+            { kind: 'planning', turns: 0, cards: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+            { kind: 'review', turns: 0, cards: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+        ]);
+        expect(stats.days).toHaveLength(3);
     });
 });
 

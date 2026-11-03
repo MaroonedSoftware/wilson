@@ -241,16 +241,61 @@ export function reviveCardVersion(raw: CardVersion): CardVersion {
 }
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed` event for it,
- * summed. `attempts` counts the passed and failed events themselves, including one whose payload
- * carried no `usage` at all (it still ran); `inputTokens`/`outputTokens` sum whatever `usage` those
- * events did carry, so the two can never disagree with the event log.
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
+ * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
+ * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
+ * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
+ * `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
+ * how many of them were cached, not an addition to it.
  * generated from [CardStageUsage](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardStageUsage {
     stage: string;
     attempts: number;
     inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}
+
+/**
+ * How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+ * held to between 1 and 365.
+ * generated from [ProjectStatsQuery](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStatsQuery {
+    days?: number;
+}
+
+/**
+ * The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+ * `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+ * adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+ * generated from [ProjectStatsCounts](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStatsCounts {
+    attempts: number;
+    passed: number;
+    failed: number;
+    interrupted: number;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}
+
+/**
+ * What people's conversations with the engine spent in the window: planning turns and review turns.
+ * `turns` counts the engine's answers that recorded a cost, and `cards` the different cards they were
+ * about. A review turn from before input tokens were recorded counts at zero input. None of this is a
+ * stage event, so it counts against no budget or ceiling, and is kept apart from the stage figures.
+ * generated from [ProjectConversationStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectConversationStats {
+    kind: 'planning' | 'review';
+    turns: number;
+    cards: number;
+    inputTokens: number;
+    cachedInputTokens: number;
     outputTokens: number;
 }
 
@@ -566,8 +611,45 @@ export function reviveActivityEvent(raw: ActivityEvent): ActivityEvent {
  * generated from [CardUsage](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardUsage {
-    total: { attempts: number; inputTokens: number; outputTokens: number };
+    total: { attempts: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
     stages: CardStageUsage[];
+}
+
+/**
+ * One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+ * many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+ * generated from [ProjectStageStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStageStats extends ProjectStatsCounts {
+    stage: string;
+    cards: number;
+}
+
+/**
+ * One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+ * zero, so a chart of these cannot close up a gap.
+ * generated from [ProjectDayStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectDayStats extends ProjectStatsCounts {
+    date: string;
+}
+
+/**
+ * One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+ * exists: `wilson.card_events` has no foreign key to it.
+ * generated from [ProjectCardStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectCardStats extends ProjectStatsCounts {
+    cardId: string;
+    cardTitle?: string;
+}
+
+/**
+ * The whole window. `cards` is how many different cards ran anything in it.
+ * generated from [ProjectStatsTotal](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStatsTotal extends ProjectStatsCounts {
+    cards: number;
 }
 
 /**
@@ -702,5 +784,32 @@ export function reviveSplitResult(raw: SplitResult): SplitResult {
             reviveCardDetail(__a1[__i2] as never);
         }
     }
+    return raw;
+}
+
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+ * generated from [ProjectStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStats {
+    since: DateTime;
+    until: DateTime;
+    zone: string;
+    total: ProjectStatsTotal;
+    stages: ProjectStageStats[];
+    days: ProjectDayStats[];
+    topCards: ProjectCardStats[];
+    conversations: ProjectConversationStats[];
+}
+
+/** Rehydrates every wire-encoded scalar in a ProjectStats into its runtime type. Mutates and returns `raw`. */
+export function reviveProjectStats(raw: ProjectStats): ProjectStats {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'ProjectStats.since');
+    __o0['until'] = __dt(__o0['until'], 'ProjectStats.until');
     return raw;
 }

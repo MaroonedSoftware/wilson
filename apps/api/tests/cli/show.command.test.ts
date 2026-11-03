@@ -43,7 +43,7 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
  * recorded, which `printUsage` renders as nothing at all, keeping every test that isn't specifically
  * about usage output unaffected by it.
  */
-const noUsage = () => jsonResponse({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+const noUsage = () => jsonResponse({ total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] });
 
 describe('wilson card show', () => {
     it('fetches the card and its recent events, and prints the plain-text view', async () => {
@@ -276,10 +276,10 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(
             jsonResponse({
-                total: { attempts: 3, inputTokens: 300, outputTokens: 50 },
+                total: { attempts: 3, inputTokens: 300, cachedInputTokens: 0, outputTokens: 50 },
                 stages: [
-                    { stage: 'implementing', attempts: 2, inputTokens: 200, outputTokens: 40 },
-                    { stage: 'testing', attempts: 1, inputTokens: 100, outputTokens: 10 },
+                    { stage: 'implementing', attempts: 2, inputTokens: 200, cachedInputTokens: 0, outputTokens: 40 },
+                    { stage: 'testing', attempts: 1, inputTokens: 100, cachedInputTokens: 0, outputTokens: 10 },
                 ],
             }),
         );
