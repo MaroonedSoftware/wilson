@@ -639,7 +639,7 @@ function commentsBlock(comments: StoredPlanComment[]): string {
  * decision 8 treats the two as the same "no learnings" — so a first turn with nothing recorded yet
  * builds a prompt byte-identical to what `turn` sent before this card existed.
  */
-function learningsBlock(markdown: string): string {
+export function learningsBlock(markdown: string): string {
     if (markdown.trim().length === 0) return '';
     return [
         "This project's learnings — human-approved guidance from past cards. Follow it like your own",

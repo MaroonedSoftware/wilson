@@ -85,6 +85,15 @@ describe('CliChatEngine', () => {
         expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY');
     });
 
+    it('takes a step limit, and reports what the turn cost', async () => {
+        engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1', usage: { output_tokens: 42 } }]);
+
+        const output = await turn({ maxSteps: 40 });
+
+        expect(optionsOf().maxTurns).toBe(40);
+        expect(output.usage).toEqual({ outputTokens: 42 });
+    });
+
     it("serves each chat tool's execute through the in-process MCP server", async () => {
         engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
         await turn();

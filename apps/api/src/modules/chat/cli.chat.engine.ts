@@ -6,7 +6,6 @@ import { describeUsageLimit, UsageLimitWatch } from '#modules/agent/usage.limit.
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { MAX_CHAT_STEPS } from './api.chat.engine.js';
-import type { ChatMessage } from './chat.message.repository.js';
 import { ChatEngine, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
 
 /** The in-process MCP server the chat's tools are served from; the engine sees them as `mcp__wilson-chat__<name>`. */
@@ -17,7 +16,7 @@ export const CHAT_SERVER = 'wilson-chat';
  * session can be lost (a cleared config dir) — starts a fresh session with the conversation so far
  * written into its first prompt, rather than losing it.
  */
-const withTranscript = (history: ChatMessage[], text: string): string =>
+const withTranscript = (history: ChatTurnInput['history'], text: string): string =>
     history.length === 0
         ? text
         : [
@@ -47,7 +46,7 @@ export class CliChatEngine extends ChatEngine {
         super();
     }
 
-    async turn({ thread, history, text, system, tools, model, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
+    async turn({ thread, history, text, system, tools, model, maxSteps = MAX_CHAT_STEPS, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
         const account = await this.accounts?.local();
         if (account?.limit) throw new Error(describeUsageLimit(account.limit));
         const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
@@ -74,7 +73,7 @@ export class CliChatEngine extends ChatEngine {
                 settingSources: [],
                 strictMcpConfig: true,
                 includePartialMessages: true,
-                maxTurns: MAX_CHAT_STEPS,
+                maxTurns: maxSteps,
                 env: subscriptionEnv(await this.settings.get(CLAUDE_CONFIG_DIR), account?.token, account?.variable),
                 ...(thread.engineSessionId ? { resume: thread.engineSessionId } : {}),
             },
@@ -83,6 +82,7 @@ export class CliChatEngine extends ChatEngine {
         let streamed = '';
         let written = '';
         let sessionId: string | undefined;
+        let usage: ChatTurnOutput['usage'];
         for await (const message of stream) {
             usageWatch.observe(message);
             if ('session_id' in message && message.session_id) sessionId = message.session_id;
@@ -98,12 +98,13 @@ export class CliChatEngine extends ChatEngine {
                 }
                 if (message.subtype !== 'success')
                     throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
+                usage = message.usage ? { outputTokens: message.usage.output_tokens } : undefined;
                 break;
             }
         }
 
         // The streamed deltas are the answer as the person watched it arrive; the completed blocks
         // are the fallback for an engine build that sends no partial messages.
-        return { text: streamed || written, engineSessionId: sessionId };
+        return { text: streamed || written, engineSessionId: sessionId, usage };
     }
 }
