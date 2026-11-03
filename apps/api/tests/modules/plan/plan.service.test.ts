@@ -621,6 +621,25 @@ describe('PlanService', () => {
     });
 
     describe('save', () => {
+        it("writes what was approved back to an open session's draft, so the agent and the next read find it", async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0035', { stage: 'planning' }), 'seed');
+            await service.open('0035');
+
+            await service.save('0035', { body: FULL_BODY });
+
+            expect((await service.draft('0035')).body).toBe(FULL_BODY);
+        });
+
+        it('creates no draft for a card with no session', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0036', { stage: 'planning' }), 'seed');
+
+            await service.save('0036', { body: FULL_BODY });
+
+            expect((await service.draft('0036')).body).toBe('');
+        });
+
         it('refuses an incomplete draft, naming the missing heading, and writes no version', async () => {
             const { board, service } = await freshEnv();
             await board.create(card('0006', { stage: 'planning' }, 'original body'), 'seed');

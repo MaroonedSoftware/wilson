@@ -355,6 +355,12 @@ export class PlanService {
         if (gap) throw httpError(400).withDetails({ reason: gap });
 
         await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => ({ ...current, body: request.body }));
+
+        // A person may have edited the text before approving it. The agent revises this file and
+        // clients read it back, so an open session has to find what was just approved here.
+        const draftPath = join(this.boardConfig.runRoot, 'cards', id, 'draft.md');
+        if (existsSync(draftPath)) await writeFile(draftPath, request.body, 'utf8');
+
         return toCardDetail(await this.boardRepository.read(id));
     }
 
