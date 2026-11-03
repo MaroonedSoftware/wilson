@@ -37,7 +37,7 @@ import { toolHost, type ToolContext } from './tools/index.js';
  * on a network that needs them. Both cases of the proxy names, since tools disagree on which they
  * read.
  */
-const ENGINE_PASSED_THROUGH = [
+export const ENGINE_PASSED_THROUGH = [
     ...PASSED_THROUGH,
     'LOGNAME',
     'TERM',

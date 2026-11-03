@@ -3,7 +3,7 @@ import { withApi } from '../../api-client.js';
 import { withStepUp } from '../../sign.in.js';
 
 interface RouteOpts {
-    adapter?: 'api' | 'cli';
+    adapter?: 'api' | 'cli' | 'codex';
     provider?: 'anthropic' | 'openai' | 'xai';
     model?: string;
     message?: string;
@@ -20,7 +20,7 @@ const command: CommandModule<RouteOpts> = {
     description: 'List stage routing, or set the adapter, provider and model of one stage',
     args: [{ name: 'stage', description: 'The stage to route. Leave out to list every stage' }],
     options: [
-        { flags: '--adapter <adapter>', description: 'api or cli', type: 'string' },
+        { flags: '--adapter <adapter>', description: 'api, cli or codex', type: 'string' },
         { flags: '--provider <provider>', description: 'anthropic, openai or xai', type: 'string' },
         { flags: '--model <id>', description: 'The model id', type: 'string' },
         { flags: '-m, --message <text>', description: 'What this change is, for the history', type: 'string' },
@@ -31,7 +31,7 @@ const command: CommandModule<RouteOpts> = {
 
         if (stage === undefined) {
             for (const route of routes) {
-                process.stdout.write(`${route.stage.padEnd(16)} ${route.adapter.padEnd(4)} ${route.provider.padEnd(10)} ${route.model}\n`);
+                process.stdout.write(`${route.stage.padEnd(16)} ${route.adapter.padEnd(5)} ${route.provider.padEnd(10)} ${route.model}\n`);
             }
             return 0;
         }

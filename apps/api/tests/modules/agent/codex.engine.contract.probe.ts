@@ -3,6 +3,14 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { z } from 'zod';
+import { CodexStageAgent } from '#modules/agent/codex.stage.agent.js';
+import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import type { ToolContext } from '#modules/agent/tools/index.js';
+import { localHost } from '#modules/host/local.execution.host.js';
+import type { StageConfig } from '#modules/stages/stage.config.js';
 import { CodexAppServer, decline, ranWithoutApproval, runTurn, type TurnRecord } from '#tests/support/codex.app.server.js';
 
 /**
@@ -71,7 +79,8 @@ beforeAll(async () => {
     home = await freshDir('codex-probe-home-');
 });
 afterAll(async () => {
-    for (const dir of scratch) await rm(dir, { recursive: true, force: true });
+    // Retried: an engine just killed can still be writing to its home.
+    for (const dir of scratch) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 /** One line per run, so a report shows what each repeat did. */
@@ -91,6 +100,63 @@ describe.skipIf(!binary)('codex app-server: handshake', () => {
             server.close();
         }
     });
+});
+
+describe.skipIf(!binary)('CodexStageAgent against the real binary, signed out', () => {
+    it('gets as far as the model and reports why it could not go on', async () => {
+        const worktreeRoot = await freshDir('codex-probe-adapter-');
+        const codexHome = await freshDir('codex-probe-adapter-home-');
+        const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+        const context = {
+            project: 'p',
+            cardId: '0001',
+            stage: 'implementing',
+            worktreeRoot,
+            scope: new ScopeGuard({ worktreeRoot, allow: ['**'], alwaysAllowed: [] }),
+            commands: new CommandAllowlist([]),
+            scopeViolationPolicy: 'widen',
+            events: { append: async () => {} },
+            logger,
+            host: {
+                name: 'probe',
+                realpath: localHost.realpath.bind(localHost),
+                unlink: localHost.unlink.bind(localHost),
+                removeTree: localHost.removeTree.bind(localHost),
+                spawnCodex: ({ args, cwd }: { args: string[]; cwd?: string }) =>
+                    spawn(binary!, args, {
+                        cwd,
+                        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: codexHome, CODEX_HOME: codexHome },
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                    }),
+            },
+        } as unknown as ToolContext;
+
+        const output = await new CodexStageAgent(logger as never).run({
+            stage: {
+                name: 'implementing',
+                worktree: 'rw',
+                isolated: true,
+                model: model ?? 'gpt-5.5',
+                instructions: 'Report that you are done.',
+                maxSteps: 3,
+                maxWallClockMs: 90_000,
+                maxIdleMs: 60_000,
+                maxInputTokens: 1000,
+                maxContextWindowFraction: 0.9,
+            } as unknown as StageConfig,
+            context,
+            planPath: join(worktreeRoot, 'plan.md'),
+            title: 'Probe',
+            resultSchema: z.object({ summary: z.string() }),
+            baseSha: 'abc123',
+        });
+        console.info(`signed out, the adapter ended with: ${JSON.stringify(output)}`);
+
+        // Nothing here can be signed in, so a turn cannot finish. A refusal of the thread's own
+        // settings would name them, and is what this is here to catch.
+        expect(output.result).toBeUndefined();
+        expect(JSON.stringify(output)).not.toMatch(/failed to load configuration|Invalid request|invalid type|unknown field|unknown variant/);
+    }, 120_000);
 });
 
 describe.skipIf(!binary || !apiKey)('codex app-server: live', () => {

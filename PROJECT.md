@@ -297,6 +297,11 @@ behind step-up), never on this machine, and waits when there is none. It is for 
 be relied on to keep a stage inside its worktree. The flag is an operator's word about the machine,
 such as a container worker with nothing else inside, since no probe can test it.
 
+The `codex` adapter runs OpenAI's Codex engine through `codex app-server`, and only for a stage marked
+`isolated`. `ScopeGuard` and `CommandAllowlist` answer the engine's approval requests, but Codex runs
+commands it considers safe without asking, so reads through it are not limited to the worktree. Its
+sandbox's network is all or nothing, set by the stage's `networkAccess`, and off by default.
+
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
 worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the
 same machine as model-written code, which is the board readable from a worktree: exactly what

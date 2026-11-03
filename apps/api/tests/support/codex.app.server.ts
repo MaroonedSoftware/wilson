@@ -1,24 +1,16 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
+import { CodexConnection, type CodexNotification, type CodexServerRequest } from '#modules/agent/codex.connection.js';
 
 /**
- * A minimal client for `codex app-server`, for the engine probes only: JSON-RPC over stdio, one JSON
- * object per line, with no `"jsonrpc"` field. Shapes follow what `codex app-server generate-ts`
- * printed for codex-cli 0.166.0, and are typed loosely here on purpose: the probes exist to find out
- * what the engine actually does, so nothing is assumed beyond the method names.
+ * `codex app-server` for the engine probes only, over the adapter's own `CodexConnection`, which
+ * started here. It keeps every request and notification, for a probe to look through afterwards, and
+ * is typed loosely on purpose: the probes exist to find out what the engine actually does, so nothing
+ * is assumed beyond the method names.
  */
 
 /** A request the server sends the client, such as an approval. */
-export interface ServerRequest {
-    id: number | string;
-    method: string;
-    params: Record<string, unknown>;
-}
-
-export interface ServerNotification {
-    method: string;
-    params: Record<string, unknown>;
-}
+export type ServerRequest = CodexServerRequest;
+export type ServerNotification = CodexNotification;
 
 export type ServerRequestHandler = (request: ServerRequest) => unknown;
 
@@ -36,26 +28,15 @@ export interface CodexAppServerOptions {
 export class CodexAppServer {
     readonly requests: ServerRequest[] = [];
     readonly notifications: ServerNotification[] = [];
-    stderr = '';
 
-    private nextId = 1;
-    private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+    private readonly connection: CodexConnection;
     private readonly listeners = new Set<(notification: ServerNotification) => void>();
 
-    private constructor(
-        private readonly child: ChildProcessWithoutNullStreams,
-        private onRequest: ServerRequestHandler,
-    ) {
-        createInterface({ input: child.stdout }).on('line', line => this.receive(line));
-        child.stderr.on('data', (chunk: Buffer) => (this.stderr = (this.stderr + chunk.toString()).slice(-8000)));
-        child.on('exit', () => {
-            for (const { reject } of this.pending.values()) reject(new Error(`codex app-server exited: ${this.stderr}`));
-            this.pending.clear();
-        });
-    }
-
-    /** Start the server and complete the `initialize` handshake. */
-    static async start(options: CodexAppServerOptions): Promise<CodexAppServer> {
+    private constructor(options: CodexAppServerOptions) {
+        let onRequest = options.onRequest ?? decline;
+        this.answerWith = handler => {
+            onRequest = handler;
+        };
         const child = spawn(options.binary, ['app-server'], {
             env: {
                 PATH: process.env.PATH ?? '/usr/bin:/bin',
@@ -65,30 +46,34 @@ export class CodexAppServer {
             },
             stdio: ['pipe', 'pipe', 'pipe'],
         });
-        const server = new CodexAppServer(child, options.onRequest ?? decline);
-        await server.request('initialize', {
-            clientInfo: { name: 'wilson-probe', title: null, version: '0.0.0' },
-            capabilities: { experimentalApi: false, requestAttestation: false },
+        this.connection = new CodexConnection(child, {
+            onRequest: request => {
+                this.requests.push(request);
+                return onRequest(request);
+            },
+            onNotification: notification => {
+                this.notifications.push(notification);
+                for (const listener of [...this.listeners]) listener(notification);
+            },
         });
-        server.notify('initialized');
+    }
+
+    /** Start the server and complete the `initialize` handshake. */
+    static async start(options: CodexAppServerOptions): Promise<CodexAppServer> {
+        const server = new CodexAppServer(options);
+        await server.connection.initialize('wilson-probe', false);
         return server;
     }
 
     /** Replace how server requests are answered, for the next turn. */
-    answerWith(handler: ServerRequestHandler): void {
-        this.onRequest = handler;
+    readonly answerWith: (handler: ServerRequestHandler) => void;
+
+    get stderr(): string {
+        return this.connection.stderr;
     }
 
     request<T = Record<string, unknown>>(method: string, params: unknown = {}): Promise<T> {
-        const id = this.nextId++;
-        return new Promise<T>((resolve, reject) => {
-            this.pending.set(id, { resolve: value => resolve(value as T), reject });
-            this.send({ id, method, params });
-        });
-    }
-
-    notify(method: string, params?: unknown): void {
-        this.send(params === undefined ? { method } : { method, params });
+        return this.connection.request<T>(method, params);
     }
 
     /** The next notification named `method` that `matches`, or a rejection after `timeoutMs`. */
@@ -109,40 +94,7 @@ export class CodexAppServer {
     }
 
     close(): void {
-        this.child.kill();
-    }
-
-    private send(message: unknown): void {
-        this.child.stdin.write(`${JSON.stringify(message)}\n`);
-    }
-
-    private receive(line: string): void {
-        let message: { id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message?: string } };
-        try {
-            message = JSON.parse(line);
-        } catch {
-            return;
-        }
-        if (message.method !== undefined && message.id !== undefined) {
-            const request = { id: message.id, method: message.method, params: message.params ?? {} };
-            this.requests.push(request);
-            void Promise.resolve(this.onRequest(request)).then(
-                result => this.send({ id: request.id, result }),
-                (error: Error) => this.send({ id: request.id, error: { code: -32000, message: error.message } }),
-            );
-            return;
-        }
-        if (message.method !== undefined) {
-            const notification = { method: message.method, params: message.params ?? {} };
-            this.notifications.push(notification);
-            for (const listener of [...this.listeners]) listener(notification);
-            return;
-        }
-        const pending = typeof message.id === 'number' ? this.pending.get(message.id) : undefined;
-        if (!pending) return;
-        this.pending.delete(message.id as number);
-        if (message.error) pending.reject(new Error(message.error.message ?? JSON.stringify(message.error)));
-        else pending.resolve(message.result);
+        this.connection.close();
     }
 }
 

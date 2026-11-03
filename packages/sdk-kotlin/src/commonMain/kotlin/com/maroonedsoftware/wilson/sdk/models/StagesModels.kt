@@ -92,6 +92,7 @@ object StageRoutingModeSerializer : SdkEnumSerializer<StageRoutingMode>(
 enum class StageRoutingAdapter {
     API,
     CLI,
+    CODEX,
 
     /**
      * A value this SDK does not know, such as a member the service added after it was generated.
@@ -106,6 +107,7 @@ object StageRoutingAdapterSerializer : SdkEnumSerializer<StageRoutingAdapter>(
     StageRoutingAdapter.UNKNOWN,
     StageRoutingAdapter.API to "api",
     StageRoutingAdapter.CLI to "cli",
+    StageRoutingAdapter.CODEX to "codex",
 )
 
 @Serializable(with = StageRoutingProviderSerializer::class)
@@ -134,6 +136,7 @@ object StageRoutingProviderSerializer : SdkEnumSerializer<StageRoutingProvider>(
 enum class SetStageRoutingRequestAdapter {
     API,
     CLI,
+    CODEX,
 
     /**
      * A value this SDK does not know, such as a member the service added after it was generated.
@@ -148,6 +151,7 @@ object SetStageRoutingRequestAdapterSerializer : SdkEnumSerializer<SetStageRouti
     SetStageRoutingRequestAdapter.UNKNOWN,
     SetStageRoutingRequestAdapter.API to "api",
     SetStageRoutingRequestAdapter.CLI to "cli",
+    SetStageRoutingRequestAdapter.CODEX to "codex",
 )
 
 @Serializable(with = SetStageRoutingRequestProviderSerializer::class)
