@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewVerdictRequest } from '@wilson/sdk';
 import { invalidateCard, invalidateCardsList } from './mutations.js';
-import { wilson } from './sdk.js';
+import { useWilsonSdk } from './sdk-context.js';
 
 const reviewKey = (project: string | undefined, cardId: string) => ['project', project, 'card', cardId, 'review'];
 const diffKey = (project: string | undefined, cardId: string) => ['project', project, 'card', cardId, 'diff'];
 
 /** A card's review and every comment on it, located against the branch as it is now. */
 export function useReviewState(project: string | undefined, cardId: string, enabled: boolean) {
+    const wilson = useWilsonSdk();
     return useQuery({
         queryKey: reviewKey(project, cardId),
         queryFn: () => wilson.review.readAReview(cardId),
@@ -20,6 +21,7 @@ export function useReviewState(project: string | undefined, cardId: string, enab
  * diff on screen was read, so the diff is read again too, which keeps the two on the same commit.
  */
 export function useOpenReview(project: string | undefined, cardId: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (): Promise<ReviewState> => wilson.review.openAReview(cardId),
@@ -35,6 +37,7 @@ export function useOpenReview(project: string | undefined, cardId: string) {
  * does. The review is read again either way, because a refusal usually means the branch moved.
  */
 export function useAddReviewComment(project: string | undefined, cardId: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (body: CreateReviewCommentRequest): Promise<ReviewComment> => wilson.review.addAReviewComment(cardId, body),
@@ -45,6 +48,7 @@ export function useAddReviewComment(project: string | undefined, cardId: string)
 }
 
 export function useResolveReviewComment(project: string | undefined, cardId: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (commentId: string): Promise<ReviewComment> => wilson.review.resolveAReviewComment(cardId, commentId),
@@ -56,6 +60,7 @@ export function useResolveReviewComment(project: string | undefined, cardId: str
 
 /** Sends every open comment to the implementer. The card changes stage, so its own queries are read again. */
 export function useRequestChanges(project: string | undefined, cardId: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (body: ReviewVerdictRequest): Promise<ReviewState> => wilson.review.requestChanges(cardId, body),
@@ -69,6 +74,7 @@ export function useRequestChanges(project: string | undefined, cardId: string) {
 
 /** Records the person's approval. Nothing about the card changes, so only the review is read again. */
 export function useApproveReview(project: string | undefined, cardId: string) {
+    const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (body: ReviewVerdictRequest): Promise<ReviewState> => wilson.review.approveAReview(cardId, body),
