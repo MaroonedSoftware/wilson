@@ -99,6 +99,50 @@ public sealed class ChatClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Upload a chat image
+    /// An image goes up before the message that carries it, so a message's send stays JSON. One that no
+    /// message claims is removed a day later.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 413, 415.</exception>
+    public async Task<ChatAttachment> UploadAChatImageAsync(string id, IEnumerable<SdkPart> body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "chat", "threads", http.Segment(id), "attachments"),
+            content: http.MultipartContent(body),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ChatAttachment>(response);
+    }
+
+    /// <summary>
+    /// Fetch a chat image
+    /// `attachmentId`, not a second `id`: a `params` block is keyed by name. One 404 covers a thread that
+    /// does not exist and an attachment id that does not exist, belongs to another thread, or is not an id.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<FetchAChatImageResponse> FetchAChatImageAsync(string id, string attachmentId, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "chat", "threads", http.Segment(id), "attachments", http.Segment(attachmentId)),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var headers = new FetchAChatImageHeaders(
+            http.RequireHeader(response, "x-content-type-options"),
+            http.RequireHeader(response, "content-security-policy"));
+        switch (response.ContentType)
+        {
+            case "image/jpeg":
+                return new FetchAChatImageResponse.ImageJpeg(response.Bytes, headers);
+            case "image/webp":
+                return new FetchAChatImageResponse.ImageWebp(response.Bytes, headers);
+            case "image/gif":
+                return new FetchAChatImageResponse.ImageGif(response.Bytes, headers);
+            default:
+                return new FetchAChatImageResponse.ImagePng(response.Bytes, headers);
+        }
+    }
+
+    /// <summary>
     /// Decide a chat action
     /// Confirm runs the proposed operation, at most once however many times it is sent, and answers with
     /// how it went: a failed operation is a 200 with `status: failed` and its `error`, since the decision
@@ -137,4 +181,25 @@ public sealed class ChatClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<ChatPendingQuestion>(response);
     }
+}
+
+/// <summary>Response headers declared on GET /api/chat/threads/{id}/attachments/{attachmentId}.</summary>
+public sealed record FetchAChatImageHeaders(string XContentTypeOptions, string ContentSecurityPolicy);
+
+/// <summary>
+/// What GET /api/chat/threads/{id}/attachments/{attachmentId} returned.
+///
+/// The status declares several content types, so which one arrived is part of the value.
+/// </summary>
+public abstract record FetchAChatImageResponse
+{
+    private FetchAChatImageResponse() { }
+
+    public sealed record ImagePng(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
+
+    public sealed record ImageJpeg(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
+
+    public sealed record ImageWebp(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
+
+    public sealed record ImageGif(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
 }

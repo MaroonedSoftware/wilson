@@ -47,6 +47,28 @@ export interface ChatOperation {
 }
 
 /**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ * generated from [ChatAttachment](../../../../apps/api/data/contracts/chat.ck)
+ */
+export interface ChatAttachment {
+    id: string;
+    filename: string;
+    contentType: string;
+    byteSize: number;
+    contentHash: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a ChatAttachment into its runtime type. Mutates and returns `raw`. */
+export function reviveChatAttachment(raw: ChatAttachment): ChatAttachment {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'ChatAttachment.createdAt');
+    return raw;
+}
+
+/**
  * A change the agent proposed. `pending` until the person decides it; `running` while its operation
  * runs; then `done` with its `result` or `failed` with its `error`. `declined` when the person said no.
  * A pending action past `expiresAt` can no longer be confirmed.
@@ -105,12 +127,26 @@ export interface RenameChatThreadRequest {
 }
 
 /**
+ * Documentation, not validation, as `AttachImageUpload` is.
+ * generated from [AttachChatImageUpload](../../../../apps/api/data/contracts/chat.ck)
+ */
+export interface AttachChatImageUpload {
+    file: Blob;
+}
+
+/**
  * generated from [SendChatMessageRequest](../../../../apps/api/data/contracts/chat.ck)
  */
 export interface SendChatMessageRequest {
+    /** May be empty when `attachments` is not. */
     text: string;
     /** The project of the page the person is on, if any: the agent assumes it unless told otherwise. */
     project?: string;
+    /**
+     * Ids from `POST .../attachments`, each usable once, at most five. A send that fails after the
+     * message was stored has used them, so a retry uploads again.
+     */
+    attachments?: string[];
 }
 
 /**
@@ -132,12 +168,22 @@ export interface ChatMessage {
     createdAt: DateTime;
     /** What the answer offers to ask next, left out when it offers nothing. */
     suggestions?: string[];
+    /** The images a person sent with this message, left out when there are none. */
+    attachments?: ChatAttachment[];
 }
 
 /** Rehydrates every wire-encoded scalar in a ChatMessage into its runtime type. Mutates and returns `raw`. */
 export function reviveChatMessage(raw: ChatMessage): ChatMessage {
     const __o0 = raw as unknown as Record<string, unknown>;
     __o0['createdAt'] = __dt(__o0['createdAt'], 'ChatMessage.createdAt');
+    if (__o0['attachments'] != null) {
+        {
+            const __a1 = __o0['attachments'] as unknown[];
+            for (let __i2 = 0; __i2 < __a1.length; __i2++) {
+                reviveChatAttachment(__a1[__i2] as never);
+            }
+        }
+    }
     return raw;
 }
 

@@ -172,6 +172,18 @@ export interface WilsonCardVersions {
   project: string;
 }
 
+export interface WilsonChatAttachments {
+  bytes: Buffer;
+  byteSize: number;
+  contentHash: string;
+  contentType: string;
+  createdAt: Generated<DateTime>;
+  filename: string;
+  id: Generated<bigint>;
+  messageSeq: number | null;
+  threadId: bigint;
+}
+
 export interface WilsonChatMessages {
   content: string;
   createdAt: Generated<DateTime>;
@@ -466,6 +478,7 @@ export interface DB {
   "wilson.cardJobs": WilsonCardJobs;
   "wilson.cards": WilsonCards;
   "wilson.cardVersions": WilsonCardVersions;
+  "wilson.chatAttachments": WilsonChatAttachments;
   "wilson.chatMessages": WilsonChatMessages;
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;

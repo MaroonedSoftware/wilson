@@ -1,14 +1,33 @@
 import type { Provider } from '#modules/agent/model.registry.js';
+import type { AttachmentImageType } from '#modules/context/attachment.bytes.js';
 import type { ChatMessage } from './chat.message.repository.js';
 import type { ChatThread } from './chat.thread.repository.js';
 import type { ChatTool } from './chat.tools.js';
 
+/** An image a person sent, as a model is given it. */
+export interface ChatImage {
+    contentType: AttachmentImageType;
+    bytes: Buffer;
+}
+
+/**
+ * A message before this turn. `images` are the bytes to replay, which `ChatService` loads only for
+ * recent messages on the engine that replays; `imageCount` says how many the message carried, so an
+ * engine can say where the rest were rather than losing that they existed.
+ */
+export type ChatTurnHistory = Pick<ChatMessage, 'role' | 'content' | 'engineMessages'> & {
+    imageCount?: number;
+    images?: ChatImage[];
+};
+
 export interface ChatTurnInput {
     thread: Pick<ChatThread, 'id' | 'engineSessionId'>;
     /** The thread's messages before this turn, oldest first. The 'api' engine replays them; 'cli' resumes its session instead. */
-    history: Pick<ChatMessage, 'role' | 'content' | 'engineMessages'>[];
-    /** What the person just said. */
+    history: ChatTurnHistory[];
+    /** What the person just said. Empty when they sent only images. */
     text: string;
+    /** What the person just sent with it. */
+    images?: ChatImage[];
     system: string;
     tools: ChatTool[];
     /** The `chat-engine` setting's provider and model. 'cli' runs Claude whatever the provider says. */

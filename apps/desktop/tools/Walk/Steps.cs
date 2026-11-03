@@ -1,3 +1,7 @@
+using Avalonia.Input.Platform;
+using Avalonia.Platform;
+using Avalonia.Media.Imaging;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -65,6 +69,12 @@ internal static class Steps
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
         var signedIn = DateTime.UtcNow;
+        if (only == "images")
+        {
+            await ChatImagesAsync(walk, home);
+            return;
+        }
+
         if (only == "dock")
         {
             await DockByDefaultAsync(walk);
@@ -1211,6 +1221,116 @@ internal static class Steps
         await walk.UntilAsync("back on the card", () => walk.Shell.Page == card);
     }
 
+    /// <summary>A real image through a real turn: refused, scaled, shown in the box, sent, answered and drawn from the API.</summary>
+    private static async Task ChatImagesAsync(Walker walk, ThreadsViewModel home)
+    {
+        home.NewChat();
+        var chat = home.Chat!;
+        await walk.UntilAsync("the greeting", () => chat.Empty);
+
+        chat.AddImage("note.heic", [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+        await walk.UntilAsync("a HEIC refused in words", () => chat.Error?.Contains("not a PNG", StringComparison.Ordinal) == true && !chat.HasPending);
+
+        chat.AddImage("big.png", SolidPng(3000, 1800, 0xFF, 0x00, 0x00));
+        await walk.UntilAsync("the large image in the box", () => chat.Pending.Count == 1);
+        var pending = chat.Pending[0];
+        await walk.UntilAsync("it scaled to the longest edge a model takes", () => pending.Picture.PixelSize.Width == ChatImages.MaxEdge && chat.Error is null);
+        await walk.UntilAsync("an image alone being enough to send", () => chat.CanSend);
+        chat.AddImage("second.png", SolidPng(320, 200, 0x00, 0x00, 0xFF));
+        await walk.UntilAsync("the second image in the box", () => chat.Pending.Count == 2);
+        walk.Shot("13b-chat-images-in-box");
+        chat.RemoveImageCommand.Execute(chat.Pending[1]);
+        await walk.UntilAsync("the second image removed", () => chat.Pending.Count == 1);
+
+        var clipboard = walk.Clipboard;
+        await clipboard.SetTextAsync("pasted words");
+        walk.Chord(PhysicalKey.V, RawInputModifiers.Meta);
+        await walk.UntilAsync("Cmd+V pasting text as text", () => chat.Composer == "pasted words" && chat.Pending.Count == 1);
+        chat.Composer = null;
+        using (var picture = new Bitmap(new MemoryStream(SolidPng(200, 120, 0x00, 0xFF, 0x00))))
+        {
+            await clipboard.SetBitmapAsync(picture);
+            walk.Chord(PhysicalKey.V, RawInputModifiers.Meta);
+            await walk.UntilAsync("Cmd+V pasting a picture as an image", () => chat.Pending.Count == 2 && string.IsNullOrEmpty(chat.Composer));
+        }
+
+        chat.RemoveImageCommand.Execute(chat.Pending[1]);
+        chat.Composer = "What colour is this image? Answer in one word.";
+        chat.SendCommand.Execute(null);
+        await walk.UntilAsync("the box empty as it goes", () => !chat.HasPending && chat.Sending);
+        walk.Shot("13c-chat-image-sending");
+        await walk.UntilAsync("the chat answered, or the refusal said", () => chat.Idle, 120);
+        Console.WriteLine($"     chat images: answer '{chat.Entries.OfType<AnswerEntry>().LastOrDefault()?.Text}', error: {chat.Error}");
+        await walk.UntilAsync(
+            "the image drawn from the API",
+            () => chat.Entries.OfType<UserEntry>().LastOrDefault()?.Images is [{ Picture: not null }]);
+        walk.Shot("13d-chat-image-sent");
+
+        var seen = chat.Id;
+        chat.Composer = "What colour was the image I just sent? Answer in one word.";
+        chat.SendCommand.Execute(null);
+        await walk.UntilAsync("a follow-up going", () => chat.Sending);
+        await walk.UntilAsync("a follow-up answered", () => chat.Idle, 120);
+        var remembered = chat.Entries.OfType<AnswerEntry>().Last().Text;
+        Console.WriteLine($"     chat images: follow-up answer '{remembered}', error: {chat.Error}");
+        await walk.UntilAsync("the next turn still knowing the image", () => remembered.Contains("red", StringComparison.OrdinalIgnoreCase));
+
+        home.NewChat();
+        await home.AnsweredAsync();
+        home.Open(home.Threads.First(thread => thread.Id == seen));
+        var reopened = home.Chat!;
+        await walk.UntilAsync(
+            "the image still there on reopening the thread",
+            () => reopened.Id == seen && reopened.Entries.OfType<UserEntry>().FirstOrDefault()?.Images is [{ Picture: not null }]);
+
+        home.NewChat();
+        var alone = home.Chat!;
+        alone.AddImage("alone.png", SolidPng(200, 120, 0x00, 0x00, 0xFF));
+        alone.SendCommand.Execute(null);
+        await walk.UntilAsync("an image alone going", () => alone.Sending);
+        await walk.UntilAsync("an image alone answered", () => alone.Idle, 120);
+        await walk.UntilAsync(
+            "an image alone, drawn with no empty bubble",
+            () => alone.Error is null && alone.Entries.OfType<UserEntry>().FirstOrDefault() is { HasText: false, Images: [{ Picture: not null }] });
+        await walk.UntilAsync("that chat named for it", () => home.Threads.Any(thread => thread.Current && thread.Title == "Image"));
+        walk.Shot("13e-chat-image-alone");
+
+        // The thread going out from under it is a real refusal at the first upload, without needing a broken server.
+        Walker.Query($"delete from wilson.chat_threads where id = {alone.Id}");
+        alone.Composer = "This will not arrive.";
+        alone.AddImage("retry.png", SolidPng(200, 120, 0xFF, 0xFF, 0x00));
+        alone.SendCommand.Execute(null);
+        await walk.UntilAsync("a failed send going", () => alone.Sending);
+        await walk.UntilAsync(
+            "a failed send putting the words and the image back",
+            () => alone.Idle && alone.Composer == "This will not arrive." && alone.Pending.Count == 1 && alone.Error is not null);
+        Console.WriteLine($"     chat images: failed send said '{alone.Error}'");
+    }
+
+    /// <summary>A PNG of one colour, written the way a picture from the clipboard is.</summary>
+    private static byte[] SolidPng(int width, int height, byte red, byte green, byte blue)
+    {
+        using var picture = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Opaque);
+        using (var locked = picture.Lock())
+        {
+            var row = new byte[width * 4];
+            for (var x = 0; x < width; x++)
+            {
+                row[x * 4] = blue;
+                row[(x * 4) + 1] = green;
+                row[(x * 4) + 2] = red;
+                row[(x * 4) + 3] = 0xFF;
+            }
+
+            for (var y = 0; y < height; y++)
+            {
+                Marshal.Copy(row, 0, locked.Address + (y * locked.RowBytes), row.Length);
+            }
+        }
+
+        return PendingImage.PngOf(picture);
+    }
+
     private static async Task ChatAsync(Walker walk, ThreadsViewModel home)
     {
         home.NewChat();
@@ -1256,6 +1376,7 @@ internal static class Steps
         Console.WriteLine($"     chat: entries {chat.Entries.Count}, error: {chat.Error}");
         await walk.UntilAsync("the chat named in the rail", () => home.Threads.Any(thread => thread.Current && thread.Title != "New chat"));
         walk.Shot("13-chat");
+        await ChatImagesAsync(walk, home);
 
         walk.Type("Reply with a level two heading, a sentence with bold, italic and inline code, a link to https://example.com, a two item list, a short code block and a blockquote. Mention no tools.");
         walk.Press(Key.Enter, PhysicalKey.Enter);

@@ -27,6 +27,13 @@ class ChatTest {
     fun anUnrelatedAngleBracketIsKept() = assertEquals("1 < 2", draftWithoutSuggestions("1 < 2"))
 
     @Test
+    fun aMessagesImagesAreCounted() {
+        assertEquals(null, imagesCaption(0))
+        assertEquals("1 image", imagesCaption(1))
+        assertEquals("3 images", imagesCaption(3))
+    }
+
+    @Test
     fun onlyAPendingUnexpiredActionCanBeAnswered() {
         assertTrue(isAwaiting(action(ChatPendingActionStatus.PENDING, "2026-10-31T12:05:00Z"), NOW))
         assertFalse(isAwaiting(action(ChatPendingActionStatus.PENDING, "2026-10-31T11:55:00Z"), NOW))

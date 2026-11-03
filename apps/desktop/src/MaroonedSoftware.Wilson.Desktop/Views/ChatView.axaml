@@ -7,9 +7,24 @@
     x:DataType="vm:ChatViewModel">
     <UserControl.DataTemplates>
         <DataTemplate DataType="vm:UserEntry">
-            <Border HorizontalAlignment="Right" MaxWidth="640" Background="{DynamicResource Panel}" CornerRadius="16" Padding="14,8">
-                <SelectableTextBlock Text="{Binding Text}" FontSize="14" TextWrapping="Wrap" />
-            </Border>
+            <StackPanel HorizontalAlignment="Right" MaxWidth="640" Spacing="6">
+                <ItemsControl ItemsSource="{Binding Images}" IsVisible="{Binding HasImages}" HorizontalAlignment="Right">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel HorizontalAlignment="Right" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ChatImageRow">
+                            <Border CornerRadius="12" ClipToBounds="True" Margin="4,0,0,4" Background="{DynamicResource Panel}" ToolTip.Tip="{Binding Filename}">
+                                <Panel>
+                                    <Image Source="{Binding Picture}" MaxWidth="320" MaxHeight="240" Stretch="Uniform" />
+                                    <TextBlock Classes="quiet" Text="{Binding Note}" IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="14,8" />
+                                </Panel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border HorizontalAlignment="Right" Background="{DynamicResource Panel}" CornerRadius="16" Padding="14,8" IsVisible="{Binding HasText}">
+                    <SelectableTextBlock Text="{Binding Text}" FontSize="14" TextWrapping="Wrap" />
+                </Border>
+            </StackPanel>
         </DataTemplate>
         <DataTemplate DataType="vm:AnswerEntry">
             <StackPanel Spacing="8">
@@ -78,6 +93,16 @@
                 <StackPanel MaxWidth="760" Margin="16,20" Spacing="16">
                     <ItemsControl ItemsSource="{Binding Entries}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="16" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding SentImages}" HorizontalAlignment="Right">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel HorizontalAlignment="Right" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PendingImage">
+                                <Border CornerRadius="12" ClipToBounds="True" Margin="4,0,0,4">
+                                    <Image Source="{Binding Picture}" MaxWidth="320" MaxHeight="240" Stretch="Uniform" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <Border HorizontalAlignment="Right" MaxWidth="640" Background="{DynamicResource Panel}" CornerRadius="16" Padding="14,8" IsVisible="{Binding Sent, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <SelectableTextBlock Text="{Binding Sent}" FontSize="14" TextWrapping="Wrap" />

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
+import { ChatAttachmentService } from '#modules/chat/chat.attachment.service.js';
 import { ChatService } from '#modules/chat/chat.service.js';
 import {
     AnswerChatQuestionsRequest,
+    ChatAttachment,
     ChatPendingAction,
     ChatPendingQuestion,
     ChatThread,
@@ -13,6 +15,7 @@ import {
     SendChatMessageRequest,
 } from '../generated/chat.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
+import { MultipartBody } from '@maroonedsoftware/multipart';
 
 /**
  * generated from [chat.ck](../../data/contracts/chat.ck)
@@ -127,6 +130,57 @@ ChatRouter.post('/api/chat/threads/:id/messages', requirePolicy({ policy: 'wilso
     ctx.status = 200;
     ctx.type = 'application/json';
     ctx.body = result;
+});
+
+/**
+ * An image goes up before the message that carries it, so a message's send stays JSON. One that no
+ * message claims is removed a day later.
+ * from [chat.ck](../../data/contracts/chat.ck) `POST /api/chat/threads/{id}/attachments`
+ */
+ChatRouter.post('/api/chat/threads/:id/attachments', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['multipart']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const multipartBody = ctx.parsedBody as MultipartBody;
+
+    const service = ctx.container.get(ChatAttachmentService);
+    const result: ChatAttachment = await service.upload(id, multipartBody);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * `attachmentId`, not a second `id`: a `params` block is keyed by name. One 404 covers a thread that
+ * does not exist and an attachment id that does not exist, belongs to another thread, or is not an id.
+ * from [chat.ck](../../data/contracts/chat.ck) `GET /api/chat/threads/{id}/attachments/{attachmentId}`
+ */
+ChatRouter.get('/api/chat/threads/:id/attachments/:attachmentId', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { id, attachmentId } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+            attachmentId: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(ChatAttachmentService);
+    const result: {
+        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+        body: Buffer;
+        headers: { xContentTypeOptions: string; contentSecurityPolicy: string };
+    } = await service.bytes(id, attachmentId);
+
+    ctx.status = 200;
+    ctx.set('x-content-type-options', String(result.headers['xContentTypeOptions']));
+    ctx.set('content-security-policy', String(result.headers['contentSecurityPolicy']));
+    ctx.type = result.contentType;
+    ctx.body = result.body;
 });
 
 /**

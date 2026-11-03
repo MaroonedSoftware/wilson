@@ -4,12 +4,21 @@ import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
+import { ChatAttachmentRepository } from '#modules/chat/chat.attachment.repository.js';
 import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatPendingActionRepository } from '#modules/chat/chat.pending.action.repository.js';
 import { ChatQuestionRepository } from '#modules/chat/chat.question.repository.js';
-import { ChatService, NEW_THREAD_TITLE, NOTHING_MORE, titleFrom } from '#modules/chat/chat.service.js';
+import {
+    ChatService,
+    IMAGE_THREAD_TITLE,
+    MAX_IMAGES_PER_MESSAGE,
+    NEW_THREAD_TITLE,
+    REPLAYED_IMAGE_MESSAGES,
+    NOTHING_MORE,
+    titleFrom,
+} from '#modules/chat/chat.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { testDb } from '#tests/support/test.db.js';
@@ -50,6 +59,7 @@ describe('ChatService', () => {
             new ConsoleLogger(),
             new ChatThreadRepository(db),
             new ChatMessageRepository(db),
+            new ChatAttachmentRepository(db),
             actions,
             questions,
             catalog,
@@ -66,6 +76,72 @@ describe('ChatService', () => {
         project: 'wilson',
         arguments: { id: '0007', body: { stage: 'implementing' } },
         summary: 'Move 0007 to implementing.',
+    });
+
+    describe('images', () => {
+        const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+        const upload = async (thread: string, filename = 'a.png') =>
+            (await new ChatAttachmentRepository(db).insert(thread, { filename, contentType: 'image/png', contentHash: 'hash', bytes: PNG })).id;
+        const imagesIn = (prompts: unknown[]) =>
+            (prompts.at(-1) as { role: string; content: { type: string }[] }[])
+                .filter(message => message.role === 'user')
+                .map(message => message.content.filter(part => part.type === 'file').length);
+
+        it('sends images to the model, stores them on the message, and names an image-only thread', async () => {
+            const { service, model } = setup([says('A red square.')]);
+            const thread = await service.startThread();
+            const id = await upload(thread.id);
+
+            const result = await service.sendMessage(thread.id, { text: '', attachments: [id] });
+
+            expect(imagesIn(model.prompts)).toEqual([1]);
+            expect(result.message.attachments).toMatchObject([{ id, filename: 'a.png', contentType: 'image/png' }]);
+            expect(result.reply.attachments).toBeUndefined();
+
+            const detail = await service.getThread(thread.id);
+            expect(detail.thread.title).toBe(IMAGE_THREAD_TITLE);
+            expect(detail.messages.map(message => message.attachments?.length)).toEqual([1, undefined]);
+        });
+
+        it('refuses a message with neither text nor an image, and one with too many images', async () => {
+            const { service } = setup([]);
+            const thread = await service.startThread();
+
+            await expect(service.sendMessage(thread.id, { text: '  ' })).rejects.toMatchObject({ statusCode: 400 });
+            const ids = await Promise.all(Array.from({ length: MAX_IMAGES_PER_MESSAGE + 1 }, () => upload(thread.id)));
+            await expect(service.sendMessage(thread.id, { text: 'hi', attachments: ids })).rejects.toMatchObject({ statusCode: 400 });
+            expect((await service.getThread(thread.id)).messages).toEqual([]);
+        });
+
+        it("refuses an image already sent, another thread's, and an id no row could have", async () => {
+            const { service } = setup([says('Seen.')]);
+            const thread = await service.startThread();
+            const other = await service.startThread();
+            const id = await upload(thread.id);
+            await service.sendMessage(thread.id, { text: 'one', attachments: [id] });
+
+            await expect(service.sendMessage(thread.id, { text: 'again', attachments: [id] })).rejects.toMatchObject({ statusCode: 400 });
+            await expect(service.sendMessage(thread.id, { text: 'theirs', attachments: [await upload(other.id)] })).rejects.toMatchObject({
+                statusCode: 400,
+            });
+            await expect(service.sendMessage(thread.id, { text: 'junk', attachments: ['0x10'] })).rejects.toMatchObject({ statusCode: 400 });
+            expect((await service.getThread(thread.id)).messages).toHaveLength(2);
+        });
+
+        it('resends the images of only the most recent messages that have any', async () => {
+            const count = REPLAYED_IMAGE_MESSAGES + 1;
+            const { service, model } = setup([...Array.from({ length: count }, () => says('Seen.')), says('Still here.')]);
+            const thread = await service.startThread();
+            for (let i = 0; i < count; i++) await service.sendMessage(thread.id, { text: `image ${i}`, attachments: [await upload(thread.id)] });
+
+            await service.sendMessage(thread.id, { text: 'and now?' });
+
+            expect(imagesIn(model.prompts)).toEqual([0, 1, 1, 1, 0]);
+            const oldest = (model.prompts.at(-1) as { role: string; content: { type: string; text?: string }[] }[]).find(
+                message => message.role === 'user',
+            )!;
+            expect(oldest.content[0]).toMatchObject({ text: '[An earlier image was attached here.]' });
+        });
     });
 
     it('starts an untitled thread on the chosen engine, and names it after its first message', async () => {

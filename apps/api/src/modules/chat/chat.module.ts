@@ -6,6 +6,8 @@ import { requireSession } from '#modules/authentication/request.session.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { ApiChatEngine } from './api.chat.engine.js';
+import { ChatAttachmentRepository } from './chat.attachment.repository.js';
+import { ChatAttachmentService } from './chat.attachment.service.js';
 import { ChatCatalog } from './chat.catalog.js';
 import { CHAT_ENGINE } from './chat.engine.setting.js';
 import { ChatEngineSettingService } from './chat.engine.setting.service.js';
@@ -37,6 +39,8 @@ export const ChatModule: ServerKitModule = {
     setup: async (registry: Registry, _: AppConfig) => {
         registry.register(ChatThreadRepository).useClass(ChatThreadRepository).asTransient();
         registry.register(ChatMessageRepository).useClass(ChatMessageRepository).asTransient();
+        registry.register(ChatAttachmentRepository).useClass(ChatAttachmentRepository).asTransient();
+        registry.register(ChatAttachmentService).useClass(ChatAttachmentService).asTransient();
         registry.register(ChatPendingActionRepository).useClass(ChatPendingActionRepository).asTransient();
         registry.register(ChatQuestionRepository).useClass(ChatQuestionRepository).asTransient();
         registry.register(ChatCatalog).useClass(ChatCatalog).asSingleton();
@@ -61,6 +65,7 @@ export const ChatModule: ServerKitModule = {
                     container.get(Logger),
                     container.get(ChatThreadRepository),
                     container.get(ChatMessageRepository),
+                    container.get(ChatAttachmentRepository),
                     container.get(ChatPendingActionRepository),
                     container.get(ChatQuestionRepository),
                     container.get(ChatCatalog),

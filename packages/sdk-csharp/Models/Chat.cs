@@ -53,6 +53,32 @@ public sealed record ChatOperation
 }
 
 /// <summary>
+/// An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+/// `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+/// the uploader declared.
+/// </summary>
+public sealed record ChatAttachment
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("filename")]
+    public required string Filename { get; init; }
+
+    [JsonPropertyName("contentType")]
+    public required string ContentType { get; init; }
+
+    [JsonPropertyName("byteSize")]
+    public required long ByteSize { get; init; }
+
+    [JsonPropertyName("contentHash")]
+    public required string ContentHash { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>
 /// A change the agent proposed. `pending` until the person decides it; `running` while its operation
 /// runs; then `done` with its `result` or `failed` with its `error`. `declined` when the person said no.
 /// A pending action past `expiresAt` can no longer be confirmed.
@@ -130,8 +156,16 @@ public sealed record RenameChatThreadRequest
     public required string Title { get; init; }
 }
 
+/// <summary>Documentation, not validation, as `AttachImageUpload` is.</summary>
+public sealed record AttachChatImageUpload
+{
+    [JsonPropertyName("file")]
+    public required byte[] File { get; init; }
+}
+
 public sealed record SendChatMessageRequest
 {
+    /// <summary>May be empty when `attachments` is not.</summary>
     [JsonPropertyName("text")]
     public required string Text { get; init; }
 
@@ -139,6 +173,14 @@ public sealed record SendChatMessageRequest
     [JsonPropertyName("project")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Project { get; init; }
+
+    /// <summary>
+    /// Ids from `POST .../attachments`, each usable once, at most five. A send that fails after the
+    /// message was stored has used them, so a retry uploads again.
+    /// </summary>
+    [JsonPropertyName("attachments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Attachments { get; init; }
 }
 
 public sealed record DecideChatActionRequest
@@ -169,6 +211,11 @@ public sealed record ChatMessage
     [JsonPropertyName("suggestions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Suggestions { get; init; }
+
+    /// <summary>The images a person sent with this message, left out when there are none.</summary>
+    [JsonPropertyName("attachments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ChatAttachment>? Attachments { get; init; }
 }
 
 /// <summary>One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it.</summary>

@@ -35,6 +35,8 @@ export interface NewChatMessage {
     operations?: ChatOperation[];
     suggestions?: string[];
     engineMessages?: unknown;
+    /** Uploads this message carries, claimed as it is stored so it can never end up without them. */
+    attachmentIds?: string[];
 }
 
 const toMessage = (row: Selectable<WilsonChatMessages>): ChatMessage => ({
@@ -63,6 +65,9 @@ export class ChatMessageRepository {
      * The same advisory lock `PlanTurnRepository.append` takes, keyed by thread: a thread's first
      * message has no row to lock with `forUpdate`, and two appends racing for the same `seq` would
      * otherwise collide on the primary key.
+     *
+     * Claiming `attachmentIds` in the same transaction means a message and its images are stored
+     * together or not at all, and an id already used, or from another thread, fails the whole append.
      */
     async append(threadId: string, message: NewChatMessage): Promise<ChatMessage> {
         return this.db.transaction().execute(async trx => {
@@ -89,6 +94,19 @@ export class ChatMessageRepository {
                 })
                 .returningAll()
                 .executeTakeFirstOrThrow();
+
+            if (message.attachmentIds?.length) {
+                const claimed = await trx
+                    .updateTable('wilson.chatAttachments')
+                    .set({ messageSeq: row.seq })
+                    .where('threadId', '=', BigInt(threadId))
+                    .where('messageSeq', 'is', null)
+                    .where('id', 'in', message.attachmentIds.map(BigInt))
+                    .executeTakeFirst();
+                if (Number(claimed.numUpdatedRows) !== message.attachmentIds.length) {
+                    throw new Error(`chat thread ${threadId}: an attachment on this message was already used or is not in this thread`);
+                }
+            }
 
             await trx.updateTable('wilson.chatThreads').set({ updatedAt: row.createdAt }).where('id', '=', BigInt(threadId)).execute();
 

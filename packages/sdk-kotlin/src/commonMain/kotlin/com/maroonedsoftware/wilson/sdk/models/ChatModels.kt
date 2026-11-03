@@ -28,6 +28,21 @@ data class ChatOperation(
 )
 
 /**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ */
+@Serializable
+data class ChatAttachment(
+    val id: String,
+    val filename: String,
+    val contentType: String,
+    val byteSize: Long,
+    val contentHash: String,
+    val createdAt: Instant,
+)
+
+/**
  * A change the agent proposed. `pending` until the person decides it; `running` while its operation
  * runs; then `done` with its `result` or `failed` with its `error`. `declined` when the person said no.
  * A pending action past `expiresAt` can no longer be confirmed.
@@ -70,11 +85,23 @@ data class RenameChatThreadRequest(
     val title: String,
 )
 
+/** Documentation, not validation, as `AttachImageUpload` is. */
+@Serializable
+data class AttachChatImageUpload(
+    val file: ByteArray,
+)
+
 @Serializable
 data class SendChatMessageRequest(
+    /** May be empty when `attachments` is not. */
     val text: String,
     /** The project of the page the person is on, if any: the agent assumes it unless told otherwise. */
     val project: String? = null,
+    /**
+     * Ids from `POST .../attachments`, each usable once, at most five. A send that fails after the
+     * message was stored has used them, so a retry uploads again.
+     */
+    val attachments: List<String>? = null,
 )
 
 @Serializable
@@ -92,6 +119,8 @@ data class ChatMessage(
     val createdAt: Instant,
     /** What the answer offers to ask next, left out when it offers nothing. */
     val suggestions: List<String>? = null,
+    /** The images a person sent with this message, left out when there are none. */
+    val attachments: List<ChatAttachment>? = null,
 )
 
 /** One of the 1-4 prompts an `ask_user` call asks together, as the agent asked it. */

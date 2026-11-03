@@ -1,5 +1,6 @@
 import type {
     AnswerChatQuestionsRequest,
+    ChatAttachment,
     ChatPendingAction,
     ChatPendingQuestion,
     ChatThread,
@@ -9,9 +10,16 @@ import type {
     RenameChatThreadRequest,
     SendChatMessageRequest,
 } from './types/chat.js';
-import { reviveChatPendingAction, reviveChatPendingQuestion, reviveChatThread, reviveChatThreadDetail, reviveChatTurnResult } from './types/chat.js';
+import {
+    reviveChatAttachment,
+    reviveChatPendingAction,
+    reviveChatPendingQuestion,
+    reviveChatThread,
+    reviveChatThreadDetail,
+    reviveChatTurnResult,
+} from './types/chat.js';
 import type { SdkFetch } from './sdk-options.js';
-import { bigIntReplacer, parseJson } from './sdk-options.js';
+import { bigIntReplacer, parseJson, readContentType } from './sdk-options.js';
 
 /**
  * generated from [chat.ck](../../../apps/api/data/contracts/chat.ck)
@@ -73,6 +81,45 @@ export class ChatClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return reviveChatTurnResult(await parseJson<ChatTurnResult>(result));
+    }
+
+    /**
+     * @name Upload a chat image
+     * @description An image goes up before the message that carries it, so a message's send stays JSON. One that no
+     * message claims is removed a day later.
+     */
+    async uploadAChatImage(id: string, body: FormData): Promise<ChatAttachment> {
+        const result = await this.fetch(`/api/chat/threads/${encodeURIComponent(id)}/attachments`, {
+            method: 'POST',
+            body: body,
+        });
+        return reviveChatAttachment(await parseJson<ChatAttachment>(result));
+    }
+
+    /**
+     * @name Fetch a chat image
+     * @description `attachmentId`, not a second `id`: a `params` block is keyed by name. One 404 covers a thread that
+     * does not exist and an attachment id that does not exist, belongs to another thread, or is not an id.
+     */
+    async fetchAChatImage(
+        id: string,
+        attachmentId: string,
+    ): Promise<{
+        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+        data: Blob;
+        headers: { xContentTypeOptions: string; contentSecurityPolicy: string };
+    }> {
+        const result = await this.fetch(`/api/chat/threads/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, {
+            method: 'GET',
+        });
+        return {
+            contentType: readContentType(result) as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
+            data: await result.blob(),
+            headers: {
+                xContentTypeOptions: result.headers.get('x-content-type-options')!,
+                contentSecurityPolicy: result.headers.get('content-security-policy')!,
+            },
+        };
     }
 
     /**

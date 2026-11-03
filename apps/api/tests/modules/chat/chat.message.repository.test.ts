@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { ChatAttachmentRepository } from '#modules/chat/chat.attachment.repository.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import type { DB } from '#modules/data/db.js';
@@ -28,6 +29,22 @@ describe('ChatMessageRepository', () => {
 
         expect([first.seq, second.seq, third.seq]).toEqual([1, 2, 3]);
         expect(elsewhere.seq).toBe(1);
+    });
+
+    it('claims attachments as it stores the message, and stores neither when one cannot be claimed', async () => {
+        const attachments = new ChatAttachmentRepository(db);
+        const image = { filename: 'a.png', contentType: 'image/png', contentHash: 'hash', bytes: Buffer.from([1]) };
+        const thread = await newThread();
+        const other = await newThread();
+        const mine = await attachments.insert(thread, image);
+        const theirs = await attachments.insert(other, image);
+
+        const message = await messages().append(thread, { role: 'user', content: 'look', attachmentIds: [mine.id] });
+        expect((await attachments.read(thread, mine.id))?.messageSeq).toBe(message.seq);
+
+        await expect(messages().append(thread, { role: 'user', content: 'again', attachmentIds: [mine.id] })).rejects.toThrow(/already used/);
+        await expect(messages().append(thread, { role: 'user', content: 'theirs', attachmentIds: [theirs.id] })).rejects.toThrow(/already used/);
+        expect(await messages().since(thread)).toHaveLength(1);
     });
 
     it('gives concurrent appends to one thread distinct, gapless numbers', async () => {
