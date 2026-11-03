@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { Alert, Badge, Button, Group, Paper, ScrollArea, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
-import type { CardDiff, CardDiffFile, Review, ReviewComment } from '@wilson/sdk';
+import type { CardDiff, CardDiffFile, Review, ReviewComment, ReviewTourAnchor } from '@wilson/sdk';
 import { type DiffHunk, type DiffLine, parsePatch } from '#src/lib/patch.js';
 import { reasonFor } from '#src/lib/mutations.js';
 import { useAddReviewComment, useApproveReview, useOpenReview, useRequestChanges, useResolveReviewComment, useReviewState } from '#src/lib/review.js';
@@ -36,7 +36,19 @@ const keyOf = (line: DiffLine): LineKey | undefined => {
  * `onSelect` is present only while comments can be written, and turns the row into the click target that
  * opens `CommentComposer` beneath it. `selected` highlights the row a composer is open for.
  */
-function DiffLineRow({ line, selected, onSelect }: { line: DiffLine; selected: boolean; onSelect: (() => void) | undefined }) {
+function DiffLineRow({
+    file,
+    line,
+    selected,
+    highlighted,
+    onSelect,
+}: {
+    file: string;
+    line: DiffLine;
+    selected: boolean;
+    highlighted: boolean;
+    onSelect: (() => void) | undefined;
+}) {
     const color = line.kind === 'add' ? 'teal' : line.kind === 'remove' ? 'red' : undefined;
     const marker = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' ';
 
@@ -45,6 +57,9 @@ function DiffLineRow({ line, selected, onSelect }: { line: DiffLine; selected: b
             span
             c={color}
             onClick={onSelect}
+            data-diff-file={file}
+            data-diff-old={line.oldLine}
+            data-diff-new={line.newLine}
             style={{
                 display: 'grid',
                 gridTemplateColumns: '3.5em 3.5em 1.5em 1fr',
@@ -52,7 +67,7 @@ function DiffLineRow({ line, selected, onSelect }: { line: DiffLine; selected: b
                 fontSize: 'var(--mantine-font-size-xs)',
                 whiteSpace: 'pre-wrap',
                 cursor: onSelect ? 'pointer' : undefined,
-                backgroundColor: selected ? 'var(--mantine-color-blue-light)' : undefined,
+                backgroundColor: selected ? 'var(--mantine-color-blue-light)' : highlighted ? 'var(--mantine-color-yellow-light)' : undefined,
             }}
         >
             <Text span c="dimmed" ta="right" pr={6}>
@@ -161,6 +176,8 @@ function CommentCard({ comment, onResolve }: { comment: ReviewComment; onResolve
 interface FileReview {
     /** The line a composer is open for in this file. */
     selected: LineKey | undefined;
+    /** The places the tour's current step points at in this file. */
+    highlights: ReviewTourAnchor[];
     /** This file's comments that locate in the current diff, and are not resolved. */
     comments: ReviewComment[];
     /** Absent while comments can't be written: outside `ready`, or until the review has loaded. */
@@ -172,7 +189,13 @@ interface FileReview {
     saveError: Error | null;
 }
 
-function HunkView({ hunk, review }: { hunk: DiffHunk; review: FileReview }) {
+/** Whether a tour anchor covers this line, on the side the anchor names. */
+const covers = (anchor: ReviewTourAnchor, line: DiffLine): boolean => {
+    const number = anchor.side === 'old' ? line.oldLine : line.newLine;
+    return number !== undefined && number >= anchor.startLine && number <= anchor.endLine;
+};
+
+function HunkView({ file, hunk, review }: { file: string; hunk: DiffHunk; review: FileReview }) {
     return (
         <Stack gap={0}>
             <Text size="xs" c="dimmed" style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}>
@@ -184,7 +207,13 @@ function HunkView({ hunk, review }: { hunk: DiffHunk; review: FileReview }) {
                 const comments = key ? review.comments.filter(comment => comment.side === key.side && comment.currentLine === key.line) : [];
                 return (
                     <Fragment key={index}>
-                        <DiffLineRow line={line} selected={selected} onSelect={key && review.onSelect ? () => review.onSelect!(key) : undefined} />
+                        <DiffLineRow
+                            file={file}
+                            line={line}
+                            selected={selected}
+                            highlighted={review.highlights.some(anchor => covers(anchor, line))}
+                            onSelect={key && review.onSelect ? () => review.onSelect!(key) : undefined}
+                        />
                         {comments.map(comment => (
                             <CommentCard key={comment.id} comment={comment} onResolve={review.onResolve} />
                         ))}
@@ -228,7 +257,7 @@ function FileDiff({ file, review }: { file: CardDiffFile; review: FileReview }) 
         <ScrollArea.Autosize mah={480} type="auto">
             <Stack gap="sm" p={4}>
                 {hunks.map((hunk, index) => (
-                    <HunkView key={index} hunk={hunk} review={review} />
+                    <HunkView key={index} file={file.path} hunk={hunk} review={review} />
                 ))}
             </Stack>
         </ScrollArea.Autosize>
@@ -334,7 +363,18 @@ function VerdictPanel({
  *
  * Only a card in `ready` can be written to, and that is `reviewable`. Anywhere else a review is read-only.
  */
-export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefined; error: Error | null | undefined; reviewable: boolean }) {
+export function DiffPane({
+    diff,
+    error,
+    reviewable,
+    highlights = [],
+}: {
+    diff: CardDiff | undefined;
+    error: Error | null | undefined;
+    reviewable: boolean;
+    /** The places the review tour's current step points at. */
+    highlights?: ReviewTourAnchor[];
+}) {
     const { project, cardId = '' } = useParams({ strict: false });
     const [selected, setSelected] = useState<{ file: string; key: LineKey } | undefined>(undefined);
     const loaded = diff !== undefined;
@@ -377,6 +417,7 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
 
     const reviewOf = (file: CardDiffFile): FileReview => ({
         selected: selected?.file === file.path ? selected.key : undefined,
+        highlights: highlights.filter(anchor => anchor.file === file.path),
         comments: comments.filter(comment => comment.file === file.path && comment.location === 'found' && comment.status !== 'resolved'),
         onSelect: canWrite
             ? key => {
@@ -419,6 +460,17 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
                     {reasonFor(open.error)}
                 </Alert>
             )}
+            {canWrite && (
+                <VerdictPanel
+                    review={review}
+                    openCount={openComments.length}
+                    onRequest={() => requestChanges.mutate({ head: review.head })}
+                    requesting={requestChanges.isPending}
+                    onApprove={() => approve.mutate({ head: review.head })}
+                    approving={approve.isPending}
+                    error={requestChanges.error ?? approve.error}
+                />
+            )}
             {diff.truncated && (
                 <Alert color="yellow" title="This diff is large">
                     Some files past the response's size budget are not shown here.
@@ -433,17 +485,6 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
                 <FileEntry key={file.path} file={file} review={reviewOf(file)} />
             ))}
             <OutdatedComments comments={outdated} onResolve={onResolve} />
-            {canWrite && (
-                <VerdictPanel
-                    review={review}
-                    openCount={openComments.length}
-                    onRequest={() => requestChanges.mutate({ head: review.head })}
-                    requesting={requestChanges.isPending}
-                    onApprove={() => approve.mutate({ head: review.head })}
-                    approving={approve.isPending}
-                    error={requestChanges.error ?? approve.error}
-                />
-            )}
         </Stack>
     );
 }

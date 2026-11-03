@@ -108,6 +108,7 @@ beforeEach(() => {
     vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
     vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
     vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    vi.spyOn(ReviewClient.prototype, 'listReviewTurns').mockResolvedValue([]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     Element.prototype.scrollIntoView = vi.fn();
@@ -141,7 +142,7 @@ afterEach(() => {
 async function openDiffTab() {
     await screen.findByText('Do the thing');
     await act(async () => {
-        fireEvent.click(await screen.findByRole('tab', { name: 'Diff' }));
+        fireEvent.click(await screen.findByRole('tab', { name: /^(Diff|Review)$/ }));
     });
 }
 

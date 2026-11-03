@@ -8,6 +8,7 @@ import { CardAttempts } from '#src/components/CardAttempts.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
+import { ReviewPane } from '#src/components/ReviewPane.js';
 import { DiffPane } from '#src/components/DiffPane.js';
 import { DraftPane } from '#src/components/DraftPane.js';
 import { LiveActivity } from '#src/components/LiveActivity.js';
@@ -566,7 +567,7 @@ export function CardDetailView({
                 <Tabs defaultValue="plan" onChange={value => value === 'diff' && onDiffTabOpen()}>
                     <Tabs.List>
                         <Tabs.Tab value="plan">Plan</Tabs.Tab>
-                        <Tabs.Tab value="diff">Diff</Tabs.Tab>
+                        <Tabs.Tab value="diff">{card.stage === 'ready' ? 'Review' : 'Diff'}</Tabs.Tab>
                     </Tabs.List>
                     <Tabs.Panel value="plan" pt="sm">
                         <Stack gap={6}>
@@ -578,7 +579,11 @@ export function CardDetailView({
                         </Stack>
                     </Tabs.Panel>
                     <Tabs.Panel value="diff" pt="sm">
-                        <DiffPane diff={diff} error={diffError} reviewable={card.stage === 'ready'} />
+                        {card.stage === 'ready' ? (
+                            <ReviewPane diff={diff} error={diffError} project={project} cardId={card.id} />
+                        ) : (
+                            <DiffPane diff={diff} error={diffError} reviewable={false} />
+                        )}
                     </Tabs.Panel>
                 </Tabs>
             )}
