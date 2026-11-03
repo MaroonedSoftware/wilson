@@ -1,0 +1,190 @@
+// @vitest-environment jsdom
+//
+// The stats page through the real route tree: header link, the window picker, and the live refresh
+// that rides `__root.tsx`'s one feed connection.
+import { createElement } from 'react';
+import { DateTime } from 'luxon';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
+import { MantineProvider } from '@mantine/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BoardClient, HealthClient } from '@wilson/sdk';
+import type { Health, ProjectStats } from '@wilson/sdk';
+import { routeTree } from '../src/routeTree.gen.js';
+
+const counts = (overrides: Partial<ProjectStats['total']> = {}) => ({
+    attempts: 0,
+    passed: 0,
+    failed: 0,
+    interrupted: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    ...overrides,
+});
+
+const stats: ProjectStats = {
+    since: DateTime.utc(2026, 1, 13),
+    until: DateTime.utc(2026, 1, 15),
+    zone: 'America/New_York',
+    total: {
+        ...counts({ attempts: 4, passed: 3, failed: 1, interrupted: 1, inputTokens: 1_000_000, cachedInputTokens: 750_000, outputTokens: 12_345 }),
+        cards: 2,
+    },
+    stages: [
+        {
+            stage: 'implementing',
+            cards: 2,
+            ...counts({ attempts: 3, passed: 2, failed: 1, interrupted: 1, inputTokens: 900_000, cachedInputTokens: 700_000, outputTokens: 12_000 }),
+        },
+        { stage: 'review', cards: 1, ...counts({ attempts: 1, passed: 1, inputTokens: 100_000, cachedInputTokens: 50_000, outputTokens: 345 }) },
+    ],
+    days: [
+        { date: '2026-01-13', ...counts({ attempts: 4, passed: 3, failed: 1, outputTokens: 12_345 }) },
+        { date: '2026-01-14', ...counts() },
+    ],
+    topCards: [
+        { cardId: '0001', cardTitle: 'Ship it', ...counts({ attempts: 3, outputTokens: 12_000 }) },
+        { cardId: '0002', ...counts({ attempts: 1, outputTokens: 345 }) },
+    ],
+};
+
+class FakeEventSource {
+    static instances: FakeEventSource[] = [];
+    onopen: (() => void) | undefined;
+    onerror: (() => void) | undefined;
+    private readonly listeners = new Map<string, (event: MessageEvent) => void>();
+
+    constructor(public readonly url: string) {
+        FakeEventSource.instances.push(this);
+    }
+
+    addEventListener(type: string, listener: (event: MessageEvent) => void) {
+        this.listeners.set(type, listener);
+    }
+
+    close() {}
+
+    emit(data: unknown) {
+        this.listeners.get('card')?.(new MessageEvent('card', { data: JSON.stringify(data) }));
+    }
+}
+
+const renderApp = () => {
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/projects/demo/stats'] }) });
+    const queryClient = new QueryClient();
+    render(
+        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
+    );
+};
+
+beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal(
+        'ResizeObserver',
+        class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    );
+    vi.stubGlobal(
+        'matchMedia',
+        vi.fn().mockImplementation((query: string) => ({
+            matches: false,
+            media: query,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        })),
+    );
+    vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue({ ok: true, project: 'demo' } as unknown as Health);
+    vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
+});
+
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
+
+describe('the stats page', () => {
+    it('shows the totals, the stages and the top cards, and links from the header', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+
+        expect(await screen.findByText('12.3K')).toBeTruthy();
+        expect(screen.getByText('75% cached')).toBeTruthy();
+        expect(screen.getByText('3 of 4 attempts')).toBeTruthy();
+        expect(screen.getByText('2.0 attempts each, 1 interrupted')).toBeTruthy();
+        expect(screen.getByText('implementing')).toBeTruthy();
+        expect(screen.getByText('67%')).toBeTruthy();
+        expect(screen.getByRole('link', { name: '0001 Ship it' }).getAttribute('href')).toBe('/projects/demo/cards/0001');
+        expect(screen.getByText('0002 (no longer on the board)')).toBeTruthy();
+        expect(screen.getByText(/America\/New_York/)).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Stats' }).getAttribute('href')).toBe('/projects/demo/stats');
+    });
+
+    it('draws a bar only for a day with tokens, sized against the axis', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+
+        const busy = await screen.findByTestId('day-2026-01-13');
+        expect((busy.firstElementChild as HTMLElement).style.height).toBe(`${(12_345 / 20_000) * 100}%`);
+        expect(screen.getByTestId('day-2026-01-14').firstElementChild).toBeNull();
+    });
+
+    it('swaps the chart for a table of every day', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+        fireEvent.click(await screen.findByRole('button', { name: 'Show as table' }));
+
+        expect(screen.getByText('13 Jan')).toBeTruthy();
+        expect(screen.getByText('14 Jan')).toBeTruthy();
+        expect(screen.queryByRole('img', { name: /Output tokens per day/ })).toBeNull();
+    });
+
+    it('reads thirty days first, and another window when asked', async () => {
+        const read = vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+        await screen.findByText('12.3K');
+        expect(read).toHaveBeenCalledWith({ days: 30 });
+
+        fireEvent.click(screen.getByText('7 days'));
+
+        await waitFor(() => expect(read).toHaveBeenCalledWith({ days: 7 }));
+    });
+
+    it('says so when no stage has run', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue({
+            ...stats,
+            total: { ...counts(), cards: 0 },
+            stages: [],
+            topCards: [],
+        });
+
+        renderApp();
+
+        expect(await screen.findByText('No stage has run in this window.')).toBeTruthy();
+    });
+
+    it('reads again when a card event arrives', async () => {
+        const read = vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+
+        renderApp();
+        await screen.findByText('12.3K');
+        await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+        const calls = read.mock.calls.length;
+
+        FakeEventSource.instances[FakeEventSource.instances.length - 1]!.emit({ id: 9, cardId: '0001', stage: 'review', type: 'stage.passed' });
+
+        await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(calls));
+    });
+});
