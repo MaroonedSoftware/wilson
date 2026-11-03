@@ -98,6 +98,18 @@ describe('useMoveCard', () => {
         );
     });
 
+    it("says the server could not be reached when a proxy's page answers in place of the API", async () => {
+        vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(new SdkError(502, 'Bad Gateway', '<html>Bad gateway</html>', new Headers()));
+        const queryClient = new QueryClient();
+
+        const { result } = renderHook(() => useMoveCard('0007'), { wrapper: withClient(queryClient) });
+        await act(async () => {
+            result.current.mutate('implementing');
+        });
+
+        await waitFor(() => expect(notifications.show).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('could not be reached') })));
+    });
+
     it('falls back to the body message when a refusal carries no details.reason', async () => {
         vi.spyOn(wilson.board, 'moveCard').mockRejectedValue(
             new SdkError(500, 'Internal Server Error', { statusCode: 500, message: 'something broke' }, new Headers()),

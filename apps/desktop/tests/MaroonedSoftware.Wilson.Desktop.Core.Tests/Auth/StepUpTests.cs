@@ -98,6 +98,12 @@ public sealed class StepUpTests
     }
 
     [Theory]
+    [InlineData(502, "Wilson's server could not be reached through the proxy in front of it (502). It may be restarting.")]
+    [InlineData(500, "The server answered 500.")]
+    public void ABodyWithNoReasonStillSaysWhatHappened(int status, string expected) =>
+        Assert.Equal(expected, ApiError.Reason(new SdkException(status, "<html>Bad gateway</html>")));
+
+    [Theory]
     [InlineData(null, false)]
     [InlineData("not json", false)]
     [InlineData("[]", false)]
