@@ -429,8 +429,10 @@ public sealed partial class AccountRow(EngineTokenSummary token, bool next, stri
 }
 
 /// <summary>`AccountsControl`: the named accounts Wilson holds, grouped by how each is used. Write only: the list has names and no token.</summary>
-public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInControl machine) : ObservableObject
+public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInControl machine, IClaudeSignIn? signIn = null) : ObservableObject
 {
+    private CancellationTokenSource? _signInStop;
+
     public ObservableCollection<AccountRow> Rotation { get; } = [];
 
     public ObservableCollection<AccountRow> CodexRotation { get; } = [];
@@ -460,12 +462,14 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
     private bool _adding;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TakesSetupToken))]
-    [NotifyPropertyChangedFor(nameof(TakesKey))]
+    [NotifyPropertyChangedFor(nameof(ShowsSignIn))]
+    [NotifyPropertyChangedFor(nameof(CanSignIn))]
+    [NotifyPropertyChangedFor(nameof(PasteHint))]
     private AccountType _newType = AccountRules.Types[0];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSaveNew))]
+    [NotifyPropertyChangedFor(nameof(CanSignIn))]
     [NotifyPropertyChangedFor(nameof(NameTaken))]
     private string? _newName;
 
@@ -478,6 +482,7 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSaveNew))]
+    [NotifyPropertyChangedFor(nameof(CanSignIn))]
     private bool _idle = true;
 
     [ObservableProperty]
@@ -486,9 +491,25 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
     [ObservableProperty]
     private string? _addError;
 
-    public bool TakesSetupToken => NewType.Kind == EngineTokenKind.Subscription;
+    /// <summary>A sign-in is waiting on the person at the browser.</summary>
+    [ObservableProperty]
+    private bool _signingIn;
 
-    public bool TakesKey => !TakesSetupToken;
+    /// <summary>Where the browser was sent, for opening in another one when this one has the wrong account.</summary>
+    [ObservableProperty]
+    private string? _signInLink;
+
+    private bool TakesSetupToken => NewType.Kind == EngineTokenKind.Subscription;
+
+    public bool ShowsSignIn => signIn is not null && TakesSetupToken;
+
+    public bool CanSignIn => ShowsSignIn && Idle && !string.IsNullOrWhiteSpace(NewName) && !NameTaken;
+
+    public string PasteHint => !TakesSetupToken
+        ? "Paste the API key. It is billed per token, so give it a place low in the rotation."
+        : signIn is null
+            ? "Run claude setup-token in a terminal, signed in as the new account, then paste what it prints."
+            : "Or run claude setup-token in a terminal and paste what it prints.";
 
     /// <summary>The API would replace that token without a word, which is what Replace token is for.</summary>
     public bool NameTaken => _tokens.Any(token => token.Name == NewName?.Trim());
@@ -597,7 +618,48 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
     }
 
     [RelayCommand]
-    private void AskAdd() => Adding = true;
+    private void AskAdd()
+    {
+        NewName = AccountRules.SuggestedName(_tokens);
+        Adding = true;
+    }
+
+    /// <summary>Make a token by signing in, and save it as if it had been pasted. It stays in the hidden box when that is refused, so a better name can be tried.</summary>
+    [RelayCommand]
+    private async Task SignInAsync()
+    {
+        using var stop = new CancellationTokenSource();
+        _signInStop = stop;
+        Idle = false;
+        SigningIn = true;
+        SignInLink = null;
+        AddError = null;
+        ClaudeSignInResult? result = null;
+        try
+        {
+            result = await signIn!.RunAsync(new Progress<string>(link => SignInLink = link), stop.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped by the person, who needs no telling.
+        }
+
+        _signInStop = null;
+        SigningIn = false;
+        Idle = true;
+        if (result is { Token: { } token })
+        {
+            NewToken = token;
+            await SaveNewAsync();
+        }
+        else
+        {
+            AddError = result?.Advice;
+        }
+    }
+
+    [RelayCommand]
+    private void StopSignIn() => _signInStop?.Cancel();
 
     [RelayCommand]
     private void CancelAdd()

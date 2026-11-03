@@ -147,6 +147,13 @@ public static class AccountRules
         return $"Remove {token.Name}?{assigned} Running engines carry on, and this doesn't revoke the token with its provider.";
     }
 
+    /// <summary>A name for a new account that is free, so signing in can be one click. Only the desktop app has a sign-in button to want this.</summary>
+    public static string SuggestedName(IEnumerable<EngineTokenSummary> tokens)
+    {
+        var taken = tokens.Select(token => token.Name).ToHashSet();
+        return Enumerable.Range(1, taken.Count + 1).Select(number => $"claude-{number}").First(name => !taken.Contains(name));
+    }
+
     /// <summary>The headline and detail saying which account comes next, the question the section is there to answer.</summary>
     public static (string Headline, string Detail) Summary(NextAccount? next, DateTimeOffset now) => next switch
     {
