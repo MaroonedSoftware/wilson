@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
@@ -177,6 +177,10 @@ each change of page, and for the project in hand where the web app reads the ser
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
 The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
 as many events as are showing, so one from the feed does not take back what Show older brought in.
+
+## Lanes
+
+`LanesViewModel` has no web page to follow. Lanes belong to a project, so the header's Lanes opens it from a page with a project and it reads through `ForProject`. Instructions and `settings` are edited here, and `settings` is a JSON box because the server alone knows which keys exist. `LaneRules.ReadSettings` sends only what changed, with a removed key as null, as the API patches. Mode, worktree and routes are only shown, so they still take `wilson stages`. The page's Stage routing is `StageRoutingControl` on that project's client. The same control in Settings, like the web app's, sends no project and so covers the server's default project, which it says. Its templates are in `App.axaml` for both pages.
 
 ## Hosts
 
@@ -362,6 +366,8 @@ chat on the AI SDK were not seen.
 drain reaching the header on another page, an interval refused and a webhook refused keeping the attempt.
 Auto-mode was flipped only under a drain, as that API must never start work. Draining with a stage running
 was not seen, as nothing runs a stage there.
+
+2026-11-03, lanes: with `tools/Walk`, in the dark appearance, instructions and settings saved, a key removed and one added, a fresh page reading the same, a box that cannot be read, a value refused keeping the attempt, a real step-up answered with the save replayed, and all of it put back. Routing saved on a second project's page, read back from the API with the first project's unchanged, and a route's step-up cancelled keeping the attempt. Not walked: a route's step-up answered, and a real stage running on an edited lane.
 
 2026-11-03, stage routing: with `tools/Walk`, in the dark appearance, a model saved and put back, Codex fixing the provider, the AI SDK offering one, a route refused keeping the attempt, the shared-provider warning appearing and going, and `ready` offering only a model, its `review` and `ready` rows written by hand. A save behind a real step-up was not walked, as the session was too young to need one, and neither was a real stage run on a changed route.
 

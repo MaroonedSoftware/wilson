@@ -2,6 +2,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Platform;
 using Avalonia.Media.Imaging;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -90,6 +91,14 @@ internal static class Steps
             return;
         }
 
+        if (only == "lanes")
+        {
+            await LanesAsync(walk);
+            await LaneRoutingAsync(walk);
+            await LaneStepUpAsync(walk, password, signedIn);
+            return;
+        }
+
         if (only == "plan")
         {
             await PlanOnlyAsync(walk);
@@ -162,9 +171,157 @@ internal static class Steps
     /// <summary>The deployment's own pages, which need no board. `admin` as a sixth argument walks only these.</summary>
     private static async Task AdminAsync(Walker walk)
     {
+        await LanesAsync(walk);
+        await LaneRoutingAsync(walk);
         await HostsAsync(walk);
         await SettingsAsync(walk);
         await DockAsync(walk);
+    }
+
+    /// <summary>A lane's instructions and settings saved, read back from a fresh page and put back, with a box that cannot be read and a value the API refuses.</summary>
+    private static async Task LanesAsync(Walker walk)
+    {
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("a board to open lanes from", () => walk.Shell.Feed?.Project is not null);
+        var from = walk.Shell.Page;
+        walk.Shell.ShowLanesCommand.Execute(null);
+        var page = walk.Page<LanesViewModel>();
+        await walk.UntilAsync("the project's lanes read", () => page.Rows.Count > 0);
+        Console.WriteLine($"     lanes of {page.Project}: {string.Join(", ", page.Rows.Select(row => row.Name))}");
+        walk.Shot("15-lanes");
+
+        var lane = page.Rows.Single(row => row.Name == "implementing");
+        var (instructions, settings) = (lane.Instructions, lane.Settings);
+        await walk.UntilAsync("nothing to save yet", () => !lane.CanSave);
+
+        lane.Settings = "{not json";
+        await walk.UntilAsync("a box that cannot be read, saying so", () => lane.SettingsProblem is not null && !lane.CanSave);
+        Console.WriteLine($"     problem: {lane.SettingsProblem}");
+        walk.Shot("15-lanes-problem");
+
+        lane.Settings = """{"maxSteps":"many"}""";
+        await lane.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a value refused, the attempt kept", () => lane.Error is not null && lane.Settings == """{"maxSteps":"many"}""");
+        Console.WriteLine($"     refused: {lane.Error}");
+        walk.Shot("15-lanes-refused");
+
+        lane.Settings = settings;
+        lane.Instructions = "Walked instructions.";
+        await lane.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("instructions saved", () => lane.Stored.Instructions == "Walked instructions." && lane.Error is null && !lane.CanSave);
+
+        using (var edited = JsonDocument.Parse(settings!))
+        {
+            var kept = edited.RootElement.EnumerateObject().Where(key => key.Name != "maxOutputTokens").Select(key => $"\"{key.Name}\":{key.Value.GetRawText()}");
+            lane.Settings = $"{{{string.Join(',', kept)},\"placement\":\"any\"}}";
+        }
+
+        await lane.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a key removed and one added", () => lane.Error is null && !lane.CanSave && lane.Settings!.Contains("placement", StringComparison.Ordinal) && !lane.Settings.Contains("maxOutputTokens", StringComparison.Ordinal));
+
+        walk.Shell.BackCommand.Execute(null);
+        await walk.UntilAsync("Back returning to the board", () => walk.Shell.Page == from);
+        walk.Shell.ShowLanesCommand.Execute(null);
+        var again = walk.Page<LanesViewModel>();
+        await walk.UntilAsync("a fresh page reading the same", () => again.Rows.Any(row => row.Name == "implementing" && row.Instructions == "Walked instructions." && row.Settings!.Contains("placement", StringComparison.Ordinal)));
+        walk.Shot("15-lanes-saved");
+
+        var back = again.Rows.Single(row => row.Name == "implementing");
+        back.Instructions = instructions;
+        back.Settings = settings;
+        await back.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the lane put back", () => back.Error is null && !back.CanSave && back.Stored.Instructions == instructions && back.Settings == settings);
+        walk.Shell.BackCommand.Execute(null);
+    }
+
+    /// <summary>Routing changed on a second project's Lanes page, reaching that project alone: the default project's reads the same.</summary>
+    private static async Task LaneRoutingAsync(Walker walk)
+    {
+        var connection = walk.Shell.Connection!;
+        var home = walk.Shell.Feed!.Project!;
+        // Sorts after the seeded project, as a first project with no cards would break the steps that take the first one.
+        var other = $"zz-walked-routes-{DateTime.UtcNow:HHmmss}";
+        var root = Walker.Query("select code_root from wilson.projects order by name limit 1");
+        await connection.Sdk.Projects.RegisterProjectAsync(new CreateProjectRequest { Name = other, CodeRoot = root, WorktreeRoot = $"{root}/.worktrees/{other}", RunRoot = $"{root}/.runs/{other}" });
+        using (var sdk = connection.ForProject(other))
+        {
+            await sdk.Board.InitialiseBoardAsync();
+        }
+
+        static async Task<string?> ModelOf(MaroonedSoftware.Wilson.Sdk.WilsonSdk sdk) => (await sdk.Stages.ListStageRoutingAsync()).Single(route => route.Stage == "implementing").Model;
+
+        using var homeSdk = connection.ForProject(home);
+        var homeModel = await ModelOf(homeSdk);
+
+        await walk.Shell.ProjectAddedAsync(other);
+        await walk.UntilAsync("the second project's board", () => walk.Shell.Feed?.Project == other);
+        walk.Shell.ShowLanesCommand.Execute(null);
+        var page = walk.Page<LanesViewModel>();
+        await walk.UntilAsync("that project's routing read", () => page.Project == other && page.Routing.Rows.Count > 0);
+        Console.WriteLine($"     lanes of {page.Project}: {string.Join(", ", page.Routing.Rows.Select(row => $"{row.Stage}={row.Adapter}/{row.Provider}/{row.Model}"))}");
+        walk.Shot("15-lanes-routing");
+
+        var route = page.Routing.Rows.Single(row => row.Stage == "implementing");
+        route.Model = "walked-other-project";
+        await route.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a model saved on that project", () => route.Stored.Model == "walked-other-project" && route.Error is null);
+
+        using (var sdk = connection.ForProject(other))
+        {
+            var (there, here) = (await ModelOf(sdk), await ModelOf(homeSdk));
+            Console.WriteLine($"     {other}: {there}, {home}: {here}");
+            if (there != "walked-other-project" || here != homeModel)
+            {
+                throw new InvalidOperationException($"Routing reached the wrong project: {other} has {there}, {home} has {here}, was {homeModel}");
+            }
+        }
+
+        walk.Shell.BackCommand.Execute(null);
+        walk.Shell.ShowProject(home);
+        await walk.UntilAsync("the first project's board again", () => walk.Shell.Feed?.Project == home);
+    }
+
+    /// <summary>A lane saved on a session old enough to need a step-up: the real prompt, answered, and the save replayed on the project's own client.</summary>
+    private static async Task LaneStepUpAsync(Walker walk, string password, DateTime signedIn)
+    {
+        var old = signedIn.AddMinutes(5.2) - DateTime.UtcNow;
+        if (old > TimeSpan.Zero)
+        {
+            Console.WriteLine($"     waiting {old.TotalSeconds:F0}s for the session to need a step-up");
+            await Task.Delay(old);
+        }
+
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("a board to open lanes from", () => walk.Shell.Feed?.Project is not null);
+        walk.Shell.ShowLanesCommand.Execute(null);
+        var page = walk.Page<LanesViewModel>();
+        await walk.UntilAsync("the lanes read", () => page.Rows.Count > 0);
+
+        var route = page.Routing.Rows.Single(row => row.Stage == "implementing");
+        var model = route.Model;
+        route.Model = "walked-behind-a-step-up";
+        _ = route.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked by a route's save", () => walk.Shell.StepUp is not null);
+        walk.Shell.StepUp!.CancelCommand.Execute(null);
+        await walk.UntilAsync("cancelling leaving the route refused and the attempt kept", () => walk.Shell.StepUp is null && route.Idle && route.Error is not null && route.Stored.Model == model && route.Model == "walked-behind-a-step-up");
+        Console.WriteLine($"     cancelled: {route.Error}");
+        route.Model = model;
+
+        var lane = page.Rows.Single(row => row.Name == "implementing");
+        var instructions = lane.Instructions;
+        lane.Instructions = "Walked behind a step-up.";
+        _ = lane.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a step-up asked by the save", () => walk.Shell.StepUp is not null);
+        walk.Shot("15-lanes-step-up");
+
+        var stepUp = walk.Shell.StepUp!;
+        stepUp.Password = password;
+        await stepUp.SubmitCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the save replayed", () => walk.Shell.StepUp is null && lane.Idle && lane.Error is null && lane.Stored.Instructions == "Walked behind a step-up.");
+
+        lane.Instructions = instructions;
+        await lane.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the lane put back", () => lane.Error is null && lane.Stored.Instructions == instructions);
     }
 
     /// <summary>A first run, on a file that has never had the dock touched: chat fills the home page and is a sidebar everywhere else.</summary>
