@@ -2,6 +2,7 @@ package com.maroonedsoftware.wilson.board
 
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
 
 const val PARKING_LOT = "parking-lot"
 
@@ -9,12 +10,12 @@ const val PARKING_LOT = "parking-lot"
 enum class CardState { PARKED, PASSED, NEEDS_HUMAN, POISONED }
 
 /** The same rule as the web board's `cardState`. A card that matches none has no icon. */
-fun cardState(needsHuman: Boolean, stage: String): CardState? =
+fun cardState(needsHuman: Boolean, stage: String, doneReason: CardSummaryDoneReason? = null): CardState? =
     when {
         needsHuman -> CardState.NEEDS_HUMAN
         stage == PARKING_LOT -> CardState.PARKED
-        stage == "poisoned" -> CardState.POISONED
-        stage == "merged" -> CardState.PASSED
+        doneReason == CardSummaryDoneReason.POISONED || stage == "poisoned" -> CardState.POISONED
+        doneReason == CardSummaryDoneReason.MERGED || stage == "merged" -> CardState.PASSED
         else -> null
     }
 

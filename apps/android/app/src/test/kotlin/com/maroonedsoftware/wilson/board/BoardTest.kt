@@ -1,6 +1,7 @@
 package com.maroonedsoftware.wilson.board
 
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -16,6 +17,9 @@ class BoardTest {
         assertEquals(CardState.PARKED, cardState(false, PARKING_LOT))
         assertEquals(CardState.POISONED, cardState(false, "poisoned"))
         assertEquals(CardState.PASSED, cardState(false, "merged"))
+        assertEquals(CardState.POISONED, cardState(false, "done", CardSummaryDoneReason.POISONED))
+        assertEquals(CardState.PASSED, cardState(false, "done", CardSummaryDoneReason.MERGED))
+        assertNull(cardState(false, "done", CardSummaryDoneReason.DROPPED))
         assertNull(cardState(false, "implementing"))
     }
 
