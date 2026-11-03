@@ -1,3 +1,4 @@
+using Avalonia.Input.Platform;
 using Avalonia.Platform;
 using Avalonia.Media.Imaging;
 using System.Runtime.InteropServices;
@@ -1241,6 +1242,19 @@ internal static class Steps
         chat.RemoveImageCommand.Execute(chat.Pending[1]);
         await walk.UntilAsync("the second image removed", () => chat.Pending.Count == 1);
 
+        var clipboard = walk.Clipboard;
+        await clipboard.SetTextAsync("pasted words");
+        walk.Chord(PhysicalKey.V, RawInputModifiers.Meta);
+        await walk.UntilAsync("Cmd+V pasting text as text", () => chat.Composer == "pasted words" && chat.Pending.Count == 1);
+        chat.Composer = null;
+        using (var picture = new Bitmap(new MemoryStream(SolidPng(200, 120, 0x00, 0xFF, 0x00))))
+        {
+            await clipboard.SetBitmapAsync(picture);
+            walk.Chord(PhysicalKey.V, RawInputModifiers.Meta);
+            await walk.UntilAsync("Cmd+V pasting a picture as an image", () => chat.Pending.Count == 2 && string.IsNullOrEmpty(chat.Composer));
+        }
+
+        chat.RemoveImageCommand.Execute(chat.Pending[1]);
         chat.Composer = "What colour is this image? Answer in one word.";
         chat.SendCommand.Execute(null);
         await walk.UntilAsync("the box empty as it goes", () => !chat.HasPending && chat.Sending);

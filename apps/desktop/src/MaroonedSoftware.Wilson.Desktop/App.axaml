@@ -285,6 +285,9 @@
         <Style Selector="Border.composer:focus-within">
             <Setter Property="BorderBrush" Value="{DynamicResource Quiet}" />
         </Style>
+        <Style Selector="Border.composer.dropping">
+            <Setter Property="BorderBrush" Value="{DynamicResource Ink}" />
+        </Style>
         <Style Selector="TextBox.bare">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="Padding" Value="0,8" />

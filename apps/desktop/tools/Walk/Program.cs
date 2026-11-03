@@ -1,3 +1,4 @@
+using Avalonia.Input.Platform;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
@@ -183,6 +184,8 @@ internal static class Program
 internal sealed class Walker(string into, Window window, ShellViewModel shell)
 {
     public ShellViewModel Shell => shell;
+
+    public IClipboard Clipboard => window.Clipboard!;
 
     /// <summary>What a relaunch would read.</summary>
     public DesktopSettings Settings() => DesktopSettings.Load(Path.Combine(into, "settings.json"));

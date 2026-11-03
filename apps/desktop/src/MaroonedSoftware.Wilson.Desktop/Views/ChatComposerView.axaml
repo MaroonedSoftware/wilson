@@ -4,7 +4,7 @@
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatComposerView"
     x:DataType="vm:ChatViewModel">
-    <Border Classes="composer" PointerPressed="BoxPressed">
+    <Border x:Name="Composer" Classes="composer" PointerPressed="BoxPressed" DragDrop.AllowDrop="True">
         <DockPanel>
             <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Pending}" IsVisible="{Binding HasPending}" Margin="0,0,0,8">
                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
