@@ -524,7 +524,14 @@ describe.skipIf(!RUN_ENGINE_PROBES)('Glob and Grep exist on a real engine, and t
                 if (message.type === 'result') break;
                 const content = (message as { message?: { content?: unknown } }).message?.content;
                 if (!Array.isArray(content)) continue;
-                for (const part of content as { type: string; id?: string; name?: string; tool_use_id?: string; is_error?: boolean; content?: unknown }[]) {
+                for (const part of content as {
+                    type: string;
+                    id?: string;
+                    name?: string;
+                    tool_use_id?: string;
+                    is_error?: boolean;
+                    content?: unknown;
+                }[]) {
                     if (part.type === 'tool_use') calls.set(part.id!, part.name!);
                     if (part.type === 'tool_result') {
                         results.push({ id: part.tool_use_id!, isError: part.is_error === true, text: JSON.stringify(part.content) });
@@ -539,12 +546,27 @@ describe.skipIf(!RUN_ENGINE_PROBES)('Glob and Grep exist on a real engine, and t
 
         const of = (tool: string) => results.filter(result => calls.get(result.id) === tool);
         const detail = JSON.stringify({ asked, results: results.map(r => ({ tool: calls.get(r.id), ...r })) });
-        expect(of('Glob').some(r => !r.isError && r.text.includes('needle.txt')), detail).toBe(true);
-        expect(of('Grep').some(r => !r.isError && r.text.includes('needle.txt')), detail).toBe(true);
+        expect(
+            of('Glob').some(r => !r.isError && r.text.includes('needle.txt')),
+            detail,
+        ).toBe(true);
+        expect(
+            of('Grep').some(r => !r.isError && r.text.includes('needle.txt')),
+            detail,
+        ).toBe(true);
         // The guard's own decisions, and the file out of scope never appearing, not the model's account.
-        expect(asked.filter(a => a.tool === 'Grep' && a.behavior === 'deny'), detail).toHaveLength(1);
-        expect(results.some(r => r.text.includes('secret.txt')), detail).toBe(false);
-        expect(results.every(r => !r.text.includes('No such tool available')), detail).toBe(true);
+        expect(
+            asked.filter(a => a.tool === 'Grep' && a.behavior === 'deny'),
+            detail,
+        ).toHaveLength(1);
+        expect(
+            results.some(r => r.text.includes('secret.txt')),
+            detail,
+        ).toBe(false);
+        expect(
+            results.every(r => !r.text.includes('No such tool available')),
+            detail,
+        ).toBe(true);
     }, 120000);
 });
 
