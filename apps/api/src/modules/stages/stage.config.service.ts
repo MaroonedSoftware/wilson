@@ -1,6 +1,10 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import type {
+    Lane,
+    LaneRevision,
+    LaneRevisionsQuery,
+    PatchLaneRequest,
     SetStageConfigRequest,
     SetStageRoutingRequest,
     StageConfigDocument,
@@ -9,6 +13,7 @@ import type {
     StageRouting,
 } from '../../generated/stages.js';
 import { findStage, StageConfigError, type StageConfig } from './stage.config.js';
+import type { Lane as StoredLane } from './lane.rows.js';
 import { StageConfigStore, type StageConfigDocument as StoredDocument } from './stage.config.store.js';
 
 /** The most versions one request returns, and the default — the same numbers `BoardService` uses. */
@@ -67,6 +72,29 @@ export class StageConfigService {
         }
     }
 
+    async lanes(): Promise<Lane[]> {
+        await this.get();
+        return (await this.stageConfigs.lanes()).map(toLaneContract);
+    }
+
+    async patchLane(name: string, body: PatchLaneRequest): Promise<Lane> {
+        const { message, settings, ...columns } = body;
+        if (settings !== undefined && (typeof settings !== 'object' || settings === null || Array.isArray(settings))) {
+            throw httpError(400).withDetails({ reason: 'settings must be an object' });
+        }
+        try {
+            const patch = { ...columns, ...(settings === undefined ? {} : { settings: settings as Record<string, unknown> }) };
+            return toLaneContract(await this.stageConfigs.patchLane(name, patch, message?.trim() || `Edited ${name}`));
+        } catch (err) {
+            throw refusal(err);
+        }
+    }
+
+    async laneRevisions(query: LaneRevisionsQuery): Promise<LaneRevision[]> {
+        const limit = Math.min(query.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+        return (await this.stageConfigs.laneRevisions(query.lane, limit)) as LaneRevision[];
+    }
+
     async versions(query: StageConfigVersionsQuery): Promise<StageConfigVersion[]> {
         const limit = Math.min(query.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
         const versions = await this.stageConfigs.versions(limit);
@@ -81,6 +109,9 @@ const refusal = (err: unknown): unknown => {
 };
 
 const toRouting = ({ name, mode, adapter, provider, model }: StageConfig): StageRouting => ({ stage: name, mode, adapter, provider, model });
+
+/** The enums here are what `StageConfigSchema` validated on the way in, on every write. */
+const toLaneContract = (lane: StoredLane): Lane => lane as Lane;
 
 const toContract = (document: StoredDocument): StageConfigDocument => ({
     id: document.id,

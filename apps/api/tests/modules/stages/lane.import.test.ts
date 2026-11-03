@@ -241,6 +241,70 @@ describe('lane tables', () => {
         expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
     });
 
+    describe('patchLane', () => {
+        beforeEach(async () => {
+            await seedLive();
+            await store.importLanes();
+        });
+
+        it('changes one setting, seen straight after a cached load, with one revision', async () => {
+            await store.load();
+            const before = (await revisions()).length;
+
+            await store.patchLane('implementing', { settings: { maxSteps: 99 } }, 'more steps');
+
+            expect(findStage(await store.load(), 'implementing').maxSteps).toBe(99);
+            const added = (await revisions()).slice(before);
+            expect(added.map(({ lane, message }) => ({ lane, message }))).toEqual([{ lane: 'implementing', message: 'more steps' }]);
+        });
+
+        it('removes a setting given null, back to its default', async () => {
+            await store.patchLane('implementing', { settings: { setupCommand: null } }, 'no setup');
+
+            expect(findStage(await store.load(), 'implementing').setupCommand).toBeUndefined();
+        });
+
+        it('leaves other settings alone and records nothing for a change that changes nothing', async () => {
+            const before = (await revisions()).length;
+
+            await store.patchLane('implementing', { instructions: 'Build it.' }, 'same');
+
+            expect(await revisions()).toHaveLength(before);
+            expect(findStage(await store.load(), 'implementing').allowedCommands).toEqual(['pnpm test']);
+        });
+
+        it('refuses a route to nowhere, a setting that fails the schema, and a reserved setting, writing nothing', async () => {
+            const before = await revisions();
+
+            await expect(store.patchLane('implementing', { onPass: 'nowhere' }, 'x')).rejects.toMatchObject({ kind: 'config-invalid' });
+            await expect(store.patchLane('implementing', { settings: { maxSteps: 0 } }, 'x')).rejects.toMatchObject({ kind: 'config-invalid' });
+            await expect(store.patchLane('implementing', { settings: { model: 'x' } }, 'x')).rejects.toMatchObject({ kind: 'config-invalid' });
+
+            expect(await revisions()).toEqual(before);
+        });
+
+        it('refuses a change that leaves a lane on routing its engine cannot run', async () => {
+            await store.patchLane('implementing', { settings: { isolated: true, placement: 'remote' } }, 'isolate');
+            await store.saveRouting('implementing', { adapter: 'codex', provider: 'openai', model: 'gpt-5' }, 'codex');
+
+            await expect(store.patchLane('implementing', { settings: { isolated: null, placement: 'any' } }, 'x')).rejects.toMatchObject({
+                kind: 'config-invalid',
+            });
+        });
+
+        it('says stage-not-found for no such lane', async () => {
+            await expect(store.patchLane('nope', { instructions: 'x' }, 'x')).rejects.toMatchObject({ kind: 'stage-not-found' });
+        });
+
+        it('lists lanes in board order, and revisions for one lane, newest first', async () => {
+            await store.patchLane('implementing', { instructions: 'First.' }, 'first');
+            await store.patchLane('implementing', { instructions: 'Second.' }, 'second');
+
+            expect((await store.lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
+            expect((await store.laneRevisions('implementing', 2)).map(revision => revision.message)).toEqual(['second', 'first']);
+        });
+    });
+
     it('hands back the same frozen object for an unchanged config', async () => {
         await seedLive();
         await store.importLanes();

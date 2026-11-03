@@ -20,6 +20,40 @@ namespace MaroonedSoftware.Wilson.Sdk.Clients;
 /// <summary>Operations declared in &lt;c&gt;stages.ck&lt;/c&gt;.</summary>
 public sealed class StagesClient(SdkHttp http)
 {
+    /// <summary>List lanes</summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<Lane>> ListLanesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stages", "lanes"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<Lane>>(response);
+    }
+
+    /// <summary>Update lane</summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<Lane> UpdateLaneAsync(string name, PatchLaneRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            SdkHttp.Patch,
+            http.Path("api", "stages", "lanes", http.Segment(name)),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<Lane>(response);
+    }
+
+    /// <summary>List lane revisions</summary>
+    public async Task<List<LaneRevision>> ListLaneRevisionsAsync(LaneRevisionsQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stages", "lane-revisions"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<LaneRevision>>(response);
+    }
+
     /// <summary>List stage routing</summary>
     /// <exception cref="SdkException">On 404.</exception>
     public async Task<List<StageRouting>> ListStageRoutingAsync(CancellationToken cancellationToken = default)

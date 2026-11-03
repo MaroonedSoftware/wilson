@@ -1,5 +1,6 @@
+import type { DateTime } from 'luxon';
 import { parse as parseYaml } from 'yaml';
-import { applyRouting, runsModel, validateStages, type StageRouting } from './stage.config.js';
+import { applyRouting, assertRoutable, runsModel, StageConfigError, validateStages, type StageRouting } from './stage.config.js';
 
 /** One `wilson.lanes` row, as the store reads and writes it. */
 export interface Lane {
@@ -23,6 +24,25 @@ export interface ProjectLaneSettings {
     alwaysAllowed: readonly string[];
     deny: readonly string[];
     sandbox: { enabled: boolean; allowedDomains: readonly string[] };
+}
+
+/** What can change about a lane on its own. A key in `settings` set to null is removed. */
+export interface LanePatch {
+    mode?: string;
+    worktree?: string;
+    onPass?: string;
+    onFail?: string;
+    instructions?: string;
+    settings?: Record<string, unknown>;
+}
+
+/** One `wilson.lane_revisions` row. No `lane` is a project-wide change, no `snapshot` a removed lane. */
+export interface LaneRevision {
+    id: string;
+    lane?: string;
+    snapshot?: unknown;
+    message: string;
+    createdAt: DateTime;
 }
 
 export interface LaneConfig {
@@ -71,3 +91,34 @@ export const documentFromLanes = ({ lanes, project }: LaneConfig): unknown => ({
     ...project,
     stages: [...lanes].sort((a, b) => a.position - b.position).map(({ position: _position, settings, ...columns }) => ({ ...settings, ...columns })),
 });
+
+/** Keys with a column or an operation of their own, which `settings` would otherwise silently lose to. */
+const NOT_SETTINGS = ['name', 'position', 'mode', 'worktree', 'onPass', 'onFail', 'adapter', 'provider', 'model', 'instructions'];
+
+/**
+ * `config` with one lane changed, validated as a whole, because a lane's route can name another lane.
+ * Refused with `StageConfigError`: `stage-not-found` for no such lane, `config-invalid` otherwise.
+ */
+export const patchLane = (config: LaneConfig, name: string, patch: LanePatch, source: string): LaneConfig => {
+    const lane = config.lanes.find(candidate => candidate.name === name);
+    if (!lane) {
+        throw new StageConfigError('stage-not-found', `no lane named "${name}" (have: ${config.lanes.map(({ name }) => name).join(', ')})`);
+    }
+
+    const { settings: settingsPatch = {}, ...columns } = patch;
+    const reserved = Object.keys(settingsPatch).filter(key => NOT_SETTINGS.includes(key));
+    if (reserved.length > 0) {
+        throw new StageConfigError('config-invalid', `${reserved.join(', ')} cannot be set as settings; each has its own field or operation`);
+    }
+    const settings = { ...lane.settings, ...settingsPatch };
+    for (const [key, value] of Object.entries(settingsPatch)) {
+        if (value === null) delete settings[key];
+    }
+
+    const patched = { ...lane, ...columns, settings };
+    const next = { ...config, lanes: config.lanes.map(candidate => (candidate === lane ? patched : candidate)) };
+    const { stages } = validateStages(documentFromLanes(next), source);
+    const { adapter, provider, model, isolated } = stages.find(stage => stage.name === name)!;
+    if (model) assertRoutable(name, { adapter, provider, model }, isolated);
+    return next;
+};

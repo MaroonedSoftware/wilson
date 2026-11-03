@@ -4,6 +4,7 @@ package com.maroonedsoftware.wilson.sdk.models
 import com.maroonedsoftware.wilson.sdk.runtime.SdkEnumSerializer
 import kotlin.time.Instant
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /**
  * One stored document. `yaml` is the text verbatim, comments included — the document is the config,
@@ -65,6 +66,59 @@ data class SetStageRoutingRequest(
     val provider: SetStageRoutingRequestProvider,
     val model: String,
     val message: String? = null,
+)
+
+/**
+ * One lane, as `wilson.lanes` holds it. `settings` is everything else a stage can say (budgets,
+ * commands, placement), holding only what someone chose, so a default stays a default.
+ */
+@Serializable
+data class Lane(
+    val name: String,
+    val position: Long,
+    val mode: LaneMode,
+    val worktree: LaneWorktree,
+    val onPass: String,
+    val onFail: String,
+    val adapter: LaneAdapter? = null,
+    val provider: LaneProvider? = null,
+    val model: String? = null,
+    val instructions: String,
+    val settings: JsonElement,
+)
+
+/**
+ * Only what changes. A key in `settings` is set, or removed when its value is null. Routing has its own
+ * operation below, which checks it against what the lane's engine can run.
+ */
+@Serializable
+data class PatchLaneRequest(
+    val mode: PatchLaneRequestMode? = null,
+    val worktree: PatchLaneRequestWorktree? = null,
+    val onPass: String? = null,
+    val onFail: String? = null,
+    val instructions: String? = null,
+    val settings: JsonElement? = null,
+    val message: String? = null,
+)
+
+/**
+ * One change to a lane or, with no `lane`, to what a project's lanes share. No `snapshot` means the
+ * lane was removed.
+ */
+@Serializable
+data class LaneRevision(
+    val id: String,
+    val lane: String? = null,
+    val snapshot: JsonElement? = null,
+    val message: String,
+    val createdAt: Instant,
+)
+
+@Serializable
+data class LaneRevisionsQuery(
+    val lane: String? = null,
+    val limit: Long? = null,
 )
 
 @Serializable(with = StageRoutingModeSerializer::class)
@@ -175,4 +229,136 @@ object SetStageRoutingRequestProviderSerializer : SdkEnumSerializer<SetStageRout
     SetStageRoutingRequestProvider.ANTHROPIC to "anthropic",
     SetStageRoutingRequestProvider.OPENAI to "openai",
     SetStageRoutingRequestProvider.XAI to "xai",
+)
+
+@Serializable(with = LaneModeSerializer::class)
+enum class LaneMode {
+    AGENT,
+    COMMAND,
+    MANUAL,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [LaneMode] by its wire spelling. A spelling it does not know reads as [LaneMode.UNKNOWN]. */
+object LaneModeSerializer : SdkEnumSerializer<LaneMode>(
+    "LaneMode",
+    LaneMode.UNKNOWN,
+    LaneMode.AGENT to "agent",
+    LaneMode.COMMAND to "command",
+    LaneMode.MANUAL to "manual",
+)
+
+@Serializable(with = LaneWorktreeSerializer::class)
+enum class LaneWorktree {
+    NONE,
+    READONLY,
+    RW,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [LaneWorktree] by its wire spelling. A spelling it does not know reads as [LaneWorktree.UNKNOWN]. */
+object LaneWorktreeSerializer : SdkEnumSerializer<LaneWorktree>(
+    "LaneWorktree",
+    LaneWorktree.UNKNOWN,
+    LaneWorktree.NONE to "none",
+    LaneWorktree.READONLY to "readonly",
+    LaneWorktree.RW to "rw",
+)
+
+@Serializable(with = LaneAdapterSerializer::class)
+enum class LaneAdapter {
+    API,
+    CLI,
+    CODEX,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [LaneAdapter] by its wire spelling. A spelling it does not know reads as [LaneAdapter.UNKNOWN]. */
+object LaneAdapterSerializer : SdkEnumSerializer<LaneAdapter>(
+    "LaneAdapter",
+    LaneAdapter.UNKNOWN,
+    LaneAdapter.API to "api",
+    LaneAdapter.CLI to "cli",
+    LaneAdapter.CODEX to "codex",
+)
+
+@Serializable(with = LaneProviderSerializer::class)
+enum class LaneProvider {
+    ANTHROPIC,
+    OPENAI,
+    XAI,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [LaneProvider] by its wire spelling. A spelling it does not know reads as [LaneProvider.UNKNOWN]. */
+object LaneProviderSerializer : SdkEnumSerializer<LaneProvider>(
+    "LaneProvider",
+    LaneProvider.UNKNOWN,
+    LaneProvider.ANTHROPIC to "anthropic",
+    LaneProvider.OPENAI to "openai",
+    LaneProvider.XAI to "xai",
+)
+
+@Serializable(with = PatchLaneRequestModeSerializer::class)
+enum class PatchLaneRequestMode {
+    AGENT,
+    COMMAND,
+    MANUAL,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [PatchLaneRequestMode] by its wire spelling. A spelling it does not know reads as [PatchLaneRequestMode.UNKNOWN]. */
+object PatchLaneRequestModeSerializer : SdkEnumSerializer<PatchLaneRequestMode>(
+    "PatchLaneRequestMode",
+    PatchLaneRequestMode.UNKNOWN,
+    PatchLaneRequestMode.AGENT to "agent",
+    PatchLaneRequestMode.COMMAND to "command",
+    PatchLaneRequestMode.MANUAL to "manual",
+)
+
+@Serializable(with = PatchLaneRequestWorktreeSerializer::class)
+enum class PatchLaneRequestWorktree {
+    NONE,
+    READONLY,
+    RW,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [PatchLaneRequestWorktree] by its wire spelling. A spelling it does not know reads as [PatchLaneRequestWorktree.UNKNOWN]. */
+object PatchLaneRequestWorktreeSerializer : SdkEnumSerializer<PatchLaneRequestWorktree>(
+    "PatchLaneRequestWorktree",
+    PatchLaneRequestWorktree.UNKNOWN,
+    PatchLaneRequestWorktree.NONE to "none",
+    PatchLaneRequestWorktree.READONLY to "readonly",
+    PatchLaneRequestWorktree.RW to "rw",
 )

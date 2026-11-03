@@ -1,4 +1,8 @@
 import type {
+    Lane,
+    LaneRevision,
+    LaneRevisionsQuery,
+    PatchLaneRequest,
     SetStageConfigRequest,
     SetStageRoutingRequest,
     StageConfigDocument,
@@ -6,7 +10,7 @@ import type {
     StageConfigVersionsQuery,
     StageRouting,
 } from './types/stages.js';
-import { reviveStageConfigDocument, reviveStageConfigVersion } from './types/stages.js';
+import { reviveLaneRevision, reviveStageConfigDocument, reviveStageConfigVersion } from './types/stages.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
@@ -15,6 +19,31 @@ import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
  */
 export class StagesClient {
     constructor(private fetch: SdkFetch) {}
+
+    /** @name List lanes */
+    async listLanes(): Promise<Lane[]> {
+        const result = await this.fetch(`/api/stages/lanes`, { method: 'GET' });
+        return await parseJson<Lane[]>(result);
+    }
+
+    /** @name Update lane */
+    async updateLane(name: string, body: PatchLaneRequest): Promise<Lane> {
+        const result = await this.fetch(`/api/stages/lanes/${encodeURIComponent(name)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<Lane>(result);
+    }
+
+    /** @name List lane revisions */
+    async listLaneRevisions(query?: LaneRevisionsQuery): Promise<LaneRevision[]> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/stages/lane-revisions${qs}`, {
+            method: 'GET',
+        });
+        return (await parseJson<LaneRevision[]>(result)).map(reviveLaneRevision);
+    }
 
     /** @name List stage routing */
     async listStageRouting(): Promise<StageRouting[]> {

@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { StageConfigService } from '#modules/stages/stage.config.service.js';
 import {
+    Lane,
+    LaneRevision,
+    LaneRevisionsQuery,
+    PatchLaneRequest,
     SetStageConfigRequest,
     SetStageRoutingRequest,
     StageConfigDocument,
@@ -15,6 +19,53 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
  * generated from [stages.ck](../../data/contracts/stages.ck)
  */
 export const StagesRouter = ServerKitRouter();
+
+/**
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/lanes`
+ */
+StagesRouter.get('/api/stages/lanes', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(StageConfigService);
+    const result: Lane[] = await service.lanes();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [stages.ck](../../data/contracts/stages.ck) `PATCH /api/stages/lanes/{name}`
+ */
+StagesRouter.patch('/api/stages/lanes/:name', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, PatchLaneRequest);
+
+    const service = ctx.container.get(StageConfigService);
+    const result: Lane = await service.patchLane(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/lane-revisions`
+ */
+StagesRouter.get('/api/stages/lane-revisions', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, LaneRevisionsQuery.strict());
+
+    const service = ctx.container.get(StageConfigService);
+    const result: LaneRevision[] = await service.laneRevisions(query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
 
 /**
  * from [stages.ck](../../data/contracts/stages.ck) `GET /api/stages/routing`

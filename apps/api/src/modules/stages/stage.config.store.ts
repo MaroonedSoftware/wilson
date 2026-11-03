@@ -15,7 +15,16 @@ import {
     type ProjectStages,
     type StageRouting,
 } from './stage.config.js';
-import { documentFromLanes, lanesFromDocument, type Lane, type LaneConfig, type ProjectLaneSettings } from './lane.rows.js';
+import {
+    documentFromLanes,
+    lanesFromDocument,
+    patchLane,
+    type Lane,
+    type LaneConfig,
+    type LanePatch,
+    type LaneRevision,
+    type ProjectLaneSettings,
+} from './lane.rows.js';
 
 /** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
@@ -94,6 +103,18 @@ export abstract class StageConfigStore {
      * every start. Throws `StageConfigError` for a document that does not validate, and writes nothing.
      */
     abstract importLanes(): Promise<void>;
+
+    /** The current project's lanes, in board order. Empty when it has no config at all. */
+    abstract lanes(): Promise<Lane[]>;
+
+    /**
+     * Change one lane. Refused with `StageConfigError` when there is no such lane or the result would
+     * not load, and nothing is written. Records a revision when anything changed.
+     */
+    abstract patchLane(name: string, patch: LanePatch, message: string): Promise<Lane>;
+
+    /** The current project's lane changes, newest first, for one lane when `lane` names it. */
+    abstract laneRevisions(lane: string | undefined, limit: number): Promise<LaneRevision[]>;
 }
 
 /**
@@ -176,6 +197,44 @@ export class PostgresStageConfigStore extends StageConfigStore {
 
         const config = lanesFromDocument(document.yaml, routingByStage(await this.currentRouting()), `stage config ${document.id}`);
         await this.db.transaction().execute(trx => this.writeLanes(trx, config, document.id, `Imported from stage config ${document.id}`));
+    }
+
+    async lanes(): Promise<Lane[]> {
+        await this.importLanes();
+        const rows = await this.db.selectFrom('wilson.lanes').selectAll().where('project', '=', this.config.project).orderBy('position').execute();
+        return rows.map(toLane);
+    }
+
+    async patchLane(name: string, patch: LanePatch, message: string): Promise<Lane> {
+        await this.importLanes();
+        return this.db.transaction().execute(async trx => {
+            const project = this.config.project;
+            const lanes = await trx.selectFrom('wilson.lanes').selectAll().where('project', '=', project).forUpdate().execute();
+            const settings = await trx.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirst();
+            if (!settings) throw new StageConfigError('stage-not-found', `project "${project}" has no lanes`);
+
+            const next = patchLane(
+                { lanes: lanes.map(toLane), project: toProjectSettings(settings) },
+                name,
+                patch,
+                `lane "${name}" of project "${project}"`,
+            );
+            await this.writeLanes(trx, next, settings.importedConfigId, message);
+            return next.lanes.find(lane => lane.name === name)!;
+        });
+    }
+
+    async laneRevisions(lane: string | undefined, limit: number): Promise<LaneRevision[]> {
+        let query = this.db.selectFrom('wilson.laneRevisions').selectAll().where('project', '=', this.config.project);
+        if (lane !== undefined) query = query.where('lane', '=', lane);
+        const rows = await query.orderBy('id', 'desc').limit(limit).execute();
+        return rows.map(row => ({
+            id: String(row.id),
+            ...(row.lane == null ? {} : { lane: row.lane }),
+            ...(row.snapshot == null ? {} : { snapshot: row.snapshot }),
+            message: row.message,
+            createdAt: row.createdAt,
+        }));
     }
 
     /** Validate and write a document and the routing it carries, together. `keepRows` lets a row win over the document. */
@@ -426,6 +485,7 @@ const toDocument = (row: { id: string | number | bigint; yaml: string; message: 
 export class StaticStageConfigStore extends StageConfigStore {
     private readonly documents: StageConfigDocument[] = [];
     private readonly routing = new Map<string, StageRouting>();
+    private readonly revisions: LaneRevision[] = [];
 
     constructor(yaml?: string, message = 'initial') {
         super();
@@ -469,6 +529,28 @@ export class StaticStageConfigStore extends StageConfigStore {
     async moveStoredRouting(): Promise<void> {}
 
     async importLanes(): Promise<void> {}
+
+    private config(): LaneConfig | undefined {
+        const current = this.documents.at(-1);
+        return current && lanesFromDocument(current.yaml, this.routing, `stage config ${current.id}`);
+    }
+
+    async lanes(): Promise<Lane[]> {
+        return this.config()?.lanes ?? [];
+    }
+
+    async patchLane(name: string, patch: LanePatch, message: string): Promise<Lane> {
+        const config = this.config();
+        if (!config) throw new StageConfigError('stage-not-found', 'no stage config');
+        const next = patchLane(config, name, patch, `lane "${name}"`);
+        this.documents.push(this.document(JSON.stringify(documentFromLanes(next)), message));
+        this.revisions.unshift({ id: String(this.revisions.length + 1), lane: name, message, createdAt: DateTime.now() });
+        return next.lanes.find(lane => lane.name === name)!;
+    }
+
+    async laneRevisions(lane: string | undefined, limit: number): Promise<LaneRevision[]> {
+        return this.revisions.filter(revision => lane === undefined || revision.lane === lane).slice(0, limit);
+    }
 
     private document(yaml: string, message: string): StageConfigDocument {
         return { id: String(this.documents.length + 1), yaml, message, createdAt: DateTime.now() };

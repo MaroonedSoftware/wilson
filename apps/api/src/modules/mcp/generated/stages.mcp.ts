@@ -7,7 +7,15 @@ import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type Mcp
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { StageConfigService } from '#modules/stages/stage.config.service.js';
-import { StageConfigDocument, StageConfigVersion, StageConfigVersionsQuery, StageRouting } from '../../../generated/stages.js';
+import {
+    Lane,
+    LaneRevision,
+    LaneRevisionsQuery,
+    StageConfigDocument,
+    StageConfigVersion,
+    StageConfigVersionsQuery,
+    StageRouting,
+} from '../../../generated/stages.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -17,9 +25,59 @@ function requireMcpContainer(context: McpToolContext): Container {
     return context.container;
 }
 
+const ListLanesArgs = z.object({});
+const ListLaneRevisionsArgs = z.object({ query: LaneRevisionsQuery.optional() });
 const ListStageRoutingArgs = z.object({});
 const GetStageConfigArgs = z.object({});
 const ListStageConfigVersionsArgs = z.object({ query: StageConfigVersionsQuery.optional() });
+
+/**
+ * from [stages.ck](../../../../data/contracts/stages.ck) `GET /api/stages/lanes`
+ */
+@Injectable()
+export class ListLanesMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_lanes',
+        inputSchema: z.toJSONSchema(ListLanesArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(Lane) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(StageConfigService).lanes();
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
+
+/**
+ * from [stages.ck](../../../../data/contracts/stages.ck) `GET /api/stages/lane-revisions`
+ */
+@Injectable()
+export class ListLaneRevisionsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_lane_revisions',
+        inputSchema: z.toJSONSchema(ListLaneRevisionsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(LaneRevision) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { query = await parseAndValidate({}, ListLaneRevisionsArgs.shape.query.unwrap()) } = await parseAndValidate(
+            args,
+            ListLaneRevisionsArgs,
+        );
+        const result = await container.get(StageConfigService).laneRevisions(query);
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
 
 /**
  * from [stages.ck](../../../../data/contracts/stages.ck) `GET /api/stages/routing`
@@ -92,6 +150,8 @@ export class ListStageConfigVersionsMcpTool implements McpToolHandler {
 
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerStagesMcpCatalog(map: McpToolHandlerMap, container: Container): void {
+    map.set('list_lanes', container.get(ListLanesMcpTool));
+    map.set('list_lane_revisions', container.get(ListLaneRevisionsMcpTool));
     map.set('list_stage_routing', container.get(ListStageRoutingMcpTool));
     map.set('get_stage_config', container.get(GetStageConfigMcpTool));
     map.set('list_stage_config_versions', container.get(ListStageConfigVersionsMcpTool));
@@ -99,6 +159,8 @@ export function registerStagesMcpCatalog(map: McpToolHandlerMap, container: Cont
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
 export function registerStagesMcpToolClasses(registry: Registry): void {
+    registry.register(ListLanesMcpTool).useClass(ListLanesMcpTool).asSingleton();
+    registry.register(ListLaneRevisionsMcpTool).useClass(ListLaneRevisionsMcpTool).asSingleton();
     registry.register(ListStageRoutingMcpTool).useClass(ListStageRoutingMcpTool).asSingleton();
     registry.register(GetStageConfigMcpTool).useClass(GetStageConfigMcpTool).asSingleton();
     registry.register(ListStageConfigVersionsMcpTool).useClass(ListStageConfigVersionsMcpTool).asSingleton();
