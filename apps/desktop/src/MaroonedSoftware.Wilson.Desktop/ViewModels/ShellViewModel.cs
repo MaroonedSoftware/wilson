@@ -60,6 +60,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     /// <summary>Absent where nothing checks for updates, such as in tools/Walk.</summary>
     public UpdateViewModel? Updates { get; init; }
 
+    public IClaudeSignIn? ClaudeSignIn { get; init; }
+
     public ServerConnection? Connection { get; private set; }
 
     public DesktopSettings Settings => _settings;

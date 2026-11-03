@@ -460,6 +460,21 @@ internal static class Steps
 
         await walk.UntilAsync("the accounts gone", () => accounts.Rotation.Count == 0 && accounts.Outside.Count == 0 && accounts.Headline == "No accounts in rotation");
 
+        accounts.AskAddCommand.Execute(null);
+        await walk.UntilAsync("a free name offered, and signing in possible", () => accounts.NewName == "claude-1" && accounts.CanSignIn);
+        var stopped = accounts.SignInCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a sign-in waiting, with its link", () => accounts.SigningIn && accounts.SignInLink is not null);
+        walk.ScrollTo("Accounts");
+        walk.Shot("12-settings-signing-in");
+        accounts.StopSignInCommand.Execute(null);
+        await stopped;
+        await walk.UntilAsync("a sign-in stopped, saying nothing and saving nothing", () => !accounts.SigningIn && accounts.Idle && accounts.AddError is null && accounts.Adding && accounts.Rotation.Count == 0);
+        walk.Shot("12-settings-add-account");
+        await accounts.SignInCommand.ExecuteAsync(null);
+        await walk.UntilAsync("a sign-in saved as an account, and the form closed", () => accounts.Rotation.Any(row => row.Name == "claude-1") && !accounts.Adding && accounts.NewToken is null);
+        await accounts.Rotation[0].RemoveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("that account gone", () => accounts.Rotation.Count == 0);
+
         var app = settings.GitHubApp.Stored;
         settings.GitHubApp.Draft = "424242";
         await settings.GitHubApp.SaveCommand.ExecuteAsync(null);

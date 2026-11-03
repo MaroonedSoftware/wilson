@@ -108,18 +108,31 @@
                 </Border>
                 <Border Background="{DynamicResource Panel}" CornerRadius="6" Padding="10,8" IsVisible="{Binding Adding}">
                     <StackPanel Spacing="6">
-                        <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding TakesSetupToken}" Text="Run claude setup-token in a terminal, signed in as the new account, then paste what it prints." />
-                        <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding TakesKey}" Text="Paste the API key. It is billed per token, so give it a place low in the rotation." />
                         <WrapPanel>
                             <ComboBox ItemsSource="{Binding Types}" SelectedItem="{Binding NewType}" Width="180" Margin="0,0,6,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Type" />
-                            <TextBox Text="{Binding NewName}" PlaceholderText="claude-2" Width="160" Margin="0,0,6,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Name" />
-                            <TextBox Text="{Binding NewToken}" PlaceholderText="Token" PasswordChar="•" Width="240" Margin="0,0,0,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Token" />
+                            <TextBox Text="{Binding NewName}" PlaceholderText="claude-2" Width="160" Margin="0,0,0,6" IsEnabled="{Binding Idle}" AutomationProperties.Name="Name" />
                         </WrapPanel>
                         <TextBlock Classes="quiet caution" TextWrapping="Wrap" IsVisible="{Binding NameTaken}" Text="That name is taken. Use Replace token on that account." />
                         <CheckBox Content="Add to rotation" IsChecked="{Binding JoinRotation}" IsEnabled="{Binding Idle}" />
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Button Classes="primary" Content="Save account" Command="{Binding SaveNewCommand}" IsEnabled="{Binding CanSaveNew}" />
-                            <Button Classes="ghost" Content="Cancel" Command="{Binding CancelAddCommand}" IsEnabled="{Binding Idle}" />
+                        <StackPanel Spacing="4" IsVisible="{Binding ShowsSignIn}">
+                            <TextBlock Classes="quiet" TextWrapping="Wrap" IsVisible="{Binding !SigningIn}" Text="Opens your browser to authorize. The token belongs to the account signed in there, so check it's the right one before you approve." />
+                            <Button Classes="primary" Content="Sign in with Claude" HorizontalAlignment="Left" Command="{Binding SignInCommand}" IsEnabled="{Binding CanSignIn}" IsVisible="{Binding !SigningIn}" />
+                            <StackPanel Spacing="4" IsVisible="{Binding SigningIn}">
+                                <TextBlock FontSize="13" TextWrapping="Wrap" Text="Waiting for you to authorize in your browser." />
+                                <StackPanel Spacing="2" IsVisible="{Binding SignInLink, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Wrong account, or no browser? Open this link in a private window:" />
+                                    <SelectableTextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding SignInLink}" />
+                                </StackPanel>
+                                <Button Content="Stop" HorizontalAlignment="Left" Command="{Binding StopSignInCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Classes="quiet" TextWrapping="Wrap" Text="{Binding PasteHint}" IsVisible="{Binding !SigningIn}" />
+                        <StackPanel Spacing="6" IsVisible="{Binding !SigningIn}">
+                            <TextBox Text="{Binding NewToken}" PlaceholderText="Token" PasswordChar="•" Width="346" HorizontalAlignment="Left" IsEnabled="{Binding Idle}" AutomationProperties.Name="Token" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Classes.primary="{Binding !ShowsSignIn}" Content="Save account" Command="{Binding SaveNewCommand}" IsEnabled="{Binding CanSaveNew}" />
+                                <Button Classes="ghost" Content="Cancel" Command="{Binding CancelAddCommand}" IsEnabled="{Binding Idle}" />
+                            </StackPanel>
                         </StackPanel>
                         <SelectableTextBlock Classes="error" FontSize="13" Text="{Binding AddError}" IsVisible="{Binding AddError, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     </StackPanel>

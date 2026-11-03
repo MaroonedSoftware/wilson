@@ -80,7 +80,7 @@ public sealed partial class SettingsViewModel : PageViewModel
             async token => Reported(await Sdk.Settings.GetGithubAppSettingAsync(token)),
             async value => Reported(await Sdk.Settings.SetGithubAppSettingAsync(new SetGitHubAppSettingRequest { AppId = value })));
         MachineSignIn = new MachineSignInControl(() => Sdk);
-        Accounts = new AccountsControl(() => Sdk, MachineSignIn);
+        Accounts = new AccountsControl(() => Sdk, MachineSignIn, shell.ClaudeSignIn);
         ChatEngine = new ChatEngineControl(() => Sdk);
         Security = new SecurityControl(shell);
     }

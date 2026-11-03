@@ -152,6 +152,15 @@ public sealed class AccountRulesTests
     }
 
     [Fact]
+    public void A_suggested_name_is_the_first_free_one()
+    {
+        Assert.Equal("claude-1", AccountRules.SuggestedName([]));
+        Assert.Equal("claude-1", AccountRules.SuggestedName([Token("pool-a")]));
+        Assert.Equal("claude-3", AccountRules.SuggestedName([Token("claude-1"), Token("claude-2")]));
+        Assert.Equal("claude-2", AccountRules.SuggestedName([Token("claude-1"), Token("claude-3")]));
+    }
+
+    [Fact]
     public void The_summary_says_who_is_next_or_why_nobody_is()
     {
         Assert.Equal("No accounts in rotation", AccountRules.Summary(null, Now).Headline);

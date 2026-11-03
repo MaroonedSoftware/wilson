@@ -27,7 +27,7 @@ public partial class App : Application
             var downloader = key is null ? null : new UpdateDownloader(updateHttp, key, Path.Combine(Path.GetTempPath(), "wilson-updates"));
             var updates = new UpdateViewModel(new UpdateChecker(updateHttp, UpdateCheck.Current), downloader, new MacUpdateInstaller(), BundleSwap.BundleOf(Environment.ProcessPath), () => desktop.Shutdown());
             _updates = updates;
-            var shell = new ShellViewModel(new MacKeychainSecretStore(), DesktopSettings.DefaultPath()) { Updates = updates };
+            var shell = new ShellViewModel(new MacKeychainSecretStore(), DesktopSettings.DefaultPath()) { Updates = updates, ClaudeSignIn = new MacClaudeSignIn() };
             var window = new MainWindow { DataContext = shell };
             desktop.MainWindow = window;
             // Closing only hides, so streams and the update check carry on. Quit and a restart to update

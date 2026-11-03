@@ -26,7 +26,7 @@ namespace Walk;
 //
 //     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun|dock]
 //     dotnet run --project tools/Walk -- keychain
-//     dotnet run --project tools/Walk -- signin [<claude>] [<seconds>]
+//     dotnet run --project tools/Walk -- signin [<claude, or empty to look for it>] [<seconds>]
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
 {
@@ -44,7 +44,7 @@ internal static class Program
 
         if (args is ["signin", ..])
         {
-            Environment.ExitCode = SignIn(args.Length > 1 ? args[1] : null, args.Length > 2 ? TimeSpan.FromSeconds(int.Parse(args[2], CultureInfo.InvariantCulture)) : null).GetAwaiter().GetResult();
+            Environment.ExitCode = SignIn(args.Length > 1 && args[1].Length > 0 ? args[1] : null, args.Length > 2 ? TimeSpan.FromSeconds(int.Parse(args[2], CultureInfo.InvariantCulture)) : null).GetAwaiter().GetResult();
             return;
         }
 
@@ -59,6 +59,22 @@ internal static class Program
             .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .AfterSetup(_ => Run(args))
             .SetupWithoutStarting();
+    }
+
+    /// <summary>A `claude` that signs nobody in, so a walk makes no real token. It refuses to run anywhere but a terminal, as the real one does.</summary>
+    private static string StandInClaude()
+    {
+        var path = Path.Combine(Directory.CreateTempSubdirectory("wilson-walk-claude-").FullName, "claude");
+        File.WriteAllText(path, """
+            #!/bin/sh
+            [ -t 1 ] || sleep 600
+            printf 'https://claude.com/cai/oauth/authorize?code=true&state=walked\r\n'
+            sleep 2
+            printf 'sk-ant-at01-walkedAbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcdefghijklmnopqrstuvwxyz0123456789\r\n'
+            """);
+        using var chmod = Process.Start("/bin/chmod", ["+x", path]);
+        chmod.WaitForExit();
+        return path;
     }
 
     /// <summary>Runs the sign-in and says what came back, printing the token's length and never the token. With no path it makes a real token, which is then thrown away.</summary>
@@ -151,7 +167,7 @@ internal static class Program
         var settings = Path.Combine(into, "settings.json");
         // Every other walk closes the dock, so its pages keep the whole window as their steps expect.
         new DesktopSettings { Appearance = appearance, Dock = new ChatDock { Closed = only != "dock" } }.Save(settings);
-        using var shell = new ShellViewModel(new InMemorySecretStore(), settings);
+        using var shell = new ShellViewModel(new InMemorySecretStore(), settings) { ClaudeSignIn = new MacClaudeSignIn(StandInClaude()) };
         var window = new Window { Width = Width, Height = Height, Content = new ShellView { DataContext = shell } };
         window.Show();
 
@@ -182,10 +198,13 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Sql(sql);
     }
 
+    /// <summary>The throwaway API's database, or another's when several walks must not share one.</summary>
+    private static string Database => Environment.GetEnvironmentVariable("WALK_DATABASE") ?? "wilson_android";
+
     /// <summary>One value out of the throwaway API's database.</summary>
     public static string Query(string sql)
     {
-        using var psql = Process.Start(new ProcessStartInfo("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]) { RedirectStandardOutput = true })!;
+        using var psql = Process.Start(new ProcessStartInfo("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", Database, "-qtAc", sql]) { RedirectStandardOutput = true })!;
         var value = psql.StandardOutput.ReadToEnd().Trim();
         psql.WaitForExit();
         return value;
@@ -194,8 +213,8 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     /// <summary>A branch in the throwaway API's scratch repository, as a stage would leave, with one small file on it.</summary>
     public static void ScratchBranch(string branch)
     {
-        const string Root = "$(docker exec wilson-test-db psql -U postgres -d wilson_android -qtAc \"select code_root from wilson.projects limit 1\")";
-        var script = $"cd \"{Root}\" && git rev-parse -q --verify {branch} >/dev/null || {{ d=$(mktemp -d) && git worktree add -q -b {branch} \"$d\" main && printf 'one\\ntwo\\nthree\\n' > \"$d/walk.txt\" && git -C \"$d\" add walk.txt && git -C \"$d\" -c user.name=walk -c user.email=walk@example.com commit -qm walk && git worktree remove --force \"$d\"; }}";
+        var root = $"$(docker exec wilson-test-db psql -U postgres -d {Database} -qtAc \"select code_root from wilson.projects limit 1\")";
+        var script = $"cd \"{root}\" && git rev-parse -q --verify {branch} >/dev/null || {{ d=$(mktemp -d) && git worktree add -q -b {branch} \"$d\" main && printf 'one\\ntwo\\nthree\\n' > \"$d/walk.txt\" && git -C \"$d\" add walk.txt && git -C \"$d\" -c user.name=walk -c user.email=walk@example.com commit -qm walk && git worktree remove --force \"$d\"; }}";
         using var shell = Process.Start("sh", ["-c", script]);
         shell.WaitForExit();
     }
@@ -203,7 +222,7 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
     /// <summary>Only ever the throwaway API's database, for what no request can pose.</summary>
     public static void Sql(string sql)
     {
-        using var psql = Process.Start("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", "wilson_android", "-qtAc", sql]);
+        using var psql = Process.Start("docker", ["exec", "wilson-test-db", "psql", "-U", "postgres", "-d", Database, "-qtAc", sql]);
         psql.WaitForExit();
     }
 
