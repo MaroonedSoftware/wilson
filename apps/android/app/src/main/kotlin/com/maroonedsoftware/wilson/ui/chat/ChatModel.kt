@@ -39,6 +39,13 @@ internal fun draftWithoutSuggestions(draft: String): String {
 }
 
 /** Whether a proposed action can still be answered. An expired one stays on record as it was. */
+/** What a message says about the images it carries, since only the desktop app draws them. Null when it carries none. */
+internal fun imagesCaption(count: Int): String? = when (count) {
+    0 -> null
+    1 -> "1 image"
+    else -> "$count images"
+}
+
 internal fun isAwaiting(action: ChatPendingAction, now: Instant): Boolean = action.status == ChatPendingActionStatus.PENDING && action.expiresAt > now
 
 class ThreadsModel(private val app: WilsonApp) : ViewModel() {

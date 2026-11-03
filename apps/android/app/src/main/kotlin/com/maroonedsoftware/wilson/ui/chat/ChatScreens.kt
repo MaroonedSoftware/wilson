@@ -95,6 +95,7 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.messages, key = { it.seq }) { message ->
                     Text(if (message.role == ChatMessageRole.USER) "You" else "Wilson", style = MaterialTheme.typography.labelMedium)
+                    imagesCaption(message.attachments.orEmpty().size)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     SelectionContainer { Text(message.content) }
                     message.operations.forEach { Text("${if (it.ok) "✓" else "✗"} ${it.name}", style = MaterialTheme.typography.bodySmall) }
                 }

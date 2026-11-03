@@ -3,6 +3,7 @@ import { Box, Group, Loader, Paper, Text, Tooltip } from '@mantine/core';
 import { IconBolt } from '@tabler/icons-react';
 import type { ChatMessage, ChatOperation } from '@wilson/sdk';
 import { Markdown } from '#src/components/Markdown.js';
+import { imagesCaption } from '#src/lib/chat.js';
 
 /** `list_cards` in `demo` → `list cards in demo`: an operation as a person would say it. */
 const operationLabel = ({ name, project }: ChatOperation): string => `${name.replaceAll('_', ' ')}${project ? ` in ${project}` : ''}`;
@@ -44,10 +45,16 @@ export function ActivityLine({ operations }: { operations: ChatOperation[] }) {
 }
 
 /** What the person wrote: a pill on the right, against the answers running the column's full width. */
-export function UserMessage({ text }: { text: string }) {
+export function UserMessage({ text, images = 0 }: { text: string; images?: number }) {
+    const caption = imagesCaption(images);
     return (
         <Group justify="flex-end">
             <Paper px="md" py={8} radius="lg" maw="85%" style={{ background: 'var(--mantine-color-default-hover)' }}>
+                {caption && (
+                    <Text size="xs" c="dimmed">
+                        {caption}
+                    </Text>
+                )}
                 <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {text}
                 </Text>
@@ -72,7 +79,7 @@ export function AssistantMessage({ text, operations }: { text: string; operation
 
 export function Message({ message }: { message: ChatMessage }) {
     return message.role === 'user' ? (
-        <UserMessage text={message.content} />
+        <UserMessage text={message.content} images={message.attachments?.length} />
     ) : (
         <AssistantMessage text={message.content} operations={message.operations} />
     );
