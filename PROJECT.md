@@ -248,6 +248,13 @@ the operator's subscription:
 WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test:engine
 ```
 
+That tests the `claude` on `PATH`, the binary a stage on a remote host starts, and refuses to start
+unless it is `CLAUDE_BINARY_VERSION`. A stage on this machine starts the engine bundled with the SDK
+instead, so add `WILSON_PROBE_ENGINE=bundled` to test that one. They can differ, and a model can
+require a newer engine than either: the API then answers with a 400, which the engine reports as a
+successful turn with no tool calls (`turn.empty`). The message is in `stage.failed`'s
+`trace.finalMessage`.
+
 Starting an engine from inside another engine works. Card 0233 suspected otherwise: on 2026-09-04
 all six probes failed inside a `testing` stage in about 500ms each, and it blamed the host session's
 `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_*` variables leaking into the nested engine. On 2026-09-19 a

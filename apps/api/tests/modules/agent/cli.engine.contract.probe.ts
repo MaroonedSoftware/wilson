@@ -1,13 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { CliStageAgent, createToolGuard, subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
-import { stepsExceeded } from '#modules/agent/budget.js';
+import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
 import { describeProbeRun, describeTurns, DENIED_BASH_PROBE_STEPS, type AttemptedToolCall, type RecordedAssistantTurn } from './probe.report.js';
 
@@ -30,7 +32,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => {
     return {
         ...actual,
         query: (...args: Parameters<typeof actual.query>) => {
-            const real = actual.query(...args);
+            // Left alone, the SDK starts its own bundled engine, which is not the binary
+            // `CLAUDE_BINARY_VERSION` pins. `WILSON_PROBE_ENGINE=bundled` tests that one instead.
+            const [input] = args;
+            const real =
+                process.env.WILSON_PROBE_ENGINE === 'bundled'
+                    ? actual.query(input)
+                    : actual.query({ ...input, options: { ...input.options, pathToClaudeCodeExecutable: 'claude' } });
             const turns: RecordedAssistantTurn[] = [];
             engineTurns.current = turns;
             // A `Proxy` over the real `Query` rather than a fresh async generator, so methods like
@@ -105,12 +113,23 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => {
  *
  *     WILSON_RUN_ENGINE_PROBES=1 pnpm --filter @wilson/api test:engine
  *
+ * Those runs use the `claude` on `PATH`, the binary a stage on a remote host starts, and refuse to
+ * start unless it is the pinned version. Add `WILSON_PROBE_ENGINE=bundled` to test the engine bundled
+ * with the SDK, which is what a stage on this machine starts.
+ *
  * Do this at an SDK or `claude` binary bump — exactly the moment `claudeBinaryCurrent`
  * (`packages/cli/src/checks/claude.binary.current.ts`) exists to announce, since with the gate off
  * by default nothing else catches drift on its own.
  */
 
 const RUN_ENGINE_PROBES = process.env.WILSON_RUN_ENGINE_PROBES === '1';
+
+// A pass against some other binary would read as this version being proven.
+beforeAll(async () => {
+    if (!RUN_ENGINE_PROBES || process.env.WILSON_PROBE_ENGINE === 'bundled') return;
+    const { stdout } = await promisify(execFile)('claude', ['--version']);
+    expect(stdout.trim().split(' ')[0]).toBe(CLAUDE_BINARY_VERSION);
+});
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
@@ -462,17 +481,15 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a report_result call really reaches this ad
     }, 60000);
 });
 
-describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step, asked of a real engine', () => {
+describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command is refused by the guard, asked of a real engine', () => {
     /**
-     * `cli.step.budget.test.ts` already covers this against a mocked SDK — see its own "does not
-     * charge refused calls" case. What a live engine can add is that a *real* denied Bash call is
-     * still routed through the same credit mechanism, not just a canned stream. Both runs below give
-     * the model the same one instruction — call `true` once, then report — and differ only in
-     * whether `true` is on the stage's allowlist. `REPORT_RESULT_PATH` is pre-written so a compliant
-     * model needs three steps: the plan read every stage agent is told to do first, the bash call,
-     * and the report call. Card 0253: `DENIED_BASH_PROBE_STEPS` is that count, not two — a tight
-     * two-step budget left no step for the Bash call at all once the read was spent, which is what
-     * made the denied run fail without ever reaching the guard (see that constant's own doc comment).
+     * What a live engine can add to the mocked SDK in `cli.step.budget.test.ts` is that a *real* Bash
+     * call reaches the guard. Both runs below give the model the same one instruction, to call `true`
+     * once and then report, and differ only in whether `true` is on the stage's allowlist.
+     * `REPORT_RESULT_PATH` is pre-written so a compliant model has nothing else to do. The refusal
+     * credit is arithmetic on a count of turns, so `cli.step.budget.test.ts`'s "does not charge
+     * refused calls" case proves it. A live run cannot, because how many turns a model takes is its
+     * own choice (see `DENIED_BASH_PROBE_STEPS`).
      */
     const resultSchema = z.object({ summary: z.string() });
 
@@ -482,7 +499,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         worktree: 'rw',
         adapter: 'cli',
         provider: 'anthropic',
-        model: 'claude-opus',
+        model: 'claude-opus-5-5',
         instructions:
             'Call the bash tool with exactly the command `true`, once. Whether it succeeds or is refused, immediately ' +
             'afterwards call mcp__wilson__report_result with no arguments to finish. Do not call any other tool, do not ' +
@@ -569,7 +586,7 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
         return { output, events, attempted, engineTurns: engineTurns.current };
     };
 
-    it('still reports cleanly at a tight step budget when the one bash call is denied', async () => {
+    it('refuses the one bash call through the guard, and the run still reports', async () => {
         const { output, events, attempted, engineTurns: turns } = await runReal([]);
         if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
         // Card 0255: `describeTurns` alongside `describeProbeRun` — the engine's own view of what
@@ -588,20 +605,20 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command does not spend a step
             message,
         ).toBe(true);
 
-        // cli.stage.agent.ts: "Refused calls do not spend the budget... The ceiling grows by
-        // one per refusal, so a run keeps its full allowance of productive steps."
         expect(output.truncated, message).toBe(false);
         expect(output.result, message).toEqual({ summary: 'ok' });
     }, 60000);
 
-    it(// The inversion: the same budget, the same three steps, but nothing was ever refused — so
-    // there is no credit to grow the ceiling, and it is exceeded. This is what proves the pass
-    // above came from the credit, not from a budget that was generous enough regardless.
-    'control: the same tight budget is exceeded when that one bash call is allowed instead of denied', async () => {
-        const { output } = await runReal(['true']);
+    it(// The inversion: the same call with the command allowed. This is what proves the refusal
+    // above came from the allowlist, not from a guard that refuses everything.
+    'control: the guard lets that bash call run when it is on the allowlist', async () => {
+        const { output, events, attempted, engineTurns: turns } = await runReal(['true']);
         if (output.engineFailure) throw new Error(`engine unreachable: ${output.engineFailure}`);
+        const message = `${describeProbeRun({ attempted, events, output })} | ${describeTurns(turns)}`;
+        const onBash = (type: string) => events.some(e => e.type === type && (e.payload as { tool?: string } | undefined)?.tool === 'Bash');
 
-        expect(output.truncated).toBe(true);
-        expect(output.budgetFailure).toBe(stepsExceeded(DENIED_BASH_PROBE_STEPS, 0));
+        expect(onBash('tool.executed'), message).toBe(true);
+        expect(onBash('tool.denied'), message).toBe(false);
+        expect(output.truncated, message).toBe(false);
     }, 60000);
 });
