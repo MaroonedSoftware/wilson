@@ -75,7 +75,9 @@ with no account yet asks for one instead (`SignInStep.Account`, `OnboardingForm`
 ## Menu bar
 
 Closing the window hides it and the app keeps running, so `ShutdownMode` is `OnExplicitShutdown`. Only
-`WindowClosing` is intercepted: Quit and a restart to update close with a shutdown reason.
+`WindowClosing` is intercepted: Quit and a restart to update close with a shutdown reason. The Dock icon
+goes with the window (`MacDockIcon`), so while hidden there is no application menu or Cmd+Tab entry
+either, and the tray icon is the way back. Opening the app from Finder or Spotlight still reveals it.
 `tools/macos/make-tray-icon.sh` rebuilds `Assets/tray.png`, a template image, so macOS colours it for
 the menu bar.
 
