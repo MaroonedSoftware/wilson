@@ -160,7 +160,8 @@ describe('StageDispatcher running a plan check', () => {
         const after = await board.read('0001');
         expect(after.frontmatter.stage).toBe('planning');
         expect(after.frontmatter.planCheck).toBe('refused');
-        expect(after.frontmatter.planCheckReason).toContain('three unrelated changes');
+        // The check's own words, not the verifier's sentence about them.
+        expect(after.frontmatter.planCheckReason).toBe('it holds together');
     });
 
     it('does not run for a card whose check was cancelled by a new plan', async () => {

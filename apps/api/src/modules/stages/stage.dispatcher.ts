@@ -907,7 +907,10 @@ export class StageDispatcher {
                     const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;
                     const check = planCheck
                         ? refused
-                            ? { planCheck: 'refused' as const, planCheckReason: outcome.failures.join('; ') }
+                            ? {
+                                  planCheck: 'refused' as const,
+                                  planCheckReason: (outcome.result as { reason?: string } | undefined)?.reason ?? outcome.failures.join('; '),
+                              }
                             : nextStep
                               ? { planCheck: 'checking' as const }
                               : {}
