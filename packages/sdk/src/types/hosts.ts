@@ -105,6 +105,32 @@ export function reviveWorkerTokenSummary(raw: WorkerTokenSummary): WorkerTokenSu
 }
 
 /**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ * generated from [HostRun](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostRun {
+    project: string;
+    cardId: string;
+    stage: string;
+    startedAt: DateTime;
+    /** Absent while `running` and when `unknown`. */
+    endedAt?: DateTime;
+    outcome: 'running' | 'passed' | 'failed' | 'lost' | 'interrupted' | 'abandoned' | 'unknown';
+}
+
+/** Rehydrates every wire-encoded scalar in a HostRun into its runtime type. Mutates and returns `raw`. */
+export function reviveHostRun(raw: HostRun): HostRun {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['startedAt'] = __dt(__o0['startedAt'], 'HostRun.startedAt');
+    if (__o0['endedAt'] != null) {
+        __o0['endedAt'] = __dt(__o0['endedAt'], 'HostRun.endedAt');
+    }
+    return raw;
+}
+
+/**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
  * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../../../apps/api/data/contracts/hosts.ck)

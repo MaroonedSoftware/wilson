@@ -8,16 +8,19 @@ import type {
     CreateHostRequest,
     Host,
     HostConnection,
+    HostRun,
     PutHostProjectRequest,
     PutHostIsolatedRequest,
     PutHostSshTargetRequest,
     UpdateHostRequest,
 } from '../../generated/hosts.js';
-import { HostRepository, type HostPatch, type HostRow } from './host.repository.js';
+import { HostRepository, type HostPatch, type HostRow, type HostRunRow } from './host.repository.js';
 
 /** The range `wilson.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
 const MIN_SLOTS = 1;
 const MAX_SLOTS = 8;
+/** How many of a host's runs `/api/hosts/{name}/runs` returns. */
+const RECENT_RUNS = 20;
 
 /**
  * The host registry behind `/api/hosts` (`hosts.ck`): registering a machine a stage can run on,
@@ -42,6 +45,12 @@ export class HostsService {
 
     async get(name: string): Promise<Host> {
         return toHost(await this.require(name), this.connections);
+    }
+
+    /** The stages most recently placed on host `name`, newest first. Refuses an unregistered name with 404. */
+    async runs(name: string): Promise<HostRun[]> {
+        const host = await this.require(name);
+        return (await this.hosts.runs(name, RECENT_RUNS)).map(run => toRun(run, host));
     }
 
     /**
@@ -159,6 +168,31 @@ export class HostsService {
         return host;
     }
 }
+
+/** What each event that can follow a `stage.placed` says became of the stage. Another `stage.placed` says nothing. */
+const RUN_OUTCOMES: Record<string, HostRun['outcome']> = {
+    'stage.passed': 'passed',
+    'stage.failed': 'failed',
+    'stage.poisoned': 'failed',
+    'stage.dead': 'failed',
+    'stage.host-lost': 'lost',
+    'stage.interrupted': 'interrupted',
+    'stage.stale': 'abandoned',
+};
+
+/** A run as the API returns it. With no event after it, only a slot still held here tells running from never heard of again. */
+const toRun = (run: HostRunRow, host: HostRow): HostRun => {
+    const outcome = run.nextType === undefined ? undefined : RUN_OUTCOMES[run.nextType];
+    const holding = run.nextType === undefined && host.running.some(use => use.project === run.project && use.cardId === run.cardId);
+    return {
+        project: run.project,
+        cardId: run.cardId,
+        stage: run.stage,
+        startedAt: run.startedAt,
+        ...(outcome && { endedAt: run.nextAt }),
+        outcome: outcome ?? (holding ? 'running' : 'unknown'),
+    };
+};
 
 /** The fields of a worker's open connection the API shows. */
 const toConnection = ({ connectedAt, hello }: WorkerConnection): HostConnection => ({

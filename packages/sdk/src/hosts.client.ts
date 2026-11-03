@@ -1,6 +1,7 @@
 import type {
     CreateHostRequest,
     Host,
+    HostRun,
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
     PutHostIsolatedRequest,
@@ -8,7 +9,7 @@ import type {
     PutHostSshTargetRequest,
     UpdateHostRequest,
 } from './types/hosts.js';
-import { reviveHost, reviveIssuedWorkerToken } from './types/hosts.js';
+import { reviveHost, reviveHostRun, reviveIssuedWorkerToken } from './types/hosts.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -58,6 +59,15 @@ export class HostsClient {
     /** @name Remove host */
     async removeHost(name: string): Promise<void> {
         await this.fetch(`/api/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    }
+
+    /**
+     * @name List host runs
+     * @description The stages most recently placed on a host, newest first, at most twenty.
+     */
+    async listHostRuns(name: string): Promise<HostRun[]> {
+        const result = await this.fetch(`/api/hosts/${encodeURIComponent(name)}/runs`, { method: 'GET' });
+        return (await parseJson<HostRun[]>(result)).map(reviveHostRun);
     }
 
     /**

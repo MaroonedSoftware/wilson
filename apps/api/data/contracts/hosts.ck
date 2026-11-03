@@ -122,6 +122,19 @@ contract Host: {
     engineToken?: string
 }
 
+# One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+# and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+# said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+contract HostRun: {
+    project: string
+    cardId: string
+    stage: string
+    startedAt: datetime
+    # Absent while `running` and when `unknown`.
+    endedAt?: datetime
+    outcome: enum(running, passed, failed, lost, interrupted, abandoned, unknown)
+}
+
 # `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
 # VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
 contract CreateHostRequest: {
@@ -256,6 +269,26 @@ operation /api/hosts/{name}: {
         service: HostsService.remove
         response: {
             204:
+            404:
+        }
+    }
+}
+
+# The stages most recently placed on a host, newest first, at most twenty.
+operation /api/hosts/{name}/runs: {
+    params: {
+        name: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List host runs
+        service: HostsService.runs
+        response: {
+            200: {
+                application/json: array(HostRun)
+            }
             404:
         }
     }

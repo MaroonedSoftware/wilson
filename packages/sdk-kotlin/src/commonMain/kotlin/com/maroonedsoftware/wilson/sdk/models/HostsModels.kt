@@ -71,6 +71,22 @@ data class WorkerTokenSummary(
 )
 
 /**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ */
+@Serializable
+data class HostRun(
+    val project: String,
+    val cardId: String,
+    val stage: String,
+    val startedAt: Instant,
+    /** Absent while `running` and when `unknown`. */
+    val endedAt: Instant? = null,
+    val outcome: HostRunOutcome,
+)
+
+/**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
  * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  */
@@ -227,6 +243,36 @@ object HostKindSerializer : SdkEnumSerializer<HostKind>(
     HostKind.UNKNOWN,
     HostKind.SSH to "ssh",
     HostKind.WORKER to "worker",
+)
+
+@Serializable(with = HostRunOutcomeSerializer::class)
+enum class HostRunOutcome {
+    RUNNING,
+    PASSED,
+    FAILED,
+    LOST,
+    INTERRUPTED,
+    ABANDONED,
+    UNKNOWN,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN2,
+}
+
+/** Reads and writes [HostRunOutcome] by its wire spelling. A spelling it does not know reads as [HostRunOutcome.UNKNOWN2]. */
+object HostRunOutcomeSerializer : SdkEnumSerializer<HostRunOutcome>(
+    "HostRunOutcome",
+    HostRunOutcome.UNKNOWN2,
+    HostRunOutcome.RUNNING to "running",
+    HostRunOutcome.PASSED to "passed",
+    HostRunOutcome.FAILED to "failed",
+    HostRunOutcome.LOST to "lost",
+    HostRunOutcome.INTERRUPTED to "interrupted",
+    HostRunOutcome.ABANDONED to "abandoned",
+    HostRunOutcome.UNKNOWN to "unknown",
 )
 
 /**

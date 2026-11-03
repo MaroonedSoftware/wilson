@@ -111,6 +111,34 @@ public sealed record WorkerTokenSummary
 }
 
 /// <summary>
+/// One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+/// and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+/// said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+/// </summary>
+public sealed record HostRun
+{
+    [JsonPropertyName("project")]
+    public required string Project { get; init; }
+
+    [JsonPropertyName("cardId")]
+    public required string CardId { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("startedAt")]
+    public required DateTimeOffset StartedAt { get; init; }
+
+    /// <summary>Absent while `running` and when `unknown`.</summary>
+    [JsonPropertyName("endedAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? EndedAt { get; init; }
+
+    [JsonPropertyName("outcome")]
+    public required HostRunOutcome Outcome { get; init; }
+}
+
+/// <summary>
 /// `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
 /// VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
 /// </summary>
@@ -387,6 +415,87 @@ public sealed class HostKindConverter : JsonConverter<HostKind>
         HostKind.Ssh => "ssh",
         HostKind.Worker => "worker",
         _ => throw new JsonException($"HostKind.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(HostRunOutcomeConverter))]
+public enum HostRunOutcome
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown2 = 0,
+
+    [JsonStringEnumMemberName("running")]
+    Running,
+
+    [JsonStringEnumMemberName("passed")]
+    Passed,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+
+    [JsonStringEnumMemberName("lost")]
+    Lost,
+
+    [JsonStringEnumMemberName("interrupted")]
+    Interrupted,
+
+    [JsonStringEnumMemberName("abandoned")]
+    Abandoned,
+
+    [JsonStringEnumMemberName("unknown")]
+    Unknown,
+}
+
+/// <summary>
+/// Reads and writes <see cref="HostRunOutcome"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="HostRunOutcome.Unknown2"/> rather than failing the payload.
+/// </summary>
+public sealed class HostRunOutcomeConverter : JsonConverter<HostRunOutcome>
+{
+    public override HostRunOutcome Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for HostRunOutcome, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, HostRunOutcome value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override HostRunOutcome ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, HostRunOutcome value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static HostRunOutcome FromWire(string? text) => text switch
+    {
+        "running" => HostRunOutcome.Running,
+        "passed" => HostRunOutcome.Passed,
+        "failed" => HostRunOutcome.Failed,
+        "lost" => HostRunOutcome.Lost,
+        "interrupted" => HostRunOutcome.Interrupted,
+        "abandoned" => HostRunOutcome.Abandoned,
+        "unknown" => HostRunOutcome.Unknown,
+        _ => HostRunOutcome.Unknown2,
+    };
+
+    private static string ToWire(HostRunOutcome value) => value switch
+    {
+        HostRunOutcome.Running => "running",
+        HostRunOutcome.Passed => "passed",
+        HostRunOutcome.Failed => "failed",
+        HostRunOutcome.Lost => "lost",
+        HostRunOutcome.Interrupted => "interrupted",
+        HostRunOutcome.Abandoned => "abandoned",
+        HostRunOutcome.Unknown => "unknown",
+        _ => throw new JsonException($"HostRunOutcome.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

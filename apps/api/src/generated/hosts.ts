@@ -72,6 +72,22 @@ export const WorkerTokenSummary = z.strictObject({
 export type WorkerTokenSummary = z.infer<typeof WorkerTokenSummary>;
 
 /**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ * generated from [HostRun](../../data/contracts/hosts.ck)
+ */
+export const HostRun = z.strictObject({
+    project: z.string(),
+    cardId: z.string(),
+    stage: z.string(),
+    startedAt: _ZodDatetime,
+    endedAt: _ZodDatetime.optional().describe('Absent while `running` and when `unknown`.'),
+    outcome: z.enum(['running', 'passed', 'failed', 'lost', 'interrupted', 'abandoned', 'unknown']),
+});
+export type HostRun = z.infer<typeof HostRun>;
+
+/**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
  * VM's `Host agent-*` SSH config entry expects; a `worker` host takes none. `slots` defaults to 1.
  * generated from [CreateHostRequest](../../data/contracts/hosts.ck)

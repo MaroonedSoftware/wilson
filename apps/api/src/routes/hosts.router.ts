@@ -7,6 +7,7 @@ import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
 import {
     CreateHostRequest,
     Host,
+    HostRun,
     IssuedWorkerToken,
     PutHostEngineTokenRequest,
     PutHostIsolatedRequest,
@@ -105,6 +106,26 @@ HostsRouter.delete('/api/hosts/:name', requirePolicy({ policy: 'wilson.manage' }
     await service.remove(name);
 
     ctx.status = 204;
+});
+
+/**
+ * The stages most recently placed on a host, newest first, at most twenty.
+ * from [hosts.ck](../../data/contracts/hosts.ck) `GET /api/hosts/{name}/runs`
+ */
+HostsRouter.get('/api/hosts/:name/runs', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(HostsService);
+    const result: HostRun[] = await service.runs(name);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });
 
 /**
