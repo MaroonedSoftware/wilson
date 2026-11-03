@@ -178,6 +178,46 @@ const freshEnv = async () => {
 };
 
 describe('PlanService', () => {
+    describe('closeFinished', () => {
+        it('closes the session of a card that has left planning, and nothing else', async () => {
+            const { board, service, worktreeRoot, codeRoot } = await freshEnv();
+            await board.create(card('0002', { stage: 'planning' }), 'seed');
+            await board.create(card('0003', { stage: 'planning' }), 'seed');
+            await board.create(card('0004', { stage: 'parking-lot' }), 'seed');
+            await board.create(card('0005', { stage: 'planning' }), 'seed');
+            for (const id of ['0002', '0003', '0004', '0005']) await service.open(id);
+            await board.write('0002', 'approved', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'backlog' } }));
+            await board.write('0005', 'dropped', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'dropped' } }));
+
+            await expect(service.closeFinished()).resolves.toEqual(['0002', '0005']);
+
+            expect(existsSync(join(worktreeRoot, 'plan-0002'))).toBe(false);
+            expect(existsSync(join(worktreeRoot, 'plan-0005'))).toBe(false);
+            expect(existsSync(join(worktreeRoot, 'plan-0003'))).toBe(true);
+            expect(existsSync(join(worktreeRoot, 'plan-0004'))).toBe(true);
+            const { stdout } = await exec('git', ['branch', '--list', 'wilson-plan/*'], { cwd: codeRoot });
+            expect(stdout).not.toContain('0002');
+            expect(stdout).toContain('0003');
+        });
+
+        it('leaves a session whose card cannot be read', async () => {
+            const { service, codeRoot, worktreeRoot } = await freshEnv();
+            await exec('git', ['worktree', 'add', '-q', '-b', 'wilson-plan/9999', join(worktreeRoot, 'plan-9999')], { cwd: codeRoot });
+
+            await expect(service.closeFinished()).resolves.toEqual([]);
+            expect(existsSync(join(worktreeRoot, 'plan-9999'))).toBe(true);
+        });
+
+        it('ignores a card’s own worktree', async () => {
+            const { board, service, codeRoot, worktreeRoot } = await freshEnv();
+            await board.create(card('0006', { stage: 'implementing' }), 'seed');
+            await exec('git', ['worktree', 'add', '-q', '-b', 'card/0006-thing', join(worktreeRoot, '0006')], { cwd: codeRoot });
+
+            await expect(service.closeFinished()).resolves.toEqual([]);
+            expect(existsSync(join(worktreeRoot, '0006'))).toBe(true);
+        });
+    });
+
     describe('autoDraft', () => {
         const SEED = 'Split from 0001 (big), one piece.\n\n## Tasks\n\n- task 1\n';
         const withDraftTurn = (service: PlanService, write: () => Promise<void>) =>

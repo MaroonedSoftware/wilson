@@ -377,6 +377,30 @@ export class PlanService {
         await git(this.boardConfig.codeRoot, ['branch', '-D', planBranch(id)]).catch(() => undefined);
     }
 
+    /**
+     * Close every session whose card has left planning, and name the cards. `close` is only called by
+     * what opens a session to finish it (`wilson card plan`, `autoDraft`): the web pane opens one each
+     * time it mounts and has no moment of its own to end it, so its worktree outlives the card's planning.
+     *
+     * Found through this repo's own worktrees rather than a folder listing, since projects may share
+     * a `worktreeRoot`. A card that cannot be read is left alone: this only closes what it is sure of.
+     */
+    async closeFinished(): Promise<string[]> {
+        const { stdout } = await git(this.boardConfig.codeRoot, ['worktree', 'list', '--porcelain']);
+        const ids = [...stdout.matchAll(/^branch refs\/heads\/wilson-plan\/(.+)$/gm)].map(match => match[1]!);
+        const closed: string[] = [];
+        for (const id of ids) {
+            const stage = await this.boardRepository.read(id).then(
+                card => card.frontmatter.stage,
+                () => undefined,
+            );
+            if (stage === undefined || stage === 'planning' || stage === 'parking-lot') continue;
+            await this.close(id);
+            closed.push(id);
+        }
+        return closed;
+    }
+
     private async readOrThrow(id: string): Promise<Card> {
         try {
             return await this.boardRepository.read(id);

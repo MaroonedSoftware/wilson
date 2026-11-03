@@ -21,6 +21,7 @@ import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
+import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
 import { Poller } from './poller.js';
 import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
 
@@ -313,6 +314,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         private readonly pgboss: PgBoss,
         private readonly events: EventLog,
         private readonly interrupts: StageInterrupt = new StageInterrupt(),
+        private readonly planSessions?: PlanSessionSweep,
     ) {
         super();
     }
@@ -339,6 +341,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         // `start()` returns early once already started.
         await this.pgboss.start();
         await this.sweepOrphanedCardStageJobs();
+        await this.planSessions?.run();
 
         await this.inner.start();
         this.startConcurrencyWatcher();
@@ -562,6 +565,7 @@ export const JobsModule: ServerKitModule = {
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
+        registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
@@ -604,6 +608,7 @@ export const JobsModule: ServerKitModule = {
                     container.get(PgBoss),
                     container.get(EventLog),
                     container.get(StageInterrupt),
+                    container.get(PlanSessionSweep),
                 );
             })
             .asSingleton();
