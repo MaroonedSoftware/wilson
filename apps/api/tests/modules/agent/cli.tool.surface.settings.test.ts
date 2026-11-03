@@ -93,6 +93,17 @@ describe('CliStageAgent pins the tool surface via query() options', () => {
         expect(call.options.strictMcpConfig).toBe(true);
     });
 
+    it('names the built-ins the guard has rules for, including the Glob and Grep a native build leaves out', async () => {
+        queryMock.mockReturnValue(streamOf([]));
+        const agent = new CliStageAgent(silentLogger as never);
+
+        await agent.run(runInput(makeStage()) as never);
+
+        const call = queryMock.mock.calls[0]?.[0] as { options: Record<string, unknown> };
+        expect(call.options.tools).toEqual(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash']);
+        expect(call.options.allowedTools).toBeUndefined();
+    });
+
     it('runs the stage on its own model rather than the engine default', async () => {
         queryMock.mockReturnValue(streamOf([]));
         const agent = new CliStageAgent(silentLogger as never);

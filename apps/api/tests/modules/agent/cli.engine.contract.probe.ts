@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { CliStageAgent, createToolGuard, subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
+import { CliStageAgent, createToolGuard, ENGINE_TOOLS, subscriptionEnv, toolGuardHook } from '#modules/agent/cli.stage.agent.js';
 import { REPORT_RESULT_PATH, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
@@ -479,6 +479,73 @@ describe.skipIf(!RUN_ENGINE_PROBES)('a report_result call really reaches this ad
 
         expect(handlerRan).toBe(false);
     }, 60000);
+});
+
+describe.skipIf(!RUN_ENGINE_PROBES)('Glob and Grep exist on a real engine, and the guard still decides them', () => {
+    it('runs both inside the worktree and refuses a search outside it', async () => {
+        const root = await buildFixture();
+        const outside = await mkdtemp(join(tmpdir(), 'cli-engine-outside-'));
+        await writeFile(join(root, 'src', 'runner', 'needle.txt'), 'haystack-marker\n', 'utf8');
+        await writeFile(join(outside, 'secret.txt'), 'haystack-marker\n', 'utf8');
+        const guard = createToolGuard(buildContext(root, ['src/runner/**'], []), 'rw');
+        const asked: { tool: string; behavior: string }[] = [];
+        const watched: CanUseTool = async (tool, input, options) => {
+            const decision = await guard(tool, input, options);
+            asked.push({ tool, behavior: decision?.behavior ?? 'allow' });
+            return decision;
+        };
+        const results: { id: string; isError: boolean; text: string }[] = [];
+        const calls = new Map<string, string>();
+        const abortController = new AbortController();
+
+        try {
+            const stream = query({
+                prompt: [
+                    'Make exactly these three tool calls, one at a time, then stop. Do not call anything else.',
+                    '1. Glob with pattern "src/runner/*.txt".',
+                    '2. Grep with pattern "haystack-marker", path "src/runner" and output_mode "files_with_matches".',
+                    `3. Grep with pattern "haystack-marker", path "${outside}" and output_mode "files_with_matches".`,
+                ].join('\n'),
+                options: {
+                    cwd: root,
+                    permissionMode: 'default',
+                    settingSources: [],
+                    strictMcpConfig: true,
+                    tools: ENGINE_TOOLS,
+                    hooks: { PreToolUse: [{ hooks: [toolGuardHook(watched)] }] },
+                    canUseTool: watched,
+                    env: subscriptionEnv(),
+                    abortController,
+                    maxTurns: 8,
+                },
+            });
+            for await (const message of stream) {
+                throwOnFailedResult(message);
+                if (message.type === 'result') break;
+                const content = (message as { message?: { content?: unknown } }).message?.content;
+                if (!Array.isArray(content)) continue;
+                for (const part of content as { type: string; id?: string; name?: string; tool_use_id?: string; is_error?: boolean; content?: unknown }[]) {
+                    if (part.type === 'tool_use') calls.set(part.id!, part.name!);
+                    if (part.type === 'tool_result') {
+                        results.push({ id: part.tool_use_id!, isError: part.is_error === true, text: JSON.stringify(part.content) });
+                    }
+                }
+            }
+        } catch (err) {
+            asEngineUnreachable(err);
+        } finally {
+            abortController.abort();
+        }
+
+        const of = (tool: string) => results.filter(result => calls.get(result.id) === tool);
+        const detail = JSON.stringify({ asked, results: results.map(r => ({ tool: calls.get(r.id), ...r })) });
+        expect(of('Glob').some(r => !r.isError && r.text.includes('needle.txt')), detail).toBe(true);
+        expect(of('Grep').some(r => !r.isError && r.text.includes('needle.txt')), detail).toBe(true);
+        // The guard's own decisions, and the file out of scope never appearing, not the model's account.
+        expect(asked.filter(a => a.tool === 'Grep' && a.behavior === 'deny'), detail).toHaveLength(1);
+        expect(results.some(r => r.text.includes('secret.txt')), detail).toBe(false);
+        expect(results.every(r => !r.text.includes('No such tool available')), detail).toBe(true);
+    }, 120000);
 });
 
 describe.skipIf(!RUN_ENGINE_PROBES)('a denied bash command is refused by the guard, asked of a real engine', () => {
