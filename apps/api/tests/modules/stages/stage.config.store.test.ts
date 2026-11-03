@@ -10,11 +10,9 @@ import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.j
 
 /**
  * `StageConfigStore.load` is called twice for the same project on every dispatch (`StageDispatcher.run`
- * and `CardStageJob.runStage`), on every poller tick, and from several API routes — each one a YAML
- * parse, a zod validation and a route check of a document that changes only when a person saves
- * it. The cache key is the newest row's id, because every save is a new row: these pin that repeats
- * are served from the cache, and that every save gets through, the same two halves the file cache's
- * mtime/size test used to pin.
+ * and `CardStageJob.runStage`), on every poller tick, and from several API routes, for rows that change
+ * only when a person changes them. The cache key is the newest revision's id, because every change adds
+ * one: these pin that repeats are served from the cache, and that every change gets through.
  */
 const VALID = `
 stages:
@@ -57,212 +55,60 @@ describe('PostgresStageConfigStore', () => {
         await seedStageConfig(db, project, VALID);
     });
 
-    const route = (stage: string, model: string, adapter = 'cli', provider = 'anthropic') =>
-        db.insertInto('wilson.stageRouting').values({ project, stage, adapter, provider, model, message: 'test' }).execute();
-
-    it('leaves the document alone when a project has no routing rows', async () => {
-        const stage = findStage(await store.load(), 'implementing');
-        expect(stage).toMatchObject({ adapter: 'api', provider: 'anthropic', model: 'claude-opus' });
-    });
-
-    it('lets a routing row win over the document, and the newest row win over older ones', async () => {
-        await route('implementing', 'claude-haiku');
-        await route('implementing', 'grok-5', 'api', 'xai');
-
-        const stage = findStage(await store.load(), 'implementing');
-        expect(stage).toMatchObject({ adapter: 'api', provider: 'xai', model: 'grok-5' });
-    });
-
-    it('sees a routing change straight after a cached load', async () => {
+    it('lets a routing change win, seen straight after a cached load', async () => {
         await store.load();
-        await route('implementing', 'claude-haiku');
 
-        expect(findStage(await store.load(), 'implementing').model).toBe('claude-haiku');
-    });
+        await store.saveRouting('implementing', { adapter: 'api', provider: 'xai', model: 'grok-5' }, 'test');
 
-    it('ignores a row for a stage the document does not have', async () => {
-        await route('retired', 'claude-haiku');
-
-        expect((await store.load()).stages.map(stage => stage.name)).toEqual(['implementing']);
-    });
-
-    it('refuses a routing row the schema would refuse from a document', async () => {
-        await route('implementing', 'whatever', 'api', 'not-a-provider');
-
-        await expect(store.load()).rejects.toThrow(/stages\.0\.provider/);
-    });
-
-    it('moves routing named in a saved document to the table and stores the document without it', async () => {
-        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku\n    adapter: cli # engine\n    # keep me'), 'moved');
-
-        const document = await store.read();
-        expect(document?.yaml).not.toMatch(/model|adapter/);
-        expect(document?.yaml).toContain('# keep me');
-        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', provider: 'anthropic', model: 'claude-haiku' });
-    });
-
-    it('keeps a routing row when the next document says nothing about routing', async () => {
-        await store.save(VALID, 'first');
-        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
-        const yaml = (await store.read())!.yaml.replace('build it', 'build it well');
-
-        await store.save(yaml, 'second');
-
-        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'routed', instructions: 'build it well' });
-    });
-
-    it('takes only the fields a document names, keeping the rest of the row', async () => {
-        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'routed' }, 'routed');
-
-        await store.save(VALID.replace('model: claude-opus', 'model: claude-haiku'), 'second');
-
-        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'cli', model: 'claude-haiku' });
-    });
-
-    it('adds no routing row for a document that changes nothing', async () => {
-        await store.save(VALID, 'first');
-        await store.save(VALID, 'second');
-
-        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
-        expect(rows).toHaveLength(1);
-    });
-
-    it('refuses a stage with neither routing in the document nor a row', async () => {
-        await expect(store.save(VALID.replace('    model: claude-opus\n', ''), 'no model')).rejects.toThrow(/stages\.0\.model/);
-        expect((await store.read())?.yaml).toBe(VALID);
-    });
-
-    it('writes nothing, row or document, when a saved document is refused', async () => {
-        await expect(store.save(BROKEN_ROUTE, 'broken')).rejects.toBeInstanceOf(StageConfigError);
-
-        const rows = await db.selectFrom('wilson.stageRouting').select('id').where('project', '=', project).execute();
-        expect(rows).toHaveLength(0);
-    });
-
-    it('moves routing out of a stored document on start, then does nothing', async () => {
-        await store.moveStoredRouting();
-        await store.moveStoredRouting();
-
-        const versions = await store.versions();
-        expect(versions[0]?.message).toBe('Moved routing to wilson.stage_routing');
-        expect(versions).toHaveLength(2);
-        expect((await store.read())?.yaml).not.toContain('model');
-        expect(findStage(await store.load(), 'implementing').model).toBe('claude-opus');
-    });
-
-    it('keeps an existing row over a stored document when moving on start', async () => {
-        await route('implementing', 'routed');
-
-        await store.moveStoredRouting();
-
-        expect(findStage(await store.load(), 'implementing').model).toBe('routed');
-    });
-
-    it('saves routing as a new row each time, so a change keeps its history', async () => {
-        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'one' }, 'first');
-        await store.saveRouting('implementing', { adapter: 'cli', provider: 'anthropic', model: 'two' }, 'second');
-
-        const rows = await db.selectFrom('wilson.stageRouting').select('message').where('project', '=', project).orderBy('id').execute();
-        expect(rows.map(row => row.message)).toEqual(['first', 'second']);
-        expect(findStage(await store.load(), 'implementing').model).toBe('two');
+        expect(findStage(await store.load(), 'implementing')).toMatchObject({ adapter: 'api', provider: 'xai', model: 'grok-5' });
     });
 
     it('returns the very same object on a repeat load of an unchanged config', async () => {
-        const first = await store.load();
-        const second = await store.load();
-
-        expect(second).toBe(first);
-        expect(first.stages[0]!.name).toBe('implementing');
+        expect(await store.load()).toBe(await store.load());
     });
 
-    it('re-parses once a new document has been saved', async () => {
+    it('rebuilds once a lane has changed', async () => {
         const first = await store.load();
 
-        await store.save(OTHER_VALID, 'switch to reviewing');
+        await store.patchLane('implementing', { instructions: 'build it well' }, 'test');
 
         const second = await store.load();
         expect(second).not.toBe(first);
-        expect(second.stages[0]!.name).toBe('reviewing');
+        expect(findStage(second, 'implementing').instructions).toBe('build it well');
     });
 
-    /**
-     * The operator fixing a broken config is exactly the case that must not be served a remembered
-     * answer — and there is nothing to remember, because a failed parse never reaches the cache.
-     */
-    it('keeps throwing for an invalid stored document, and picks up the fix', async () => {
-        // Straight into the table, bypassing `save`'s validation: a document stored before a schema
-        // change is the case a stored-but-invalid row stands for.
-        await seedStageConfig(db, project, BROKEN_ROUTE, 'stored before the schema changed');
-        await expect(store.load()).rejects.toBeInstanceOf(StageConfigError);
-        await expect(store.load()).rejects.toBeInstanceOf(StageConfigError);
+    it('keeps throwing for rows that no longer validate, and picks up the fix', async () => {
+        await db.updateTable('wilson.lanes').set({ onPass: 'nowhere' }).where('project', '=', project).execute();
+        await db.insertInto('wilson.laneRevisions').values({ project, lane: 'implementing', message: 'broke it' }).execute();
 
-        await store.save(VALID, 'fix it');
+        await expect(store.load()).rejects.toMatchObject({ kind: 'config-invalid' });
+        await expect(store.load()).rejects.toMatchObject({ kind: 'config-invalid' });
 
-        await expect(store.load()).resolves.toMatchObject({ stages: [{ name: 'implementing' }] });
+        await db.updateTable('wilson.lanes').set({ onPass: 'merged' }).where('project', '=', project).execute();
+        await db.insertInto('wilson.laneRevisions').values({ project, lane: 'implementing', message: 'fixed it' }).execute();
+        expect(findStage(await store.load(), 'implementing').onPass).toBe('merged');
     });
 
-    /**
-     * A project with no config at all is the same "the config itself is broken" failure as an
-     * invalid one — not a lookup miss for one card's stage. `classifyDispatchFailure` defers the
-     * former and poisons the latter, so the kind is what matters here.
-     */
-    it('tags a project with no stage config as "config-invalid", naming the project and the fix', async () => {
-        const empty = uniqueProject();
-        const emptyStore = new PostgresStageConfigStore(new StaticBoardConfig(empty, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
+    it('tags a project with no lanes as "config-invalid", naming the project and the fix', async () => {
+        const bare = uniqueProject();
+        const empty = new PostgresStageConfigStore(new StaticBoardConfig(bare, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
 
-        const error = await emptyStore.load().catch((err: unknown) => err);
+        const error = await empty.load().catch((err: unknown) => err);
 
         expect(error).toBeInstanceOf(StageConfigError);
         expect((error as StageConfigError).kind).toBe('config-invalid');
-        expect((error as StageConfigError).message).toContain(empty);
+        expect((error as StageConfigError).message).toContain(bare);
         expect((error as StageConfigError).message).toContain('wilson board init');
-        expect(await emptyStore.read()).toBeUndefined();
     });
 
-    it('refuses to save a document that would not load, and writes nothing', async () => {
-        const before = await store.read();
-
-        const error = await store.save(BROKEN_ROUTE, 'oops').catch((err: unknown) => err);
-
-        expect(error).toBeInstanceOf(StageConfigError);
-        expect((error as StageConfigError).kind).toBe('config-invalid');
-        expect((error as StageConfigError).message).toContain('nowhere');
-        expect(await store.read()).toEqual(before);
-    });
-
-    it('answers read and versions with the newest document first', async () => {
-        const saved = await store.save(OTHER_VALID, 'second');
-
-        const current = await store.read();
-        expect(current).toMatchObject({ id: saved.id, yaml: saved.yaml, message: 'second' });
-        expect(current?.yaml).toContain('review it');
-
-        const versions = await store.versions();
-        expect(versions.map(v => v.message)).toEqual(['second', 'test']);
-        expect(versions[0]!.id).toBe(saved.id);
-        expect(await store.versions(1)).toHaveLength(1);
-    });
-
-    /**
-     * Every caller shares one instance where each used to get its own parse. Freezing makes that
-     * safe by construction rather than by every future caller happening not to mutate what it got.
-     */
     it('hands back a deeply frozen config', async () => {
         const stages = await store.load();
 
         expect(Object.isFrozen(stages)).toBe(true);
-        expect(Object.isFrozen(stages.stages)).toBe(true);
         expect(Object.isFrozen(stages.stages[0])).toBe(true);
-        expect(() => {
-            (stages.stages[0] as { name: string }).name = 'mutated';
-        }).toThrow(TypeError);
+        expect(Object.isFrozen(stages.stages[0]!.allowedCommands)).toBe(true);
     });
 
-    /**
-     * The store reads `BoardConfig.project` fresh on every call, so under `runAsProject` the same
-     * instance answers for whichever project's work is on the call stack — the property every
-     * per-project consumer (`Poller.tickProject`, `CardStageJob.run`) relies on.
-     */
     it('answers for the project on the call stack under runAsProject', async () => {
         const alpha = uniqueProject();
         const beta = uniqueProject();
@@ -281,14 +127,13 @@ describe('PostgresStageConfigStore', () => {
 });
 
 describe('StaticStageConfigStore', () => {
-    it('loads the document it was constructed with, and appends on save', async () => {
+    it('loads the document it was constructed with, and swaps it on save', async () => {
         const store = new StaticStageConfigStore(VALID);
 
         expect((await store.load()).stages[0]!.name).toBe('implementing');
 
-        await store.save(OTHER_VALID, 'switch');
+        await store.save(OTHER_VALID);
         expect((await store.load()).stages[0]!.name).toBe('reviewing');
-        expect((await store.versions()).map(v => v.message)).toEqual(['switch', 'initial']);
     });
 
     it('is "config-invalid" when constructed empty, like a project with no row', async () => {
@@ -298,17 +143,17 @@ describe('StaticStageConfigStore', () => {
         expect((error as StageConfigError).kind).toBe('config-invalid');
     });
 
-    it('refuses an invalid save the way the real store does', async () => {
+    it('refuses an invalid save, keeping what it had', async () => {
         const store = new StaticStageConfigStore(VALID);
 
-        await expect(store.save('stages: [', 'broken yaml')).rejects.toBeInstanceOf(StageConfigError);
-        await expect(store.save(BROKEN_ROUTE, 'broken route')).rejects.toBeInstanceOf(StageConfigError);
-        expect((await store.versions()).map(v => v.message)).toEqual(['initial']);
+        await expect(store.save('stages: [')).rejects.toBeInstanceOf(StageConfigError);
+        await expect(store.save(BROKEN_ROUTE)).rejects.toBeInstanceOf(StageConfigError);
+        expect((await store.load()).stages[0]!.name).toBe('implementing');
     });
 });
 
 /**
- * `parseStages` is the one place a document becomes a `ProjectStages`, shared by `load` and `save`.
+ * `parseStages` is the one place a document becomes a `ProjectStages`, shared by an import and `StaticStageConfigStore`.
  * Every way a document can be wrong — not YAML, not the schema, a route to nowhere — is
  * `config-invalid`, naming `source` so the error says which document.
  */

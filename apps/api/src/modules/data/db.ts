@@ -144,11 +144,14 @@ export interface WilsonCards {
   body: string;
   branch: string | null;
   createdAt: Generated<DateTime>;
+  doneReason: string | null;
   external: Json | null;
   id: string;
   needsHuman: Generated<boolean>;
   needsHumanReason: string | null;
   pinnedVersionId: bigint | null;
+  planCheck: string | null;
+  planCheckReason: string | null;
   position: number | null;
   project: string;
   retries: Generated<Json>;
@@ -381,6 +384,41 @@ export interface WilsonSourceCursors {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonLaneRevisions {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  lane: string | null;
+  message: string;
+  project: string;
+  snapshot: Json | null;
+}
+
+export interface WilsonLanes {
+  adapter: string | null;
+  instructions: string;
+  mode: string;
+  model: string | null;
+  name: string;
+  onFail: string;
+  onPass: string;
+  position: number;
+  project: string;
+  provider: string | null;
+  settings: Generated<Json>;
+  updatedAt: Generated<DateTime>;
+  worktree: string;
+}
+
+export interface WilsonProjectLaneSettings {
+  alwaysAllowed: Generated<string[]>;
+  deny: Generated<string[]>;
+  importedConfigId: bigint;
+  project: string;
+  sandbox: Json;
+  scopeViolation: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonStageConfigs {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -443,6 +481,9 @@ export interface DB {
   "wilson.reviewTurns": WilsonReviewTurns;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
+  "wilson.laneRevisions": WilsonLaneRevisions;
+  "wilson.lanes": WilsonLanes;
+  "wilson.projectLaneSettings": WilsonProjectLaneSettings;
   "wilson.stageConfigs": WilsonStageConfigs;
   "wilson.stageRouting": WilsonStageRouting;
 }

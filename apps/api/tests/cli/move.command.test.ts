@@ -8,11 +8,10 @@ import { buildCtx, connectionRefused, fetchMock, jsonResponse, methodOf, reasonR
 // to phrase the message (already-there vs moved vs flag-cleared), and the API is what actually
 // decides and writes.
 //
-// Card 0090 adds a warning — never a refusal — when the target is a dead stage (`dropped`,
-// `poisoned`) and something depends on this card: without it, dropping/poisoning a card silently and
-// permanently blocks every dependent (see board-view.test.ts for deadStages/deadDependencies
-// directly). That path costs two extra calls (`GET /api/stages`, then `GET /api/cards`) before the
-// move itself, so every pre-existing test below now mocks a `columns()` response for the stage check.
+// Card 0090 adds a warning, never a refusal, when the target means the card will never merge
+// (`dropped`, `poisoned`, a plain `done`) and something depends on this card: without it, dropping or
+// poisoning a card silently and permanently blocks every dependent (see board-view.test.ts for
+// isDeadTarget/deadDependencies directly). That path costs an extra `GET /api/cards` before the move.
 const { default: command } = await import('../../../../packages/cli/src/commands/card/move.command.js');
 
 const run = (ctx: unknown, cardId: string, target: string) => (command.run as unknown as Handler)({}, ctx, [cardId, target]);
@@ -29,21 +28,19 @@ const card = (overrides: Partial<{ id: string; stage: string; needsHuman: boolea
 // A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
 // needs its own. Only 'testing' is a real stage here; the rest mirror the board's actual
 // NON_STAGE_STATES so `deadStages` behaves the way it does in production.
-const columns = () => jsonResponse({ stages: ['implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
 describe('wilson card move', () => {
     it('reports a move to a different stage, calling POST .../move with the target', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ stage: 'testing' })));
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001', 'testing');
 
         expect(result).toBe(0);
-        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0001/move');
-        expect(methodOf(fetchMock.mock.calls[2]!)).toBe('POST');
-        expect(JSON.parse((fetchMock.mock.calls[2]![1] as { body: string }).body)).toEqual({ stage: 'testing' });
+        expect(urlOf(fetchMock.mock.calls[1]!)).toContain('/api/cards/0001/move');
+        expect(methodOf(fetchMock.mock.calls[1]!)).toBe('POST');
+        expect(JSON.parse((fetchMock.mock.calls[1]![1] as { body: string }).body)).toEqual({ stage: 'testing' });
         expect(logger.info).toHaveBeenCalledWith('0001: implementing → testing');
     });
 
@@ -61,21 +58,19 @@ describe('wilson card move', () => {
 
     it('still calls move — to clear the flag — when the target equals the current stage but the card is flagged', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ stage: 'implementing', needsHuman: true })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ stage: 'implementing', needsHuman: false })));
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0001', 'implementing');
 
         expect(result).toBe(0);
-        expect(fetchMock).toHaveBeenCalledTimes(3);
-        expect(methodOf(fetchMock.mock.calls[2]!)).toBe('POST');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(methodOf(fetchMock.mock.calls[1]!)).toBe('POST');
         expect(logger.info).toHaveBeenCalledWith('0001: cleared flag, stays in implementing');
     });
 
     it('prints the API-supplied reason and exits 1 for a target the stage graph refuses, rather than an HTTP status line', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(reasonResponse(400, '"not-a-stage" is not a valid target'));
         const { ctx, logger } = buildCtx();
 
@@ -97,7 +92,6 @@ describe('wilson card move', () => {
 
     it('warns, naming each dependent and its --remove incantation, when dropping a card something depends on — and still performs the move', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(
             jsonResponse([
                 card({ id: '0079', dependsOn: ['0078', '0085'] }),
@@ -119,13 +113,12 @@ describe('wilson card move', () => {
         expect(logger.info).toHaveBeenCalledWith('  wilson card depend 0090 0085 --remove');
         expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('0091'));
         // The move still happens — this is a warning, not a refusal.
-        expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/cards/0085/move');
+        expect(urlOf(fetchMock.mock.calls[2]!)).toContain('/api/cards/0085/move');
         expect(logger.info).toHaveBeenCalledWith('0085: implementing → dropped');
     });
 
     it('warns the same way for poisoning a depended-on card', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0079', dependsOn: ['0085'] })]));
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'poisoned' })));
         const { ctx, logger } = buildCtx();
@@ -140,7 +133,6 @@ describe('wilson card move', () => {
 
     it('prints no extra noise dropping a card nothing depends on', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0001', dependsOn: [] })]));
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'dropped' })));
         const { ctx, logger } = buildCtx();
@@ -153,14 +145,13 @@ describe('wilson card move', () => {
 
     it('does not fetch the card list, or warn, when the target is an ordinary — not dead — stage', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'implementing' })));
-        fetchMock.mockResolvedValueOnce(columns());
         fetchMock.mockResolvedValueOnce(jsonResponse(card({ id: '0085', stage: 'testing' })));
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0085', 'testing');
 
-        // Only three calls: the card, the stage columns, and the move itself — no dependents fetch.
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        // Only two calls: the card and the move itself — no dependents fetch.
+        expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('warning'));
     });
 });

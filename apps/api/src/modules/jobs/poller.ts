@@ -9,7 +9,7 @@ import { nextCard } from '#modules/board/next.card.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
-import { findStage, type ProjectStages } from '#modules/stages/stage.config.js';
+import { findStage, type ProjectStages, stepOn } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
@@ -291,6 +291,16 @@ export class Poller {
                 if (stageName === 'backlog') {
                     const advanced = await this.advanceBacklogCard(cardId, stages);
                     if (!advanced) continue;
+                    return;
+                }
+
+                // A plan check with no job behind it: its first send failed, or the daemon restarted.
+                if (stageName === 'planning' && candidate.frontmatter.planCheck === 'checking') {
+                    const step = stepOn(stages, 'planning', 'approve');
+                    if (!step || (await this.cardJobs.inFlight(cardId))) continue;
+                    const jobId = await this.broker.send('card.stage', { cardId, stageName, step: step.name, project: this.boardConfig.project });
+                    await this.cardJobs.record(cardId, jobId);
+                    this.logger.info(`poller: enqueued ${cardId} · ${stageName} · ${step.name} (job ${jobId})`);
                     return;
                 }
 

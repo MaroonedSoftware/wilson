@@ -14,6 +14,7 @@ import com.maroonedsoftware.wilson.sdk.models.CardEvent
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.ListQuery
 import com.maroonedsoftware.wilson.sdk.models.MoveCardRequest
+import com.maroonedsoftware.wilson.sdk.models.SplitCardsRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkError
 import java.io.IOException
 import kotlinx.coroutines.delay
@@ -114,7 +115,11 @@ class CardModel(private val app: WilsonApp, private val project: String, private
 
     fun acknowledge() = act("ack", "Acknowledged.") { it.board.acknowledgeAFlaggedCard(id) }
 
-    fun approve() = act("approve", "Plan approved.") { it.board.approveCardPlan(id) }
+    fun approve() = act("approve", "Plan approved. Checking its scope.") { it.board.approveCardPlan(id) }
+
+    fun split() = act("split", "Split as proposed.") {
+        it.board.splitCard(id, SplitCardsRequest(pieces = it.board.getCardDivision(id).pieces))
+    }
 
     fun start() = act("start", "Queued for its stage.") { it.board.startCard(id) }
 

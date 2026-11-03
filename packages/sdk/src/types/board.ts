@@ -36,6 +36,14 @@ export interface CardSummary {
     id: string;
     title: string;
     stage: string;
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
+    /**
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
+     */
+    planCheck?: 'checking' | 'refused';
+    planCheckReason?: string;
     branch?: string;
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -94,6 +102,7 @@ export interface SplitPieceSummary {
     id: string;
     title: string;
     stage: string;
+    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
 }
 
 /**

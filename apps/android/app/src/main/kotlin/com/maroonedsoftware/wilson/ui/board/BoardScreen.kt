@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maroonedsoftware.wilson.board.cardState
+import com.maroonedsoftware.wilson.board.planCheckLine
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import com.maroonedsoftware.wilson.ui.Centered
 import com.maroonedsoftware.wilson.ui.Loading
@@ -132,9 +133,11 @@ private fun CardRow(card: CardSummary, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        cardState(card.needsHuman, card.stage)?.let { StateIcon(it) }
+        cardState(card.needsHuman, card.stage, card.doneReason)?.let { StateIcon(it) }
         Column {
             Text("${card.id}  ${card.title}", style = MaterialTheme.typography.bodyLarge)
+            card.doneReason?.let { Text(it.name.lowercase(), style = MaterialTheme.typography.bodySmall) }
+            planCheckLine(card.planCheck, card.planCheckReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             card.needsHumanReason?.takeIf { card.needsHuman }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
             }

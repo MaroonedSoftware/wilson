@@ -125,6 +125,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
+    [NotifyPropertyChangedFor(nameof(PlanCheck))]
+    [NotifyPropertyChangedFor(nameof(CanSplit))]
     [NotifyPropertyChangedFor(nameof(SplitFrom))]
     private CardDetail? _card;
 
@@ -209,11 +211,23 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
+    public string? PlanCheck => BoardRules.PlanCheck(Card?.PlanCheck, Card?.PlanCheckReason);
+
+    public bool CanSplit => Card?.PlanCheck == CardSummaryPlanCheck.Refused;
+
     [RelayCommand]
     public Task AcknowledgeAsync() => ActAsync("Acknowledged.", token => _sdk.Board.AcknowledgeAFlaggedCardAsync(id, token));
 
     [RelayCommand]
-    public Task ApproveAsync() => ActAsync("Plan approved.", token => _sdk.Board.ApproveCardPlanAsync(id, token));
+    public Task ApproveAsync() => ActAsync("Plan approved. Checking its scope.", token => _sdk.Board.ApproveCardPlanAsync(id, token));
+
+    [RelayCommand]
+    public Task SplitAsync() =>
+        ActAsync("Split as proposed.", async token =>
+        {
+            var division = await _sdk.Board.GetCardDivisionAsync(id, token);
+            return await _sdk.Board.SplitCardAsync(id, new SplitCardsRequest { Pieces = division.Pieces }, token);
+        });
 
     [RelayCommand]
     public Task StartAsync() => ActAsync("Queued for its stage.", token => _sdk.Board.StartCardAsync(id, token));

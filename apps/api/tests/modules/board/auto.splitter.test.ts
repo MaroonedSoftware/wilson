@@ -77,7 +77,7 @@ describe('AutoSplitter', () => {
         expect(first.body).toContain('half of it');
 
         const origin = await board.read('0001');
-        expect(origin.frontmatter.stage).toBe('split');
+        expect(origin.frontmatter.doneReason).toBe('split');
         expect(origin.frontmatter.retries).toEqual({ 'scope-check': 1 });
         expect(origin.body).toContain('Split automatically into: 0002, 0003');
     });

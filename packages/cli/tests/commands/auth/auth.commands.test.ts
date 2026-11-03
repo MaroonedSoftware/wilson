@@ -325,13 +325,13 @@ describe('withStepUp', () => {
             .mockResolvedValueOnce(new Response(null, { status: 204 }));
         const { withStepUp } = await import('#src/sign.in.js');
 
-        await withStepUp(buildCtx().ctx, keyed(), api => api.stages.setStageConfig({ yaml: 'x' }), io({ password: 'pw' }));
+        await withStepUp(buildCtx().ctx, keyed(), api => api.stages.updateLane('review', { instructions: 'x' }), io({ password: 'pw' }));
 
         const [first, , signIn, retry, signOut] = calls();
         expect(first!.headers.Authorization).toBe('Bearer wl_stored');
         expect(signIn!.body).toMatchObject({ grant_type: 'password', email: 'operator@example.com', password: 'pw' });
         expect(retry!.headers.Authorization).toBe('Bearer fresh-session');
-        expect(retry!.method).toBe('PUT');
+        expect(retry!.method).toBe('PATCH');
         expect(signOut!.url).toContain('/api/auth/logout');
     });
 
@@ -341,7 +341,7 @@ describe('withStepUp', () => {
         const { withStepUp } = await import('#src/sign.in.js');
 
         await expect(
-            withStepUp(buildCtx().ctx, keyed(), api => api.stages.setStageConfig({ yaml: 'x' }), { ...io({}), askSecret }),
+            withStepUp(buildCtx().ctx, keyed(), api => api.stages.updateLane('review', { instructions: 'x' }), { ...io({}), askSecret }),
         ).rejects.toMatchObject({
             status: 400,
         });

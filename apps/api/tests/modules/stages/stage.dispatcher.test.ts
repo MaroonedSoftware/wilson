@@ -794,7 +794,7 @@ describe('StageDispatcher writeTransition reclaims the worktree on a terminal tr
 
         expect(target).toBe('dropped');
         const stored = await board.read('0001');
-        expect(stored.frontmatter.stage).toBe('dropped');
+        expect(stored.frontmatter.doneReason).toBe('dropped');
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
     });
 });

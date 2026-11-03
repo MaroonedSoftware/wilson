@@ -11,7 +11,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
-import { findStage, StageConfigError, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, StageConfigError, stepOn, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
 import { describeFailingTest, redRunDetail } from '#modules/stages/testing.verifier.js';
@@ -48,6 +48,7 @@ import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
+import { DONE, endedAs } from '#modules/stages/terminal.js';
 
 /**
  * What {@link BoardWriteService}'s merge check found. `unproven` means the suite never ran, so the
@@ -151,27 +152,35 @@ export class BoardWriteService {
      * it is not *entering* `backlog`, it is already there.
      */
     async move(id: string, request: MoveCardRequest): Promise<CardDetail> {
-        const target = request.stage;
-
         // Refuse a state the stage graph does not name, with the same reason `wilson card move`
         // gives — carried in `details` since `httpError`'s `message` is pinned to the status code's
         // default text (see the contract's `400:` comment on this operation).
-        const targets = validTargets(await this.stageConfigs.load());
-        if (!targets.includes(target)) {
-            throw httpError(400).withDetails({ reason: `"${target}" is not a state this board defines. Valid: ${targets.join(', ')}` });
+        const stages = await this.stageConfigs.load();
+        const targets = validTargets(stages);
+        if (!targets.includes(request.stage)) {
+            throw httpError(400).withDetails({ reason: `"${request.stage}" is not a state this board defines. Valid: ${targets.join(', ')}` });
         }
 
         const before = await this.readOrThrow(id);
+
+        // A plain move to `done` is a person dropping the card, unless it had already ended some way.
+        const target = request.stage === DONE ? (endedAs(before.frontmatter) ?? 'dropped') : request.stage;
 
         // Moving a card by hand is already an operator saying they have looked, so a flag comes off
         // on any move — including the no-op case below, where the card is already in the target
         // stage.
         const clearsFlag = Boolean(before.frontmatter.needsHuman);
-        if (before.frontmatter.stage === target && !clearsFlag) {
+        if ((before.frontmatter.stage === target || endedAs(before.frontmatter) === target) && !clearsFlag) {
             return toCardDetail(before);
         }
 
         const enteringBacklog = target === 'backlog' && before.frontmatter.stage !== target;
+
+        // Approval is one check away from `backlog` when the project has one. A second approval while
+        // it runs has nothing to add.
+        const planCheck = enteringBacklog ? stepOn(stages, 'planning', 'approve') : undefined;
+        if (planCheck && before.frontmatter.planCheck === 'checking') return toCardDetail(before);
+        const landing = planCheck ? 'planning' : target;
 
         // Same refusal `approve` always made, carried to the new gate: an empty "Files in scope"
         // would dispatch straight into `NotDispatchableError`'s `empty-scope` case later, with
@@ -180,14 +189,25 @@ export class BoardWriteService {
             throw httpError(400).withDetails({ reason: `cannot approve ${id}: its plan's "Files in scope" is empty — nothing would be writable` });
         }
 
-        const payload: Record<string, unknown> = { from: before.frontmatter.stage, to: target, by: 'human' };
+        const payload: Record<string, unknown> = {
+            from: before.frontmatter.stage,
+            to: landing,
+            by: 'human',
+            ...(planCheck ? { step: planCheck.name } : {}),
+        };
 
         // The move and the event recording it commit together.
         await this.boardRepository.writeWithEvent(
             id,
-            `Move ${id} to ${target}`,
+            `Move ${id} to ${landing}`,
             async card => {
-                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...flagless } = card.frontmatter;
+                const {
+                    needsHuman: _needsHuman,
+                    needsHumanReason: _needsHumanReason,
+                    planCheck: _planCheck,
+                    planCheckReason: _planCheckReason,
+                    ...flagless
+                } = card.frontmatter;
                 // Clearing a flag spends what `ack` spends: the flagged stage's retry key goes, or the
                 // stage's next single failure would land straight back on `maxKickbacks`.
                 const { [card.frontmatter.stage]: _dropped, ...retries } = card.frontmatter.retries;
@@ -202,16 +222,35 @@ export class BoardWriteService {
                 // one and is not. Leave it (this is `approve`'s own comment, carried here unchanged).
                 const pinnedVersion = await this.boardRepository.currentVersion(id);
                 payload.planVersionId = pinnedVersion;
-                return { ...card, frontmatter: { ...rest, stage: target, planVersionId: pinnedVersion } };
+                return {
+                    ...card,
+                    frontmatter: { ...rest, stage: landing, planVersionId: pinnedVersion, ...(planCheck ? { planCheck: 'checking' as const } : {}) },
+                };
             },
             {
                 project: this.boardConfig.project,
                 cardId: id,
-                stage: target,
+                stage: landing,
                 type: 'transition.written',
                 payload,
             },
         );
+
+        // The poller sends this again if it fails, so a failure here costs a tick and not the check.
+        if (planCheck) {
+            try {
+                const jobId = await this.broker.send('card.stage', {
+                    cardId: id,
+                    stageName: 'planning',
+                    step: planCheck.name,
+                    project: this.boardConfig.project,
+                });
+                await this.cardJobs.record(id, jobId);
+            } catch (err) {
+                this.logger.warn(`could not enqueue the plan check for ${id}: ${(err as Error).message}`);
+            }
+            return toCardDetail(await this.boardRepository.read(id));
+        }
 
         // This is the operator's override, so it reclaims on the same rule the runner uses
         // (`isTerminal(target)`) rather than growing its own idea of "done". `clearsFlag` reflects
@@ -947,7 +986,7 @@ export class BoardWriteService {
             if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
                 return {
                     ok: false,
-                    reason: `project "${this.boardConfig.project}" has no "testing" stage, so the suite has nowhere to run; add one with \`wilson stages edit\``,
+                    reason: `project "${this.boardConfig.project}" has no "testing" stage, so the suite has nowhere to run; a project gets one from \`wilson board init\`, or a migration`,
                     unproven: true,
                 };
             }
@@ -1091,7 +1130,8 @@ export class BoardWriteService {
         const rows = await this.eventLog.tail(this.boardConfig.project, id, DIVISION_LOOKBACK);
         let refusal: (typeof rows)[number] | undefined;
         for (let i = rows.length - 1; i >= 0; i--) {
-            if (rows[i]!.type === 'stage.failed' && rows[i]!.stage === 'scope-check') {
+            const { step } = rows[i]!.payload as { step?: unknown };
+            if (rows[i]!.type === 'stage.failed' && (rows[i]!.stage === 'scope-check' || step === 'scope-check')) {
                 refusal = rows[i];
                 break;
             }
@@ -1155,7 +1195,7 @@ export class BoardWriteService {
 
         // Its division is still on the event log, so `division` still answers, but the pieces already
         // exist: confirming it would create every one of them a second time.
-        if (origin.frontmatter.stage === 'split') {
+        if (endedAs(origin.frontmatter) === 'split') {
             throw httpError(400).withDetails({ reason: `${id} has already been split` });
         }
 

@@ -43,7 +43,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.maroonedsoftware.wilson.board.PARKING_LOT
+import com.maroonedsoftware.wilson.board.planCheckLine
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
 import com.maroonedsoftware.wilson.ui.Loading
 import com.maroonedsoftware.wilson.ui.Problem
 
@@ -101,6 +103,7 @@ private fun Header(card: CardDetail) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(card.title, style = MaterialTheme.typography.titleMedium)
         Text(card.stage + (card.branch?.let { "  ·  $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
+        planCheckLine(card.planCheck, card.planCheckReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (card.needsHuman) Text(card.needsHumanReason ?: "This card is flagged for a human.", color = MaterialTheme.colorScheme.error)
     }
 }
@@ -119,6 +122,7 @@ private fun Actions(card: CardDetail, state: CardState, model: CardModel, onPlan
         if (card.stage == "planning" || card.stage == PARKING_LOT) OutlinedButton(onClick = onPlan) { Text("Plan") }
         OutlinedButton(onClick = model::start, enabled = idle) { Text("Start") }
         OutlinedButton(onClick = model::approve, enabled = idle) { Text("Approve plan") }
+        if (card.planCheck == CardSummaryPlanCheck.REFUSED) OutlinedButton(onClick = model::split, enabled = idle) { Text("Split as proposed") }
         OutlinedButton(onClick = { confirming = Confirm.MERGE }, enabled = idle) { Text(if (state.acting == "merge") "Merging…" else "Merge") }
         OutlinedButton(onClick = { confirming = Confirm.RELEASE }, enabled = idle) { Text("Release") }
         Box {

@@ -1,6 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
-import { deadStages } from '../../board-view.js';
+import { isDeadTarget } from '../../board-view.js';
 
 /**
  * Move a card to another stage.
@@ -28,13 +28,13 @@ const command: CommandModule = {
         const before = await api.board.getCard(cardId);
         const clearsFlag = Boolean(before.needsHuman);
 
-        if (before.stage === target && !clearsFlag) {
+        const already = before.stage === target || before.doneReason === target;
+        if (already && !clearsFlag) {
             ctx.logger.info(`${cardId} is already in ${target}`);
             return 0;
         }
 
-        const columns = await api.board.listBoardColumns();
-        if (deadStages(columns.nonStages).includes(target)) {
+        if (isDeadTarget(target)) {
             const cards = await api.board.listCards();
             const dependents = cards.filter(c => c.dependsOn.includes(cardId));
             if (dependents.length > 0) {
@@ -51,7 +51,7 @@ const command: CommandModule = {
 
         await api.board.moveCard(cardId, { stage: target });
 
-        if (before.stage === target) {
+        if (already) {
             ctx.logger.info(`${cardId}: cleared flag, stays in ${target}`);
         } else {
             ctx.logger.info(`${cardId}: ${before.stage} → ${target}`);

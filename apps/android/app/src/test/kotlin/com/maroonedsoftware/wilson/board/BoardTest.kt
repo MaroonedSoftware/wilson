@@ -1,6 +1,8 @@
 package com.maroonedsoftware.wilson.board
 
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -16,6 +18,9 @@ class BoardTest {
         assertEquals(CardState.PARKED, cardState(false, PARKING_LOT))
         assertEquals(CardState.POISONED, cardState(false, "poisoned"))
         assertEquals(CardState.PASSED, cardState(false, "merged"))
+        assertEquals(CardState.POISONED, cardState(false, "done", CardSummaryDoneReason.POISONED))
+        assertEquals(CardState.PASSED, cardState(false, "done", CardSummaryDoneReason.MERGED))
+        assertNull(cardState(false, "done", CardSummaryDoneReason.DROPPED))
         assertNull(cardState(false, "implementing"))
     }
 
@@ -35,5 +40,12 @@ class BoardTest {
     fun theParkingLotKeepsTheOperatorsOrder() {
         val grouped = groupByStage(listOf(card("0001", PARKING_LOT), card("0002", PARKING_LOT, position = 2), card("0003", PARKING_LOT, flagged = true, position = 1)))
         assertEquals(listOf("0003", "0002", "0001"), grouped.getValue(PARKING_LOT).map { it.id })
+    }
+
+    @Test
+    fun aPlanCheckSaysWhereItHasGot() {
+        assertNull(planCheckLine(null, null))
+        assertEquals("Checking the plan's scope", planCheckLine(CardSummaryPlanCheck.CHECKING, null))
+        assertEquals("Scope check refused: too broad", planCheckLine(CardSummaryPlanCheck.REFUSED, "too broad"))
     }
 }

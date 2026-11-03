@@ -199,4 +199,32 @@ public class BoardRulesTests
         Assert.Equal("0123", BoardRules.FeedCardId("""{"correlationId":"0123"}"""));
         Assert.Null(BoardRules.FeedCardId("[]"));
     }
+
+    [Theory]
+    [InlineData(CardSummaryDoneReason.Poisoned, CardFace.Poisoned)]
+    [InlineData(CardSummaryDoneReason.Merged, CardFace.Passed)]
+    public void ADoneCardWearsItsReason(CardSummaryDoneReason reason, CardFace face)
+    {
+        var card = Card("1", "done") with { DoneReason = reason };
+
+        Assert.Equal(face, BoardRules.Face(card));
+        Assert.Equal(reason.ToString().ToLowerInvariant(), BoardRules.Ended(card));
+    }
+
+    [Fact]
+    public void ADependencyDoneWithAMergedReasonIsFinished()
+    {
+        var dep = Card("2", "done") with { DoneReason = CardSummaryDoneReason.Merged };
+        var card = Card("1", "implementing") with { DependsOn = ["2"] };
+
+        Assert.Empty(BoardRules.UnfinishedDeps(card, [card, dep]));
+    }
+
+    [Fact]
+    public void APlanCheckSaysWhereItHasGot()
+    {
+        Assert.Null(BoardRules.PlanCheck(null, null));
+        Assert.Equal("Checking the plan's scope", BoardRules.PlanCheck(CardSummaryPlanCheck.Checking, null));
+        Assert.Equal("Scope check refused: too broad", BoardRules.PlanCheck(CardSummaryPlanCheck.Refused, "too broad"));
+    }
 }

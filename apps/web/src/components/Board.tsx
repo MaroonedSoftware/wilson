@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActionIcon, Badge, Box, Group, Loader, Paper, ScrollArea, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Badge, Box, Group, Loader, NativeSelect, Paper, ScrollArea, Stack, Text, Title, UnstyledButton } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { Link } from '@tanstack/react-router';
 import {
@@ -24,11 +24,14 @@ import {
     cardState,
     collapsedColumnsKey,
     columnOrder,
+    DONE,
+    DONE_REASONS,
     groupByStage,
     lastEventAge,
     showsLastEventLine,
     splitProgress,
     stagesById,
+    withDoneReason,
     type SplitProgress,
     toggleCollapsed,
     unfinishedDeps,
@@ -56,6 +59,7 @@ export const TONE: Record<string, string> = {
     testing: 'violet',
     review: 'grape',
     ready: 'teal',
+    done: 'green',
     merged: 'green',
     poisoned: 'red',
     dropped: 'gray',
@@ -115,8 +119,18 @@ function CardBody({
                 </Text>
                 {pending && <Loader size={12} />}
             </Group>
-            {(card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
+            {(card.doneReason || card.planCheck || card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
                 <Group gap={6} mt={6}>
+                    {card.planCheck && (
+                        <Badge size="xs" color={card.planCheck === 'refused' ? 'red' : 'blue'} variant="light">
+                            {card.planCheck === 'refused' ? 'scope refused' : 'checking scope'}
+                        </Badge>
+                    )}
+                    {card.doneReason && (
+                        <Badge size="xs" color={TONE[card.doneReason] ?? 'gray'} variant="light">
+                            {card.doneReason}
+                        </Badge>
+                    )}
                     {card.needsHuman && (
                         <Badge size="xs" color="red" variant="light">
                             {card.needsHumanReason ?? 'needs human'}
@@ -257,7 +271,7 @@ function SortableCard({
  */
 function Column({
     stage,
-    cards,
+    cards: allCards,
     boardCards,
     pendingId,
     project,
@@ -274,7 +288,9 @@ function Column({
 }) {
     const { setNodeRef, isOver } = useDroppable({ id: stage });
     const isParkingLot = stage === PARKING_LOT;
-    const flaggedCount = cards.filter(card => card.needsHuman).length;
+    const flaggedCount = allCards.filter(card => card.needsHuman).length;
+    const [doneReason, setDoneReason] = useState<string>();
+    const cards = stage === DONE ? withDoneReason(allCards, doneReason) : allCards;
     return (
         <Stack
             ref={setNodeRef}
@@ -336,6 +352,15 @@ function Column({
                             </ActionIcon>
                         </Group>
                     </Group>
+                    {stage === DONE && (
+                        <NativeSelect
+                            size="xs"
+                            aria-label="Show cards that ended as"
+                            value={doneReason ?? ''}
+                            onChange={event => setDoneReason(event.currentTarget.value || undefined)}
+                            data={[{ value: '', label: 'All' }, ...DONE_REASONS]}
+                        />
+                    )}
                     <Stack gap={6} mih={24}>
                         {isParkingLot ? (
                             <SortableContext items={cards.map(card => card.id)} strategy={verticalListSortingStrategy}>

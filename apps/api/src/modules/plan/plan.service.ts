@@ -10,7 +10,7 @@ import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { toCardDetail } from '#modules/board/board.service.js';
 import { completeSections, planGap, type Card } from '#modules/board/card.js';
 import { git } from '#modules/board/git.js';
-import { findStage, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
+import { findStage, modelOf, StageConfigError, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -354,7 +354,11 @@ export class PlanService {
         const gap = planGap(request.body);
         if (gap) throw httpError(400).withDetails({ reason: gap });
 
-        await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => ({ ...current, body: request.body }));
+        await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => {
+            // A check under way or a refusal is about the text this replaces.
+            const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = current.frontmatter;
+            return { ...current, body: request.body, frontmatter };
+        });
 
         // A person may have edited the text before approving it. The agent revises this file and
         // clients read it back, so an open session has to find what was just approved here.
@@ -520,7 +524,7 @@ export class PlanService {
             sessionId: id,
             worktreePath,
             draftPath,
-            model: stage.model,
+            model: modelOf(stage),
             instructions,
         };
     }
@@ -537,7 +541,7 @@ export class PlanService {
      */
     private async existingSession(id: string): Promise<Pick<PlanSession, 'worktreePath' | 'model'>> {
         const stage = await this.loadPlanningStage();
-        return { worktreePath: join(this.boardConfig.worktreeRoot, planId(id)), model: stage.model };
+        return { worktreePath: join(this.boardConfig.worktreeRoot, planId(id)), model: modelOf(stage) };
     }
 
     /** The `planning` stage's own config — shared by `cutSession` and `existingSession` so neither
@@ -550,7 +554,7 @@ export class PlanService {
         } catch (err) {
             if (err instanceof StageConfigError && err.kind === 'stage-not-found') {
                 throw httpError(400).withDetails({
-                    reason: `project "${this.boardConfig.project}" has no "planning" stage, so a card cannot be talked through yet; add one with \`wilson stages edit\``,
+                    reason: `project "${this.boardConfig.project}" has no "planning" stage, so a card cannot be talked through yet; a project gets one from \`wilson board init\`, or a migration`,
                 });
             }
             throw err;

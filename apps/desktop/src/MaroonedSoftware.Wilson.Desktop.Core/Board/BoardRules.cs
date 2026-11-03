@@ -38,6 +38,25 @@ public static class BoardRules
 
     private const string Merged = "merged";
 
+    private static bool IsMerged(CardSummary card) => card.DoneReason == CardSummaryDoneReason.Merged || card.Stage == Merged;
+
+    /// <summary>Where an approved plan's scope check has got to, in words, or none when there is no check.</summary>
+    public static string? PlanCheck(CardSummaryPlanCheck? check, string? reason) =>
+        check switch
+        {
+            CardSummaryPlanCheck.Checking => "Checking the plan's scope",
+            CardSummaryPlanCheck.Refused => $"Scope check refused: {reason}",
+            _ => null,
+        };
+
+    /// <summary>How a card ended, in words, or none for a card still on the board.</summary>
+    public static string? Ended(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        return card.DoneReason?.ToString().ToLowerInvariant();
+    }
+
     /// <summary>
     /// The columns in order: parking lot, configured stages, terminal states. A stage a card sits in
     /// that the config does not name is appended, because a card that appears nowhere is a board
@@ -69,8 +88,8 @@ public static class BoardRules
         {
             { NeedsHuman: true } => CardFace.NeedsHuman,
             { Stage: ParkingLot } => CardFace.Parked,
-            { Stage: "poisoned" } => CardFace.Poisoned,
-            { Stage: Merged } => CardFace.Passed,
+            { DoneReason: CardSummaryDoneReason.Poisoned } or { Stage: "poisoned" } => CardFace.Poisoned,
+            _ when IsMerged(card) => CardFace.Passed,
             _ => null,
         };
     }
@@ -99,7 +118,7 @@ public static class BoardRules
         ArgumentNullException.ThrowIfNull(card);
 
         var pieces = cards.Where(piece => piece.SplitFrom == card.Id).ToList();
-        return pieces.Count == 0 ? null : new SplitProgress(pieces.Count(piece => piece.Stage == Merged), pieces.Count);
+        return pieces.Count == 0 ? null : new SplitProgress(pieces.Count(IsMerged), pieces.Count);
     }
 
     /// <summary>
@@ -118,7 +137,7 @@ public static class BoardRules
                 return false;
             }
 
-            if (dep.Stage == Merged)
+            if (IsMerged(dep))
             {
                 return true;
             }

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
@@ -418,7 +418,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0010', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
             expect(worktrees.reclaim).toHaveBeenCalledWith('0010');
             expect(events.append).toHaveBeenCalledWith(
@@ -433,7 +433,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0012', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(worktrees.reclaim).not.toHaveBeenCalled();
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
         });
@@ -444,7 +444,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0011', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(detail.needsHuman).toBe(false);
             expect(worktrees.reclaim).not.toHaveBeenCalled();
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
@@ -554,7 +554,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0013', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('0013'));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('boom: directory busy'));
@@ -1172,6 +1172,92 @@ describe('BoardWriteService', () => {
                 }),
                 expect.anything(),
             );
+        });
+    });
+
+    describe('approving with a plan check configured', () => {
+        const checked = new StaticStageConfigStore(
+            [
+                'stages:',
+                '  - name: planning',
+                '    mode: manual',
+                '    model: claude-opus',
+                '    instructions: talk',
+                '    onPass: backlog',
+                '    onFail: parking-lot',
+                '    steps:',
+                '      - name: scope-check',
+                '        on: approve',
+                '        worktree: readonly',
+                '        instructions: judge',
+                '  - name: backlog',
+                '    mode: manual',
+                '    instructions: wait',
+                '    onPass: merged',
+                '    onFail: planning',
+                '',
+            ].join('\n'),
+        );
+        const body = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n';
+        const seeded = (id: string, stage: string): Card => ({
+            frontmatter: { id, title: id, stage, dependsOn: [], retries: {} },
+            sections: { 'Files in scope': '- src/a.ts' },
+            body,
+        });
+
+        afterEach(() => vi.restoreAllMocks());
+
+        it.each(['planning', 'parking-lot', 'implementing'])('pins the plan, waits in planning and enqueues the step, moving from %s', async from => {
+            vi.spyOn(stageConfigs, 'load').mockImplementation(() => checked.load());
+            const { board, service, broker, config } = freshBoard();
+            await board.create(seeded('0071', from), 'seed');
+
+            const detail = await service.move('0071', { stage: 'backlog' });
+
+            expect(detail).toMatchObject({ stage: 'planning', planCheck: 'checking' });
+            const stored = await board.read('0071');
+            expect(stored.frontmatter.planVersionId).toBeDefined();
+            expect(broker.send).toHaveBeenCalledExactlyOnceWith('card.stage', {
+                cardId: '0071',
+                stageName: 'planning',
+                step: 'scope-check',
+                project: config.project,
+            });
+        });
+
+        it('sends nothing for a second approval while the check runs', async () => {
+            vi.spyOn(stageConfigs, 'load').mockImplementation(() => checked.load());
+            const { board, service, broker } = freshBoard();
+            await board.create(seeded('0072', 'planning'), 'seed');
+
+            await service.approve('0072');
+            await service.approve('0072');
+
+            expect(broker.send).toHaveBeenCalledTimes(1);
+        });
+
+        it('leaves the card checking when the send fails, for the poller to pick up', async () => {
+            vi.spyOn(stageConfigs, 'load').mockImplementation(() => checked.load());
+            const { board, service, logger } = freshBoard(undefined, { send: vi.fn(async () => Promise.reject(new Error('down'))) });
+            await board.create(seeded('0073', 'planning'), 'seed');
+
+            await expect(service.approve('0073')).resolves.toMatchObject({ planCheck: 'checking' });
+            expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('down'));
+        });
+
+        it('clears a refused check when the card moves out of planning', async () => {
+            vi.spyOn(stageConfigs, 'load').mockImplementation(() => checked.load());
+            const { board, service } = freshBoard();
+            await board.create(seeded('0074', 'planning'), 'seed');
+            await board.write('0074', 'refuse', card => ({
+                ...card,
+                frontmatter: { ...card.frontmatter, planCheck: 'refused', planCheckReason: 'too broad' },
+            }));
+
+            const detail = await service.move('0074', { stage: 'parking-lot' });
+
+            expect(detail.planCheck).toBeUndefined();
+            expect(detail.planCheckReason).toBeUndefined();
         });
     });
 
@@ -2264,7 +2350,7 @@ describe('BoardWriteService', () => {
 
             expect(result.merged).toBe(true);
             const stored = await board.read('0197');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
             expect(stored.frontmatter.needsHuman).toBe(false);
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -2339,7 +2425,7 @@ describe('BoardWriteService', () => {
             expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check', undefined);
 
             const stored = await board.read('0093');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
             expect(stored.frontmatter.needsHuman).toBe(false);
         });
 
@@ -2416,7 +2502,7 @@ describe('BoardWriteService', () => {
                 expect(worktrees.computeMerge).toHaveBeenCalled();
                 expect(result.merged).toBe(true);
                 const stored = await board.read('0102');
-                expect(stored.frontmatter.stage).toBe('merged');
+                expect(stored.frontmatter.doneReason).toBe('merged');
             });
 
             it('never calls overlapSinceFork and proceeds to computeMerge when the setting is off, even though main moved under the card’s files (AC3)', async () => {
@@ -2434,7 +2520,7 @@ describe('BoardWriteService', () => {
                 expect(worktrees.computeMerge).toHaveBeenCalled();
                 expect(result.merged).toBe(true);
                 const stored = await board.read('0103');
-                expect(stored.frontmatter.stage).toBe('merged');
+                expect(stored.frontmatter.doneReason).toBe('merged');
             });
 
             it('flags a human instead of sending back again once review:re-review has already reached its cap (AC4)', async () => {
@@ -2550,7 +2636,7 @@ describe('BoardWriteService', () => {
             expect(result.reason).toContain(DRY_RUN_INTEGRATION_BRANCH);
 
             const stored = await board.read('0099');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
         });
 
         it('throws rather than silently reporting success when a dry-run merge somehow moves main, and never reaches move', async () => {
@@ -2627,7 +2713,7 @@ describe('BoardWriteService', () => {
             expect(integrationFile.stdout).toBe('export const feature = 1;\n');
 
             const stored = await board.read('0096');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
         });
 
         /**

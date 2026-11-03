@@ -45,7 +45,7 @@ interface MirroredTransitionRow {
  */
 const mirroredMoment = (payload: Record<string, unknown>): MirrorMoment | undefined => {
     if (payload.needsHuman === true) return 'needs-human';
-    if (payload.from === 'scope-check' && payload.to === 'implementing') return 'started';
+    if ((payload.from === 'backlog' || payload.from === 'scope-check') && payload.to === 'implementing') return 'started';
     if (payload.to === 'ready') return 'ready';
     if (payload.to === 'merged') return 'merged';
     if (payload.to === 'dropped') return 'dropped';

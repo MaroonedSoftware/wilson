@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
+import { DONE, doneReasonFor } from '#modules/stages/terminal.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository, type CardVersionSummary, type SplitWrite } from './board.repository.js';
 import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
@@ -236,7 +237,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .executeTakeFirst();
 
         const before = await this.readWith(trx, id);
-        const after = await mutate(before);
+        const after = withDoneReason(await mutate(before));
         const fm = after.frontmatter;
 
         await trx
@@ -244,6 +245,9 @@ export class PostgresBoardRepository extends BoardRepository {
             .set({
                 title: fm.title,
                 stage: fm.stage,
+                doneReason: fm.doneReason ?? null,
+                planCheck: fm.planCheck ?? null,
+                planCheckReason: fm.planCheckReason ?? null,
                 branch: fm.branch ?? null,
                 body: after.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -262,7 +266,7 @@ export class PostgresBoardRepository extends BoardRepository {
     }
 
     private async insertRow(trx: Transaction<DB>, card: Card): Promise<void> {
-        const fm = card.frontmatter;
+        const fm = withDoneReason(card).frontmatter;
         // No upsert: `create` means create. The file-backed implementation used `writeFile`,
         // which silently overwrote an existing card — a real card was destroyed that way.
         await trx
@@ -272,6 +276,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 id: fm.id,
                 title: fm.title,
                 stage: fm.stage,
+                doneReason: fm.doneReason ?? null,
                 branch: fm.branch ?? null,
                 body: card.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -332,11 +337,27 @@ export class PostgresBoardRepository extends BoardRepository {
  */
 const versionId = (id: bigint): string => String(id);
 
+/**
+ * `card` as it is stored: a way of ending named as a stage becomes `done` with that reason, a plain
+ * `done` keeps its reason, and any other stage has none. Here so no writer can leave the two disagreeing.
+ */
+const withDoneReason = (card: Card): Card => {
+    const { doneReason: previous, ...unfinished } = card.frontmatter;
+    const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = unfinished;
+    const ending = doneReasonFor(frontmatter.stage);
+    if (ending) return { ...card, frontmatter: { ...frontmatter, stage: DONE, doneReason: ending } };
+    if (frontmatter.stage === DONE) return { ...card, frontmatter: { ...frontmatter, doneReason: previous ?? 'merged' } };
+    return { ...card, frontmatter: unfinished };
+};
+
 const toCard = (
     row: {
         id: string;
         title: string;
         stage: string;
+        doneReason: string | null;
+        planCheck: string | null;
+        planCheckReason: string | null;
         branch: string | null;
         body: string;
         retries: unknown;
@@ -354,6 +375,9 @@ const toCard = (
         id: row.id,
         title: row.title,
         stage: row.stage,
+        doneReason: row.doneReason ?? undefined,
+        planCheck: (row.planCheck as CardFrontmatter['planCheck']) ?? undefined,
+        planCheckReason: row.planCheckReason ?? undefined,
         branch: row.branch ?? undefined,
         dependsOn,
         retries: (row.retries as Record<string, number> | null) ?? {},

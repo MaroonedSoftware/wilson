@@ -12,75 +12,38 @@ stages:
     onFail: implementing
 `;
 
-const OTHER_VALID = VALID.replace('build it', 'build it carefully');
-
-const BROKEN_ROUTE = VALID.replace('onPass: merged', 'onPass: nowhere');
-
 /**
  * `StageConfigService` is the thin layer `stages.ck` binds to: the store already validates and keeps
- * history, so what these pin is the translation at the HTTP edge — "no row" is a 404, a refused
- * document is a 400 carrying the validator's own sentence in `details.reason` (what
- * `wilson stages edit` prints), and a save with no message gets the default one.
+ * history, so what these pin is the translation at the HTTP edge: no lanes is a 404, and a refused
+ * change is a 400 carrying the validator's own sentence in `details.reason`, which is what
+ * `wilson stages set` prints.
  */
 describe('StageConfigService', () => {
-    it('answers get with the stored document', async () => {
-        const service = new StageConfigService(new StaticStageConfigStore(VALID, 'seeded'));
-
-        const document = await service.get();
-
-        expect(document).toMatchObject({ yaml: VALID, message: 'seeded' });
-    });
-
-    it('answers 404, naming the fix, for a project with no stage config', async () => {
-        const service = new StageConfigService(new StaticStageConfigStore());
-
-        await expect(service.get()).rejects.toMatchObject({
-            statusCode: 404,
-            details: { reason: expect.stringContaining('wilson board init') },
-        });
-    });
-
-    it('saves a valid document with the given message and returns it as the new current one', async () => {
-        const store = new StaticStageConfigStore(VALID);
-        const service = new StageConfigService(store);
-
-        const saved = await service.set({ yaml: OTHER_VALID, message: 'be careful' });
-
-        expect(saved).toMatchObject({ yaml: expect.stringContaining('build it carefully'), message: 'be careful' });
-        expect(await service.get()).toMatchObject({ id: saved.id });
-        expect((await store.load()).stages[0]!.instructions).toBe('build it carefully');
-    });
-
-    it('records a save with no message (or a blank one) under the default message', async () => {
+    it('lists lanes, and answers 404 for a project with none', async () => {
         const service = new StageConfigService(new StaticStageConfigStore(VALID));
 
-        await service.set({ yaml: OTHER_VALID });
-        await service.set({ yaml: VALID, message: '   ' });
-
-        const versions = await service.versions({});
-        expect(versions.map(v => v.message)).toEqual(['Edited stage config', 'Edited stage config', 'initial']);
+        expect((await service.lanes()).map(lane => lane.name)).toEqual(['implementing']);
+        await expect(new StageConfigService(new StaticStageConfigStore()).lanes()).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('refuses an invalid document with a 400 carrying the validator reason, writing nothing', async () => {
+    it('patches a lane, with a default message when it is given none', async () => {
         const service = new StageConfigService(new StaticStageConfigStore(VALID));
 
-        await expect(service.set({ yaml: BROKEN_ROUTE })).rejects.toMatchObject({
+        const lane = await service.patchLane('implementing', { settings: { maxSteps: 99 } });
+
+        expect(lane.settings).toMatchObject({ maxSteps: 99 });
+        expect((await service.laneRevisions({ lane: 'implementing' })).map(revision => revision.message)).toEqual(['Edited implementing']);
+    });
+
+    it('answers 400 with the reason for a refused patch, and 404 for no such lane', async () => {
+        const service = new StageConfigService(new StaticStageConfigStore(VALID));
+
+        await expect(service.patchLane('implementing', { onPass: 'nowhere' })).rejects.toMatchObject({
             statusCode: 400,
-            details: { reason: expect.stringContaining('nowhere') },
+            details: { reason: expect.stringContaining('routes to states that do not exist') },
         });
-        await expect(service.set({ yaml: 'stages: [' })).rejects.toMatchObject({ statusCode: 400 });
-
-        expect(await service.versions({})).toHaveLength(1);
-    });
-
-    it('lists versions newest first, honouring and capping limit', async () => {
-        const service = new StageConfigService(new StaticStageConfigStore(VALID));
-        await service.set({ yaml: OTHER_VALID, message: 'two' });
-        await service.set({ yaml: VALID, message: 'three' });
-
-        expect((await service.versions({})).map(v => v.message)).toEqual(['three', 'two', 'initial']);
-        expect((await service.versions({ limit: 1 })).map(v => v.message)).toEqual(['three']);
-        expect(await service.versions({ limit: 10_000 })).toHaveLength(3);
+        await expect(service.patchLane('implementing', { settings: 'nope' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.patchLane('nope', { instructions: 'x' })).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('lists each stage as it would dispatch', async () => {

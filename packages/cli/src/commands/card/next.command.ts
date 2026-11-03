@@ -51,7 +51,7 @@ const command: CommandModule = {
         if (blocked.length > 0) {
             ctx.logger.info('\nblocked:');
             for (const { card, blockedBy } of blocked) {
-                const dead = deadDependencies(card, cards, columns.nonStages);
+                const dead = deadDependencies(card, cards);
                 const waitingOn = blockedBy.map(id => describeDependency(id, cards, dead)).join(', ');
                 ctx.logger.info(`  ${card.id}  ${card.title}  (waiting on ${waitingOn})`);
             }

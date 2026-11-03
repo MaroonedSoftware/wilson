@@ -49,6 +49,9 @@ export const toCardSummary = (card: Card): CardSummary => ({
     id: card.frontmatter.id,
     title: card.frontmatter.title,
     stage: card.frontmatter.stage,
+    doneReason: card.frontmatter.doneReason as CardSummary['doneReason'],
+    planCheck: card.frontmatter.planCheck,
+    planCheckReason: card.frontmatter.planCheckReason,
     branch: card.frontmatter.branch,
     dependsOn: card.frontmatter.dependsOn,
     needsHuman: card.frontmatter.needsHuman ?? false,
@@ -117,7 +120,12 @@ export class BoardService {
         const cards = await this.boardRepository.list();
         return cards
             .filter(card => card.frontmatter.splitFrom === id)
-            .map(({ frontmatter: { id, title, stage } }) => ({ id, title, stage }))
+            .map(({ frontmatter: { id, title, stage, doneReason } }) => ({
+                id,
+                title,
+                stage,
+                doneReason: doneReason as SplitPieceSummary['doneReason'],
+            }))
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 

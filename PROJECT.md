@@ -50,11 +50,11 @@ These are settled. Challenge them only if you find a concrete blocker.
    rather than by a deny rule, so the corollary holds absolutely: the board is not
    readable state for an agent, and the plan is its only input. The write tool's deny
    list still covers `.runner/` for decision 8.
-7. **Stages are config, not code.** Adding a stage, re-routing models, or changing
-   a provider is a config edit. The config is a versioned `wilson.stage_configs` row —
-   one YAML document per project, comments and all — read through `StageConfigStore` and
-   edited with `wilson stages edit` (or `wilson stages set <file>`); every save is a new
-   version, and the next dispatch reads it, no restart involved.
+7. **Stages are config, not code.** Re-routing models, changing a provider or tuning a
+   budget is a data edit, not a release. A project's lanes are rows in `wilson.lanes`, read
+   through `StageConfigStore` and edited with `wilson stages set`, `instructions` and `route`;
+   every change is a revision in `wilson.lane_revisions`, and the next dispatch reads it, no
+   restart involved. Lanes rarely change shape, so adding or removing one takes a migration.
 8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
    everything under `.runner/` are human-write-only. What actually enforces that differs by
    path. The board is unreachable from a worktree by construction (decision 6) — there is no
@@ -405,13 +405,19 @@ card's scope is written for the stage that implements it; the testing stage's wh
 job is to add files nobody could have declared in advance.
 
 | parking lot | — | none | never dispatched | promote (human only) |
-| planning | agent | readonly | plan file written and parseable | plan-review |
-| plan-review | agent | none | verdict schema valid | plan-approval |
-| plan-approval | manual | none | human approval | implementing |
+| planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
+| backlog | manual | none | picked up by the poller | implementing |
 | implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
 | testing | agent | rw | suite green, test count non-decreasing, no new skips, new tests fail against the pre-change tree | review |
-| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum | ready |
-| ready | manual | none | human approval | merge, then `merged` |
+| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; a `revise` then has to survive the `challenge` step | ready |
+| ready | manual | none | human approval | merge, then `done` |
+| done | — | — | never dispatched | — |
+
+A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
+lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
+`scope-check` when a plan is approved, and a card waits there under a `planCheck` until it passes,
+or until a person reads why it did not. `review` runs `challenge` when it reports `revise`, a fresh
+context trying to refute each blocker before anything is kicked back.
 
 The table above shows only where a stage goes when it passes; a kickback target — a stage's
 `onFail` — is a separate decision and is not automatically the stage before the one that failed. It
@@ -500,9 +506,10 @@ model room to hedge; the runner rejects a result that claims `pass` while listin
 blockers. There is no field for a revised plan: a reviewer that can rewrite is not
 adversarial, it is a second planner. It names problems, planning fixes them.
 
-Terminal states: `merged` (done), `poisoned` (an infrastructure failure, not a quality
-one), `dropped` (a card source closed its ticket while nothing was running), `split`
-(an automatic split replaced the card with its pieces, which now decide when it is done).
+A card ends in one lane, `done`, with a `doneReason` saying how: `merged`, `poisoned` (an
+infrastructure failure, not a quality one), `dropped` (a card source closed its ticket while nothing
+was running, or a person dropped it), or `split` (an automatic split replaced the card with its
+pieces, which now decide when it is done).
 
 `needs-human` is not a terminal state, or a lane a card is routed to at all. It is a
 flag (`needsHuman` on the card, alongside a `needsHumanReason`) that a card carries
@@ -555,15 +562,13 @@ nothing for pg-boss to carry. `wilson card plan` drives it, reading this stage's
 and instructions from config, and it ends when a plan filling the six contract
 headings is written as a new card version.
 
-**Backlog** — plans approved and ready to be worked. Also `mode: manual`, and the
-gate that matters most: leaving it is what pins `planVersionId`, so the version every
-downstream stage reads is the one a person actually approved. A card sits here as long
-as it likes; nothing picks it up, including the poller, which refuses a manual stage
-through the same `whyNotDispatchable` check `wilson card start` uses.
+**Backlog** — plans approved, checked and waiting to be worked. Also `mode: manual`.
+Approving pins `planVersionId`, so the version every downstream stage reads is the one a
+person actually approved, and the scope check has judged that same version by the time a
+card lands here. The poller then moves it on, as capacity allows and Auto-mode permits.
 
-The human gates are therefore three: promoting out of the parking lot, approving out
-of backlog, and merging at `ready`. Everything between the second and third runs
-unattended.
+The human gates are therefore three: promoting out of the parking lot, approving a plan,
+and merging at `ready`. Everything between the second and third runs unattended.
 
 ### Per-stage model routing
 
@@ -691,14 +696,18 @@ file, because that is what the agent reads.
 constraint retired there is nothing clever to do here — no fractional ranks, no merge
 semantics. A reorder is one `UPDATE` per moved card in one transaction.
 
-**Stage config is a row too**, `wilson.stage_configs`: the whole YAML document, stored
-verbatim so its commentary survives, validated on every write and read, and versioned the
-way cards are (the newest row per project is current; the rest are what `git log` on
-`config/stages.yaml` used to be). It is machinery, not board state: human-write-only
-(decision 8), edited with `wilson stages edit`, and reachable only through
-`/api/stages/config` — which no agent runs with, since the bash tool is an argv allowlist
-and the board is unreachable from a worktree by construction. The sibling board repo that
-held the file is gone, and `boardRoot` with it.
+**Lanes are rows too**: `wilson.lanes`, one row per lane per project, with the fields something
+reads or edits on its own as columns and the rest in `settings`, which holds only what someone
+chose, so a default stays a default. What a project's lanes share is in
+`wilson.project_lane_settings`, and every change to either adds to `wilson.lane_revisions`. They
+are validated on every write and read, and are machinery, not board state: human-write-only
+(decision 8), and reachable only through `/api/stages/lanes` and `/api/stages/routing`, which no
+agent runs with, since the bash tool is an argv allowlist and the board is unreachable from a
+worktree by construction.
+
+`wilson.stage_configs` and `wilson.stage_routing` are what lanes were before, kept unread but for a
+one-time import at startup. The YAML's commentary is only there. The sibling board repo that held
+the file is gone, and `boardRoot` with it.
 
 ## Scope enforcement
 
@@ -809,7 +818,7 @@ bound to the origin it was made at, and the API takes that origin from the reque
 one of `WEB_ORIGINS`, so a page anywhere else is never handed a challenge one of ours would answer.
 Passkeys work only in the web app, which has a browser: the CLI completes a sign-in with the
 authenticator app, and tells a passkey-only account to set one up as well. Step-up, meaning a strong factor proven within the last five
-minutes, guards minting an API key, editing stage config (`wilson stages edit` / `set`), and
+minutes, guards minting an API key, editing lanes (`wilson stages set`, `instructions`, `route`), and
 saying which machine receives card work and engine tokens (`wilson host add`, `host set
 --ssh-target`, `host token`, `host engine-token`), because those are the actions that hand out or
 rewrite authority. An API-key session never satisfies step-up (`wilson.step.up`, which answers a key with `step_up_unavailable`), so the CLI

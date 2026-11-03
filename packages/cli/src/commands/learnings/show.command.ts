@@ -3,7 +3,7 @@ import { withApi } from '../../api-client.js';
 
 /**
  * Print the project's learnings document (`GET /api/learnings`) — the human-approved surface card
- * 0239 adds, mirroring `wilson stages show`.
+ * 0239 adds.
  *
  * Written to stdout verbatim rather than through the logger, so `wilson learnings show > learnings.md`
  * round-trips: the file it produces is exactly what `wilson learnings set` accepts. A project with no

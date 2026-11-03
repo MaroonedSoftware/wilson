@@ -1,6 +1,7 @@
-import { isMap, isSeq, parse as parseYaml, parseDocument } from 'yaml';
+import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
+import { DONE, DONE_REASONS } from './terminal.js';
 
 /**
  * The longest a single stage run may be configured to take.
@@ -20,6 +21,57 @@ export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
  * does not carry an idle window it can never reach.
  */
 const DEFAULT_IDLE_MS = 300_000;
+
+/**
+ * A run inside a lane that is not the lane's own: its own prompt, verifier and budgets, on the lane's
+ * provider, model and routes, with the card staying in the lane throughout. `on` says when it runs:
+ * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan.
+ *
+ * Anything it does not name is the lane's. There are no defaults here, on purpose: a default would
+ * silently replace the value the lane chose.
+ */
+export const LaneStepSchema = z.object({
+    name: z.string(),
+    on: z.enum(['approve', 'revise']),
+    instructions: z.string(),
+    /** Defaults to the step's name. */
+    verifier: z.string().optional(),
+    mode: z.enum(['agent', 'command', 'manual']).optional(),
+    worktree: z.enum(['none', 'readonly', 'rw']).optional(),
+    worktreeFrom: z.enum(['base', 'branch']).optional(),
+    placement: z.enum(['local', 'any', 'remote']).optional(),
+    tools: z.array(z.string()).optional(),
+    allowedCommands: z.array(z.string()).optional(),
+    extraScope: z.array(z.string()).optional(),
+    setupCommand: z.string().optional(),
+    buildCommand: z.string().optional(),
+    maxSteps: z.number().int().min(1).optional(),
+    maxOutputTokens: z.number().int().min(1024).optional(),
+    maxInputTokens: z.number().int().min(1000).optional(),
+    maxWallClockMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).optional(),
+    maxBudgetUsd: z.number().positive().optional(),
+});
+
+export type LaneStep = z.infer<typeof LaneStepSchema>;
+
+/** The step a lane runs on `on`, if it has one. */
+export const stepOn = (stages: ProjectStages, lane: string, on: LaneStep['on']): LaneStep | undefined =>
+    stages.stages.find(stage => stage.name === lane)?.steps?.find(step => step.on === on);
+
+/** The plan check a stage is, resolved by `findStage`, or undefined for any other run. */
+export const isPlanCheck = (stage: StageConfig): boolean => stage.steps?.some(step => step.name === stage.step && step.on === 'approve') ?? false;
+
+/**
+ * Whether a lane reaches a model. `planning` is manual, since the queue never dispatches it, but its
+ * session runs on the lane's model.
+ */
+export const runsModel = (stage: { name: string; mode: string }): boolean => stage.mode === 'agent' || stage.name === 'planning';
+
+/**
+ * Whether a lane's routing can be set. `ready` is here but not in `runsModel`: its review workspace
+ * runs the chat engine's model until the lane names one, so it can have a model without needing one.
+ */
+export const canRoute = (stage: { name: string; mode: string }): boolean => runsModel(stage) || stage.name === 'ready';
 
 /**
  * Stages are config, not code (PROJECT.md decision 8).
@@ -43,7 +95,8 @@ export const StageConfigSchema = z
          */
         adapter: z.enum(['api', 'cli', 'codex']).default('api'),
         provider: z.enum(PROVIDERS).default('anthropic'),
-        model: z.string(),
+        /** Required on a lane that runs a model (`runsModel`). Any other lane has none to name. */
+        model: z.string().optional(),
         /** System guidance for the stage. The plan itself is passed as a file path, never inlined. */
         instructions: z.string(),
         /** Tool names this stage may use. Omit for all of them. */
@@ -261,8 +314,15 @@ export const StageConfigSchema = z
          */
         onFail: z.string(),
         maxKickbacks: z.number().int().min(0).default(3),
+        /** Runs inside this lane that are not its own (`LaneStepSchema`). */
+        steps: z.array(LaneStepSchema).optional(),
+        /** Which of `steps` this is, set only by `findStage` when it resolves one. */
+        step: z.string().optional(),
     })
     .superRefine((stage, ctx) => {
+        if (runsModel(stage) && !stage.model) {
+            ctx.addIssue({ code: 'custom', path: ['model'], message: `${stage.name} runs a model, so it needs one` });
+        }
         if (stage.isolated && stage.placement !== 'remote') {
             ctx.addIssue({
                 code: 'custom',
@@ -311,7 +371,7 @@ export const ProjectStagesSchema = z.object({
      * `allowedDomains`; every sandboxed stage in the project shares the one list.
      *
      * Off, with no domains, until an operator turns it on for a stage they have measured
-     * (`wilson stages edit` — this card does not touch the live config). Strict, unlike the rest of
+     * (`wilson stages set` — this card does not touch the live config). Strict, unlike the rest of
      * this schema's own blocks: an unrecognised key here is almost certainly a typo for one of the
      * two real ones, and failing config validation loudly beats silently doing nothing with it.
      */
@@ -372,35 +432,13 @@ const deepFreeze = <T>(value: T): T => {
     return value;
 };
 
-/** The part of a stage kept in `wilson.stage_routing` rather than in the document. */
-export type StageRouting = Pick<StageConfig, 'adapter' | 'provider' | 'model'>;
+/** The part of a lane that says what runs it, set on its own (`wilson stages route`). */
+export type StageRouting = Pick<StageConfig, 'adapter' | 'provider'> & { model: string };
 
-const ROUTING_FIELDS = ['adapter', 'provider', 'model'] as const;
-
-/**
- * Take the routing fields out of a document, keeping the rest of its text and comments.
- *
- * `wilson.stage_routing` is the only source of routing, so a stored document never carries it. A
- * document submitted with those fields is saying what it wants, so the store moves them to the table
- * rather than keeping values nothing would read. `inline` holds what each stage named, by stage.
- *
- * A document with no routing comes back verbatim, not re-rendered, and one that cannot be read comes
- * back as it arrived for `parseStages` to refuse.
- */
-export const splitRouting = (raw: string): { yaml: string; inline: Map<string, Partial<StageRouting>> } => {
-    const inline = new Map<string, Partial<StageRouting>>();
-    const document = parseDocument(raw);
-    const stages = document.errors.length === 0 ? document.get('stages') : undefined;
-    if (!isSeq(stages)) return { yaml: raw, inline };
-
-    for (const stage of stages.items) {
-        if (!isMap(stage)) continue;
-        const fields = Object.fromEntries(ROUTING_FIELDS.filter(field => stage.has(field)).map(field => [field, stage.get(field)]));
-        if (Object.keys(fields).length === 0) continue;
-        inline.set(String(stage.get('name')), fields as Partial<StageRouting>);
-        for (const field of ROUTING_FIELDS) stage.delete(field);
-    }
-    return { yaml: inline.size > 0 ? document.toString() : raw, inline };
+/** A lane's model, for code about to run it. Schema validation means only a misrouted caller can see this throw. */
+export const modelOf = (stage: StageConfig): string => {
+    if (!stage.model) throw new StageConfigError('config-invalid', `${stage.name} has no model`);
+    return stage.model;
 };
 
 /**
@@ -415,17 +453,19 @@ export const assertRoutable = (stage: string, routing: StageRouting, isolated?: 
     if (!routing.model.trim()) {
         throw new StageConfigError('config-invalid', 'a model is required');
     }
+    const session = { planning: 'the planning session', ready: 'the review workspace' }[stage];
     if (routing.adapter === 'codex') {
-        if (stage === 'planning')
-            throw new StageConfigError('config-invalid', 'the planning session always runs Claude, so it cannot use the codex adapter');
+        if (session) throw new StageConfigError('config-invalid', `${session} always runs Claude, so it cannot use the codex adapter`);
         if (routing.provider !== 'openai')
             throw new StageConfigError('config-invalid', `the codex adapter always runs OpenAI, so ${stage} cannot use provider ${routing.provider}`);
         if (!isolated)
             throw new StageConfigError('config-invalid', `${stage} must be marked isolated in its stage config before it can use the codex adapter`);
     }
-    if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || stage === 'planning')) {
-        const engine = stage === 'planning' ? 'the planning session' : 'the cli adapter';
-        throw new StageConfigError('config-invalid', `${engine} always runs Claude, so ${stage} cannot use provider ${routing.provider}`);
+    if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || session)) {
+        throw new StageConfigError(
+            'config-invalid',
+            `${session ?? 'the cli adapter'} always runs Claude, so ${stage} cannot use provider ${routing.provider}`,
+        );
     }
 };
 
@@ -436,7 +476,7 @@ export const assertRoutable = (stage: string, routing: StageRouting, isolated?: 
  * with neither fails the same way a document missing `model` always has. A row for a stage the
  * document no longer has is left unused: it is history, and is live again if that stage comes back.
  */
-const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouting>): unknown => {
+export const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouting>): unknown => {
     if (routing.size === 0 || typeof document !== 'object' || document === null) return document;
     const { stages } = document as { stages?: unknown };
     if (!Array.isArray(stages)) return document;
@@ -450,18 +490,9 @@ const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouti
 };
 
 /**
- * Parse and validate one stage config document.
- *
- * Stage config is a `wilson.stage_configs` row, not a file in the code repo, and the write tool
- * denies the file name anyway — an agent that can edit its own exit condition passes every time
- * (PROJECT.md decision 8). This is the one place the document's text becomes a `ProjectStages`:
- * `StageConfigStore.load` runs it on read and `StageConfigStore.save` runs it on write, so a
- * document that cannot be parsed is refused before it is stored, and one that was stored before a
- * schema change is refused when it is read. Pure, so a test can hand it a string.
- *
- * `source` names the document in the error — a row id, or the file a seed read — the way the path
- * did when this read `stages.yaml`. `routing` holds the project's `wilson.stage_routing` rows by
- * stage name, and each one wins over the document's own values.
+ * Parse and validate one stage config document, as an import reads one and a test writes one. Pure, so
+ * a test can hand it a string. `source` names the document in any refusal, and `routing` holds routing
+ * by stage, each one winning over the document's own values.
  */
 export const parseStages = (raw: string, source = 'stage config', routing: ReadonlyMap<string, StageRouting> = new Map()): ProjectStages => {
     let document: unknown;
@@ -471,7 +502,12 @@ export const parseStages = (raw: string, source = 'stage config', routing: Reado
         throw new StageConfigError('config-invalid', `${source} is not valid YAML: ${(err as Error).message}`);
     }
 
-    const parsed = ProjectStagesSchema.safeParse(applyRouting(document, routing));
+    return validateStages(applyRouting(document, routing), source);
+};
+
+/** Validate an already-read config, wherever it was read from: the checks every load has to pass. */
+export const validateStages = (document: unknown, source = 'stage config'): ProjectStages => {
+    const parsed = ProjectStagesSchema.safeParse(document);
     if (!parsed.success) {
         throw new StageConfigError(
             'config-invalid',
@@ -493,7 +529,7 @@ export const parseStages = (raw: string, source = 'stage config', routing: Reado
  * and `planning` is not a stage anyone has built yet.
  */
 export const assertRoutesResolve = (stages: ProjectStages, path = 'stage config'): void => {
-    const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
+    const known = new Set<string>([...NON_STAGE_STATES, ...DONE_REASONS, ...stages.stages.map(s => s.name)]);
 
     const dangling = stages.stages.flatMap(stage =>
         (['onPass', 'onFail'] as const).filter(key => !known.has(stage[key])).map(key => `${stage.name}.${key} → "${stage[key]}"`),
@@ -510,10 +546,10 @@ export const assertRoutesResolve = (stages: ProjectStages, path = 'stage config'
 /**
  * States a card may occupy that are not agent stages.
  *
- * Terminal states end a card's life and nothing dispatches them, so they have no stage config
- * (PROJECT.md, Stage model). `parking-lot` is a column the dispatch query excludes.
+ * `done` ends a card's life and nothing dispatches it, so it has no stage config (PROJECT.md, Stage
+ * model). `parking-lot` is a column the dispatch query excludes.
  */
-export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped', 'split'] as const;
+export const NON_STAGE_STATES = ['parking-lot', DONE] as const;
 
 /**
  * Every state a card may legitimately be moved to.
@@ -523,7 +559,7 @@ export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped',
  * passed `implementing` had nowhere to go.
  */
 export const validTargets = (stages: ProjectStages): string[] => {
-    const targets = new Set<string>(NON_STAGE_STATES);
+    const targets = new Set<string>([...NON_STAGE_STATES, ...DONE_REASONS]);
     for (const stage of stages.stages) {
         targets.add(stage.name);
         targets.add(stage.onPass);
@@ -532,7 +568,7 @@ export const validTargets = (stages: ProjectStages): string[] => {
     return [...targets].sort();
 };
 
-export const findStage = (stages: ProjectStages, name: string): StageConfig => {
+export const findStage = (stages: ProjectStages, name: string, stepName?: string): StageConfig => {
     const stage = stages.stages.find(s => s.name === name);
     if (!stage) {
         throw new StageConfigError(
@@ -540,7 +576,7 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
             `no stage named "${name}" in the stage config (have: ${stages.stages.map(s => s.name).join(', ')})`,
         );
     }
-    return {
+    const lane: StageConfig = {
         ...stage,
         verifier: stage.verifier ?? stage.name,
         // Card 0260: the stage's own `sandbox` wins when set, otherwise the project-wide default
@@ -549,5 +585,25 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
         // `StageConfig` this function returns, never the `stages: ProjectStages` this call took in.
         sandbox: stage.sandbox ?? stages.sandbox.enabled,
         sandboxAllowedDomains: stages.sandbox.allowedDomains,
+    };
+    if (stepName === undefined) return lane;
+
+    const step = stage.steps?.find(candidate => candidate.name === stepName);
+    if (!step) throw new StageConfigError('stage-not-found', `lane "${name}" has no step named "${stepName}"`);
+
+    const { name: _name, on: _on, ...fields } = step;
+    // The planning session runs on the `cli` engine whatever its lane says (`assertRoutable`), so a
+    // step of that lane does too: one provider and model, one engine and one bill.
+    const adapter = name === 'planning' ? 'cli' : lane.adapter;
+    const maxWallClockMs = fields.maxWallClockMs ?? lane.maxWallClockMs;
+    return {
+        ...lane,
+        ...fields,
+        adapter,
+        mode: fields.mode ?? 'agent',
+        step: step.name,
+        verifier: step.verifier ?? step.name,
+        maxWallClockMs,
+        maxIdleMs: Math.min(lane.maxIdleMs, maxWallClockMs),
     };
 };

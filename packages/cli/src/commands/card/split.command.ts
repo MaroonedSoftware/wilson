@@ -17,7 +17,7 @@ import { withApi } from '../../api-client.js';
  * non-zero exit, the same as every other refusal on this surface.
  */
 const command: CommandModule = {
-    description: "Turn a card's recorded scope-check refusal into cards, on confirmation",
+    description: "Turn a card's recorded scope check refusal into cards, on confirmation",
     args: [{ name: 'cardId', description: 'The refused card id, e.g. 0111', required: true }],
     run: withApi(async (_opts, ctx, args, api) => {
         const cardId = String(args[0]);

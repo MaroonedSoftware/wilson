@@ -33,7 +33,7 @@ export const boardReady: Check = {
             };
         }
         if (stages.length === 0) {
-            return { ok: false, message: 'stage config defines no stages', fixHint: 'Edit it with `wilson stages edit`.' };
+            return { ok: false, message: 'stage config defines no stages', fixHint: 'Scaffold one with `wilson board init`.' };
         }
 
         try {

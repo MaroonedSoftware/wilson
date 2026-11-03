@@ -49,7 +49,7 @@ describe('the operation catalog', () => {
         const catalog = await catalogued();
         const stepUp = (await routes()).filter(({ policy }) => policy === 'wilson.step.up').map(({ route }) => route);
 
-        expect(stepUp).toContain('PUT /api/stages/config');
+        expect(stepUp).toContain('PATCH /api/stages/lanes/{name}');
         expect(stepUp).toEqual(
             expect.arrayContaining([
                 'POST /api/hosts',

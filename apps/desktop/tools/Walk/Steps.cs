@@ -729,7 +729,7 @@ internal static class Steps
         walk.Shot("03s-new-project-board");
         board.Project = board.Projects[0];
         await walk.UntilAsync("the first project again", () => board.Columns.Count > 0 && board.Project != name);
-        Walker.Sql($"delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
+        Walker.Sql($"delete from wilson.lane_revisions where project = '{name}'; delete from wilson.lanes where project = '{name}'; delete from wilson.project_lane_settings where project = '{name}'; delete from wilson.stage_configs where project = '{name}'; delete from wilson.projects where name = '{name}'");
     }
 
     /// <summary>The projects page, through a real press on a project, back to the board that holds it.</summary>
@@ -813,8 +813,8 @@ internal static class Steps
     /// <summary>A ready card of the walk's own, on a real branch, sent back with a comment on a line.</summary>
     private static async Task FindingsAsync(Walker walk, BoardViewModel board)
     {
-        // The seeded config stops at implementing, and only a ready card takes findings. One row of history, taken back below.
-        Walker.Sql("insert into wilson.stage_configs (project, yaml, message) select project, yaml || E'    - name: ready\\n      mode: manual\\n      model: claude-sonnet-5\\n      onPass: merged\\n      onFail: implementing\\n      instructions: |\\n          Wait for the operator.\\n', 'walk' from wilson.stage_configs order by id desc limit 1");
+        // The seeded config stops at implementing, and only a ready card takes findings. One lane, taken back below.
+        Walker.Sql("insert into wilson.lanes (project, name, position, mode, worktree, on_pass, on_fail, instructions) select project, 'ready', 99, 'manual', 'none', 'merged', 'implementing', 'Wait for the operator.' from wilson.project_lane_settings; insert into wilson.lane_revisions (project, lane, message) select project, 'ready', 'walk' from wilson.project_lane_settings");
         Walker.ScratchBranch("walk-diff");
         Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'");
         Walker.Sql("insert into wilson.cards (project, id, title, stage, body, branch) select project, '9996', 'Walked ready', 'ready', '', 'walk-diff' from wilson.cards limit 1");
@@ -851,7 +851,7 @@ internal static class Steps
         walk.Shot("03e-diff-sent");
         walk.Shell.Back();
         await walk.UntilAsync("back on the board", () => walk.Shell.Page == board);
-        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.stage_configs where message = 'walk'");
+        Walker.Sql("delete from wilson.card_versions where card_id = '9996'; delete from wilson.cards where id = '9996'; delete from wilson.lanes where name = 'ready'; insert into wilson.lane_revisions (project, lane, message) select project, 'ready', 'walk' from wilson.project_lane_settings");
         await board.RefreshCommand.ExecuteAsync(null);
     }
 
@@ -955,13 +955,13 @@ internal static class Steps
 
         var stage = Tile().Card.Stage;
         var picked = walk.Center(Tile());
-        var over = walk.Center(Column("merged"));
+        var over = walk.Center(Column("done"));
         walk.Down(picked);
         walk.MoveTo(picked + new Point(20, 0));
         walk.MoveTo(over);
-        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("merged").Target);
+        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("done").Target);
         walk.Press(Key.Escape, PhysicalKey.Escape);
-        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("merged").Target);
+        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("done").Target);
         walk.Up(over);
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
@@ -986,15 +986,15 @@ internal static class Steps
         await walk.UntilAsync("another of the walk's own", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9999")));
         var across = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9999");
         board.ToggleCollapsedCommand.Execute(Column("implementing"));
-        board.ToggleCollapsedCommand.Execute(Column("merged"));
-        await walk.UntilAsync("columns folded and remembered", () => walk.Settings().Collapsed[board.Project!].Contains("merged"));
+        board.ToggleCollapsedCommand.Execute(Column("done"));
+        await walk.UntilAsync("columns folded and remembered", () => walk.Settings().Collapsed[board.Project!].Contains("done"));
         walk.Shot("04b-board-collapsed");
         walk.Drag(walk.Center(across), walk.Center(Column("implementing")), "04c-board-dragging");
         await walk.UntilAsync("the drop moving the card", () => board.Columns.First(column => column.Name == "implementing").Cards.Any(tile => tile.Card.Id == "9999"));
         walk.Shot("04d-board-dropped");
-        await walk.UntilAsync("a redraw keeping them folded", () => Column("merged").Collapsed);
+        await walk.UntilAsync("a redraw keeping them folded", () => Column("done").Collapsed);
         board.ToggleCollapsedCommand.Execute(Column("implementing"));
-        board.ToggleCollapsedCommand.Execute(Column("merged"));
+        board.ToggleCollapsedCommand.Execute(Column("done"));
         await walk.UntilAsync("the columns open again", () => walk.Settings().Collapsed[board.Project!].Count == 0);
         Walker.Sql("delete from wilson.card_versions where card_id = '9999'; delete from wilson.cards where id = '9999'");
         await board.RefreshCommand.ExecuteAsync(null);

@@ -2,19 +2,29 @@ package com.maroonedsoftware.wilson.board
 
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
+import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
 
 const val PARKING_LOT = "parking-lot"
 
 /** `brand/states`, one for each state a card can be seen to be in. */
 enum class CardState { PARKED, PASSED, NEEDS_HUMAN, POISONED }
 
+/** Where an approved plan's scope check has got to, in words, or null when there is no check. */
+fun planCheckLine(check: CardSummaryPlanCheck?, reason: String?): String? =
+    when (check) {
+        CardSummaryPlanCheck.CHECKING -> "Checking the plan's scope"
+        CardSummaryPlanCheck.REFUSED -> "Scope check refused: $reason"
+        else -> null
+    }
+
 /** The same rule as the web board's `cardState`. A card that matches none has no icon. */
-fun cardState(needsHuman: Boolean, stage: String): CardState? =
+fun cardState(needsHuman: Boolean, stage: String, doneReason: CardSummaryDoneReason? = null): CardState? =
     when {
         needsHuman -> CardState.NEEDS_HUMAN
         stage == PARKING_LOT -> CardState.PARKED
-        stage == "poisoned" -> CardState.POISONED
-        stage == "merged" -> CardState.PASSED
+        doneReason == CardSummaryDoneReason.POISONED || stage == "poisoned" -> CardState.POISONED
+        doneReason == CardSummaryDoneReason.MERGED || stage == "merged" -> CardState.PASSED
         else -> null
     }
 

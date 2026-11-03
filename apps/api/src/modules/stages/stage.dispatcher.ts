@@ -30,10 +30,11 @@ import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#mo
 import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
-import { findStage, type ProjectStages, type StageConfig } from './stage.config.js';
+import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
 import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
+import { endingOf } from './terminal.js';
 
 /**
  * Which of `assertDispatchable`'s conditions fired, carried on the error it throws.
@@ -274,9 +275,9 @@ export class StageDispatcher {
     ) {}
 
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
-    async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt): Promise<StageOutcome> {
+    async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt, stepName?: string): Promise<StageOutcome> {
         const stages = await this.stageConfigs.load();
-        const stage = findStage(stages, stageName);
+        const stage = findStage(stages, stageName, stepName);
 
         // Two reads answer two different questions about this card, and conflating them was card
         // 0109's bug: `head` is the live row — stage, retries, needsHuman, dependsOn — the runner
@@ -356,7 +357,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'stage.placed',
-            payload: { host: placed.hostName, slot: placed.slotKey },
+            payload: { host: placed.hostName, slot: placed.slotKey, ...(stage.step ? { step: stage.step } : {}) },
         });
         try {
             return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed, interrupted });
@@ -695,6 +696,7 @@ export class StageDispatcher {
                 stage: stageName,
                 type: outcome.passed ? 'stage.passed' : 'stage.failed',
                 payload: {
+                    ...(stage.step ? { step: stage.step } : {}),
                     failures: outcome.failures,
                     changedPaths: outcome.changedPaths,
                     grants: outcome.scopeGrants,
@@ -750,11 +752,13 @@ export class StageDispatcher {
         // the catch would append a `stage.failed` event after a `stage.passed` one for the same
         // run, leaving the card's history contradicting itself about what the stage did.
         let transitionedTo: string | undefined;
+        let nextStep: string | undefined;
         let needsHuman = false;
         let splitInto: string[] | undefined;
         try {
             const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
             transitionedTo = transition.target;
+            nextStep = transition.nextStep;
             needsHuman = transition.needsHuman;
             splitInto = transition.splitInto;
         } catch (err) {
@@ -769,7 +773,7 @@ export class StageDispatcher {
             // silent failure here is how a card sits untouched forever.
             throw err;
         }
-        return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
+        return { ...outcome, transitionedTo, ...(nextStep && { nextStep }), needsHuman, ...(splitInto && { splitInto }) };
     }
 
     /**
@@ -788,7 +792,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target?: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -800,9 +804,25 @@ export class StageDispatcher {
         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
         // is frozen at approval — a retry count read from it would forget every attempt made since,
         // and a flag read from it would look unset even after the card was flagged post-approval.
-        let decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
-            ? { target: stage.onPass, retries: head.frontmatter.retries }
-            : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        //
+        // A `revise` the lane has a step for is not a kickback yet: the step tests it first, in a fresh
+        // context, and the card stays put until the step has spoken. Not for a card whose ticket closed
+        // mid-run, which the halt below deals with.
+        const revised = !stage.step && outcome.passed && !shouldAdvance(outcome.passed, outcome.result);
+        const reviseStep = revised && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'revise') : undefined;
+        let decision: KickbackDecision = reviseStep
+            ? { target: stageName, retries: head.frontmatter.retries }
+            : shouldAdvance(outcome.passed, outcome.result)
+              ? { target: stage.onPass, retries: head.frontmatter.retries }
+              : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        decision = { ...decision, target: endingOf(decision.target) };
+
+        // A plan check that says no leaves the card in planning, wherever the lane's own failures go:
+        // the person who approved it decides what happens next.
+        const planCheck = isPlanCheck(stage);
+        const advanced = shouldAdvance(outcome.passed, outcome.result);
+        const refused = planCheck && !advanced && !outcome.unjudged && !outcome.resultDropped;
+        if (planCheck && !advanced) decision = { ...decision, target: stageName };
 
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
         // instead of advancing or kicking back further, once this one stage — already bounded by its
@@ -817,11 +837,16 @@ export class StageDispatcher {
         // a hallucinated file, an out-of-range line, or a verdict contradicting its severities can all
         // still carry findings, and writing those into the body would hand the next retry a rejected
         // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
-        const findings = outcome.passed ? findingsFrom(outcome.result) : undefined;
+        // Nor a `revise` still waiting on its step: the step's report is the one that counts.
+        const findings = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
         // Same "only a passed outcome's data is trustworthy" reasoning as `findings` above: criteria
         // from a result the verifier rejected are not evidence either.
-        const criteria = outcome.passed ? criteriaFrom(outcome.result) : undefined;
+        const criteria = outcome.passed && !reviseStep ? criteriaFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
+        // A step sent round again (a report it could not stand behind, an engine cut off) is that step
+        // again, not the lane's own run.
+        const nextStep =
+            needsHuman || refused ? undefined : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
         // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
@@ -869,6 +894,8 @@ export class StageDispatcher {
                     // human who moved the card while this stage ran has the last word, and this
                     // transition, decided from the stage the run started in, must not undo that.
                     if (current.frontmatter.stage !== stageName) throw new CardMovedDuringRunError(current.frontmatter.stage);
+                    // Nor may a check approve a plan a person has since changed.
+                    if (planCheck && current.frontmatter.planCheck !== 'checking') throw new CardMovedDuringRunError(current.frontmatter.stage);
 
                     // On a pass, the section this stage may have accumulated while it kept failing is
                     // shed (the same "shed on pass" rule findings use); on a judged failure, one more
@@ -877,10 +904,22 @@ export class StageDispatcher {
                     const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
                     const nextBody = findings ? withFindings(body, findings, criteria) : body;
                     advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
+                    const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;
+                    const check = planCheck
+                        ? refused
+                            ? {
+                                  planCheck: 'refused' as const,
+                                  planCheckReason: (outcome.result as { reason?: string } | undefined)?.reason ?? outcome.failures.join('; '),
+                              }
+                            : nextStep
+                              ? { planCheck: 'checking' as const }
+                              : {}
+                        : { planCheck: current.frontmatter.planCheck, planCheckReason: current.frontmatter.planCheckReason };
                     return {
                         ...current,
                         frontmatter: {
-                            ...current.frontmatter,
+                            ...unchecked,
+                            ...check,
                             stage: decision.target,
                             retries: decision.retries,
                             ...(needsHuman ? { needsHuman: true, needsHumanReason: needsHuman.reason } : {}),
@@ -899,6 +938,7 @@ export class StageDispatcher {
                         retries: decision.retries,
                         by: 'runner',
                         ...(needsHuman ? { needsHuman: true } : {}),
+                        ...(nextStep ? { step: nextStep } : {}),
                     },
                 },
                 { repinIf: () => advancesPin },
@@ -959,7 +999,7 @@ export class StageDispatcher {
             });
         }
 
-        return { target: decision.target, needsHuman: needsHuman !== undefined };
+        return { target: decision.target, ...(nextStep && { nextStep }), needsHuman: needsHuman !== undefined };
     }
 
     /**
@@ -1103,9 +1143,18 @@ export class StageDispatcher {
                 `card ${head.frontmatter.id} is in stage "${head.frontmatter.stage}", not "${stage.name}"`,
             );
         }
+        // A plan check judges the plan, so it does not wait on a dependency's code. And one whose
+        // check was cancelled has nothing left to judge: a person changed the plan after approving it.
+        const planCheck = isPlanCheck(stage);
+        if (planCheck && head.frontmatter.planCheck !== 'checking') {
+            throw new NotDispatchableError(
+                { kind: 'wrong-stage', actualStage: head.frontmatter.stage },
+                `card ${head.frontmatter.id} has no plan check waiting: its plan changed after it was approved`,
+            );
+        }
         // A hard block: file-based coordination cannot carry an in-flight API contract between two
         // running agents (PROJECT.md, dependency blocking).
-        const outstanding = unsatisfiedDependencies(head, cards);
+        const outstanding = planCheck ? [] : unsatisfiedDependencies(head, cards);
         if (outstanding.length > 0) {
             throw new NotDispatchableError(
                 { kind: 'unsatisfied-dependency', outstanding },

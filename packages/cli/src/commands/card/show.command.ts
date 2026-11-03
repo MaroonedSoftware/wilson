@@ -66,9 +66,9 @@ const command: CommandModule<ShowOpts> = {
         // to look at every card anyway; `show` doesn't).
         let blockedOn: string[] = [];
         if (card.dependsOn.length > 0) {
-            const [cards, columns] = await Promise.all([api.board.listCards(), api.board.listBoardColumns()]);
+            const cards = await api.board.listCards();
             const outstanding = unsatisfiedDependencies(card, cards);
-            const dead = deadDependencies(card, cards, columns.nonStages);
+            const dead = deadDependencies(card, cards);
             blockedOn = outstanding.map(id => describeDependency(id, cards, dead));
         }
 
@@ -106,7 +106,7 @@ const command: CommandModule<ShowOpts> = {
 
         const pieces = card.pieces ?? [];
         if (pieces.length > 0) {
-            const merged = pieces.filter(piece => piece.stage === 'merged').length;
+            const merged = pieces.filter(piece => (piece.doneReason ?? piece.stage) === 'merged').length;
             ctx.logger.info(`\npieces (${merged}/${pieces.length} merged):`);
             for (const piece of pieces) ctx.logger.info(`  ${piece.id}  ${piece.stage}  ${piece.title}`);
         }

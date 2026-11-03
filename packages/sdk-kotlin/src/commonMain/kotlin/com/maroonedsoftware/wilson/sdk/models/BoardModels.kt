@@ -32,6 +32,14 @@ data class CardSummary(
     val id: String,
     val title: String,
     val stage: String,
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    val doneReason: CardSummaryDoneReason? = null,
+    /**
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
+     */
+    val planCheck: CardSummaryPlanCheck? = null,
+    val planCheckReason: String? = null,
     val branch: String? = null,
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -81,6 +89,7 @@ data class SplitPieceSummary(
     val id: String,
     val title: String,
     val stage: String,
+    val doneReason: SplitPieceSummaryDoneReason? = null,
 )
 
 /**
@@ -445,6 +454,14 @@ data class CardDetail(
     val id: String,
     val title: String,
     val stage: String,
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    val doneReason: CardSummaryDoneReason? = null,
+    /**
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
+     */
+    val planCheck: CardSummaryPlanCheck? = null,
+    val planCheckReason: String? = null,
     val branch: String? = null,
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -631,6 +648,14 @@ data class ReleaseResult(
     val id: String,
     val title: String,
     val stage: String,
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    val doneReason: CardSummaryDoneReason? = null,
+    /**
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
+     */
+    val planCheck: CardSummaryPlanCheck? = null,
+    val planCheckReason: String? = null,
     val branch: String? = null,
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -692,6 +717,14 @@ data class MergeResult(
     val id: String,
     val title: String,
     val stage: String,
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    val doneReason: CardSummaryDoneReason? = null,
+    /**
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
+     */
+    val planCheck: CardSummaryPlanCheck? = null,
+    val planCheckReason: String? = null,
     val branch: String? = null,
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -758,6 +791,79 @@ data class MergeResult(
 data class SplitResult(
     val origin: CardDetail,
     val pieces: List<CardDetail>,
+)
+
+/** How the card ended, once it has. Absent for a card still on the board. */
+@Serializable(with = CardSummaryDoneReasonSerializer::class)
+enum class CardSummaryDoneReason {
+    MERGED,
+    POISONED,
+    DROPPED,
+    SPLIT,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardSummaryDoneReason] by its wire spelling. A spelling it does not know reads as [CardSummaryDoneReason.UNKNOWN]. */
+object CardSummaryDoneReasonSerializer : SdkEnumSerializer<CardSummaryDoneReason>(
+    "CardSummaryDoneReason",
+    CardSummaryDoneReason.UNKNOWN,
+    CardSummaryDoneReason.MERGED to "merged",
+    CardSummaryDoneReason.POISONED to "poisoned",
+    CardSummaryDoneReason.DROPPED to "dropped",
+    CardSummaryDoneReason.SPLIT to "split",
+)
+
+/**
+ * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+ * to backlog when the check passes.
+ */
+@Serializable(with = CardSummaryPlanCheckSerializer::class)
+enum class CardSummaryPlanCheck {
+    CHECKING,
+    REFUSED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardSummaryPlanCheck] by its wire spelling. A spelling it does not know reads as [CardSummaryPlanCheck.UNKNOWN]. */
+object CardSummaryPlanCheckSerializer : SdkEnumSerializer<CardSummaryPlanCheck>(
+    "CardSummaryPlanCheck",
+    CardSummaryPlanCheck.UNKNOWN,
+    CardSummaryPlanCheck.CHECKING to "checking",
+    CardSummaryPlanCheck.REFUSED to "refused",
+)
+
+@Serializable(with = SplitPieceSummaryDoneReasonSerializer::class)
+enum class SplitPieceSummaryDoneReason {
+    MERGED,
+    POISONED,
+    DROPPED,
+    SPLIT,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [SplitPieceSummaryDoneReason] by its wire spelling. A spelling it does not know reads as [SplitPieceSummaryDoneReason.UNKNOWN]. */
+object SplitPieceSummaryDoneReasonSerializer : SdkEnumSerializer<SplitPieceSummaryDoneReason>(
+    "SplitPieceSummaryDoneReason",
+    SplitPieceSummaryDoneReason.UNKNOWN,
+    SplitPieceSummaryDoneReason.MERGED to "merged",
+    SplitPieceSummaryDoneReason.POISONED to "poisoned",
+    SplitPieceSummaryDoneReason.DROPPED to "dropped",
+    SplitPieceSummaryDoneReason.SPLIT to "split",
 )
 
 @Serializable(with = ReleaseResultReleasedAsSerializer::class)

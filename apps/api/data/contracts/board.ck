@@ -34,6 +34,12 @@ contract CardSummary: {
     id: string
     title: string
     stage: string
+    # How the card ended, once it has. Absent for a card still on the board.
+    doneReason?: enum(merged, poisoned, dropped, split)
+    # Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    # to backlog when the check passes.
+    planCheck?: enum(checking, refused)
+    planCheckReason?: string
     branch?: string
     # Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
     # recorded one, otherwise the same derivation from the card's title `branchName` computes.
@@ -72,6 +78,7 @@ contract SplitPieceSummary: {
     id: string
     title: string
     stage: string
+    doneReason?: enum(merged, poisoned, dropped, split)
 }
 
 contract CardDetail: CardSummary & {
@@ -1275,7 +1282,7 @@ operation /api/board/init: {
                 application/json: BoardColumns
             }
             # The project already has a stage config. init scaffolds; it does not reset, so this
-            # writes nothing — `wilson stages edit` is how a config changes.
+            # writes nothing — `wilson stages set` is how a lane changes.
             409:
         }
     }

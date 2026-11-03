@@ -10,7 +10,7 @@ interface EditOpts {
  * Edit the project's learnings document in `$EDITOR`.
  *
  * The operator's way to approve a new learning now that the document is a row rather than a file —
- * the same shape as `wilson stages edit`, and the same conventions: an editor closed on an empty
+ * the same shape as `wilson card edit`, and the same conventions: an editor closed on an empty
  * buffer abandons the edit, an unchanged buffer writes nothing, and a save appends a version rather
  * than overwriting, so the previous document is still there (`wilson learnings versions`). Retiring
  * every learning at once (saving truly empty markdown) goes through `wilson learnings set` instead —

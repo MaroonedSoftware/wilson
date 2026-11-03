@@ -19,12 +19,10 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
 
 // A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
 // needs its own.
-const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
 
 describe('wilson card list', () => {
     it('reports that there are no cards yet, without formatting a table, when the board is empty', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([]));
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx);
@@ -42,7 +40,6 @@ describe('wilson card list', () => {
         fetchMock.mockResolvedValueOnce(
             jsonResponse([card({ id: '0001', stage: 'backlog', title: 'a' }), card({ id: '0002', stage: 'implementing', title: 'b' })]),
         );
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx);
@@ -59,7 +56,6 @@ describe('wilson card list', () => {
                 card({ id: '0003', stage: 'testing', needsHuman: true }),
             ]),
         );
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx);
@@ -78,7 +74,6 @@ describe('wilson card list', () => {
                 card({ id: '0005', stage: 'implementing' }),
             ]),
         );
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx);

@@ -1,7 +1,16 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import type { BoardColumns, CardSummary } from '@wilson/sdk';
-import { ageInStage, cardState, collapsedColumnsKey, columnOrder, groupByStage, toggleCollapsed, unfinishedDeps } from '#src/lib/board.js';
+import {
+    withDoneReason,
+    ageInStage,
+    cardState,
+    collapsedColumnsKey,
+    columnOrder,
+    groupByStage,
+    toggleCollapsed,
+    unfinishedDeps,
+} from '#src/lib/board.js';
 
 const card = (id: string, stage: string, dependsOn: string[] = [], needsHuman = false): CardSummary => ({
     id,
@@ -126,7 +135,24 @@ describe('unfinishedDeps', () => {
     });
 });
 
+describe('withDoneReason', () => {
+    const ended = (id: string, doneReason: 'merged' | 'poisoned') => ({ ...card(id, 'done'), doneReason });
+
+    it('narrows to one way of ending, and shows all with no reason', () => {
+        const cards = [ended('0001', 'merged'), ended('0002', 'poisoned')];
+
+        expect(withDoneReason(cards, 'poisoned').map(c => c.id)).toEqual(['0002']);
+        expect(withDoneReason(cards, undefined)).toEqual(cards);
+    });
+});
+
 describe('cardState', () => {
+    it('reads a done card by its reason', () => {
+        expect(cardState({ ...card('0001', 'done'), doneReason: 'poisoned' })).toBe('poisoned');
+        expect(cardState({ ...card('0001', 'done'), doneReason: 'merged' })).toBe('passed');
+        expect(cardState({ ...card('0001', 'done'), doneReason: 'dropped' })).toBeUndefined();
+    });
+
     it('maps a flagged card to needs-human, regardless of stage', () => {
         expect(cardState(card('0001', 'implementing', [], true))).toBe('needs-human');
     });

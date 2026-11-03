@@ -7,6 +7,8 @@ import { PostgresStageConfigStore } from '#modules/stages/stage.config.store.js'
 import { seedStageConfig, testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { DB } from '#modules/data/db.js';
 
+const SENTINEL = 'stages:\n  - name: sentinel\n    mode: manual\n    instructions: x\n    onPass: merged\n    onFail: sentinel\n';
+
 let db: Kysely<DB>;
 
 beforeAll(() => {
@@ -39,11 +41,9 @@ describe('BoardBootstrapService', () => {
             expect(result.stages).toEqual(['planning', 'backlog', 'implementing']);
             expect(result.nonStages).toEqual([...NON_STAGE_STATES]);
 
-            // The acceptance bar itself: the config `init` just stored must load, with every route
-            // it configures resolving to a known state. `load` and not `parseStages` on the stored
-            // text, since the template's routing moves to `wilson.stage_routing` on save.
-            const stored = await store.read();
-            expect(stored?.message).toBe('Initialise board');
+            // The acceptance bar itself: the lanes `init` just wrote must load, with every route they
+            // configure resolving to a known state.
+            expect((await store.laneRevisions(undefined, 10)).every(revision => revision.message === 'Initialise board')).toBe(true);
             const stages = await store.load();
             expect(stages.stages.map(s => s.name)).toEqual(result.stages);
             const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
@@ -53,9 +53,9 @@ describe('BoardBootstrapService', () => {
             }
         });
 
-        it('refuses with a 409 when the project already has a stage config, writing no second row', async () => {
+        it('refuses with a 409 when the project already has lanes, leaving them as they were', async () => {
             const { cfg, store } = freshProject();
-            await seedStageConfig(db, cfg.project, 'sentinel: true\n', 'sentinel');
+            await seedStageConfig(db, cfg.project, SENTINEL);
             const service = new BoardBootstrapService(cfg, store);
 
             await expect(service.init()).rejects.toMatchObject({
@@ -63,22 +63,21 @@ describe('BoardBootstrapService', () => {
                 details: { reason: expect.stringContaining(`project "${cfg.project}" already has a stage config`) },
             });
 
-            // Refused before anything is stored: the existing document is still the current one and
-            // nothing lands beside it — this is "init scaffolds, it does not reset" made concrete.
-            expect((await store.read())?.yaml).toBe('sentinel: true\n');
-            expect(await store.versions()).toHaveLength(1);
+            // "init scaffolds, it does not reset" made concrete.
+            expect((await store.lanes()).map(lane => lane.name)).toEqual(['sentinel']);
         });
 
-        it('refuses a second init the same way, leaving the first document as the only version', async () => {
+        it('refuses a second init the same way, changing nothing', async () => {
             const { cfg, store } = freshProject();
             const service = new BoardBootstrapService(cfg, store);
             await service.init();
+            const revisions = await store.laneRevisions(undefined, 10);
 
             await expect(service.init()).rejects.toMatchObject({
                 statusCode: 409,
                 details: { reason: expect.stringContaining('already has a stage config') },
             });
-            expect(await store.versions()).toHaveLength(1);
+            expect(await store.laneRevisions(undefined, 10)).toEqual(revisions);
         });
     });
 });

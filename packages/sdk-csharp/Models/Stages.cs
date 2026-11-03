@@ -12,66 +12,9 @@ using MaroonedSoftware.Wilson.Sdk.Runtime;
 namespace MaroonedSoftware.Wilson.Sdk.Models;
 
 /// <summary>
-/// One stored document. `yaml` is the text verbatim, comments included — the document is the config,
-/// not a rendering of columns. `message` is what the commit message on `stages.yaml` used to be.
-/// </summary>
-public sealed record StageConfigDocument
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("yaml")]
-    public required string Yaml { get; init; }
-
-    [JsonPropertyName("message")]
-    public required string Message { get; init; }
-
-    [JsonPropertyName("createdAt")]
-    public required DateTimeOffset CreatedAt { get; init; }
-}
-
-/// <summary>
-/// `message` optional: `wilson stages edit` has no commit-message prompt the way `git commit` does,
-/// and a default ("Edited stage config") beats forcing one. Supply it when the change is worth a
-/// sentence — "Raise the review step budget to 150" is what the history is for.
-/// </summary>
-public sealed record SetStageConfigRequest
-{
-    [JsonPropertyName("yaml")]
-    public required string Yaml { get; init; }
-
-    [JsonPropertyName("message")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Message { get; init; }
-}
-
-public sealed record StageConfigVersion
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("message")]
-    public required string Message { get; init; }
-
-    [JsonPropertyName("createdAt")]
-    public required DateTimeOffset CreatedAt { get; init; }
-}
-
-/// <summary>
-/// Same shape as board.ck's `ListQuery`, declared here rather than shared: a contract file is the
-/// unit contractkit generates from, and a cross-file reference is not worth a coupling for one
-/// optional field.
-/// </summary>
-public sealed record StageConfigVersionsQuery
-{
-    [JsonPropertyName("limit")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public long? Limit { get; init; }
-}
-
-/// <summary>
 /// Which engine, provider and model a stage runs on, as it would dispatch now. `mode` is here so a
-/// client can tell the stages that reach a model from the manual ones that never do.
+/// client can tell the stages that reach a model from the manual ones that never do, which have no
+/// `model`.
 /// </summary>
 public sealed record StageRouting
 {
@@ -88,7 +31,8 @@ public sealed record StageRouting
     public required StageRoutingProvider Provider { get; init; }
 
     [JsonPropertyName("model")]
-    public required string Model { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; init; }
 }
 
 public sealed record SetStageRoutingRequest
@@ -105,6 +49,119 @@ public sealed record SetStageRoutingRequest
     [JsonPropertyName("message")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Message { get; init; }
+}
+
+/// <summary>
+/// One lane, as `wilson.lanes` holds it. `settings` is everything else a stage can say (budgets,
+/// commands, placement), holding only what someone chose, so a default stays a default.
+/// </summary>
+public sealed record Lane
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    [JsonPropertyName("position")]
+    public required long Position { get; init; }
+
+    [JsonPropertyName("mode")]
+    public required LaneMode Mode { get; init; }
+
+    [JsonPropertyName("worktree")]
+    public required LaneWorktree Worktree { get; init; }
+
+    [JsonPropertyName("onPass")]
+    public required string OnPass { get; init; }
+
+    [JsonPropertyName("onFail")]
+    public required string OnFail { get; init; }
+
+    [JsonPropertyName("adapter")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LaneAdapter? Adapter { get; init; }
+
+    [JsonPropertyName("provider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LaneProvider? Provider { get; init; }
+
+    [JsonPropertyName("model")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; init; }
+
+    [JsonPropertyName("instructions")]
+    public required string Instructions { get; init; }
+
+    [JsonPropertyName("settings")]
+    public required JsonElement Settings { get; init; }
+}
+
+/// <summary>
+/// Only what changes. A key in `settings` is set, or removed when its value is null. Routing has its own
+/// operation below, which checks it against what the lane's engine can run.
+/// </summary>
+public sealed record PatchLaneRequest
+{
+    [JsonPropertyName("mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PatchLaneRequestMode? Mode { get; init; }
+
+    [JsonPropertyName("worktree")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PatchLaneRequestWorktree? Worktree { get; init; }
+
+    [JsonPropertyName("onPass")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OnPass { get; init; }
+
+    [JsonPropertyName("onFail")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OnFail { get; init; }
+
+    [JsonPropertyName("instructions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Instructions { get; init; }
+
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? Settings { get; init; }
+
+    [JsonPropertyName("message")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; init; }
+}
+
+/// <summary>
+/// One change to a lane or, with no `lane`, to what a project's lanes share. No `snapshot` means the
+/// lane was removed.
+/// </summary>
+public sealed record LaneRevision
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("lane")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Lane { get; init; }
+
+    [JsonPropertyName("snapshot")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? Snapshot { get; init; }
+
+    [JsonPropertyName("message")]
+    public required string Message { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+public sealed record LaneRevisionsQuery
+{
+    [JsonPropertyName("lane")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Lane { get; init; }
+
+    [JsonPropertyName("limit")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Limit { get; init; }
 }
 
 [JsonConverter(typeof(StageRoutingModeConverter))]
@@ -409,5 +466,371 @@ public sealed class SetStageRoutingRequestProviderConverter : JsonConverter<SetS
         SetStageRoutingRequestProvider.Openai => "openai",
         SetStageRoutingRequestProvider.Xai => "xai",
         _ => throw new JsonException($"SetStageRoutingRequestProvider.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(LaneModeConverter))]
+public enum LaneMode
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("agent")]
+    Agent,
+
+    [JsonStringEnumMemberName("command")]
+    Command,
+
+    [JsonStringEnumMemberName("manual")]
+    Manual,
+}
+
+/// <summary>
+/// Reads and writes <see cref="LaneMode"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="LaneMode.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class LaneModeConverter : JsonConverter<LaneMode>
+{
+    public override LaneMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for LaneMode, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, LaneMode value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override LaneMode ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, LaneMode value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static LaneMode FromWire(string? text) => text switch
+    {
+        "agent" => LaneMode.Agent,
+        "command" => LaneMode.Command,
+        "manual" => LaneMode.Manual,
+        _ => LaneMode.Unknown,
+    };
+
+    private static string ToWire(LaneMode value) => value switch
+    {
+        LaneMode.Agent => "agent",
+        LaneMode.Command => "command",
+        LaneMode.Manual => "manual",
+        _ => throw new JsonException($"LaneMode.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(LaneWorktreeConverter))]
+public enum LaneWorktree
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("none")]
+    None,
+
+    [JsonStringEnumMemberName("readonly")]
+    Readonly,
+
+    [JsonStringEnumMemberName("rw")]
+    Rw,
+}
+
+/// <summary>
+/// Reads and writes <see cref="LaneWorktree"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="LaneWorktree.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class LaneWorktreeConverter : JsonConverter<LaneWorktree>
+{
+    public override LaneWorktree Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for LaneWorktree, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, LaneWorktree value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override LaneWorktree ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, LaneWorktree value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static LaneWorktree FromWire(string? text) => text switch
+    {
+        "none" => LaneWorktree.None,
+        "readonly" => LaneWorktree.Readonly,
+        "rw" => LaneWorktree.Rw,
+        _ => LaneWorktree.Unknown,
+    };
+
+    private static string ToWire(LaneWorktree value) => value switch
+    {
+        LaneWorktree.None => "none",
+        LaneWorktree.Readonly => "readonly",
+        LaneWorktree.Rw => "rw",
+        _ => throw new JsonException($"LaneWorktree.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(LaneAdapterConverter))]
+public enum LaneAdapter
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("api")]
+    Api,
+
+    [JsonStringEnumMemberName("cli")]
+    Cli,
+
+    [JsonStringEnumMemberName("codex")]
+    Codex,
+}
+
+/// <summary>
+/// Reads and writes <see cref="LaneAdapter"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="LaneAdapter.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class LaneAdapterConverter : JsonConverter<LaneAdapter>
+{
+    public override LaneAdapter Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for LaneAdapter, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, LaneAdapter value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override LaneAdapter ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, LaneAdapter value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static LaneAdapter FromWire(string? text) => text switch
+    {
+        "api" => LaneAdapter.Api,
+        "cli" => LaneAdapter.Cli,
+        "codex" => LaneAdapter.Codex,
+        _ => LaneAdapter.Unknown,
+    };
+
+    private static string ToWire(LaneAdapter value) => value switch
+    {
+        LaneAdapter.Api => "api",
+        LaneAdapter.Cli => "cli",
+        LaneAdapter.Codex => "codex",
+        _ => throw new JsonException($"LaneAdapter.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(LaneProviderConverter))]
+public enum LaneProvider
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+
+    [JsonStringEnumMemberName("openai")]
+    Openai,
+
+    [JsonStringEnumMemberName("xai")]
+    Xai,
+}
+
+/// <summary>
+/// Reads and writes <see cref="LaneProvider"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="LaneProvider.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class LaneProviderConverter : JsonConverter<LaneProvider>
+{
+    public override LaneProvider Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for LaneProvider, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, LaneProvider value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override LaneProvider ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, LaneProvider value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static LaneProvider FromWire(string? text) => text switch
+    {
+        "anthropic" => LaneProvider.Anthropic,
+        "openai" => LaneProvider.Openai,
+        "xai" => LaneProvider.Xai,
+        _ => LaneProvider.Unknown,
+    };
+
+    private static string ToWire(LaneProvider value) => value switch
+    {
+        LaneProvider.Anthropic => "anthropic",
+        LaneProvider.Openai => "openai",
+        LaneProvider.Xai => "xai",
+        _ => throw new JsonException($"LaneProvider.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(PatchLaneRequestModeConverter))]
+public enum PatchLaneRequestMode
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("agent")]
+    Agent,
+
+    [JsonStringEnumMemberName("command")]
+    Command,
+
+    [JsonStringEnumMemberName("manual")]
+    Manual,
+}
+
+/// <summary>
+/// Reads and writes <see cref="PatchLaneRequestMode"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="PatchLaneRequestMode.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class PatchLaneRequestModeConverter : JsonConverter<PatchLaneRequestMode>
+{
+    public override PatchLaneRequestMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for PatchLaneRequestMode, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, PatchLaneRequestMode value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override PatchLaneRequestMode ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, PatchLaneRequestMode value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static PatchLaneRequestMode FromWire(string? text) => text switch
+    {
+        "agent" => PatchLaneRequestMode.Agent,
+        "command" => PatchLaneRequestMode.Command,
+        "manual" => PatchLaneRequestMode.Manual,
+        _ => PatchLaneRequestMode.Unknown,
+    };
+
+    private static string ToWire(PatchLaneRequestMode value) => value switch
+    {
+        PatchLaneRequestMode.Agent => "agent",
+        PatchLaneRequestMode.Command => "command",
+        PatchLaneRequestMode.Manual => "manual",
+        _ => throw new JsonException($"PatchLaneRequestMode.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(PatchLaneRequestWorktreeConverter))]
+public enum PatchLaneRequestWorktree
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("none")]
+    None,
+
+    [JsonStringEnumMemberName("readonly")]
+    Readonly,
+
+    [JsonStringEnumMemberName("rw")]
+    Rw,
+}
+
+/// <summary>
+/// Reads and writes <see cref="PatchLaneRequestWorktree"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="PatchLaneRequestWorktree.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class PatchLaneRequestWorktreeConverter : JsonConverter<PatchLaneRequestWorktree>
+{
+    public override PatchLaneRequestWorktree Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for PatchLaneRequestWorktree, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, PatchLaneRequestWorktree value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override PatchLaneRequestWorktree ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, PatchLaneRequestWorktree value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static PatchLaneRequestWorktree FromWire(string? text) => text switch
+    {
+        "none" => PatchLaneRequestWorktree.None,
+        "readonly" => PatchLaneRequestWorktree.Readonly,
+        "rw" => PatchLaneRequestWorktree.Rw,
+        _ => PatchLaneRequestWorktree.Unknown,
+    };
+
+    private static string ToWire(PatchLaneRequestWorktree value) => value switch
+    {
+        PatchLaneRequestWorktree.None => "none",
+        PatchLaneRequestWorktree.Readonly => "readonly",
+        PatchLaneRequestWorktree.Rw => "rw",
+        _ => throw new JsonException($"PatchLaneRequestWorktree.{value} has no wire spelling, so it cannot be sent."),
     };
 }

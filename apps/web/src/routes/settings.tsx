@@ -112,7 +112,7 @@ function AutoSplitToggle() {
         <Stack gap="xs">
             <Switch
                 label="Auto-split"
-                description="When scope-check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
+                description="When the scope check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
@@ -447,7 +447,7 @@ function NotifyWebhookControl() {
 
 /**
  * The engine's Claude config directory (card 0141) — which Claude Code credentials the `cli`
- * adapter's engine (`scope-check`, `implementing`, `testing`, `review`, and the planning session)
+ * adapter's engine (`implementing`, `testing`, `review`, the steps of those lanes, and the planning session)
  * authenticates with, instead of silently inheriting whatever lives in the daemon user's own
  * `~/.claude`.
  *
@@ -674,28 +674,32 @@ function ChatEngineControl() {
     );
 }
 
+/** Lanes whose session always runs Claude, whatever is routed. */
+const CLAUDE_ONLY_LANES = ['planning', 'ready'];
+
 /**
  * Whether a stage can run on a provider other than Anthropic. The `cli` engine and the planning
  * session always run Claude, and the API refuses anything else (`assertRoutable`).
  */
 function canChooseProvider(route: Pick<StageRouting, 'stage' | 'adapter'>): boolean {
-    return route.adapter === 'api' && route.stage !== 'planning';
+    return route.adapter === 'api' && !CLAUDE_ONLY_LANES.includes(route.stage);
 }
 
 /** One stage's engine, provider and model, saved on its own. */
 function StageRoutingRow({ route }: { route: StageRouting }) {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
-    const [draft, setDraft] = useState(route);
+    const [draft, setDraft] = useState({ ...route, model: route.model ?? '' });
 
-    useEffect(() => setDraft(route), [route]);
+    useEffect(() => setDraft({ ...route, model: route.model ?? '' }), [route]);
 
     const mutation = useMutation({
-        mutationFn: ({ stage, adapter, provider, model }: StageRouting) => wilson.stages.setStageRouting(stage, { adapter, provider, model }),
+        mutationFn: ({ stage, adapter, provider, model }: StageRouting & { model: string }) =>
+            wilson.stages.setStageRouting(stage, { adapter, provider, model }),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: STAGE_ROUTING_QUERY_KEY }),
     });
 
-    const dirty = draft.adapter !== route.adapter || draft.provider !== route.provider || draft.model !== route.model;
+    const dirty = draft.adapter !== route.adapter || draft.provider !== route.provider || draft.model !== (route.model ?? '');
 
     return (
         <Stack gap="xs">
@@ -703,7 +707,7 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
                 {route.stage}
             </Text>
             <Group gap="xs" align="flex-end">
-                {route.stage !== 'planning' && (
+                {!CLAUDE_ONLY_LANES.includes(route.stage) && (
                     <SegmentedControl
                         aria-label={`${route.stage} adapter`}
                         size="xs"
@@ -739,6 +743,7 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
                     aria-label={`${route.stage} model`}
                     size="xs"
                     value={draft.model}
+                    placeholder={route.stage === 'ready' ? "The chat engine's model" : undefined}
                     onChange={event => setDraft({ ...draft, model: event.currentTarget.value })}
                     disabled={mutation.isPending}
                 />
@@ -755,7 +760,13 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
     );
 }
 
-/** Which engine, provider and model each stage runs on. Manual stages reach no model, bar planning. */
+/** The provider `review` and `implementing` both run on, if they do. Worth saying, never refused. */
+export function reviewSharesProvider(routes: StageRouting[]): string | undefined {
+    const provider = (stage: string) => routes.find(route => route.stage === stage)?.provider;
+    return provider('review') === provider('implementing') ? provider('review') : undefined;
+}
+
+/** Which engine, provider and model each lane runs on. Manual lanes reach no model, bar planning and ready. */
 function StageRoutingControl() {
     const wilson = useWilsonSdk();
     const routing = useQuery({ queryKey: STAGE_ROUTING_QUERY_KEY, queryFn: () => wilson.stages.listStageRouting() });
@@ -769,10 +780,17 @@ function StageRoutingControl() {
     }
     if (!routing.data) return <Loader size="sm" />;
 
+    const sharedProvider = reviewSharesProvider(routing.data);
+
     return (
         <Stack gap="md">
+            {sharedProvider && (
+                <Alert color="yellow" title="Review and implementing share a provider">
+                    Both run on {sharedProvider}. An adversarial review catches more from a different provider than the one that wrote the code.
+                </Alert>
+            )}
             {routing.data
-                .filter(route => route.mode === 'agent' || route.stage === 'planning')
+                .filter(route => route.mode === 'agent' || CLAUDE_ONLY_LANES.includes(route.stage))
                 .map(route => (
                     <StageRoutingRow key={route.stage} route={route} />
                 ))}

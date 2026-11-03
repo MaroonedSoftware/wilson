@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
+import { PostgresStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { WilsonKyselyPlugins } from '#modules/data/kysely.plugins.js';
 
 export interface TestDatabaseConnection {
@@ -69,11 +72,18 @@ export const testDb = (): Kysely<DB> =>
 export const uniqueProject = (): string => `test-${process.pid}-${randomUUID()}`;
 
 /**
- * Give `project` a stage config — the row `PostgresStageConfigStore.load` reads — in place of the
- * `config/stages.yaml` a test used to write under a temp board directory. For a suite that already talks
- * to the test database; one that only needs a parsed config can construct `StaticStageConfigStore`
- * (`#modules/stages/stage.config.store.js`) with the same string and skip the row.
+ * Give `project` lanes from YAML, which is how a test states a config: the rows
+ * `PostgresStageConfigStore.load` reads. For a suite that already talks to the test database; one that
+ * only needs a parsed config can construct `StaticStageConfigStore`
+ * (`#modules/stages/stage.config.store.js`) with the same string and skip the rows.
+ *
+ * Goes through the import a real document would, so a config it refuses leaves the project as it was,
+ * for a test that means to see that.
  */
 export const seedStageConfig = async (db: Kysely<DB>, project: string, yaml: string, message = 'test'): Promise<void> => {
     await db.insertInto('wilson.stageConfigs').values({ project, yaml, message }).execute();
+    const store = new PostgresStageConfigStore(new StaticBoardConfig(project, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
+    await store.importLanes().catch((err: unknown) => {
+        if (!(err instanceof StageConfigError)) throw err;
+    });
 };

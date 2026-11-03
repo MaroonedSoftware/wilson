@@ -20,6 +20,40 @@ namespace MaroonedSoftware.Wilson.Sdk.Clients;
 /// <summary>Operations declared in &lt;c&gt;stages.ck&lt;/c&gt;.</summary>
 public sealed class StagesClient(SdkHttp http)
 {
+    /// <summary>List lanes</summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<Lane>> ListLanesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stages", "lanes"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<Lane>>(response);
+    }
+
+    /// <summary>Update lane</summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<Lane> UpdateLaneAsync(string name, PatchLaneRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            SdkHttp.Patch,
+            http.Path("api", "stages", "lanes", http.Segment(name)),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<Lane>(response);
+    }
+
+    /// <summary>List lane revisions</summary>
+    public async Task<List<LaneRevision>> ListLaneRevisionsAsync(LaneRevisionsQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stages", "lane-revisions"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<LaneRevision>>(response);
+    }
+
     /// <summary>List stage routing</summary>
     /// <exception cref="SdkException">On 404.</exception>
     public async Task<List<StageRouting>> ListStageRoutingAsync(CancellationToken cancellationToken = default)
@@ -33,7 +67,7 @@ public sealed class StagesClient(SdkHttp http)
 
     /// <summary>
     /// Set stage routing
-    /// One stage at a time, unlike the document. Behind step-up for the same reason the document is, and
+    /// One lane at a time. Behind step-up for the same reason lane edits are, and
     /// because an agent that could choose its own model could choose the most expensive one.
     /// </summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
@@ -45,44 +79,5 @@ public sealed class StagesClient(SdkHttp http)
             content: http.JsonContent(body, "application/json"),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<StageRouting>(response);
-    }
-
-    /// <summary>Get stage config</summary>
-    /// <exception cref="SdkException">On 404.</exception>
-    public async Task<StageConfigDocument> GetStageConfigAsync(CancellationToken cancellationToken = default)
-    {
-        var response = await http.ExecuteAsync(
-            HttpMethod.Get,
-            http.Path("api", "stages", "config"),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        return http.ReadJson<StageConfigDocument>(response);
-    }
-
-    /// <summary>
-    /// Set stage config
-    /// `put`, not `patch`: the document is replaced whole. Every save is a new row; the previous
-    /// document is still there in the history, so a bad edit is undone by saving the earlier text
-    /// again, never by deleting anything.
-    /// </summary>
-    /// <exception cref="SdkException">On 400.</exception>
-    public async Task<StageConfigDocument> SetStageConfigAsync(SetStageConfigRequest body, CancellationToken cancellationToken = default)
-    {
-        var response = await http.ExecuteAsync(
-            HttpMethod.Put,
-            http.Path("api", "stages", "config"),
-            content: http.JsonContent(body, "application/json"),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        return http.ReadJson<StageConfigDocument>(response);
-    }
-
-    /// <summary>List stage config versions</summary>
-    public async Task<List<StageConfigVersion>> ListStageConfigVersionsAsync(StageConfigVersionsQuery? query = null, CancellationToken cancellationToken = default)
-    {
-        var response = await http.ExecuteAsync(
-            HttpMethod.Get,
-            http.Path("api", "stages", "config", "versions"),
-            query: http.Params(query),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        return http.ReadJson<List<StageConfigVersion>>(response);
     }
 }

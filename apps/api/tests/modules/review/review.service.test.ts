@@ -78,7 +78,6 @@ const STAGES = [
     '    onFail: implementing',
     '  - name: ready',
     '    mode: manual',
-    '    model: claude-opus',
     '    instructions: human review',
     '    onPass: merged',
     '    onFail: implementing',
@@ -121,6 +120,7 @@ const fresh = async (stage = 'ready', stages = STAGES) => {
         reads as unknown as CodeReadRepository,
         context,
         logger as never,
+        new StaticStageConfigStore(stages),
     );
     return { board, config, diffs, events, engine, reads, settings, service };
 };
@@ -519,6 +519,17 @@ describe('ReviewService', () => {
             await service.sendTurn('0001', ask);
 
             await expect(service.state('0001')).resolves.toMatchObject({ review: { status: 'approved' } });
+        });
+
+        it("uses the ready lane's model when it names one, over the chat engine's", async () => {
+            const { engine, service } = await fresh(
+                'ready',
+                STAGES.replace('instructions: human review', 'model: claude-haiku\n    instructions: human review'),
+            );
+
+            await service.sendTurn('0001', ask);
+
+            expect(engine.inputs[0]!.model).toBe('claude-haiku');
         });
 
         it('falls back to a default Claude model when the chat runs on another provider', async () => {
