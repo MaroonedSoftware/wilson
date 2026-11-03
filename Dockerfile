@@ -71,7 +71,7 @@ FROM source AS engine
 # The engine binary the planning sessions and any `local` stage start, pinned to the version the engine
 # probes last passed on (CLAUDE_BINARY_VERSION, apps/api/src/modules/agent/cli.engine.version.ts), so
 # `wilson doctor`'s check agrees with it.
-ARG CLAUDE_VERSION=2.1.246
+ARG CLAUDE_VERSION=2.1.317
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}" && npm cache clean --force
 
 FROM engine AS worker

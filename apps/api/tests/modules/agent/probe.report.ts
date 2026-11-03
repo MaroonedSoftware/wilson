@@ -52,19 +52,13 @@ export interface ProbeRun {
 
 /**
  * Card 0253. `cli.engine.contract.probe.ts`'s denied-bash `describe` block's `maxSteps`, for both of
- * its runs. On 2026-09-19, against host engine 2.1.278, the denied-bash probe failed at `maxSteps: 2`
- * with `budgetFailure: step budget exceeded: 2 steps` and no recorded events at all — the adapter
- * prompt every stage agent is told to follow has the model read the plan first, and that read alone
- * spent one of the two steps, leaving none for the Bash call the probe exists to exercise. Card 0252's
- * own diagnostics: "tool calls attempted, in order: read(…/plan.md) | no events were recorded |
- * truncated: true, budgetFailure: step budget exceeded: 2 steps". Three steps is the plan read plus
- * the two the block's own doc comment already accounted for (the Bash call and the report), so the
- * denied run — whose refused Bash call is credited back per `cli.stage.agent.ts`'s "refused calls do
- * not spend the budget" — finishes within budget, while the control run, whose allowed Bash call is
- * not credited, still exhausts all three and is cut off. That contrast is what lets the probe tell a
- * working credit from a broken one, rather than a budget merely generous enough regardless.
+ * its runs. It is deliberately more than those runs need, because they test the guard and not the
+ * budget. A tight budget cannot be held steady on a live model: 2 left a model no step for the Bash
+ * call once it had read the plan (engine 2.1.278, 2026-09-19), and on 2026-11-03 `claude-opus-5-5`
+ * on 2.1.317 skipped the plan read, so 3 was never reached, and a thinking-only turn used up a step at
+ * 2 in one run of three. `cli.step.budget.test.ts` proves the budget itself.
  */
-export const DENIED_BASH_PROBE_STEPS = 3;
+export const DENIED_BASH_PROBE_STEPS = 6;
 
 /**
  * One string describing what a probe run actually did: the attempted tool calls, in order; the

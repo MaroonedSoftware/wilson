@@ -12,9 +12,13 @@
  * closest equivalent: one diffable line that moves only in the same commit as a deliberate bump,
  * verified by actually running the probes above against the newer binary first.
  *
+ * This is what a stage on a remote host runs. A stage on this machine, and any other `query()` with no
+ * `pathToClaudeCodeExecutable`, runs the engine bundled with the SDK instead, which has its own
+ * version (`claudeCodeVersion` in the SDK's `package.json`).
+ *
  * `packages/cli/src/checks/claude.binary.current.ts` carries its own copy of this same value rather
  * than importing it — it cannot: card 0085 dropped `packages/cli`'s dependency on `@wilson/api`
  * entirely (see that check's own comment, and `board-view.ts`'s "duplicated here, deliberately" for
  * the same reason applied elsewhere). Bump both together, in the same commit.
  */
-export const CLAUDE_BINARY_VERSION = '2.1.246';
+export const CLAUDE_BINARY_VERSION = '2.1.317';

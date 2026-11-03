@@ -9,8 +9,7 @@ import { dirname, join } from 'node:path';
  * even under `test:engine`, per that file's own doc comment. So the only way to check what its
  * denied-bash block is actually wired to, without spending a real engine turn, is to read its
  * source directly: both runs' `maxSteps` must come from the shared `DENIED_BASH_PROBE_STEPS`
- * constant, and the control run's expected message must be derived from `stepsExceeded`, not a
- * hand-written string that could quietly drift from the constant it is supposed to describe.
+ * constant, and the probes must start the pinned binary unless told otherwise.
  */
 describe('cli.engine.contract.probe.ts denied-bash block wiring', () => {
     const readSource = async () => {
@@ -26,11 +25,11 @@ describe('cli.engine.contract.probe.ts denied-bash block wiring', () => {
         expect(source).not.toContain('maxSteps: 2');
     });
 
-    it('AC4: derives the control run\'s expected message from stepsExceeded, with no hand-written "2 steps" string', async () => {
+    it('starts the claude on PATH and checks it is the pinned version, unless the bundled engine is asked for', async () => {
         const source = await readSource();
 
-        expect(source).toMatch(/import\s*\{[^}]*stepsExceeded[^}]*\}\s*from\s*'#modules\/agent\/budget\.js'/);
-        expect(source).toContain('stepsExceeded(DENIED_BASH_PROBE_STEPS, 0)');
-        expect(source).not.toContain('step budget exceeded: 2 steps');
+        expect(source).toContain("pathToClaudeCodeExecutable: 'claude'");
+        expect(source).toContain("process.env.WILSON_PROBE_ENGINE === 'bundled'");
+        expect(source).toContain('toBe(CLAUDE_BINARY_VERSION)');
     });
 });

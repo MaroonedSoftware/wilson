@@ -11,7 +11,7 @@ const exec = promisify(execFile);
  * reason). Bump both together, in the same commit, once `cli.engine.contract.probe.ts` has been
  * verified to pass against the newer binary.
  */
-export const EXPECTED_CLAUDE_BINARY_VERSION = '2.1.246';
+export const EXPECTED_CLAUDE_BINARY_VERSION = '2.1.317';
 
 /** Pulls the leading `x.y.z` off `claude --version`'s output, e.g. `"2.1.246 (Claude Code)"` -> `"2.1.246"`. */
 export const parseClaudeVersion = (output: string): string | undefined => output.trim().match(/^(\d+\.\d+\.\d+)/)?.[1];
