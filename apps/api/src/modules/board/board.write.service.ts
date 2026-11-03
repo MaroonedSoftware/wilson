@@ -48,6 +48,7 @@ import { rankBetween, renormalizedPositions } from './card.position.js';
 import { filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
+import { DONE, endedAs } from '#modules/stages/terminal.js';
 
 /**
  * What {@link BoardWriteService}'s merge check found. `unproven` means the suite never ran, so the
@@ -151,23 +152,24 @@ export class BoardWriteService {
      * it is not *entering* `backlog`, it is already there.
      */
     async move(id: string, request: MoveCardRequest): Promise<CardDetail> {
-        const target = request.stage;
-
         // Refuse a state the stage graph does not name, with the same reason `wilson card move`
         // gives — carried in `details` since `httpError`'s `message` is pinned to the status code's
         // default text (see the contract's `400:` comment on this operation).
         const targets = validTargets(await this.stageConfigs.load());
-        if (!targets.includes(target)) {
-            throw httpError(400).withDetails({ reason: `"${target}" is not a state this board defines. Valid: ${targets.join(', ')}` });
+        if (!targets.includes(request.stage)) {
+            throw httpError(400).withDetails({ reason: `"${request.stage}" is not a state this board defines. Valid: ${targets.join(', ')}` });
         }
 
         const before = await this.readOrThrow(id);
+
+        // A plain move to `done` is a person dropping the card, unless it had already ended some way.
+        const target = request.stage === DONE ? (endedAs(before.frontmatter) ?? 'dropped') : request.stage;
 
         // Moving a card by hand is already an operator saying they have looked, so a flag comes off
         // on any move — including the no-op case below, where the card is already in the target
         // stage.
         const clearsFlag = Boolean(before.frontmatter.needsHuman);
-        if (before.frontmatter.stage === target && !clearsFlag) {
+        if ((before.frontmatter.stage === target || endedAs(before.frontmatter) === target) && !clearsFlag) {
             return toCardDetail(before);
         }
 
@@ -1155,7 +1157,7 @@ export class BoardWriteService {
 
         // Its division is still on the event log, so `division` still answers, but the pieces already
         // exist: confirming it would create every one of them a second time.
-        if (origin.frontmatter.stage === 'split') {
+        if (endedAs(origin.frontmatter) === 'split') {
             throw httpError(400).withDetails({ reason: `${id} has already been split` });
         }
 

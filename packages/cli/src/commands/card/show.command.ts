@@ -66,9 +66,9 @@ const command: CommandModule<ShowOpts> = {
         // to look at every card anyway; `show` doesn't).
         let blockedOn: string[] = [];
         if (card.dependsOn.length > 0) {
-            const [cards, columns] = await Promise.all([api.board.listCards(), api.board.listBoardColumns()]);
+            const cards = await api.board.listCards();
             const outstanding = unsatisfiedDependencies(card, cards);
-            const dead = deadDependencies(card, cards, columns.nonStages);
+            const dead = deadDependencies(card, cards);
             blockedOn = outstanding.map(id => describeDependency(id, cards, dead));
         }
 

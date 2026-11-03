@@ -226,7 +226,7 @@ describe('approving a card and then dispatching it (card 0109)', () => {
         expect(result.passed).toBe(true);
         expect(result.transitionedTo).toBe('merged');
         const stored = await board.read('0001');
-        expect(stored.frontmatter.stage).toBe('merged');
+        expect(stored.frontmatter.doneReason).toBe('merged');
         expect(stored.frontmatter.needsHuman).toBeFalsy();
 
         // The plan contract dispatched is the one pinned at approval, not whatever the live card

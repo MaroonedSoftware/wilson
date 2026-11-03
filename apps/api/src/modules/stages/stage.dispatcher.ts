@@ -34,6 +34,7 @@ import { findStage, type ProjectStages, type StageConfig } from './stage.config.
 import { StageConfigStore } from './stage.config.store.js';
 import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
+import { endingOf } from './terminal.js';
 
 /**
  * Which of `assertDispatchable`'s conditions fired, carried on the error it throws.
@@ -803,6 +804,7 @@ export class StageDispatcher {
         let decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
             ? { target: stage.onPass, retries: head.frontmatter.retries }
             : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        decision = { ...decision, target: endingOf(decision.target) };
 
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
         // instead of advancing or kicking back further, once this one stage — already bounded by its

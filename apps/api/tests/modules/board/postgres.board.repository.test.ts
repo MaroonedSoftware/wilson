@@ -96,7 +96,7 @@ describe('PostgresBoardRepository', () => {
 
             await board.applySplit('0001', write);
 
-            expect((await board.read('0001')).frontmatter.stage).toBe('split');
+            expect((await board.read('0001')).frontmatter.doneReason).toBe('split');
             expect((await board.read('0002')).frontmatter.dependsOn).toEqual(['0003']);
             expect((await board.versions('0002', 5)).map(v => v.message)).toEqual(['Auto-split 0001 into 0002']);
             expect((await board.versions('0001', 1))[0]?.message).toBe('Auto-split 0001 into 0002, 0003');

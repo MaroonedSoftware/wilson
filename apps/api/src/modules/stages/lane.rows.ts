@@ -1,5 +1,6 @@
 import type { DateTime } from 'luxon';
 import { parse as parseYaml } from 'yaml';
+import { DONE } from './terminal.js';
 import { applyRouting, assertRoutable, runsModel, StageConfigError, validateStages, type StageRouting } from './stage.config.js';
 
 /** One `wilson.lanes` row, as the store reads and writes it. */
@@ -73,8 +74,8 @@ export const lanesFromDocument = (yaml: string, routing: ReadonlyMap<string, Sta
                 position,
                 mode,
                 worktree: worktree ?? 'rw',
-                onPass,
-                onFail,
+                onPass: onPass === 'merged' ? DONE : onPass,
+                onFail: onFail === 'merged' ? DONE : onFail,
                 ...(routed && adapter !== undefined ? { adapter } : {}),
                 ...(routed && provider !== undefined ? { provider } : {}),
                 ...(routed && model !== undefined ? { model } : {}),

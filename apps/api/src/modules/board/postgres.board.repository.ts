@@ -2,7 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
-import { doneReasonFor } from '#modules/stages/terminal.js';
+import { DONE, doneReasonFor } from '#modules/stages/terminal.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository, type CardVersionSummary, type SplitWrite } from './board.repository.js';
 import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
@@ -264,7 +264,7 @@ export class PostgresBoardRepository extends BoardRepository {
     }
 
     private async insertRow(trx: Transaction<DB>, card: Card): Promise<void> {
-        const fm = card.frontmatter;
+        const fm = withDoneReason(card).frontmatter;
         // No upsert: `create` means create. The file-backed implementation used `writeFile`,
         // which silently overwrote an existing card — a real card was destroyed that way.
         await trx
@@ -274,7 +274,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 id: fm.id,
                 title: fm.title,
                 stage: fm.stage,
-                doneReason: doneReasonFor(fm.stage) ?? null,
+                doneReason: fm.doneReason ?? null,
                 branch: fm.branch ?? null,
                 body: card.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -335,11 +335,16 @@ export class PostgresBoardRepository extends BoardRepository {
  */
 const versionId = (id: bigint): string => String(id);
 
-/** `card` with `doneReason` saying what its stage says, so no writer can leave the two disagreeing. */
+/**
+ * `card` as it is stored: a way of ending named as a stage becomes `done` with that reason, a plain
+ * `done` keeps its reason, and any other stage has none. Here so no writer can leave the two disagreeing.
+ */
 const withDoneReason = (card: Card): Card => {
-    const { doneReason: _doneReason, ...frontmatter } = card.frontmatter;
-    const doneReason = doneReasonFor(frontmatter.stage);
-    return { ...card, frontmatter: doneReason ? { ...frontmatter, doneReason } : frontmatter };
+    const { doneReason: previous, ...frontmatter } = card.frontmatter;
+    const ending = doneReasonFor(frontmatter.stage);
+    if (ending) return { ...card, frontmatter: { ...frontmatter, stage: DONE, doneReason: ending } };
+    if (frontmatter.stage === DONE) return { ...card, frontmatter: { ...frontmatter, doneReason: previous ?? 'merged' } };
+    return { ...card, frontmatter };
 };
 
 const toCard = (

@@ -418,7 +418,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0010', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(worktrees.reclaim).toHaveBeenCalledTimes(1);
             expect(worktrees.reclaim).toHaveBeenCalledWith('0010');
             expect(events.append).toHaveBeenCalledWith(
@@ -433,7 +433,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0012', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(worktrees.reclaim).not.toHaveBeenCalled();
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
         });
@@ -444,7 +444,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0011', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(detail.needsHuman).toBe(false);
             expect(worktrees.reclaim).not.toHaveBeenCalled();
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
@@ -554,7 +554,7 @@ describe('BoardWriteService', () => {
 
             const detail = await service.move('0013', { stage: 'merged' });
 
-            expect(detail.stage).toBe('merged');
+            expect(detail.doneReason).toBe('merged');
             expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'worktree.reclaimed' }));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('0013'));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('boom: directory busy'));
@@ -2264,7 +2264,7 @@ describe('BoardWriteService', () => {
 
             expect(result.merged).toBe(true);
             const stored = await board.read('0197');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
             expect(stored.frontmatter.needsHuman).toBe(false);
             expect(events.append).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -2339,7 +2339,7 @@ describe('BoardWriteService', () => {
             expect(worktrees.reclaim).toHaveBeenCalledWith('0093-merge-check', undefined);
 
             const stored = await board.read('0093');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
             expect(stored.frontmatter.needsHuman).toBe(false);
         });
 
@@ -2416,7 +2416,7 @@ describe('BoardWriteService', () => {
                 expect(worktrees.computeMerge).toHaveBeenCalled();
                 expect(result.merged).toBe(true);
                 const stored = await board.read('0102');
-                expect(stored.frontmatter.stage).toBe('merged');
+                expect(stored.frontmatter.doneReason).toBe('merged');
             });
 
             it('never calls overlapSinceFork and proceeds to computeMerge when the setting is off, even though main moved under the card’s files (AC3)', async () => {
@@ -2434,7 +2434,7 @@ describe('BoardWriteService', () => {
                 expect(worktrees.computeMerge).toHaveBeenCalled();
                 expect(result.merged).toBe(true);
                 const stored = await board.read('0103');
-                expect(stored.frontmatter.stage).toBe('merged');
+                expect(stored.frontmatter.doneReason).toBe('merged');
             });
 
             it('flags a human instead of sending back again once review:re-review has already reached its cap (AC4)', async () => {
@@ -2550,7 +2550,7 @@ describe('BoardWriteService', () => {
             expect(result.reason).toContain(DRY_RUN_INTEGRATION_BRANCH);
 
             const stored = await board.read('0099');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
         });
 
         it('throws rather than silently reporting success when a dry-run merge somehow moves main, and never reaches move', async () => {
@@ -2627,7 +2627,7 @@ describe('BoardWriteService', () => {
             expect(integrationFile.stdout).toBe('export const feature = 1;\n');
 
             const stored = await board.read('0096');
-            expect(stored.frontmatter.stage).toBe('merged');
+            expect(stored.frontmatter.doneReason).toBe('merged');
         });
 
         /**

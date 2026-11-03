@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CardEvent, CardSummary } from '@wilson/sdk';
 import {
     deadDependencies,
-    deadStages,
+    isDeadTarget,
     describeDependency,
     filesInScope,
     nextCard,
@@ -65,67 +65,57 @@ describe('unsatisfiedDependencies', () => {
     });
 });
 
-describe('deadStages', () => {
-    it('keeps a terminal-but-not-merged state, given the board’s real non-stage list', () => {
-        expect(deadStages(['parking-lot', 'merged', 'poisoned', 'dropped'])).toEqual(['poisoned', 'dropped']);
+describe('isDeadTarget', () => {
+    it('is true for a way of ending that is not merging, and for a plain done', () => {
+        for (const target of ['poisoned', 'dropped', 'split', 'done']) expect(isDeadTarget(target)).toBe(true);
     });
 
-    it('excludes merged — a dependency there is satisfied, not dead', () => {
-        expect(deadStages(['merged'])).toEqual([]);
-    });
-
-    it('excludes parking-lot — a card there can still move on, so it is not terminal', () => {
-        expect(deadStages(['parking-lot'])).toEqual([]);
-    });
-
-    it('does not hard-code the set — a differently-named terminal state passes through untouched', () => {
-        expect(deadStages(['parking-lot', 'merged', 'abandoned'])).toEqual(['abandoned']);
+    it('is false for merged and for anything still on the board', () => {
+        for (const target of ['merged', 'parking-lot', 'implementing']) expect(isDeadTarget(target)).toBe(false);
     });
 });
 
 describe('deadDependencies', () => {
-    const nonStages = ['parking-lot', 'merged', 'poisoned', 'dropped'];
-
     it('reports a dependency sitting in dropped', () => {
         const dep = card({ id: '0085', stage: 'dropped' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual(['0085']);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep])).toEqual(['0085']);
     });
 
     it('does not report a dropped split origin while its pieces can still finish it', () => {
         const origin = card({ id: '0085', stage: 'dropped' });
         const piece = card({ id: '0086', stage: 'planning', splitFrom: '0085' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, piece], nonStages)).toEqual([]);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, piece])).toEqual([]);
     });
 
     it('reports a dropped split origin once one of its pieces is dead too', () => {
         const origin = card({ id: '0085', stage: 'dropped' });
         const merged = card({ id: '0086', stage: 'merged', splitFrom: '0085' });
         const dropped = card({ id: '0087', stage: 'dropped', splitFrom: '0085' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, merged, dropped], nonStages)).toEqual(['0085']);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [origin, merged, dropped])).toEqual(['0085']);
     });
 
     it('reports a dependency sitting in poisoned', () => {
         const dep = card({ id: '0085', stage: 'poisoned' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual(['0085']);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep])).toEqual(['0085']);
     });
 
     it('does not report a dependency still in progress — unsatisfied is not dead', () => {
         const dep = card({ id: '0085', stage: 'implementing' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual([]);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep])).toEqual([]);
     });
 
     it('does not report a merged dependency', () => {
         const dep = card({ id: '0085', stage: 'merged' });
-        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep], nonStages)).toEqual([]);
+        expect(deadDependencies(card({ dependsOn: ['0085'] }), [dep])).toEqual([]);
     });
 
     it('does not report a dependency missing from the board entirely', () => {
-        expect(deadDependencies(card({ dependsOn: ['0099'] }), [], nonStages)).toEqual([]);
+        expect(deadDependencies(card({ dependsOn: ['0099'] }), [])).toEqual([]);
     });
 
     it('picks only the dead ones out of a mix, preserving dependsOn order', () => {
         const cards = [card({ id: '0002', stage: 'merged' }), card({ id: '0003', stage: 'dropped' }), card({ id: '0004', stage: 'implementing' })];
-        expect(deadDependencies(card({ dependsOn: ['0004', '0003', '0002'] }), cards, nonStages)).toEqual(['0003']);
+        expect(deadDependencies(card({ dependsOn: ['0004', '0003', '0002'] }), cards)).toEqual(['0003']);
     });
 });
 

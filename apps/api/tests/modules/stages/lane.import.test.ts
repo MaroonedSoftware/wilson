@@ -98,7 +98,9 @@ describe('lane tables', () => {
 
         await store.importLanes();
 
-        const withoutManualRouting = fromDocument.stages.map(({ model, ...stage }) => (stage.name === 'backlog' ? stage : { ...stage, model }));
+        const withoutManualRouting = fromDocument.stages.map(({ model, ...stage }) =>
+            stage.name === 'backlog' ? stage : { ...stage, model, onPass: stage.onPass === 'merged' ? 'done' : stage.onPass },
+        );
         expect((await store.load()).stages).toEqual(withoutManualRouting);
         expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
     });

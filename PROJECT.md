@@ -493,9 +493,10 @@ model room to hedge; the runner rejects a result that claims `pass` while listin
 blockers. There is no field for a revised plan: a reviewer that can rewrite is not
 adversarial, it is a second planner. It names problems, planning fixes them.
 
-Terminal states: `merged` (done), `poisoned` (an infrastructure failure, not a quality
-one), `dropped` (a card source closed its ticket while nothing was running), `split`
-(an automatic split replaced the card with its pieces, which now decide when it is done).
+A card ends in one lane, `done`, with a `doneReason` saying how: `merged`, `poisoned` (an
+infrastructure failure, not a quality one), `dropped` (a card source closed its ticket while nothing
+was running, or a person dropped it), or `split` (an automatic split replaced the card with its
+pieces, which now decide when it is done).
 
 `needs-human` is not a terminal state, or a lane a card is routed to at all. It is a
 flag (`needsHuman` on the card, alongside a `needsHumanReason`) that a card carries

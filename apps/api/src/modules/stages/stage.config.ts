@@ -1,6 +1,7 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
+import { DONE, DONE_REASONS } from './terminal.js';
 
 /**
  * The longest a single stage run may be configured to take.
@@ -477,7 +478,7 @@ export const validateStages = (document: unknown, source = 'stage config'): Proj
  * and `planning` is not a stage anyone has built yet.
  */
 export const assertRoutesResolve = (stages: ProjectStages, path = 'stage config'): void => {
-    const known = new Set<string>([...NON_STAGE_STATES, ...stages.stages.map(s => s.name)]);
+    const known = new Set<string>([...NON_STAGE_STATES, ...DONE_REASONS, ...stages.stages.map(s => s.name)]);
 
     const dangling = stages.stages.flatMap(stage =>
         (['onPass', 'onFail'] as const).filter(key => !known.has(stage[key])).map(key => `${stage.name}.${key} → "${stage[key]}"`),
@@ -494,10 +495,10 @@ export const assertRoutesResolve = (stages: ProjectStages, path = 'stage config'
 /**
  * States a card may occupy that are not agent stages.
  *
- * Terminal states end a card's life and nothing dispatches them, so they have no stage config
- * (PROJECT.md, Stage model). `parking-lot` is a column the dispatch query excludes.
+ * `done` ends a card's life and nothing dispatches it, so it has no stage config (PROJECT.md, Stage
+ * model). `parking-lot` is a column the dispatch query excludes.
  */
-export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped', 'split'] as const;
+export const NON_STAGE_STATES = ['parking-lot', DONE] as const;
 
 /**
  * Every state a card may legitimately be moved to.
@@ -507,7 +508,7 @@ export const NON_STAGE_STATES = ['parking-lot', 'merged', 'poisoned', 'dropped',
  * passed `implementing` had nowhere to go.
  */
 export const validTargets = (stages: ProjectStages): string[] => {
-    const targets = new Set<string>(NON_STAGE_STATES);
+    const targets = new Set<string>([...NON_STAGE_STATES, ...DONE_REASONS]);
     for (const stage of stages.stages) {
         targets.add(stage.name);
         targets.add(stage.onPass);

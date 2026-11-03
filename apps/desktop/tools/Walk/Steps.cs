@@ -955,13 +955,13 @@ internal static class Steps
 
         var stage = Tile().Card.Stage;
         var picked = walk.Center(Tile());
-        var over = walk.Center(Column("merged"));
+        var over = walk.Center(Column("done"));
         walk.Down(picked);
         walk.MoveTo(picked + new Point(20, 0));
         walk.MoveTo(over);
-        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("merged").Target);
+        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("done").Target);
         walk.Press(Key.Escape, PhysicalKey.Escape);
-        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("merged").Target);
+        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("done").Target);
         walk.Up(over);
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
@@ -986,15 +986,15 @@ internal static class Steps
         await walk.UntilAsync("another of the walk's own", () => board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Id == "9999")));
         var across = board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Id == "9999");
         board.ToggleCollapsedCommand.Execute(Column("implementing"));
-        board.ToggleCollapsedCommand.Execute(Column("merged"));
-        await walk.UntilAsync("columns folded and remembered", () => walk.Settings().Collapsed[board.Project!].Contains("merged"));
+        board.ToggleCollapsedCommand.Execute(Column("done"));
+        await walk.UntilAsync("columns folded and remembered", () => walk.Settings().Collapsed[board.Project!].Contains("done"));
         walk.Shot("04b-board-collapsed");
         walk.Drag(walk.Center(across), walk.Center(Column("implementing")), "04c-board-dragging");
         await walk.UntilAsync("the drop moving the card", () => board.Columns.First(column => column.Name == "implementing").Cards.Any(tile => tile.Card.Id == "9999"));
         walk.Shot("04d-board-dropped");
-        await walk.UntilAsync("a redraw keeping them folded", () => Column("merged").Collapsed);
+        await walk.UntilAsync("a redraw keeping them folded", () => Column("done").Collapsed);
         board.ToggleCollapsedCommand.Execute(Column("implementing"));
-        board.ToggleCollapsedCommand.Execute(Column("merged"));
+        board.ToggleCollapsedCommand.Execute(Column("done"));
         await walk.UntilAsync("the columns open again", () => walk.Settings().Collapsed[board.Project!].Count == 0);
         Walker.Sql("delete from wilson.card_versions where card_id = '9999'; delete from wilson.cards where id = '9999'");
         await board.RefreshCommand.ExecuteAsync(null);

@@ -272,7 +272,7 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
 
         const [card] = await board.list();
-        expect(card!.frontmatter.stage).toBe('dropped');
+        expect(card!.frontmatter.doneReason).toBe('dropped');
         expect(card!.frontmatter.sourceClosed).toBe(true);
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
@@ -293,7 +293,7 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
 
         const [card] = await board.list();
-        expect(card!.frontmatter.stage).toBe('dropped');
+        expect(card!.frontmatter.doneReason).toBe('dropped');
         expect(card!.frontmatter.sourceClosed).toBe(true);
     });
 
@@ -306,7 +306,7 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
 
         const [card] = await board.list();
-        expect(card!.frontmatter.stage).toBe(stage);
+        expect(card!.frontmatter.doneReason).toBe(stage);
         expect(card!.frontmatter.sourceClosed).toBeUndefined();
         expect(fetchMock).not.toHaveBeenCalled();
     });

@@ -1,4 +1,5 @@
 import { NON_STAGE_STATES, type ProjectStages } from '#modules/stages/stage.config.js';
+import { isTerminal } from '#modules/stages/terminal.js';
 
 export interface ChainDecision {
     /** Whether `target` should be enqueued as the card's next stage. */
@@ -32,7 +33,7 @@ export const decideChain = (target: string, stages: ProjectStages, options: Deci
         return { continue: false, reason: 'the card is flagged for a human' };
     }
 
-    if ((NON_STAGE_STATES as readonly string[]).includes(target)) {
+    if (isTerminal(target) || (NON_STAGE_STATES as readonly string[]).includes(target)) {
         return { continue: false, reason: `${target} is a terminal state` };
     }
 

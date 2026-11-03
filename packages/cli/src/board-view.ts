@@ -33,17 +33,16 @@ export const unsatisfiedDependencies = (card: CardSummary, cards: CardSummary[])
 };
 
 /**
- * Stages a dependency can sit in that guarantee it will never reach `merged` — `dropped` and
- * `poisoned` today. Derived from `nonStages` (`BoardColumns.nonStages`, fetched from
- * `GET /api/stages`) rather than hard-coded, so a terminal state added to the board's config does
- * not require a CLI release to match it. `nonStages` also carries `parking-lot`, which is not
- * terminal — a card there can still move on — so it is excluded alongside `merged`.
+ * The ways of ending that guarantee a dependency will never merge. `split` is among them because a
+ * split origin with no pieces has nothing left to finish it.
  */
-export const deadStages = (nonStages: string[]): string[] => nonStages.filter(stage => stage !== 'merged' && stage !== 'parking-lot');
+export const DEAD_ENDINGS = ['poisoned', 'dropped', 'split'];
+
+/** Whether moving a card to `target` means it will never merge: a plain `done` is a person dropping it. */
+export const isDeadTarget = (target: string): boolean => target === 'done' || DEAD_ENDINGS.includes(target);
 
 /**
- * The dependency ids named on `card` whose card has settled into a stage it can never leave —
- * `dropped` or `poisoned` today — and so can never become `merged`. Distinct from
+ * The dependency ids named on `card` whose card has ended without merging, and so never will. Distinct from
  * `unsatisfiedDependencies`: a dependency still in progress is unsatisfied but not dead, and this
  * card does not change what "satisfied" means. Used to tell an operator "this will never clear"
  * apart from "this just isn't done yet".
@@ -51,12 +50,11 @@ export const deadStages = (nonStages: string[]): string[] => nonStages.filter(st
  * A dropped split origin is not dead while its pieces can still finish it for
  * `unsatisfiedDependencies`; it is dead only once one of them is.
  */
-export const deadDependencies = (card: CardSummary, cards: CardSummary[], nonStages: string[]): string[] => {
-    const dead = new Set(deadStages(nonStages));
+export const deadDependencies = (card: CardSummary, cards: CardSummary[]): string[] => {
     const byId = new Map(cards.map(c => [c.id, c]));
     const isDead = (id: string): boolean => {
         const dep = byId.get(id);
-        if (dep === undefined || !dead.has(dep.doneReason ?? dep.stage)) return false;
+        if (dep === undefined || !DEAD_ENDINGS.includes(dep.doneReason ?? dep.stage)) return false;
         const pieces = cards.filter(c => c.splitFrom === id);
         return pieces.length === 0 || pieces.some(piece => isDead(piece.id));
     };

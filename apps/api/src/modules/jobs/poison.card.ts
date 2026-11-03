@@ -2,6 +2,7 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
+import { endedAs } from '#modules/stages/terminal.js';
 
 /**
  * Stop a card whose failure retrying cannot fix, wherever that failure was noticed.
@@ -40,7 +41,7 @@ export async function poisonCard(
     let alreadyPoisoned = false;
     await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => {
         title = card.frontmatter.title;
-        alreadyPoisoned = card.frontmatter.stage === 'poisoned';
+        alreadyPoisoned = endedAs(card.frontmatter) === 'poisoned';
         return {
             ...card,
             frontmatter: { ...card.frontmatter, stage: 'poisoned' },

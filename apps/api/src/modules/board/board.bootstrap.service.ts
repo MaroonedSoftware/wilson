@@ -113,7 +113,7 @@ Do not write code. Do not start the work. The deliverable is the plan.
             worktree: 'rw',
             provider: 'anthropic',
             model: 'claude-sonnet-5',
-            onPass: 'merged',
+            onPass: 'done',
             onFail: 'implementing',
             settings: {
                 maxSteps: 60,

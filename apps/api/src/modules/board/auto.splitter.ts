@@ -8,6 +8,7 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository, type SplitWrite } from './board.repository.js';
 import type { Card } from './card.js';
 import { dependencyCycle, nextCardId, seedSplitBody, splitDepth, splitProblem } from './split.js';
+import { endedAs } from '#modules/stages/terminal.js';
 
 /**
  * How many splits deep a card may be and still split automatically: a card that was never split and
@@ -60,7 +61,7 @@ export class AutoSplitter {
         let skipped: string | undefined;
         let alreadySplit = false;
         const plan = (origin: Card, cards: Card[]): SplitWrite | undefined => {
-            if (origin.frontmatter.stage === 'split') {
+            if (endedAs(origin.frontmatter) === 'split') {
                 alreadySplit = true;
                 return undefined;
             }

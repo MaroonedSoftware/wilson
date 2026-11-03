@@ -1,6 +1,6 @@
 import { NON_STAGE_STATES } from '#modules/stages/stage.config.js';
 import type { Card } from './card.js';
-import { hasMerged } from '#modules/stages/terminal.js';
+import { hasMerged, isTerminal } from '#modules/stages/terminal.js';
 
 export interface Blocked {
     card: Card;
@@ -66,7 +66,7 @@ export const nextCard = (cards: Card[]): NextCard => {
     const flagged: Card[] = [];
 
     for (const card of cards) {
-        if (nonStageStates.includes(card.frontmatter.stage)) continue;
+        if (isTerminal(card.frontmatter.stage) || nonStageStates.includes(card.frontmatter.stage)) continue;
 
         // Flagged first and exclusively: a card waiting on a person is neither the next thing to work
         // on nor merely blocked on a dependency, so it must land in neither of those buckets.

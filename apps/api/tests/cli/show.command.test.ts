@@ -36,10 +36,6 @@ const card = (overrides: Partial<Record<string, unknown>> = {}) => ({
     ...overrides,
 });
 
-// A fresh `Response` per call — its body can only be read once, and each test's `fetchMock` queue
-// needs its own. Mirrors `list.command.test.ts`'s `columns()`.
-const columns = () => jsonResponse({ stages: ['planning', 'implementing', 'testing'], nonStages: ['parking-lot', 'merged', 'poisoned', 'dropped'] });
-
 /**
  * Card 0263: `run()` always fetches `GET .../usage` right after the card's recent events, whether
  * or not the card has any dependencies to check — so every test below that runs the command to
@@ -113,17 +109,13 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'implementing' })])); // listCards
-        fetchMock.mockResolvedValueOnce(columns()); // listBoardColumns
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
 
-        // `Promise.all([api.board.listCards(), api.board.listBoardColumns()])` calls both array
-        // elements synchronously in that order, so the mock queue reflects it: cards first, columns
-        // second, after the card, its events and its usage.
+        // After the card, its events and its usage.
         expect(urlOf(fetchMock.mock.calls[3]!)).toContain('/api/cards');
         expect(urlOf(fetchMock.mock.calls[3]!)).not.toContain('/api/cards/0001');
-        expect(urlOf(fetchMock.mock.calls[4]!)).toContain('/api/stages');
 
         expect(logger.info).toHaveBeenCalledWith('branch:   card/0001');
         expect(logger.info).toHaveBeenCalledWith('blocked:  0002');
@@ -135,7 +127,6 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0155', stage: 'merged' }), card({ id: '0162', stage: 'implementing' })]));
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
@@ -152,7 +143,6 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'merged' })]));
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
@@ -166,7 +156,6 @@ describe('wilson card show', () => {
         fetchMock.mockResolvedValueOnce(jsonResponse([])); // events
         fetchMock.mockResolvedValueOnce(noUsage()); // usage
         fetchMock.mockResolvedValueOnce(jsonResponse([card({ id: '0002', stage: 'dropped' }), card({ id: '0003', stage: 'implementing' })]));
-        fetchMock.mockResolvedValueOnce(columns());
         const { ctx, logger } = buildCtx();
 
         await run(ctx, '0001');
