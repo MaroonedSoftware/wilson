@@ -203,6 +203,20 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonCodeReads {
+  commitSha: string | null;
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  operation: string;
+  outcome: string;
+  path: string | null;
+  pattern: string | null;
+  project: string;
+  reason: string | null;
+  ref: string | null;
+  subject: string;
+}
+
 export interface WilsonEngineLimits {
   account: string;
   limitType: string;
@@ -358,6 +372,7 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.codeReads": WilsonCodeReads;
   "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;
