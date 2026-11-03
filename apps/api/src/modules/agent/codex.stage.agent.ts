@@ -44,6 +44,9 @@ const TOOL_ITEMS = new Set([
     'imageGeneration',
 ]);
 
+/** The tool items an approval request exists for. The rest cannot be asked about, so must not start. */
+const APPROVABLE_ITEMS = new Set(['commandExecution', 'fileChange', 'dynamicToolCall']);
+
 interface FileChange {
     path: string;
     kind?: { type?: string; move_path?: string | null };
@@ -51,6 +54,19 @@ interface FileChange {
 
 /** Every path a file change touches, including where an update moves a file to. */
 const changedPaths = (changes: FileChange[]): string[] => changes.flatMap(({ path, kind }) => (kind?.move_path ? [path, kind.move_path] : [path]));
+
+/** What only a command that writes or runs something else would say, whatever the engine parsed it as. */
+const NOT_A_READ =
+    />|`|\$\(|(?:^|\s)(?:-delete|-exec|-execdir|-ok|-okdir|-fprint\S*|-fls|--pre|--output)(?:[\s=]|$)|\b(?:sed\s+(?:\S+\s+)*-i|sort\s+(?:\S+\s+)*-o)/;
+
+/**
+ * Whether a command the engine ran unasked was only looking. The engine's own parse has to call every
+ * part of it a read, a listing or a search, and an empty or partial parse does not count. That parse
+ * is best effort, so `NOT_A_READ` stands behind it, and neither is a boundary: this decides whether a
+ * stage goes on, while the sandbox and the isolated host are what limit the command.
+ */
+export const readOnlyCommand = (command: string, actions: { type?: string }[]): boolean =>
+    actions.length > 0 && actions.every(({ type }) => type === 'read' || type === 'listFiles' || type === 'search') && !NOT_A_READ.test(command);
 
 interface Turn {
     id: string;
@@ -71,8 +87,13 @@ interface Turn {
  * without asking, and reads through those are limited only by what the engine's sandbox allows. The
  * live probes in `codex.engine.contract.probe.ts` that would measure this have not been run. So
  * this adapter assumes a read can reach anything on the host and a write can skip approval, and
- * refuses a stage not marked `isolated` for that reason. A call the guard never saw is recorded as
- * `tool.unguarded`, and `StageDispatcher.checkBeforeCommit` still checks the tree afterwards.
+ * refuses a stage not marked `isolated` for that reason.
+ *
+ * **Unasked calls.** A call the guard never saw is recorded as `tool.unguarded`. A read is left to
+ * finish the stage, since Codex is meant to run those unasked and failing on them would fail every
+ * stage. Anything else fails it on the spot: `readOnlyCommand` says what counts as a read, a tool
+ * with no approval request at all stops as soon as it starts, and a patch that touched more than was
+ * approved counts too. `StageDispatcher.checkBeforeCommit` still checks the tree afterwards.
  *
  * **Tools.** `report_result` and `request_scope` are dynamic tools (experimental in the app-server,
  * hence `experimentalApi`), answered here over `item/tool/call`. Deleting a file needs no tool of its
@@ -135,8 +156,10 @@ export class CodexStageAgent extends StageAgent {
         const asked = new Set<string>();
         const fileChanges = new Map<string, FileChange[]>();
         const approvedPaths = new Map<string, Set<string>>();
+        const recordedUnasked = new Set<string>();
+        const recording: Promise<unknown>[] = [];
 
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'unasked' | undefined;
         let budgetFailure: string | undefined;
         // What `request_scope` threw under the `kickback` policy, for this method to throw in turn.
         let thrown: unknown;
@@ -285,6 +308,18 @@ export class CodexStageAgent extends StageAgent {
             throw new Error(`${method} is not available to a stage`);
         };
 
+        /** Records a call the guard did not see, once per item, and ends the stage if `fatal`. */
+        const ranUnasked = (item: Record<string, unknown>, detail: Record<string, unknown> & { tool: string }, fatal: boolean): void => {
+            const id = String(item.id);
+            if (recordedUnasked.has(id)) return;
+            recordedUnasked.add(id);
+            this.logger.warn(`codex stage ran ${detail.tool} without asking (item ${id})`);
+            recording.push(append('tool.unguarded', detail));
+            if (!fatal) return;
+            const what = detail.command ?? detail.path;
+            stopFor('unasked', `the engine ran ${detail.tool}${what ? ` (${String(what)})` : ''} without asking, so the guards never saw it`);
+        };
+
         const itemStarted = (item: Record<string, unknown>): void => {
             if (item.type === 'fileChange') fileChanges.set(String(item.id), (item.changes ?? []) as FileChange[]);
             if (item.type === 'dynamicToolCall' && item.tool === REPORT_TOOL) reportSeen = true;
@@ -295,6 +330,10 @@ export class CodexStageAgent extends StageAgent {
             }
             if (!TOOL_ITEMS.has(String(item.type))) return;
             anyToolSeen = true;
+            if (!APPROVABLE_ITEMS.has(String(item.type))) {
+                ranUnasked(item, { tool: String(item.type) }, true);
+                return;
+            }
             // Reporting ends the stage, so a stage on its last step can still do it.
             if (item.type === 'dynamicToolCall' && item.tool === REPORT_TOOL) return;
             steps += 1;
@@ -305,25 +344,25 @@ export class CodexStageAgent extends StageAgent {
             }
         };
 
-        const itemCompleted = async (item: Record<string, unknown>): Promise<void> => {
+        const itemCompleted = (item: Record<string, unknown>): void => {
             if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text.trim()) summary = item.text.trim();
             if (!TOOL_ITEMS.has(String(item.type)) || item.type === 'dynamicToolCall' || item.status === 'declined') return;
             // A patch can still change after it is approved, so what it ended up touching is compared too.
             const approved = approvedPaths.get(String(item.id));
             if (approved) {
                 const unapproved = changedPaths((item.changes ?? []) as FileChange[]).filter(path => !approved.has(path));
-                if (unapproved.length > 0) await append('tool.unguarded', { tool: 'Write', path: unapproved.join(', ') });
+                if (unapproved.length > 0) ranUnasked(item, { tool: 'Write', path: unapproved.join(', ') }, true);
                 return;
             }
             if (asked.has(String(item.id))) return;
-            const detail =
-                item.type === 'commandExecution'
-                    ? { tool: 'Bash', command: String(item.command ?? '') }
-                    : item.type === 'fileChange'
-                      ? { tool: 'Write', path: changedPaths((item.changes ?? []) as FileChange[]).join(', ') }
-                      : { tool: String(item.type) };
-            this.logger.warn(`codex stage ran ${detail.tool} without asking (item ${String(item.id)})`);
-            await append('tool.unguarded', detail);
+            if (item.type === 'commandExecution') {
+                const command = String(item.command ?? '');
+                ranUnasked(item, { tool: 'Bash', command }, !readOnlyCommand(command, (item.commandActions ?? []) as { type?: string }[]));
+            } else if (item.type === 'fileChange') {
+                ranUnasked(item, { tool: 'Write', path: changedPaths((item.changes ?? []) as FileChange[]).join(', ') }, true);
+            } else {
+                ranUnasked(item, { tool: String(item.type) }, true);
+            }
         };
 
         const tokensUsed = (params: Record<string, unknown>): void => {
@@ -362,7 +401,7 @@ export class CodexStageAgent extends StageAgent {
             beat();
             if (method === 'item/started') itemStarted((params.item ?? {}) as Record<string, unknown>);
             if (method === 'item/fileChange/patchUpdated') fileChanges.set(String(params.itemId), (params.changes ?? []) as FileChange[]);
-            if (method === 'item/completed') void itemCompleted((params.item ?? {}) as Record<string, unknown>);
+            if (method === 'item/completed') itemCompleted((params.item ?? {}) as Record<string, unknown>);
             if (method === 'thread/tokenUsage/updated') tokensUsed(params);
             if (method === 'turn/completed' && params.threadId === threadId) completedTurn(params.turn as Turn);
         };
@@ -489,7 +528,9 @@ export class CodexStageAgent extends StageAgent {
                     truncated: true,
                     ...(stoppedBecause === 'silent'
                         ? { engineFailure: `${engineSilent(stage.maxIdleMs)}${lastError ? ` — its last error: ${lastError}` : ''}` }
-                        : { budgetFailure }),
+                        : stoppedBecause === 'unasked'
+                          ? { engineFailure: budgetFailure }
+                          : { budgetFailure }),
                     ...dropped(),
                     ...trace(),
                 };
@@ -532,6 +573,7 @@ export class CodexStageAgent extends StageAgent {
             clearTimeout(idle);
             this.interrupts?.signal.removeEventListener('abort', interrupt);
             connection.close();
+            await Promise.all(recording);
             await host.unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
             await host.removeTree(join(context.worktreeRoot, SCRATCH_PREFIX)).catch(() => {});
         }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { CodexStageAgent, unwrapShell } from '#modules/agent/codex.stage.agent.js';
+import { CodexStageAgent, readOnlyCommand, unwrapShell } from '#modules/agent/codex.stage.agent.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
@@ -343,22 +343,6 @@ describe('CodexStageAgent', () => {
             expect(answer).toEqual({ decision: 'decline' });
         });
 
-        it('records a patch that touched more than was approved', async () => {
-            await run(
-                new SimulatedCodexServer(async server => {
-                    server.notify('item/started', { item: { type: 'fileChange', id: 'f1', changes: [{ path: 'src/a.ts' }] } });
-                    await server.ask('item/fileChange/requestApproval', { itemId: 'f1' });
-                    server.notify('item/completed', {
-                        item: { type: 'fileChange', id: 'f1', changes: [{ path: 'src/a.ts' }, { path: 'docs/a.md' }], status: 'completed' },
-                    });
-                    await new Promise(resolve => setImmediate(resolve));
-                    await report(server);
-                }),
-            );
-
-            expect(eventsOf('tool.unguarded')).toEqual([{ tool: 'Write', path: 'docs/a.md' }]);
-        });
-
         it('declines a change it was never shown', async () => {
             let answer: unknown;
             await run(
@@ -407,26 +391,83 @@ describe('CodexStageAgent', () => {
     });
 
     describe('calls the guard never saw', () => {
-        it('records a command and a change that ran without asking', async () => {
-            await run(
+        const completed = (item: Record<string, unknown>) => async (server: SimulatedCodexServer) => {
+            server.notify('item/completed', { item });
+            await new Promise(resolve => setTimeout(resolve, 5));
+            await report(server);
+        };
+
+        it('fails the stage on a command that was not only reading', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(
+                    completed({
+                        type: 'commandExecution',
+                        id: 'c1',
+                        command: 'pnpm build',
+                        commandActions: [{ type: 'unknown', command: 'pnpm build' }],
+                        status: 'completed',
+                    }),
+                ),
+            );
+
+            expect(output.engineFailure).toMatch(/ran Bash \(pnpm build\) without asking/);
+            expect(output.result).toBeUndefined();
+            expect(eventsOf('tool.unguarded')).toEqual([{ tool: 'Bash', command: 'pnpm build' }]);
+        });
+
+        it('fails the stage on a file change', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(completed({ type: 'fileChange', id: 'f1', changes: [{ path: 'src/a.ts' }], status: 'completed' })),
+            );
+
+            expect(output.engineFailure).toMatch(/ran Write \(src\/a.ts\) without asking/);
+            expect(eventsOf('tool.unguarded')).toEqual([{ tool: 'Write', path: 'src/a.ts' }]);
+        });
+
+        it('lets a read through, on the record', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(
+                    completed({
+                        type: 'commandExecution',
+                        id: 'c1',
+                        command: 'cat /etc/passwd',
+                        commandActions: [{ type: 'read', command: 'cat /etc/passwd', name: 'passwd', path: '/etc/passwd' }],
+                        status: 'completed',
+                    }),
+                ),
+            );
+
+            expect(output).toMatchObject({ result: { summary: 'done' }, truncated: false });
+            expect(output.engineFailure).toBeUndefined();
+            expect(eventsOf('tool.unguarded')).toEqual([{ tool: 'Bash', command: 'cat /etc/passwd' }]);
+        });
+
+        it.each(['webSearch', 'mcpToolCall', 'collabAgentToolCall', 'imageGeneration'])('stops %s as soon as it starts', async type => {
+            const server = new SimulatedCodexServer(async s => {
+                s.notify('item/started', { item: { type, id: 'x1' } });
+                await new Promise(resolve => setTimeout(resolve, 5));
+                s.notify('item/completed', { item: { type, id: 'x1' } });
+            });
+            const { output } = await run(server);
+
+            expect(output.engineFailure).toMatch(new RegExp(`ran ${type} without asking`));
+            expect(eventsOf('tool.unguarded')).toEqual([{ tool: type }]);
+            expect(server.killed).toBe(true);
+        });
+
+        it('fails the stage on a patch that touched more than was approved', async () => {
+            const { output } = await run(
                 new SimulatedCodexServer(async server => {
+                    server.notify('item/started', { item: { type: 'fileChange', id: 'f1', changes: [{ path: 'src/a.ts' }] } });
+                    await server.ask('item/fileChange/requestApproval', { itemId: 'f1' });
                     server.notify('item/completed', {
-                        item: { type: 'commandExecution', id: 'c1', command: 'cat /etc/passwd', status: 'completed' },
+                        item: { type: 'fileChange', id: 'f1', changes: [{ path: 'src/a.ts' }, { path: 'docs/a.md' }], status: 'completed' },
                     });
-                    server.notify('item/completed', {
-                        item: { type: 'fileChange', id: 'f1', changes: [{ path: 'docs/a.md' }], status: 'completed' },
-                    });
-                    server.notify('item/completed', { item: { type: 'webSearch', id: 'w1' } });
-                    await new Promise(resolve => setImmediate(resolve));
-                    await report(server);
                 }),
             );
 
-            expect(eventsOf('tool.unguarded')).toEqual([
-                { tool: 'Bash', command: 'cat /etc/passwd' },
-                { tool: 'Write', path: 'docs/a.md' },
-                { tool: 'webSearch' },
-            ]);
+            expect(output.engineFailure).toMatch(/docs\/a.md/);
+            expect(eventsOf('tool.unguarded')).toEqual([{ tool: 'Write', path: 'docs/a.md' }]);
         });
 
         it('does not count one that asked', async () => {
@@ -733,5 +774,35 @@ describe('unwrapShell', () => {
         ["python -c 'pnpm test'", "python -c 'pnpm test'"],
     ])('%s', (command, expected) => {
         expect(unwrapShell(command)).toBe(expected);
+    });
+});
+
+describe('readOnlyCommand', () => {
+    const read = [{ type: 'read' }];
+
+    it.each([
+        ['cat a.ts', read],
+        ['rg -i needle src', [{ type: 'search' }]],
+        ['ls -la', [{ type: 'listFiles' }]],
+        ['grep -o needle a.ts', [{ type: 'search' }]],
+        ['cat a.ts | grep -i b', [{ type: 'read' }, { type: 'search' }]],
+    ])('%s is a read', (command, actions) => {
+        expect(readOnlyCommand(command, actions)).toBe(true);
+    });
+
+    it.each([
+        ['nothing parsed', 'cat a.ts', []],
+        ['one part unknown', 'cat a.ts; rm b', [{ type: 'read' }, { type: 'unknown' }]],
+        ['a redirect', 'cat a.ts > b.ts', read],
+        ['a substitution', 'cat $(rm b)', read],
+        ['backticks', 'cat `rm b`', read],
+        ['find -delete', 'find . -delete', [{ type: 'listFiles' }]],
+        ['find -exec', 'find . -exec rm {} +', [{ type: 'listFiles' }]],
+        ['rg --pre', 'rg --pre ./evil needle', [{ type: 'search' }]],
+        ['sed -i', 'sed -i s/a/b/ c.ts', read],
+        ['sort -o', 'sort -o a.ts b.ts', read],
+        ['sed with -i later', 'sed -e s/a/b/ -i c.ts', read],
+    ])('%s is not', (_name, command, actions) => {
+        expect(readOnlyCommand(command, actions)).toBe(false);
     });
 });
