@@ -246,12 +246,15 @@ export function reviveCardVersion(raw: CardVersion): CardVersion {
  * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
  * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
  * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
+ * `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
+ * how many of them were cached, not an addition to it.
  * generated from [CardStageUsage](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardStageUsage {
     stage: string;
     attempts: number;
     inputTokens: number;
+    cachedInputTokens: number;
     outputTokens: number;
 }
 
@@ -567,7 +570,7 @@ export function reviveActivityEvent(raw: ActivityEvent): ActivityEvent {
  * generated from [CardUsage](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardUsage {
-    total: { attempts: number; inputTokens: number; outputTokens: number };
+    total: { attempts: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
     stages: CardStageUsage[];
 }
 

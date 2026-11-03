@@ -107,7 +107,7 @@ beforeEach(() => {
     vi.spyOn(BoardClient.prototype, 'listCardEvents').mockResolvedValue([]);
     vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
     vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
-    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] });
     vi.spyOn(ReviewClient.prototype, 'listReviewTurns').mockResolvedValue([]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);

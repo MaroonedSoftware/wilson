@@ -2,6 +2,7 @@
     "total": {
         "attempts": 0,
         "inputTokens": 0,
+        "cachedInputTokens": 0,
         "outputTokens": 0
     },
     "stages": []

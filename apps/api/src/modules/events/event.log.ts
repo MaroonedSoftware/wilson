@@ -33,12 +33,14 @@ export interface CardStageUsage {
     stage: string;
     attempts: number;
     inputTokens: number;
+    /** How many of `inputTokens` were cached, not an addition to it. */
+    cachedInputTokens: number;
     outputTokens: number;
 }
 
 /** What a card cost, per stage and in total — see {@link EventLog.usageByStage}. */
 export interface CardUsage {
-    total: { attempts: number; inputTokens: number; outputTokens: number };
+    total: { attempts: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
     stages: CardStageUsage[];
 }
 
@@ -226,7 +228,8 @@ export class EventLog {
      * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
      * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
      * never disagree with what `tail` shows for the same card: nothing here is silently skipped.
-     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to.
+     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to, and
+     * `cachedInputTokens` says how many of them those are.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
@@ -240,6 +243,7 @@ export class EventLog {
                 sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
                     'inputTokens',
                 ),
+                sql<string>`coalesce(sum((payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
                 sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
                 sql<string>`min(id)`.as('firstId'),
             ])
@@ -251,6 +255,7 @@ export class EventLog {
             stage: row.stage ?? '',
             attempts: Number(row.attempts),
             inputTokens: Number(row.inputTokens),
+            cachedInputTokens: Number(row.cachedInputTokens),
             outputTokens: Number(row.outputTokens),
         }));
 
@@ -258,9 +263,10 @@ export class EventLog {
             (acc, stage) => ({
                 attempts: acc.attempts + stage.attempts,
                 inputTokens: acc.inputTokens + stage.inputTokens,
+                cachedInputTokens: acc.cachedInputTokens + stage.cachedInputTokens,
                 outputTokens: acc.outputTokens + stage.outputTokens,
             }),
-            { attempts: 0, inputTokens: 0, outputTokens: 0 },
+            { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
         );
 
         return { total, stages };

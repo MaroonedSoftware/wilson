@@ -219,12 +219,15 @@ export type CardVersion = z.infer<typeof CardVersion>;
  * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
  * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
  * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
+ * `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
+ * how many of them were cached, not an addition to it.
  * generated from [CardStageUsage](../../data/contracts/board.ck)
  */
 export const CardStageUsage = z.strictObject({
     stage: z.string(),
     attempts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type CardStageUsage = z.infer<typeof CardStageUsage>;
@@ -517,6 +520,7 @@ export const CardUsage = z.strictObject({
     total: z.strictObject({
         attempts: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
         inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
         outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     }),
     stages: z.array(CardStageUsage),

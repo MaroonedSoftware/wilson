@@ -542,7 +542,7 @@ describe('BoardService', () => {
     // `events` above — the 404 guard mirrors `getById`'s own (AC5), and a card that exists but has
     // no usage recorded yet gets `usageByStage`'s zeros back in an ordinary 200 (AC4), not a refusal.
     describe('usage', () => {
-        const zeroUsage = { total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] };
+        const zeroUsage = { total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] };
 
         it('translates a missing card into a 404 rather than letting it become a 500', async () => {
             const boardRepository = {
@@ -590,8 +590,8 @@ describe('BoardService', () => {
             const found = card('0001');
             const boardRepository = { read: async () => found } as unknown as BoardRepository;
             const usage = {
-                total: { attempts: 3, inputTokens: 300, outputTokens: 50 },
-                stages: [{ stage: 'implementing', attempts: 3, inputTokens: 300, outputTokens: 50 }],
+                total: { attempts: 3, inputTokens: 300, cachedInputTokens: 0, outputTokens: 50 },
+                stages: [{ stage: 'implementing', attempts: 3, inputTokens: 300, cachedInputTokens: 0, outputTokens: 50 }],
             };
             const eventLog = { usageByStage: async () => usage } as unknown as EventLog;
             const service = new BoardService(boardRepository, eventLog, config, worktrees);

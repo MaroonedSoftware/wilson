@@ -308,7 +308,7 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, '0001');
 
-        expect(usage.total).toEqual({ attempts: 2, inputTokens: 1106, outputTokens: 10 });
+        expect(usage.total).toEqual({ attempts: 2, inputTokens: 1106, cachedInputTokens: 1000, outputTokens: 10 });
     });
 
     // AC1: two implementing attempts and one review attempt come back as three attempts across
@@ -342,10 +342,10 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.total).toEqual({ attempts: 3, inputTokens: 350, outputTokens: 60 });
+        expect(usage.total).toEqual({ attempts: 3, inputTokens: 350, cachedInputTokens: 0, outputTokens: 60 });
         expect(usage.stages).toEqual([
-            { stage: 'implementing', attempts: 2, inputTokens: 300, outputTokens: 50 },
-            { stage: 'review', attempts: 1, inputTokens: 50, outputTokens: 10 },
+            { stage: 'implementing', attempts: 2, inputTokens: 300, cachedInputTokens: 0, outputTokens: 50 },
+            { stage: 'review', attempts: 1, inputTokens: 50, cachedInputTokens: 0, outputTokens: 10 },
         ]);
     });
 
@@ -388,8 +388,8 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, outputTokens: 0 }]);
-        expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, outputTokens: 0 });
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 });
     });
 
     it('counts an interrupted run’s tokens without counting it as an attempt', async () => {
@@ -414,8 +414,8 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, outputTokens: 12 }]);
-        expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, outputTokens: 12 });
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 }]);
+        expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 });
         expect(usage.total.inputTokens).toBe(await eventLog.totalInputTokens(project, cardId));
     });
 
@@ -434,7 +434,7 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 0, inputTokens: 10, outputTokens: 5 }]);
+        expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 0, inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 }]);
     });
 
     // AC4: a card with no stage.passed/stage.failed events gets zero totals and an empty stages
@@ -448,7 +448,7 @@ describe('EventLog.usageByStage', () => {
 
         const usage = await eventLog.usageByStage(project, cardId);
 
-        expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+        expect(usage).toEqual({ total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] });
     });
 });
 
