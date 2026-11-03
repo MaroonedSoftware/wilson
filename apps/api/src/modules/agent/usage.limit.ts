@@ -55,4 +55,4 @@ export class UsageLimitWatch {
 
 /** A limit as a person reads it. */
 export const describeUsageLimit = ({ account, limitType, resetsAt }: UsageLimit): string =>
-    `the account "${account}" hit its ${limitType} usage limit, which resets at ${new Date(resetsAt).toISOString()}`;
+    `the account "${account}" hit its ${limitType.replaceAll('_', '-')} usage limit, which resets at ${new Date(resetsAt).toISOString()}`;
