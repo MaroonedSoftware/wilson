@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
@@ -11,7 +10,6 @@ import {
     Loader,
     NumberInput,
     Paper,
-    PasswordInput,
     SegmentedControl,
     Select,
     Stack,
@@ -20,10 +18,11 @@ import {
     TextInput,
     Title,
 } from '@mantine/core';
-import type { ChatEngineSetting, EngineTokenSetting, SetNotifyWebhookSettingRequest, StageRouting } from '@wilson/sdk';
+import type { ChatEngineSetting, SetNotifyWebhookSettingRequest, StageRouting } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+import { AccountsControl, MachineSignInControl } from '#src/components/AccountsControl.js';
 import { DrainControl } from '#src/components/DrainControl.js';
 import { SecurityControls } from '#src/components/SecurityControls.js';
 
@@ -35,9 +34,6 @@ const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
 const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
 const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
 const GITHUB_APP_QUERY_KEY = ['settings', 'github-app'];
-const ENGINE_TOKEN_QUERY_KEY = ['settings', 'engine-token'];
-const ENGINE_TOKENS_QUERY_KEY = ['engine-tokens'];
-const ENGINE_LIMITS_QUERY_KEY = ['engine-limits'];
 const CHAT_ENGINE_QUERY_KEY = ['settings', 'chat-engine'];
 const STAGE_ROUTING_QUERY_KEY = ['stages', 'routing'];
 
@@ -594,195 +590,6 @@ function GitHubAppControl() {
     );
 }
 
-const ENGINE_TOKEN_SOURCES: Record<EngineTokenSetting['source'], string> = {
-    database: 'Engines on this machine sign in with the token saved here.',
-    environment: 'Engines on this machine sign in with CLAUDE_CODE_OAUTH_TOKEN from the environment. A token saved here replaces it.',
-    none: 'No token is set, so engines on this machine use the login in their Claude config directory.',
-};
-
-/**
- * The engine token (`EngineTokenSettingService`). Write-only: the API reports where the sign-in comes
- * from and never the token, so the field starts empty, and is emptied again after a save.
- *
- * A refusal keeps the draft, the same choice `ClaudeConfigDirControl` makes.
- */
-function EngineTokenControl() {
-    const wilson = useWilsonSdk();
-    const queryClient = useQueryClient();
-    const setting = useQuery({ queryKey: ENGINE_TOKEN_QUERY_KEY, queryFn: () => wilson.settings.getEngineTokenSetting() });
-    const [draft, setDraft] = useState('');
-
-    const mutation = useMutation({
-        mutationFn: (token: string | null) => wilson.settings.setEngineTokenSetting({ token }),
-        onSuccess: result => {
-            queryClient.setQueryData(ENGINE_TOKEN_QUERY_KEY, result);
-            setDraft('');
-        },
-    });
-
-    if (setting.error) {
-        return (
-            <Alert color="red" title="Cannot load the engine token">
-                {apiErrorMessage(setting.error)}
-            </Alert>
-        );
-    }
-    if (!setting.data) return <Loader size="sm" />;
-
-    return (
-        <Stack gap="xs">
-            <PasswordInput
-                label="Engine token"
-                description="What engines on this machine sign in with, ahead of the config directory above. Make one with claude setup-token. Worker hosts use the tokens below, and SSH hosts their own. A change applies to stages and planning sessions started afterwards, never one already running."
-                value={draft}
-                onChange={event => setDraft(event.currentTarget.value)}
-                disabled={mutation.isPending}
-                autoComplete="off"
-            />
-            <Text size="sm">{ENGINE_TOKEN_SOURCES[setting.data.source]}</Text>
-            <Group gap="xs">
-                <Button size="xs" disabled={draft.trim() === '' || mutation.isPending} onClick={() => mutation.mutate(draft)}>
-                    Save
-                </Button>
-                {setting.data.source === 'database' && (
-                    <Button size="xs" variant="default" disabled={mutation.isPending} onClick={() => mutation.mutate(null)}>
-                        Remove
-                    </Button>
-                )}
-            </Group>
-            {mutation.isError && (
-                <Text size="sm" c="red">
-                    {apiErrorMessage(mutation.error)}
-                </Text>
-            )}
-        </Stack>
-    );
-}
-
-/**
- * The named engine tokens worker hosts are assigned (`EngineTokensService`), on the Hosts page. Write
- * only, as {@link EngineTokenControl} is: the list has names and no token, and the fields start empty.
- * Saving under a name already there replaces that token and no other.
- */
-function WorkerEngineTokensControl() {
-    const wilson = useWilsonSdk();
-    const queryClient = useQueryClient();
-    const tokens = useQuery({ queryKey: ENGINE_TOKENS_QUERY_KEY, queryFn: () => wilson.engineTokens.listEngineTokens() });
-    const limits = useQuery({ queryKey: ENGINE_LIMITS_QUERY_KEY, queryFn: () => wilson.engineTokens.listEngineLimits() });
-    const [name, setName] = useState('');
-    const [token, setToken] = useState('');
-
-    const refresh = () =>
-        Promise.all([
-            queryClient.invalidateQueries({ queryKey: ENGINE_TOKENS_QUERY_KEY }),
-            queryClient.invalidateQueries({ queryKey: ENGINE_LIMITS_QUERY_KEY }),
-        ]);
-    const put = useMutation({
-        mutationFn: () => wilson.engineTokens.putEngineToken(name.trim(), { token }),
-        onSuccess: () => {
-            setName('');
-            setToken('');
-            return refresh();
-        },
-    });
-    const remove = useMutation({ mutationFn: (saved: string) => wilson.engineTokens.removeEngineToken(saved), onSuccess: refresh });
-    const setPooled = useMutation({
-        mutationFn: ({ saved, pooled }: { saved: string; pooled: boolean }) => wilson.engineTokens.updateEngineToken(saved, { pooled }),
-        onSuccess: refresh,
-    });
-
-    if (tokens.error) {
-        return (
-            <Alert color="red" title="Cannot load the worker engine tokens">
-                {apiErrorMessage(tokens.error)}
-            </Alert>
-        );
-    }
-    if (!tokens.data) return <Loader size="sm" />;
-
-    const failed = [put, remove, setPooled].find(mutation => mutation.isError);
-    const describeLimits = (account: string) =>
-        (limits.data ?? [])
-            .filter(limit => limit.account === account)
-            .map(limit => `${limit.limitType} limit until ${limit.resetsAt.toLocaleString(DateTime.DATETIME_SHORT)}`)
-            .join(', ');
-    const savedNames = new Set(tokens.data.map(saved => saved.name));
-    const otherAccounts = [...new Set((limits.data ?? []).map(limit => limit.account))].filter(account => !savedNames.has(account));
-    return (
-        <Stack gap="xs">
-            <Text size="sm" fw={500}>
-                Worker engine tokens
-            </Text>
-            <Text size="xs" c="dimmed">
-                Tokens Wilson holds for worker hosts, each assigned on the Hosts page. Wilson sends one to its worker with each engine start, and a
-                stage there can read it. Saving under an existing name replaces that token. Removing one sends its hosts back to their own sign-in,
-                leaves running engines alone, and does not revoke it with Anthropic. An engine with no token assigned takes the first pooled token
-                with no limit in force, lowest priority first.
-            </Text>
-            {tokens.data.map(saved => (
-                <Group key={saved.name} gap="xs">
-                    <Text size="sm">{saved.name}</Text>
-                    <Text size="sm" c="dimmed">
-                        {saved.hosts.length > 0 ? saved.hosts.join(', ') : 'no host'}
-                    </Text>
-                    {saved.pooled && (
-                        <Text size="sm" c="dimmed">
-                            pooled, priority {saved.priority}
-                        </Text>
-                    )}
-                    {describeLimits(saved.name) !== '' && (
-                        <Text size="sm" c="orange">
-                            {describeLimits(saved.name)}
-                        </Text>
-                    )}
-                    <Button
-                        size="compact-xs"
-                        variant="subtle"
-                        disabled={setPooled.isPending}
-                        onClick={() => setPooled.mutate({ saved: saved.name, pooled: !saved.pooled })}
-                    >
-                        {saved.pooled ? 'Leave pool' : 'Add to pool'}
-                    </Button>
-                    <Button size="compact-xs" variant="subtle" color="red" disabled={remove.isPending} onClick={() => remove.mutate(saved.name)}>
-                        Remove
-                    </Button>
-                </Group>
-            ))}
-            {otherAccounts.map(account => (
-                <Text key={account} size="sm" c="orange">
-                    {account}: {describeLimits(account)}
-                </Text>
-            ))}
-            <Group gap="xs" align="flex-end">
-                <TextInput
-                    size="xs"
-                    label="Name"
-                    value={name}
-                    onChange={event => setName(event.currentTarget.value)}
-                    disabled={put.isPending}
-                    autoComplete="off"
-                />
-                <PasswordInput
-                    size="xs"
-                    label="Token"
-                    value={token}
-                    onChange={event => setToken(event.currentTarget.value)}
-                    disabled={put.isPending}
-                    autoComplete="off"
-                />
-                <Button size="xs" disabled={name.trim() === '' || token.trim() === '' || put.isPending} onClick={() => put.mutate()}>
-                    Save
-                </Button>
-            </Group>
-            {failed && (
-                <Text size="sm" c="red">
-                    {apiErrorMessage(failed.error)}
-                </Text>
-            )}
-        </Stack>
-    );
-}
-
 /**
  * Which engine the chat runs on (`chat.engine.setting.ts`): 'cli', the Claude Agent SDK on the
  * subscription the stages use, or 'api', the AI SDK against a provider's API key. The provider
@@ -833,7 +640,7 @@ function ChatEngineControl() {
             />
             <Text size="xs" c="dimmed">
                 {draft.engine === 'cli'
-                    ? 'Runs on the Claude subscription the stages use, from the engine credentials below. No API key needed.'
+                    ? 'Runs on the Claude subscription the stages use, from the accounts below. No API key needed.'
                     : "Runs against the provider's API key in apps/api/.env, billed per token."}{' '}
                 Applies to chats started afterwards; a chat keeps the engine it started on.
             </Text>
@@ -1098,10 +905,11 @@ function SettingsRoute() {
 
             <Paper withBorder p="md" radius="sm">
                 <Stack gap="sm">
-                    <Title order={4}>Engine credentials</Title>
+                    <Title order={4}>Accounts</Title>
+                    <AccountsControl />
+                    <Title order={5}>This server's own sign-in</Title>
+                    <MachineSignInControl />
                     <ClaudeConfigDirControl />
-                    <EngineTokenControl />
-                    <WorkerEngineTokensControl />
                 </Stack>
             </Paper>
 

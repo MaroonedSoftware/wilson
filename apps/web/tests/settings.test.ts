@@ -23,6 +23,7 @@ import type {
     CardStageConcurrency,
     ClaudeConfigDirSetting,
     EngineTokenSetting,
+    EngineTokenSummary,
     Health,
     NotifyWebhookSetting,
     PollerInterval,
@@ -59,10 +60,10 @@ const baseHealth: Health = {
 function renderApp(path: string) {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     const queryClient = new QueryClient();
-    render(
+    const { unmount } = render(
         createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
     );
-    return { router };
+    return { router, unmount };
 }
 
 /**
@@ -473,13 +474,58 @@ describe('the engine token control', () => {
         expect(((await screen.findByLabelText('Engine token')) as HTMLInputElement).value).toBe('');
     });
 
-    it('shows who is pooled and limited, including a sign-in with no saved token, and changes the pool', async () => {
+    it('groups accounts by how they are used, says which is next, and changes the rotation', async () => {
         load('none');
-        const saved = {
-            name: 'pool-a',
-            provider: 'anthropic' as const,
-            kind: 'subscription' as const,
-            priority: 3,
+        const account = (name: string, overrides: Partial<EngineTokenSummary> = {}): EngineTokenSummary => ({
+            name,
+            provider: 'anthropic',
+            kind: 'subscription',
+            priority: 0,
+            pooled: true,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            hosts: [],
+            ...overrides,
+        });
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([
+            account('limited'),
+            account('open', { priority: 1 }),
+            account('held', { pooled: false, priority: 7, hosts: ['my-mac'] }),
+        ]);
+        vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([
+            { account: 'limited', limitType: 'five_hour', resetsAt: DateTime.now().plus({ hours: 1 }) },
+            { account: 'worker:vm', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
+        ]);
+        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue(account('held'));
+
+        renderApp('/settings');
+
+        expect(await screen.findByText('Next engine signs in as open')).toBeTruthy();
+        expect(within(await screen.findByLabelText('account limited')).getByText(/5-hour limit, back/)).toBeTruthy();
+        expect(within(screen.getByLabelText('account open')).getByText('Next')).toBeTruthy();
+        expect(within(screen.getByLabelText('account held')).getByText('my-mac')).toBeTruthy();
+        expect(await screen.findByText(/vm's own sign-in: Weekly limit, back/)).toBeTruthy();
+        expect(await screen.findByText(/Not used while rotation has accounts/)).toBeTruthy();
+
+        // Joining goes after the accounts already working, whatever priority it last had.
+        await act(async () => {
+            fireEvent.click(within(screen.getByLabelText('account held')).getByRole('button', { name: 'Add to rotation' }));
+        });
+        expect(update).toHaveBeenCalledWith('held', { pooled: true, priority: 2 });
+
+        await act(async () => {
+            fireEvent.click(within(screen.getByLabelText('account open')).getByRole('button', { name: 'Leave rotation' }));
+        });
+        expect(update).toHaveBeenCalledWith('open', { pooled: false });
+    });
+
+    it('says when no account is free, and when none is in rotation', async () => {
+        load('none');
+        const saved: EngineTokenSummary = {
+            name: 'only',
+            provider: 'anthropic',
+            kind: 'subscription',
+            priority: 0,
             pooled: true,
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
@@ -487,21 +533,16 @@ describe('the engine token control', () => {
         };
         vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([saved]);
         vi.spyOn(wilson.engineTokens, 'listEngineLimits').mockResolvedValue([
-            { account: 'pool-a', limitType: 'five_hour', resetsAt: DateTime.now().plus({ hours: 1 }) },
-            { account: 'worker:vm', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
+            { account: 'only', limitType: 'seven_day', resetsAt: DateTime.now().plus({ days: 1 }) },
         ]);
-        const update = vi.spyOn(wilson.engineTokens, 'updateEngineToken').mockResolvedValue({ ...saved, pooled: false });
 
+        const { unmount } = renderApp('/settings');
+        expect(await screen.findByText('Every account in rotation is at its limit')).toBeTruthy();
+        unmount();
+
+        vi.spyOn(wilson.engineTokens, 'listEngineTokens').mockResolvedValue([]);
         renderApp('/settings');
-
-        expect(await screen.findByText('pooled, priority 3')).toBeTruthy();
-        expect(await screen.findByText(/five_hour limit until/)).toBeTruthy();
-        expect(await screen.findByText(/worker:vm: seven_day limit until/)).toBeTruthy();
-
-        await act(async () => {
-            fireEvent.click(await screen.findByRole('button', { name: 'Leave pool' }));
-        });
-        expect(update).toHaveBeenCalledWith('pool-a', { pooled: false });
+        expect(await screen.findByText('No accounts in rotation')).toBeTruthy();
     });
 
     it('saves a worker engine token under a name, empties both fields, and lists only names', async () => {
