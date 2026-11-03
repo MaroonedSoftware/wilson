@@ -456,10 +456,7 @@ describe('ReviewService', () => {
                 .orderBy('turn.seq')
                 .select(['turn.role', 'turn.inputTokens', 'turn.cachedInputTokens', 'turn.outputTokens'])
                 .execute();
-            expect(rows).toEqual([
-                { role: 'user' },
-                { role: 'assistant', inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 },
-            ]);
+            expect(rows).toEqual([{ role: 'user' }, { role: 'assistant', inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 }]);
         });
 
         it('reads the plan at its pin, not its newest text', async () => {

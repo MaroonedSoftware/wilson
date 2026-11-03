@@ -93,7 +93,10 @@ beforeEach(() => {
     // Card 0263: `ProjectCardDetailRoute` mounts a usage query alongside events/versions/columns
     // for every card page — defaulted to no usage recorded so the tests above, none of which are
     // about usage, see the "no usage recorded yet" placeholder rather than a rejected query.
-    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }, stages: [] });
+    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({
+        total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+        stages: [],
+    });
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     // jsdom has no layout engine, so floating-ui's own `scrollIntoView` call on the active option

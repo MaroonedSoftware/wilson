@@ -1307,10 +1307,7 @@ describe('PlanService', () => {
                     .orderBy('seq')
                     .select(['role', 'outputTokens'])
                     .execute();
-                expect(rows).toEqual([
-                    { role: 'user' },
-                    { role: 'assistant', outputTokens: 42 },
-                ]);
+                expect(rows).toEqual([{ role: 'user' }, { role: 'assistant', outputTokens: 42 }]);
             } finally {
                 planSessions.dispose(id);
             }

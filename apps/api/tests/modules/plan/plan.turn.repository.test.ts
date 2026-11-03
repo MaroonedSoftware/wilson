@@ -140,10 +140,7 @@ describe('PlanTurnRepository', () => {
             .select(['inputTokens', 'cachedInputTokens', 'outputTokens'])
             .execute();
 
-        expect(rows).toEqual([
-            {},
-            { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 },
-        ]);
+        expect(rows).toEqual([{}, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 }]);
     });
 
     it('append stores and round-trips the role and content verbatim, and stamps a createdAt', async () => {
