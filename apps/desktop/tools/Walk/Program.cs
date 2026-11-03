@@ -186,6 +186,40 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         psql.WaitForExit();
     }
 
+    /// <summary>
+    /// A worker for host `name`, connected to the real endpoint with a token written straight to its row, as
+    /// minting one needs a step-up. It says hello and then only keeps reading, so pings are answered and it
+    /// runs nothing. Disposing it drops the connection.
+    /// </summary>
+    public static async Task<System.Net.WebSockets.ClientWebSocket> ConnectWorkerAsync(string origin, string name)
+    {
+        var token = $"wilson_worker_walk{Guid.NewGuid():N}";
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+        Sql($"update wilson.hosts set worker_token_hash = '{hash}', worker_token_hint = '{token[^4..]}', worker_token_issued_at = now() where name = '{name}'");
+
+        var socket = new System.Net.WebSockets.ClientWebSocket();
+        socket.Options.SetRequestHeader("Authorization", $"Bearer {token}");
+        await socket.ConnectAsync(new Uri($"{origin.Replace("http", "ws", StringComparison.Ordinal)}/api/workers/connect"), CancellationToken.None);
+        var hello = System.Text.Encoding.UTF8.GetBytes("""{"type":"hello","protocol":5,"workerVersion":"0.0.0-walk","platform":"darwin"}""");
+        await socket.SendAsync(hello, System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+        _ = Task.Run(async () =>
+        {
+            var buffer = new byte[64 * 1024];
+            try
+            {
+                while (socket.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    await socket.ReceiveAsync(buffer, CancellationToken.None);
+                }
+            }
+            catch (Exception failure) when (failure is System.Net.WebSockets.WebSocketException or ObjectDisposedException)
+            {
+                // Dropping it is how the step ends.
+            }
+        });
+        return socket;
+    }
+
     public T Page<T>()
         where T : PageViewModel => shell.Page as T ?? throw new InvalidOperationException($"expected {typeof(T).Name}, on {shell.Page?.GetType().Name}");
 

@@ -8,7 +8,7 @@
         <StackPanel Margin="16" Spacing="12" MaxWidth="1000" HorizontalAlignment="Left" MinWidth="640">
             <StackPanel Spacing="4">
                 <TextBlock Classes="title" Text="Hosts" />
-                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Machines a stage with placement any or remote can run on, reached over SSH. A host takes a stage when it is enabled, not draining, serves the card's project, passed its last probe and will not expire first." />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Machines a stage with placement any or remote can run on, reached over SSH or by a worker that connects in. A host takes a stage when it is enabled, not draining, serves the card's project, passed its last probe and will not expire first." />
             </StackPanel>
             <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             <TextBlock Classes="quiet" Text="No hosts yet. Register one below, or with wilson host add." IsVisible="{Binding NoHosts}" />
@@ -29,6 +29,9 @@
                                             <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding Name}" VerticalAlignment="Center" />
                                             <Border Classes="badge" VerticalAlignment="Center">
                                                 <TextBlock Classes="quiet" Classes.good="{Binding Taking}" Classes.caution="{Binding Holding}" Text="{Binding State}" />
+                                            </Border>
+                                            <Border Classes="badge" VerticalAlignment="Center" IsVisible="{Binding IsWorker}">
+                                                <TextBlock Classes="quiet" Classes.good="{Binding Connected}" Classes.caution="{Binding NotConnected}" Text="{Binding ConnectionState}" />
                                             </Border>
                                             <Border Classes="badge" VerticalAlignment="Center" ToolTip.Tip="{Binding ProbeDetail}">
                                                 <TextBlock Classes="quiet" Classes.error="{Binding ProbeFailed}" Text="{Binding Probe}" />

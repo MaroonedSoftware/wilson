@@ -35,12 +35,26 @@ public static class HostRules
         return host.Probe is { } probe ? $"{(probe.Ok ? "probe ok" : "probe failed")} {Relative(probe.ProbedAt, now)}" : "never probed";
     }
 
+    /// <summary>Whether a worker is connected now, where <see cref="Probe"/> is only what was last found. An SSH host keeps no connection to report.</summary>
+    public static string? Connection(Host host, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+
+        if (host.Kind != HostKind.Worker)
+        {
+            return null;
+        }
+
+        return host.Connection is { } connection ? $"connected {Relative(connection.Since, now)}" : "not connected";
+    }
+
     /// <summary>The line under a host's name: how it is reached, and what is known of it.</summary>
     public static string Summary(Host host, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(host);
 
-        var parts = new List<string> { host.Kind == HostKind.Worker ? "worker" : $"ssh {host.SshTarget}" };
+        var reached = host.Connection is { } connection ? $"worker {connection.WorkerVersion} on {connection.Platform}" : "worker";
+        var parts = new List<string> { host.Kind == HostKind.Worker ? reached : $"ssh {host.SshTarget}" };
         if (host.Kind == HostKind.Worker)
         {
             parts.Add(host.WorkerToken is { } token ? $"token …{token.Hint}" : "no token yet");

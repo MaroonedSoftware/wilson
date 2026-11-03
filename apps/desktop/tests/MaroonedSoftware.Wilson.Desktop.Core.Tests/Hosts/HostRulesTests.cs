@@ -52,6 +52,23 @@ public sealed class HostRulesTests
     }
 
     [Fact]
+    public void Connection_is_only_a_worker_s_and_says_how_long()
+    {
+        Assert.Null(HostRules.Connection(Host(), Now));
+        Assert.Equal("not connected", HostRules.Connection(Host(kind: HostKind.Worker), Now));
+
+        var connected = Host(kind: HostKind.Worker) with { Connection = new HostConnection { Since = Now.AddMinutes(-192), WorkerVersion = "1.2.3", Platform = "linux" } };
+        Assert.Equal("connected 3h 12m ago", HostRules.Connection(connected, Now));
+    }
+
+    [Fact]
+    public void Summary_of_a_connected_worker_names_its_version_and_platform()
+    {
+        var connected = Host(kind: HostKind.Worker) with { Connection = new HostConnection { Since = Now, WorkerVersion = "1.2.3", Platform = "linux" } };
+        Assert.StartsWith("worker 1.2.3 on linux · ", HostRules.Summary(connected, Now));
+    }
+
+    [Fact]
     public void Summary_of_an_ssh_host_names_its_target() =>
         Assert.Equal("ssh agent-1.local", HostRules.Summary(Host(), Now));
 

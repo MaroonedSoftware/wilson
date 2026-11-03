@@ -191,6 +191,15 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
     private string? _state;
 
     [ObservableProperty]
+    private string? _connectionState;
+
+    [ObservableProperty]
+    private bool _connected;
+
+    [ObservableProperty]
+    private bool _notConnected;
+
+    [ObservableProperty]
     private string? _probe;
 
     [ObservableProperty]
@@ -354,6 +363,9 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
         _drawing = true;
         Host = host;
         State = HostRules.State(host);
+        ConnectionState = HostRules.Connection(host, now);
+        Connected = host.Connection is not null;
+        NotConnected = host.Kind == HostKind.Worker && host.Connection is null;
         Probe = HostRules.Probe(host, now);
         ProbeDetail = host.Probe is null ? null : host.Probe.Detail ?? "every check passed";
         ProbeFailed = host.Probe is { Ok: false, Detail: not null };
