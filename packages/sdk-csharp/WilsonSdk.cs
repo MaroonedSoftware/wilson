@@ -33,6 +33,7 @@ public sealed class WilsonSdk : IDisposable
         Learnings = new LearningsClient(Http);
         Onboarding = new OnboardingClient(Http);
         Projects = new ProjectsClient(Http);
+        Review = new ReviewClient(Http);
         Settings = new SettingsClient(Http);
         Stages = new StagesClient(Http);
     }
@@ -66,6 +67,8 @@ public sealed class WilsonSdk : IDisposable
     public OnboardingClient Onboarding { get; }
 
     public ProjectsClient Projects { get; }
+
+    public ReviewClient Review { get; }
 
     public SettingsClient Settings { get; }
 

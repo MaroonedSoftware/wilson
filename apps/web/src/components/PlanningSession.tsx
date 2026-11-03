@@ -1,77 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useScrollIntoView } from '@mantine/hooks';
-import { ActionIcon, Alert, Badge, Button, Group, Loader, Paper, ScrollArea, Skeleton, Stack, Text, Textarea } from '@mantine/core';
+import { ActionIcon, Alert, Button, Group, Paper, Stack, Text, Textarea } from '@mantine/core';
 import { IconScissors, IconSend, IconSparkles } from '@tabler/icons-react';
 import type { CardDetail, PlanTurn, PlanTurnRequest } from '@wilson/sdk';
-import { Markdown } from '#src/components/Markdown.js';
-import { formatTimestamp } from '#src/lib/card.js';
+import { ConversationView } from '#src/components/ConversationPane.js';
 import { reasonFor } from '#src/lib/mutations.js';
 import { usePlanTranscript, useSendPlanTurn } from '#src/lib/plan.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
-
-/** One persisted turn: a role badge and timestamp header over its content, run through the app's
- * one markdown renderer (`Markdown.tsx`) rather than a second one grown for this pane. */
-function TurnBubble({ turn }: { turn: PlanTurn }) {
-    return (
-        <Paper withBorder p="sm" radius="sm" style={turn.role === 'user' ? { backgroundColor: 'var(--mantine-color-blue-light)' } : undefined}>
-            <Stack gap={4}>
-                <Group gap={6} justify="space-between">
-                    <Badge size="xs" color={turn.role === 'user' ? 'blue' : 'gray'} variant="light">
-                        {turn.role}
-                    </Badge>
-                    <Text size="xs" c="dimmed">
-                        {formatTimestamp(turn.createdAt)}
-                    </Text>
-                </Group>
-                <Markdown body={turn.content} />
-            </Stack>
-        </Paper>
-    );
-}
-
-/**
- * The assistant's reply while it is still being written — `text` is whatever `delta` chunks have
- * landed so far, shown rather than left absent, with a `Loader` standing in for "more is coming."
- * A `Skeleton` fills the gap before the first chunk arrives, so a turn just sent doesn't read as
- * nothing having happened.
- */
-function InProgressTurn({ text }: { text: string }) {
-    return (
-        <Paper withBorder p="sm" radius="sm">
-            <Stack gap={4}>
-                <Group gap={6} justify="space-between">
-                    <Badge size="xs" color="gray" variant="light">
-                        assistant
-                    </Badge>
-                    <Loader size={12} />
-                </Group>
-                {text ? <Markdown body={text} /> : <Skeleton height={12} width="60%" />}
-            </Stack>
-        </Paper>
-    );
-}
-
-/**
- * The user's own turn, echoed the moment it is sent — the exact text just submitted (a mutation's
- * own `variables`, not state this pane accumulated), so showing it needs no round trip. Carries no
- * timestamp: the real, persisted row only exists once a reconnect replays it, and this stands in
- * for that without claiming it already happened.
- */
-function OutgoingTurn({ text }: { text: string }) {
-    return (
-        <Paper withBorder p="sm" radius="sm" style={{ backgroundColor: 'var(--mantine-color-blue-light)' }}>
-            <Stack gap={4}>
-                <Badge size="xs" color="blue" variant="light">
-                    user
-                </Badge>
-                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                    {text}
-                </Text>
-            </Stack>
-        </Paper>
-    );
-}
 
 /**
  * The textarea, send control and — card 0240 — the "Propose cuts" control that sends the same
@@ -213,14 +148,8 @@ export function PlanningSessionPane({ card, project }: { card: CardDetail; proje
     const session = useQuery({ queryKey: ['plan-session', card.id], queryFn: () => wilson.board.openAPlanningSession(card.id) });
     const transcript = usePlanTranscript(card.id, true, project);
     const sendTurn = useSendPlanTurn(card.id);
-    const { scrollableRef, targetRef, scrollIntoView } = useScrollIntoView<HTMLDivElement, HTMLDivElement>();
 
     const outgoingText = sendTurn.isPending ? sendTurn.variables?.text : undefined;
-    const empty = transcript.turns.length === 0 && !outgoingText && !transcript.pendingText;
-
-    useEffect(() => {
-        scrollIntoView({ alignment: 'end' });
-    }, [transcript.turns, transcript.pendingText, outgoingText, scrollIntoView]);
 
     return (
         <Stack gap="xs" h="100%">
@@ -234,21 +163,12 @@ export function PlanningSessionPane({ card, project }: { card: CardDetail; proje
                     {reasonFor(session.error)}
                 </Alert>
             )}
-            <ScrollArea viewportRef={scrollableRef} style={{ flex: 1 }} type="auto">
-                <Stack gap="sm" p={4}>
-                    {empty && (
-                        <Text size="sm" c="dimmed">
-                            No turns yet — start the conversation below.
-                        </Text>
-                    )}
-                    {transcript.turns.map(turn => (
-                        <TurnBubble key={turn.seq} turn={turn} />
-                    ))}
-                    {outgoingText && <OutgoingTurn text={outgoingText} />}
-                    {(outgoingText || transcript.pendingText) && <InProgressTurn text={transcript.pendingText} />}
-                    <div ref={targetRef} />
-                </Stack>
-            </ScrollArea>
+            <ConversationView
+                turns={transcript.turns}
+                outgoingText={outgoingText}
+                pendingText={transcript.pendingText}
+                emptyText="No turns yet — start the conversation below."
+            />
             <Composer sendTurn={sendTurn} disabled={!session.data} noTurnsYet={transcript.turns.length === 0} onSent={transcript.commitTurn} />
         </Stack>
     );

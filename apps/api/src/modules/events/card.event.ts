@@ -169,6 +169,9 @@ export type CardEventType =
     | 'work.committed'
     | 'worktree.reclaimed'
     | 'transition.written'
+    // A person approved a card's branch at one commit (`ReviewService.approve`). Carries `head`. A record
+    // of the judgment and nothing more: it moves no stage and merging does not read it.
+    | 'review.approved'
     | 'transition.failed'
     | 'external.transition'
     | 'chain.stopped'

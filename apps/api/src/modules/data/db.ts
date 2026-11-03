@@ -326,6 +326,47 @@ export interface WilsonProjects {
   worktreeRoot: string;
 }
 
+export interface WilsonReviewComments {
+  cardId: string;
+  contextAfter: Generated<string[]>;
+  contextBefore: Generated<string[]>;
+  createdAt: Generated<DateTime>;
+  file: string;
+  headSha: string;
+  id: Generated<bigint>;
+  line: number;
+  lineText: string;
+  project: string;
+  reviewId: bigint;
+  severity: Generated<"blocker" | "concern">;
+  side: "old" | "new";
+  status: Generated<"open" | "resolved" | "sent">;
+  text: string;
+}
+
+export interface WilsonReviewTurns {
+  content: string;
+  createdAt: Generated<DateTime>;
+  outputTokens: number | null;
+  reviewId: bigint;
+  role: "user" | "assistant";
+  seq: number;
+}
+
+export interface WilsonReviews {
+  baseSha: string;
+  cardId: string;
+  commentsSeenId: Generated<bigint>;
+  createdAt: Generated<DateTime>;
+  engineSessionId: string | null;
+  headSha: string;
+  id: Generated<bigint>;
+  project: string;
+  status: Generated<"open" | "changes_requested" | "approved" | "superseded">;
+  tour: Json | null;
+  verdictAt: DateTime | null;
+}
+
 export interface WilsonSettings {
   key: string;
   project: string;
@@ -397,6 +438,9 @@ export interface DB {
   "wilson.planTurns": WilsonPlanTurns;
   "wilson.projects": WilsonProjects;
   "wilson.pushDevices": WilsonPushDevices;
+  "wilson.reviewComments": WilsonReviewComments;
+  "wilson.reviews": WilsonReviews;
+  "wilson.reviewTurns": WilsonReviewTurns;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.stageConfigs": WilsonStageConfigs;

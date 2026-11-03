@@ -4,9 +4,9 @@ import type { ChatThread } from './chat.thread.repository.js';
 import type { ChatTool } from './chat.tools.js';
 
 export interface ChatTurnInput {
-    thread: ChatThread;
+    thread: Pick<ChatThread, 'id' | 'engineSessionId'>;
     /** The thread's messages before this turn, oldest first. The 'api' engine replays them; 'cli' resumes its session instead. */
-    history: ChatMessage[];
+    history: Pick<ChatMessage, 'role' | 'content' | 'engineMessages'>[];
     /** What the person just said. */
     text: string;
     system: string;
@@ -14,6 +14,13 @@ export interface ChatTurnInput {
     /** The `chat-engine` setting's provider and model. 'cli' runs Claude whatever the provider says. */
     provider: Provider;
     model: string;
+    /** How many model steps the turn may take, `MAX_CHAT_STEPS` when left out. */
+    maxSteps?: number;
+    /**
+     * Fail the turn if the engine offers or attempts any tool but `tools`. For a caller whose safety rests
+     * on what the agent is able to do ('cli': nothing but `tools` is passed, and this checks it held).
+     */
+    onlyOwnTools?: boolean;
     /** Called with each piece of the answer as it is written. */
     onText?: (delta: string) => void;
 }
@@ -25,6 +32,8 @@ export interface ChatTurnOutput {
     engineMessages?: unknown;
     /** The session to resume next turn ('cli'). */
     engineSessionId?: string;
+    /** What the turn cost, when the engine reports it ('cli'). */
+    usage?: { outputTokens: number };
 }
 
 /**

@@ -1,7 +1,6 @@
 import { Injectable } from 'injectkit';
 import { stepCountIs, streamText, tool, type ModelMessage, type ToolSet } from 'ai';
 import { ModelRegistry } from '#modules/agent/model.registry.js';
-import type { ChatMessage } from './chat.message.repository.js';
 import { ChatEngine, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
 
 /** Tool-loop steps one turn may take: plenty for a few searches, reads and a proposal, and a stop for a model that loops. */
@@ -12,7 +11,7 @@ export const MAX_CHAT_STEPS = 20;
  * response messages, tool calls and results included) so the model keeps what it read last time; an
  * answer stored without them, such as one written by the 'cli' engine, replays as its text alone.
  */
-const replay = (history: ChatMessage[]): ModelMessage[] =>
+const replay = (history: ChatTurnInput['history']): ModelMessage[] =>
     history.flatMap((message): ModelMessage[] =>
         message.role === 'user'
             ? [{ role: 'user', content: message.content }]
@@ -32,7 +31,7 @@ export class ApiChatEngine extends ChatEngine {
         super();
     }
 
-    async turn({ history, text, system, tools, provider, model, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
+    async turn({ history, text, system, tools, provider, model, maxSteps = MAX_CHAT_STEPS, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
         const toolSet: ToolSet = Object.fromEntries(
             tools.map(chatTool => [
                 chatTool.name,
@@ -49,7 +48,7 @@ export class ApiChatEngine extends ChatEngine {
             instructions: system,
             messages: [...replay(history), { role: 'user', content: text }],
             tools: toolSet,
-            stopWhen: stepCountIs(MAX_CHAT_STEPS),
+            stopWhen: stepCountIs(maxSteps),
         });
 
         // Every step's text, not just the last step's: an answer often says what it is about to look
