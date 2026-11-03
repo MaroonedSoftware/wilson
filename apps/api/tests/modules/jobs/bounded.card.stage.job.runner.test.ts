@@ -740,3 +740,35 @@ describe('BoundedCardStageJobRunner — orphaned card.stage sweep (card 0272)', 
         expect(inner.start).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('BoundedCardStageJobRunner planning sessions', () => {
+    it('sweeps finished planning sessions before it starts taking jobs', async () => {
+        const order: string[] = [];
+        const inner = fakeInnerRunner();
+        (inner.start as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+            order.push('inner.start');
+        });
+        const runner = new BoundedCardStageJobRunner(
+            inner,
+            new RunningCards(),
+            fakeCardJobs() as never,
+            fakePoller(),
+            { applyCurrentValue: vi.fn(async () => {}) } as never,
+            fakeSettings(),
+            fakeLogger(),
+            fakePgBoss(),
+            fakeEvents(),
+            undefined,
+            {
+                run: async () => {
+                    order.push('sweep');
+                },
+            } as never,
+        );
+
+        await runner.start();
+        await runner.stop().catch(() => {});
+
+        expect(order).toEqual(['sweep', 'inner.start']);
+    });
+});
