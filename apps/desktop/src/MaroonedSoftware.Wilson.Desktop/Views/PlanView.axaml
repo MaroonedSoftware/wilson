@@ -57,9 +57,13 @@
                 </Border>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                     <Button DockPanel.Dock="Right" Content="Approve…" Command="{Binding AskApproveCommand}" IsEnabled="{Binding CanApprove}" />
+                    <Button DockPanel.Dock="Right" Classes="primary" Content="Send feedback" Command="{Binding SendFeedbackCommand}" IsEnabled="{Binding CanSendFeedback}" IsVisible="{Binding !!OpenComments}" Margin="0,0,6,0" />
+                    <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="{Binding FeedbackSummary}" VerticalAlignment="Center" Margin="0,0,8,0" IsVisible="{Binding !!OpenComments}" />
+                    <Button DockPanel.Dock="Right" Classes="ghost" Content="Discard edits" Command="{Binding UseIncomingCommand}" IsVisible="{Binding Unsaved}" Margin="0,0,6,0" />
                     <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="unsaved" VerticalAlignment="Center" Margin="0,0,8,0" IsVisible="{Binding Unsaved}" />
                     <ToggleButton Content="Preview" IsChecked="{Binding Preview}" HorizontalAlignment="Left" IsEnabled="{Binding Open}" />
                 </DockPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding FeedbackBlocked}" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding FeedbackBlocked, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                     <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="Select a passage to comment on it." IsVisible="{Binding Preview}" Margin="0,0,0,6" />
                     <ScrollViewer MaxHeight="190">
@@ -69,7 +73,7 @@
                                     <DataTemplate x:DataType="vm:PlanCommentRow">
                                         <DockPanel Margin="0,0,10,6">
                                             <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
-                                            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
+                                            <Button DockPanel.Dock="Right" Classes="ghost" Content="Reopen" IsVisible="{Binding Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ReopenCommentCommand}" CommandParameter="{Binding}" />
                                             <Button Classes="commentrow" Classes.active="{Binding Active}" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ShowCommentCommand}" CommandParameter="{Binding}">
                                                 <StackPanel>
                                                     <TextBlock Classes="quiet" Text="{Binding Quote}" TextTrimming="CharacterEllipsis" />
@@ -86,7 +90,7 @@
                                     <DataTemplate x:DataType="vm:PlanCommentRow">
                                         <DockPanel Margin="0,0,10,6">
                                             <Button DockPanel.Dock="Right" Content="Resolve" IsVisible="{Binding !Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ResolveCommentCommand}" CommandParameter="{Binding}" />
-                                            <TextBlock DockPanel.Dock="Right" Classes="quiet" Text="Resolved" IsVisible="{Binding Resolved}" />
+                                            <Button DockPanel.Dock="Right" Classes="ghost" Content="Reopen" IsVisible="{Binding Resolved}" VerticalAlignment="Top" Command="{Binding $parent[UserControl].((vm:PlanViewModel)DataContext).ReopenCommentCommand}" CommandParameter="{Binding}" />
                                             <StackPanel>
                                                 <TextBlock Classes="quiet" Text="{Binding Quote}" TextDecorations="Strikethrough" TextTrimming="CharacterEllipsis" />
                                                 <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
@@ -116,7 +120,7 @@
                                         <StackPanel Spacing="6" IsVisible="{Binding Viewing}">
                                             <SelectableTextBlock Text="{Binding Active.Text, FallbackValue={x:Null}}" TextWrapping="Wrap" />
                                             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                                                <TextBlock Classes="quiet" Text="Resolved" VerticalAlignment="Center" IsVisible="{Binding Active.Resolved, FallbackValue=False}" />
+                                                <Button Classes="ghost" Content="Reopen" Command="{Binding ReopenCommentCommand}" CommandParameter="{Binding Active}" IsVisible="{Binding Active.Resolved, FallbackValue=False}" />
                                                 <Button Classes="ghost" Content="Close" Command="{Binding CloseCommentCommand}" />
                                                 <Button Content="Resolve" Command="{Binding ResolveCommentCommand}" CommandParameter="{Binding Active}" IsVisible="{Binding !Active.Resolved, FallbackValue=False}" />
                                             </StackPanel>

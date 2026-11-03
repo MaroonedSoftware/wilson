@@ -103,6 +103,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Idle))]
+    [NotifyPropertyChangedFor(nameof(CanSendFeedback))]
     private bool _sending;
 
     [ObservableProperty]
@@ -115,6 +116,14 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private string? _error;
 
     public bool Idle => !Sending;
+
+    public int OpenComments => _comments.Count(comment => !comment.Resolved);
+
+    public string FeedbackSummary => PlanFeedback.Summary(OpenComments);
+
+    public bool CanSendFeedback => PlanFeedback.CanSend(OpenComments, _edit.Dirty, Sending);
+
+    public string? FeedbackBlocked => PlanFeedback.Blocked(OpenComments, _edit.Dirty);
 
     public bool Composing => Preview && Quote is not null;
 
@@ -137,7 +146,11 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     [RelayCommand]
     public Task AskForDraftAsync() => TurnAsync(PlanTurnRequestMode.Draft);
 
-    /// <summary>Takes the agent's draft over an edit, once the person has chosen to.</summary>
+    /// <summary>The open comments as one revision request, with anything typed as guidance. A turn that finishes resolves them.</summary>
+    [RelayCommand]
+    public Task SendFeedbackAsync() => TurnAsync(PlanTurnRequestMode.Comments);
+
+    /// <summary>Takes the agent's draft over an edit, once the person has chosen to. With nothing new from the agent, that discards the edit.</summary>
     [RelayCommand]
     public void UseIncoming() => Apply(_edit.UseIncoming());
 
@@ -267,14 +280,27 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     }
 
     [RelayCommand]
-    public async Task ResolveCommentAsync(PlanCommentRow comment)
+    public Task ResolveCommentAsync(PlanCommentRow comment)
     {
         ArgumentNullException.ThrowIfNull(comment);
 
+        return ChangeCommentAsync(comment, _sdk.Board.ResolveAPlanCommentAsync(id, comment.Id));
+    }
+
+    /// <summary>Back to open, so the next turn delivers it again: for a revision that missed the point.</summary>
+    [RelayCommand]
+    public Task ReopenCommentAsync(PlanCommentRow comment)
+    {
+        ArgumentNullException.ThrowIfNull(comment);
+
+        return ChangeCommentAsync(comment, _sdk.Board.ReopenAPlanCommentAsync(id, comment.Id));
+    }
+
+    private async Task ChangeCommentAsync(PlanCommentRow comment, Task<PlanComment> change)
+    {
         try
         {
-            var resolved = await _sdk.Board.ResolveAPlanCommentAsync(id, comment.Id);
-            _comments[_comments.FindIndex(row => row.Id == comment.Id)] = Row(resolved);
+            _comments[_comments.FindIndex(row => row.Id == comment.Id)] = Row(await change);
             Sort();
         }
         catch (HttpRequestException failure)
@@ -338,6 +364,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
             _edit = _edit.Typed(value);
             OnPropertyChanged(nameof(Unsaved));
             OnPropertyChanged(nameof(CanApprove));
+            NotifyFeedback();
         }
     }
 
@@ -354,11 +381,20 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         OnPropertyChanged(nameof(Unsaved));
         OnPropertyChanged(nameof(Collision));
         OnPropertyChanged(nameof(CanApprove));
+        NotifyFeedback();
         // Not on every poll: redrawing the preview would lose a selection being made.
         if (changed)
         {
             Sort();
         }
+    }
+
+    private void NotifyFeedback()
+    {
+        OnPropertyChanged(nameof(OpenComments));
+        OnPropertyChanged(nameof(FeedbackSummary));
+        OnPropertyChanged(nameof(CanSendFeedback));
+        OnPropertyChanged(nameof(FeedbackBlocked));
     }
 
     /// <summary>Every comment against the draft as it now reads: marked where it is found, and listed as outdated where it is not.</summary>
@@ -384,6 +420,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         }
 
         Marks = marks;
+        NotifyFeedback();
 
         // A passage lost mid-comment leaves the card where it is, with what has been written in it.
         if (_selected is null)
@@ -433,7 +470,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private async Task TurnAsync(PlanTurnRequestMode? mode)
     {
         var text = Composer?.Trim() ?? string.Empty;
-        if (text.Length == 0 && mode is null)
+        if ((text.Length == 0 && mode is null) || (mode == PlanTurnRequestMode.Comments && !CanSendFeedback))
         {
             return;
         }
@@ -447,6 +484,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
             var reply = await _sdk.Board.SendAPlanTurnAsync(id, new PlanTurnRequest { Text = text, Mode = mode });
             Show(PlanTranscript.WithReply(_turns, reply, text));
             await RefreshDraftAsync();
+            await RefreshCommentsAsync();
         }
         catch (HttpRequestException failure)
         {
@@ -458,6 +496,20 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
             Pending = string.Empty;
             Sent = null;
             Sending = false;
+        }
+    }
+
+    /// <summary>A finished turn resolves the comments it delivered, and the server is the only one who knows which.</summary>
+    private async Task RefreshCommentsAsync()
+    {
+        try
+        {
+            _comments = [.. (await _sdk.Board.ListPlanCommentsAsync(id)).Select(Row)];
+            Sort();
+        }
+        catch (HttpRequestException)
+        {
+            // The reply is in. The comments show as they were until the next turn.
         }
     }
 

@@ -1071,11 +1071,17 @@ internal static class Steps
         plan.Preview = true;
         await walk.UntilAsync("the edit surviving the poll", () => plan.Draft!.Contains("**then**", StringComparison.Ordinal));
         walk.Select("then the");
-        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the");
+        await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the" && plan.Composing);
+        walk.Shot("10-plan-composing");
         plan.CommentText = "Which second thing?";
         await plan.AddCommentCommand.ExecuteAsync(null);
         await walk.UntilAsync("the comment added, and anchored", () => plan.Comments.Count == 1 && plan.Marks is { Count: 1 });
         walk.Shot("10-plan-commented");
+        await walk.UntilAsync("feedback held back by the unsaved edit", () => plan.FeedbackBlocked is not null && !plan.CanSendFeedback);
+        plan.ShowCommentCommand.Execute(plan.Comments[0]);
+        await walk.UntilAsync("the comment open beside its passage", () => plan.Viewing && plan.CardAnchor is not null && plan.Comments[0].Active);
+        walk.Shot("10d-plan-comment-open");
+        plan.CloseCommentCommand.Execute(null);
 
         plan.Draft = "# Plan\n\nDo the only thing.";
         plan.Preview = false;
@@ -1084,6 +1090,24 @@ internal static class Steps
         walk.Shot("10c-plan-outdated");
         await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
         await walk.UntilAsync("the comment resolved", () => plan.Outdated[0].Resolved);
+        await plan.ReopenCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment reopened", () => !plan.Outdated[0].Resolved);
+        await plan.ResolveCommentCommand.ExecuteAsync(plan.Outdated[0]);
+        await walk.UntilAsync("the comment resolved again", () => plan.Outdated[0].Resolved);
+
+        plan.UseIncomingCommand.Execute(null);
+        await walk.UntilAsync("the edit discarded", () => !plan.Unsaved);
+        var rendered = ChatMarkdown.RenderedText(plan.Draft ?? string.Empty);
+        var passage = rendered.Length < 12 ? rendered : rendered[..12];
+        plan.SelectPassage(0, passage.Length, passage);
+        plan.CommentText = "Say this more plainly.";
+        await plan.AddCommentCommand.ExecuteAsync(null);
+        await walk.UntilAsync("feedback ready to send", () => plan.CanSendFeedback);
+        walk.Shot("10e-plan-feedback-ready");
+        await plan.SendFeedbackCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the feedback turn answered, or the refusal said", () => plan.Idle, 300);
+        Console.WriteLine($"     feedback: open comments {plan.OpenComments}, lines {plan.Lines.Count}, error: {plan.Error}");
+        walk.Shot("10f-plan-feedback-sent");
         plan.Preview = false;
 
         plan.Composer = "Reply with the single word: ok";
