@@ -28,7 +28,8 @@ const LIMIT_NAMES: Record<string, string> = {
 
 /** A saved token's kind of account, in words. */
 export const accountType = ({ provider, kind }: Pick<EngineTokenSummary, 'provider' | 'kind'>): string =>
-    ACCOUNT_TYPES.find(type => type.provider === provider && type.kind === kind)?.label ?? `${provider} ${kind === 'api_key' ? 'API key' : 'subscription'}`;
+    ACCOUNT_TYPES.find(type => type.provider === provider && type.kind === kind)?.label ??
+    `${provider} ${kind === 'api_key' ? 'API key' : 'subscription'}`;
 
 /** A limit and when it lifts, such as "Weekly limit, back Thu 5:00 PM". Anything the engine calls it that is not listed is a usage limit. */
 export const describeLimit = ({ limitType, resetsAt }: Pick<EngineLimit, 'limitType' | 'resetsAt'>, now: DateTime = DateTime.now()): string => {
@@ -92,5 +93,8 @@ export const movedPriorities = (rotation: EngineTokenSummary[], index: number, o
     const order = [...rotation];
     const [moved] = order.splice(index, 1);
     order.splice(target, 0, moved!);
-    return order.map(({ name, priority }, position) => ({ name, priority, position })).filter(each => each.priority !== each.position).map(({ name, position }) => ({ name, priority: position }));
+    return order
+        .map(({ name, priority }, position) => ({ name, priority, position }))
+        .filter(each => each.priority !== each.position)
+        .map(({ name, position }) => ({ name, priority: position }));
 };

@@ -656,7 +656,9 @@ describe('the engine token control', () => {
 
     it('keeps the form and what was typed when the server refuses', async () => {
         load('none');
-        vi.spyOn(wilson.engineTokens, 'putEngineToken').mockRejectedValue(new SdkError(400, 'Bad Request', { statusCode: 400, message: 'bad name' }, new Headers()));
+        vi.spyOn(wilson.engineTokens, 'putEngineToken').mockRejectedValue(
+            new SdkError(400, 'Bad Request', { statusCode: 400, message: 'bad name' }, new Headers()),
+        );
 
         renderApp('/settings');
 

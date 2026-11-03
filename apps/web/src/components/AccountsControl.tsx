@@ -1,5 +1,23 @@
 import { useState } from 'react';
-import { ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, Loader, Menu, Paper, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
+import {
+    ActionIcon,
+    Alert,
+    Badge,
+    Button,
+    Checkbox,
+    Code,
+    Group,
+    Loader,
+    Menu,
+    Paper,
+    PasswordInput,
+    Select,
+    SimpleGrid,
+    Stack,
+    Text,
+    TextInput,
+    Title,
+} from '@mantine/core';
 import { IconArrowDown, IconArrowUp, IconDots, IconPlus } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { EngineLimit, EngineTokenSetting, EngineTokenSummary } from '@wilson/sdk';
@@ -149,7 +167,13 @@ function AccountRow({
                     <Group gap={4}>
                         {inRotation && (
                             <>
-                                <ActionIcon variant="subtle" color="gray" aria-label={`Move ${account.name} up`} disabled={!onMoveUp || busy} onClick={onMoveUp}>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    aria-label={`Move ${account.name} up`}
+                                    disabled={!onMoveUp || busy}
+                                    onClick={onMoveUp}
+                                >
                                     <IconArrowUp size={16} />
                                 </ActionIcon>
                                 <ActionIcon
