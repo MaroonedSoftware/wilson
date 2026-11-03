@@ -34,7 +34,7 @@ public sealed partial class SettingsViewModel : PageViewModel
             async on => Reported(await Sdk.Settings.SetDrainAsync(new SetDrainRequest { Draining = on })));
         AutoSplit = new SwitchSetting(
             "Auto-split",
-            "When scope-check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval.",
+            "When the scope check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval.",
             "auto-split",
             async token => (await Sdk.Settings.GetAutoSplitSettingAsync(token)).Enabled,
             async on => (await Sdk.Settings.SetAutoSplitSettingAsync(new SetAutoSplitSettingRequest { Enabled = on })).Enabled);

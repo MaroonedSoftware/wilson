@@ -398,13 +398,19 @@ card's scope is written for the stage that implements it; the testing stage's wh
 job is to add files nobody could have declared in advance.
 
 | parking lot | — | none | never dispatched | promote (human only) |
-| planning | agent | readonly | plan file written and parseable | plan-review |
-| plan-review | agent | none | verdict schema valid | plan-approval |
-| plan-approval | manual | none | human approval | implementing |
+| planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
+| backlog | manual | none | picked up by the poller | implementing |
 | implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
 | testing | agent | rw | suite green, test count non-decreasing, no new skips, new tests fail against the pre-change tree | review |
-| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum | ready |
-| ready | manual | none | human approval | merge, then `merged` |
+| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; a `revise` then has to survive the `challenge` step | ready |
+| ready | manual | none | human approval | merge, then `done` |
+| done | — | — | never dispatched | — |
+
+A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
+lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
+`scope-check` when a plan is approved, and a card waits there under a `planCheck` until it passes,
+or until a person reads why it did not. `review` runs `challenge` when it reports `revise`, a fresh
+context trying to refute each blocker before anything is kicked back.
 
 The table above shows only where a stage goes when it passes; a kickback target — a stage's
 `onFail` — is a separate decision and is not automatically the stage before the one that failed. It
@@ -549,15 +555,13 @@ nothing for pg-boss to carry. `wilson card plan` drives it, reading this stage's
 and instructions from config, and it ends when a plan filling the six contract
 headings is written as a new card version.
 
-**Backlog** — plans approved and ready to be worked. Also `mode: manual`, and the
-gate that matters most: leaving it is what pins `planVersionId`, so the version every
-downstream stage reads is the one a person actually approved. A card sits here as long
-as it likes; nothing picks it up, including the poller, which refuses a manual stage
-through the same `whyNotDispatchable` check `wilson card start` uses.
+**Backlog** — plans approved, checked and waiting to be worked. Also `mode: manual`.
+Approving pins `planVersionId`, so the version every downstream stage reads is the one a
+person actually approved, and the scope check has judged that same version by the time a
+card lands here. The poller then moves it on, as capacity allows and Auto-mode permits.
 
-The human gates are therefore three: promoting out of the parking lot, approving out
-of backlog, and merging at `ready`. Everything between the second and third runs
-unattended.
+The human gates are therefore three: promoting out of the parking lot, approving a plan,
+and merging at `ready`. Everything between the second and third runs unattended.
 
 ### Per-stage model routing
 
