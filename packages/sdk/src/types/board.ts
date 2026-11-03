@@ -335,9 +335,10 @@ export interface PlanTurnRequest {
      * `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
      * of its own because the preamble, not the request shape, is what changes. `draft` works the same
      * way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-     * through it first.
+     * through it first. `comments` submits the card's open comments as one revision request, with
+     * `text` as optional guidance, and is refused when there are none.
      */
-    mode?: 'chat' | 'cuts' | 'draft';
+    mode?: 'chat' | 'cuts' | 'draft' | 'comments';
 }
 
 /**

@@ -950,6 +950,57 @@ describe('PlanService', () => {
             }
         });
 
+        it('a comments turn asks for the revision after the comments, and stores an empty box as a marker', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+
+                const result = await service.turn(id, { text: '', mode: 'comments' });
+
+                const commentIdx = result.content.indexOf('please clarify this');
+                const revisionIdx = result.content.indexOf('Revise the draft file now');
+                expect(commentIdx).toBeGreaterThanOrEqual(0);
+                expect(revisionIdx).toBeGreaterThan(commentIdx);
+
+                const stored = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(stored[0]!.content).toBe('[address comments]');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('a comments turn keeps what was typed as guidance', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+                await service.addComment(id, { quote: 'Ship the thing.', prefix: '', suffix: '', text: 'please clarify this' });
+
+                await service.turn(id, { text: 'keep it short', mode: 'comments' });
+
+                const stored = await new PlanTurnRepository(config, db).since(id, 0);
+                expect(stored[0]!.content).toBe('keep it short');
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
+        it('refuses a comments turn when no comment is open, and records no turn', async () => {
+            const { board, service, config } = await freshEnv();
+            const id = randomUUID();
+            try {
+                await board.create(card(id, { stage: 'planning' }, FULL_BODY), 'seed');
+
+                await expect(service.turn(id, { text: '', mode: 'comments' })).rejects.toMatchObject({ statusCode: 400 });
+
+                expect(await new PlanTurnRepository(config, db).since(id, 0)).toEqual([]);
+            } finally {
+                planSessions.dispose(id);
+            }
+        });
+
         it("a chat turn's prompt, and a turn sent with no mode at all, never carry the cuts preamble", async () => {
             const { board, service } = await freshEnv();
             const chatId = randomUUID();

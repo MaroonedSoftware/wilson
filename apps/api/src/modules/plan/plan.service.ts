@@ -243,6 +243,9 @@ export class PlanService {
         // card existed.
         const openComments = await this.planComments.open(id);
         const commentsPreamble = commentsBlock(openComments);
+        if (mode === 'comments' && openComments.length === 0) {
+            throw httpError(400).withDetails({ reason: `${id} has no open comments to send` });
+        }
 
         // Card 0240's Constraints: `cuts` mode prepends the same fixed `cutsPreamble` (below, next
         // to `commentsBlock`) on every turn it is sent on, not only the first — unlike
@@ -599,11 +602,23 @@ const draftPreamble = [
     '',
 ].join('\n');
 
+/**
+ * The fixed block `appendTurn` prepends to a `comments` turn's prompt, after `commentsBlock`: what
+ * makes the comments above it a request to revise now, rather than context for whatever was typed.
+ */
+const commentsTurnPreamble = [
+    'Revise the draft file now to address every comment above. In your reply, say what you changed for',
+    'each one, and name any you chose not to act on and why.',
+    '',
+    '---',
+    '',
+].join('\n');
+
 /** The fixed block each non-`chat` turn mode prepends. */
-const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble };
+const MODE_PREAMBLE = { cuts: cutsPreamble, draft: draftPreamble, comments: commentsTurnPreamble };
 
 /** What a non-`chat` turn sent with an empty box is stored as, so the transcript still shows it. */
-const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]' };
+const EMPTY_TURN_TEXT = { cuts: '[propose cuts]', draft: '[draft the plan]', comments: '[address comments]' };
 
 /**
  * The block `appendTurn` prepends to a turn's prompt when a card has open comments — each
