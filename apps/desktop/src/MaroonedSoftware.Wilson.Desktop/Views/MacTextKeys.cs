@@ -54,6 +54,24 @@ public static class MacTextKeys
             case (KeyModifiers.Control, Key.N):
                 Press(box, Key.Down);
                 return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.A):
+                Press(box, Key.Home, KeyModifiers.Shift);
+                return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.E):
+                Press(box, Key.End, KeyModifiers.Shift);
+                return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.B):
+                Press(box, Key.Left, KeyModifiers.Shift);
+                return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.F):
+                Press(box, Key.Right, KeyModifiers.Shift);
+                return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.P):
+                Press(box, Key.Up, KeyModifiers.Shift);
+                return true;
+            case (KeyModifiers.Control | KeyModifiers.Shift, Key.N):
+                Press(box, Key.Down, KeyModifiers.Shift);
+                return true;
             case (KeyModifiers.Control, Key.D):
                 Press(box, Key.Delete);
                 return true;
