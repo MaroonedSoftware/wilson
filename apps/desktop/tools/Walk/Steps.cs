@@ -1072,6 +1072,16 @@ internal static class Steps
         walk.Type("all of this");
         walk.Chord(PhysicalKey.Backspace, RawInputModifiers.Meta);
         await walk.UntilAsync("Cmd+Backspace clearing the line", () => string.IsNullOrEmpty(chat.Composer));
+        walk.Type("one two three");
+        walk.Chord(PhysicalKey.A, RawInputModifiers.Control | RawInputModifiers.Shift);
+        walk.Type("first");
+        await walk.UntilAsync("Ctrl+Shift+A selecting to the start of the line", () => chat.Composer == "first");
+        walk.Chord(PhysicalKey.A, RawInputModifiers.Control);
+        walk.Chord(PhysicalKey.E, RawInputModifiers.Control | RawInputModifiers.Shift);
+        walk.Type("second");
+        await walk.UntilAsync("Ctrl+Shift+E selecting to the end of the line", () => chat.Composer == "second");
+        walk.Chord(PhysicalKey.A, RawInputModifiers.Control);
+        walk.Chord(PhysicalKey.K, RawInputModifiers.Control);
         Console.WriteLine("     composer: macOS text keys passed");
 
         walk.Type("Reply with the single word: ok");

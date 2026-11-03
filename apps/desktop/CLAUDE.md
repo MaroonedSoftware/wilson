@@ -255,7 +255,7 @@ last shown, where the web app's home page has no link at all. The open chat is `
 
 The composer's keys are the web app's, plus `MacTextKeys`: a browser's textarea gets the macOS text shortcuts
 from the system and `TextBox` does not. Each is said in keys `TextBox` knows, so undo still works. Ctrl+A, E
-and K act on the line as wrapped, where macOS means the paragraph. Other boxes do not have them yet.
+and K, and Ctrl+Shift+A and E, act on the line as wrapped, where macOS means the paragraph. Other boxes do not have them yet.
 
 ## Verified
 
@@ -310,6 +310,11 @@ the home page in the middle of one, were not seen. An older file opening it is i
 key events posted to that process, each key's effect on the text, and undo and redo after Cmd+Backspace. With
 `tools/Walk`, Ctrl+A, E, H, K and Cmd+Backspace in the real composer through headless input. Not seen: the
 real composer under a real keyboard, Ctrl+K on a wrapped line, and Enter during input-method composition.
+
+2026-11-03, the composer's selecting keys: a keyboard that sends Home as Ctrl+A and Shift+Home as Ctrl+Shift+A, read
+from real key presses logged in the real composer on the native platform. With that keyboard, Home and End with
+and without select, in a build of this code but not a packaged app. Ctrl+Shift+B, F, N and P by posted key events
+there, and Ctrl+Shift+A and E with `tools/Walk`.
 
 2026-11-02, first run: with `tools/Walk -- ... firstrun`, on a second API on port 13151 and a database made
 empty for it, then dropped: the server asking for an account, passwords differing, the policy's advice, the
