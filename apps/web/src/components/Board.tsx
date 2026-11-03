@@ -119,8 +119,13 @@ function CardBody({
                 </Text>
                 {pending && <Loader size={12} />}
             </Group>
-            {(card.doneReason || card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
+            {(card.doneReason || card.planCheck || card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
                 <Group gap={6} mt={6}>
+                    {card.planCheck && (
+                        <Badge size="xs" color={card.planCheck === 'refused' ? 'red' : 'blue'} variant="light">
+                            {card.planCheck === 'refused' ? 'scope refused' : 'checking scope'}
+                        </Badge>
+                    )}
                     {card.doneReason && (
                         <Badge size="xs" color={TONE[card.doneReason] ?? 'gray'} variant="light">
                             {card.doneReason}

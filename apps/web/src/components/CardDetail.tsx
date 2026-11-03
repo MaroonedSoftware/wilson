@@ -180,6 +180,78 @@ function useMergeCard(id: string) {
     });
 }
 
+function useApproveCardPlan(id: string) {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => wilson.board.approveCardPlan(id),
+        onSuccess: () => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not approve the plan', message: reasonFor(err) });
+        },
+    });
+}
+
+/** Splits a card along the division its refused scope check proposed. */
+function useSplitCard(id: string) {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () => {
+            const { pieces } = await wilson.board.getCardDivision(id);
+            return wilson.board.splitCard(id, { pieces });
+        },
+        onSuccess: result => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+            notifications.show({ color: 'green', title: 'Split', message: `Into ${result.pieces.map(piece => piece.id).join(', ')}` });
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not split the card', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Approving a plan, and where that has got to. Approval starts a scope check with the card still in
+ * `planning`, so this says what is happening, and a refusal comes with its reason and the split the
+ * check proposed.
+ */
+function PlanCheckControl({ card }: { card: CardDetail }) {
+    const approve = useApproveCardPlan(card.id);
+    const split = useSplitCard(card.id);
+
+    if (card.stage !== 'planning') return null;
+    if (card.planCheck === 'checking') {
+        return (
+            <Badge size="sm" color="blue" variant="light" leftSection={<Loader size={10} />}>
+                Checking the plan's scope
+            </Badge>
+        );
+    }
+
+    return (
+        <>
+            <Button size="xs" variant="light" onClick={() => approve.mutate()} loading={approve.isPending}>
+                {card.planCheck === 'refused' ? 'Approve again' : 'Approve plan'}
+            </Button>
+            {card.planCheck === 'refused' && (
+                <>
+                    <Button size="xs" variant="default" onClick={() => split.mutate()} loading={split.isPending}>
+                        Split as proposed
+                    </Button>
+                    <Text size="xs" c="red" data-testid="plan-check-reason">
+                        Scope check refused: {card.planCheckReason}
+                    </Text>
+                </>
+            )}
+        </>
+    );
+}
+
 /**
  * Card 0143's operator-facing end: the merge the board used to require a shell for, behind one
  * button. Only rendered for a card in `ready` — the one stage this operation ever acts on
@@ -521,6 +593,7 @@ export function CardDetailView({
                     <MoveControl card={card} columns={columns} columnsError={columnsError} />
                     <EnqueueButton card={card} />
                     <ReleaseControl card={card} />
+                    <PlanCheckControl card={card} />
                     <MergeControl card={card} />
                 </Group>
             </Stack>
