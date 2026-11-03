@@ -16,8 +16,8 @@ public sealed class CardReferencedEventArgs(RoutedEvent routedEvent, string id) 
     public string Id => id;
 }
 
-/// <summary>A stretch of `ChatMarkdown.RenderedText` to mark.</summary>
-public sealed record MarkdownMark(int Start, int End, bool Quiet);
+/// <summary>A stretch of `ChatMarkdown.RenderedText` to mark. Active is the one being looked at.</summary>
+public sealed record MarkdownMark(int Start, int End, bool Quiet, bool Active = false);
 
 /// <summary>A passage selected, as offsets into `ChatMarkdown.RenderedText`.</summary>
 public sealed class PassageSelectedEventArgs(RoutedEvent routedEvent, int start, int end, string text) : RoutedEventArgs(routedEvent)
@@ -27,6 +27,12 @@ public sealed class PassageSelectedEventArgs(RoutedEvent routedEvent, int start,
     public int End => end;
 
     public string Text => text;
+}
+
+/// <summary>A press that selected nothing, with its offset into `ChatMarkdown.RenderedText`, or null off the text.</summary>
+public sealed class PassagePressedEventArgs(RoutedEvent routedEvent, int? offset) : RoutedEventArgs(routedEvent)
+{
+    public int? Offset => offset;
 }
 
 /// <summary>An answer's Markdown, built from typed nodes as the web app's `Markdown.tsx` is, so an agent's text is never markup.</summary>
@@ -41,6 +47,9 @@ public sealed class MarkdownView : UserControl
 
     public static readonly RoutedEvent<PassageSelectedEventArgs> PassageSelectedEvent =
         RoutedEvent.Register<MarkdownView, PassageSelectedEventArgs>("PassageSelected", RoutingStrategies.Bubble);
+
+    public static readonly RoutedEvent<PassagePressedEventArgs> PassagePressedEvent =
+        RoutedEvent.Register<MarkdownView, PassagePressedEventArgs>("PassagePressed", RoutingStrategies.Bubble);
 
     private const double Gap = 8;
     private const string CardScheme = "wilson-card:";
@@ -106,23 +115,63 @@ public sealed class MarkdownView : UserControl
     private static int RenderedLength(SelectableTextBlock block) =>
         block.Inlines is { Count: > 0 } inlines ? inlines.Sum(inline => inline is Run run ? run.Text?.Length ?? 0 : 0) : block.Text?.Length ?? 0;
 
-    /// <summary>A selection, read back as offsets into the whole text. A press that selects nothing says nothing.</summary>
+    /// <summary>A stretch of the rendered text as drawn, relative to this view, or null if none of it is. Needs layout to have run.</summary>
+    public Rect? RangeBounds(int start, int end)
+    {
+        foreach (var (block, at) in Blocks())
+        {
+            var length = RenderedLength(block);
+            if (start < at || start >= at + length)
+            {
+                continue;
+            }
+
+            var from = start - at;
+            var rects = block.TextLayout.HitTestTextRange(from, Math.Min(end - start, length - from)).ToList();
+            if (rects.Count == 0 || block.TranslatePoint(default, this) is not { } origin)
+            {
+                return null;
+            }
+
+            return rects.Aggregate((all, rect) => all.Union(rect)).Translate(new Vector(origin.X, origin.Y));
+        }
+
+        return null;
+    }
+
+    /// <summary>A selection, read back as offsets into the whole text. A press that selects nothing says where it landed.</summary>
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (e.Source is not Visual source || (source as SelectableTextBlock ?? source.FindAncestorOfType<SelectableTextBlock>()) is not { } block
-            || block.SelectedText is not { Length: > 0 } selected)
+        if (e.InitialPressMouseButton != MouseButton.Left)
         {
+            return;
+        }
+
+        if (e.Source is not Visual source || (source as SelectableTextBlock ?? source.FindAncestorOfType<SelectableTextBlock>()) is not { } block)
+        {
+            RaiseEvent(new PassagePressedEventArgs(PassagePressedEvent, null));
             return;
         }
 
         foreach (var (candidate, start) in Blocks())
         {
-            if (candidate == block)
+            if (candidate != block)
+            {
+                continue;
+            }
+
+            if (block.SelectedText is { Length: > 0 } selected)
             {
                 var from = Math.Min(block.SelectionStart, block.SelectionEnd);
                 RaiseEvent(new PassageSelectedEventArgs(PassageSelectedEvent, start + from, start + from + selected.Length, selected));
-                return;
             }
+            else
+            {
+                var hit = block.TextLayout.HitTestPoint(e.GetPosition(block));
+                RaiseEvent(new PassagePressedEventArgs(PassagePressedEvent, hit.IsInside ? start + hit.TextPosition : null));
+            }
+
+            return;
         }
     }
 
@@ -198,7 +247,7 @@ public sealed class MarkdownView : UserControl
 
         if (mark is not null)
         {
-            copy.Background = Resource<IBrush>(mark.Quiet ? "Line" : "Marked");
+            copy.Background = Resource<IBrush>(mark.Active ? "MarkedActive" : mark.Quiet ? "Line" : "Marked");
         }
 
         return copy;
