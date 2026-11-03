@@ -1,14 +1,18 @@
 version: 2
 
 updates:
-    # The workflows' actions. A pinned action (`pnpm/action-setup` is pinned to a commit with its
-    # version in a trailing comment, because a tag is a pointer its owner can move) goes stale unless
-    # something moves it, comment included. This is what moves them.
+    # The workflows' actions. A pinned action (each is pinned to a commit with its version in a
+    # trailing comment, because a tag is a pointer its owner can move) goes stale unless something
+    # moves it, comment included. This is what moves them.
     #
     # One pull request a week for all of them, and nothing younger than a week: a compromised
     # release is usually noticed and pulled inside a few days.
+    #
+    # The second directory is for composite actions, which `/` alone does not reach.
     - package-ecosystem: github-actions
-      directory: /
+      directories:
+          - /
+          - /.github/actions/*
       schedule:
           interval: weekly
       cooldown:
