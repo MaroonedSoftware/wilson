@@ -27,6 +27,10 @@ export interface CardFrontmatter {
     stage: string;
     /** How the card ended, once it has. The repository keeps this in step with `stage` on every write. */
     doneReason?: string;
+    /** Where an approved plan's scope check has got to. The card stays in `planning` for both. */
+    planCheck?: 'checking' | 'refused';
+    /** What a refused check said. */
+    planCheckReason?: string;
     branch?: string;
     /** Hard blocks. A card whose dependency is unfinished must not dispatch. */
     dependsOn: string[];

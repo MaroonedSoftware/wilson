@@ -54,6 +54,13 @@ export const LaneStepSchema = z.object({
 
 export type LaneStep = z.infer<typeof LaneStepSchema>;
 
+/** The step a lane runs on `on`, if it has one. */
+export const stepOn = (stages: ProjectStages, lane: string, on: LaneStep['on']): LaneStep | undefined =>
+    stages.stages.find(stage => stage.name === lane)?.steps?.find(step => step.on === on);
+
+/** The plan check a stage is, resolved by `findStage`, or undefined for any other run. */
+export const isPlanCheck = (stage: StageConfig): boolean => stage.steps?.some(step => step.name === stage.step && step.on === 'approve') ?? false;
+
 /**
  * Whether a lane reaches a model. `planning` is manual, since the queue never dispatches it, but its
  * session runs on the lane's model.
@@ -577,10 +584,14 @@ export const findStage = (stages: ProjectStages, name: string, stepName?: string
     if (!step) throw new StageConfigError('stage-not-found', `lane "${name}" has no step named "${stepName}"`);
 
     const { name: _name, on: _on, ...fields } = step;
+    // The planning session runs on the `cli` engine whatever its lane says (`assertRoutable`), so a
+    // step of that lane does too: one provider and model, one engine and one bill.
+    const adapter = name === 'planning' ? 'cli' : lane.adapter;
     const maxWallClockMs = fields.maxWallClockMs ?? lane.maxWallClockMs;
     return {
         ...lane,
         ...fields,
+        adapter,
         mode: fields.mode ?? 'agent',
         step: step.name,
         verifier: step.verifier ?? step.name,

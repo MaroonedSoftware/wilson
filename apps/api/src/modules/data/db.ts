@@ -150,6 +150,8 @@ export interface WilsonCards {
   needsHuman: Generated<boolean>;
   needsHumanReason: string | null;
   pinnedVersionId: bigint | null;
+  planCheck: string | null;
+  planCheckReason: string | null;
   position: number | null;
   project: string;
   retries: Generated<Json>;

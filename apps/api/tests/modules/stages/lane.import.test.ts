@@ -98,11 +98,11 @@ describe('lane tables', () => {
 
         await store.importLanes();
 
-        const withoutManualRouting = fromDocument.stages.map(({ model, ...stage }) =>
-            stage.name === 'backlog' ? stage : { ...stage, model, onPass: stage.onPass === 'merged' ? 'done' : stage.onPass },
-        );
-        expect((await store.load()).stages).toEqual(withoutManualRouting);
-        expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
+        const stored = await store.load();
+        expect(findStage(stored, 'planning').instructions).toBe(findStage(fromDocument, 'planning').instructions);
+        expect(findStage(stored, 'planning')).toMatchObject({ maxKickbacks: 3, model: 'claude-opus-5', adapter: 'api' });
+        expect(findStage(stored, 'implementing')).toEqual({ ...findStage(fromDocument, 'implementing'), onPass: 'done' });
+        expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'implementing']);
     });
 
     it('keeps instructions byte for byte', async () => {
@@ -194,20 +194,60 @@ describe('lane tables', () => {
         await store.importLanes();
         const before = (await revisions()).length;
 
-        const withoutCheck = LIVE.replace(/ {2}- name: scope-check[\s\S]*?Judge the plan\.\n/, '')
-            .replace('onPass: scope-check', 'onPass: implementing')
-            .replace('Build it.', 'Build it better.');
-        await db.insertInto('wilson.stageConfigs').values({ project, yaml: withoutCheck, message: 'test' }).execute();
+        await db
+            .insertInto('wilson.stageConfigs')
+            .values({ project, yaml: LIVE.replace('Build it.', 'Build it better.'), message: 'test' })
+            .execute();
         await store.importLanes();
 
         const added = (await revisions()).slice(before);
-        expect(added.map(({ lane, snapshot }) => ({ lane, removed: snapshot == null }))).toEqual(
-            expect.arrayContaining([
-                { lane: 'implementing', removed: false },
-                { lane: 'scope-check', removed: true },
-            ]),
+        expect(added.map(({ lane }) => lane)).toEqual(['implementing']);
+    });
+
+    it('removes a lane a newer document drops, with a revision saying so', async () => {
+        const triage = '  - name: triage\n    mode: manual\n    onPass: merged\n    onFail: triage\n    instructions: t\n';
+        await seedStageConfig(
+            db,
+            project,
+            `stages:\n${triage}  - name: other\n    mode: manual\n    onPass: merged\n    onFail: other\n    instructions: o\n`,
         );
-        expect((await lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'implementing']);
+        const before = (await revisions()).length;
+
+        await seedStageConfig(
+            db,
+            project,
+            'stages:\n  - name: other\n    mode: manual\n    onPass: merged\n    onFail: other\n    instructions: o\n',
+        );
+
+        const added = (await revisions()).slice(before);
+        expect(added.find(({ lane }) => lane === 'triage')?.snapshot ?? undefined).toBeUndefined();
+        expect((await lanes()).map(lane => lane.name)).toEqual(['other']);
+    });
+
+    describe('folding scope-check into planning', () => {
+        it('makes it a step run on approve, routes around it, and rechecks a card that was waiting on it', async () => {
+            await seedLive();
+            await db.insertInto('wilson.cards').values({ project, id: '0001', title: 't', stage: 'scope-check', body: '', retries: '{}' }).execute();
+
+            await store.importLanes();
+
+            const stages = await store.load();
+            expect(findStage(stages, 'backlog').onPass).toBe('implementing');
+            const check = findStage(stages, 'planning', 'scope-check');
+            expect(check).toMatchObject({
+                instructions: 'Judge the plan.',
+                verifier: 'scope-check',
+                mode: 'agent',
+                worktree: 'readonly',
+                maxSteps: 80,
+                placement: 'any',
+            });
+            // On planning's model, and the engine the planning session runs on, not the old lane's.
+            expect(check).toMatchObject({ model: 'claude-opus-5', adapter: 'cli' });
+
+            const card = await db.selectFrom('wilson.cards').select(['stage', 'planCheck']).where('project', '=', project).executeTakeFirstOrThrow();
+            expect(card).toEqual({ stage: 'planning', planCheck: 'checking' });
+        });
     });
 
     it('sends a routing change to the lane, seen straight after a cached load, with a revision', async () => {
@@ -417,7 +457,7 @@ stages:
             await store.patchLane('implementing', { instructions: 'First.' }, 'first');
             await store.patchLane('implementing', { instructions: 'Second.' }, 'second');
 
-            expect((await store.lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'scope-check', 'implementing']);
+            expect((await store.lanes()).map(lane => lane.name)).toEqual(['planning', 'backlog', 'implementing']);
             expect((await store.laneRevisions('implementing', 2)).map(revision => revision.message)).toEqual(['second', 'first']);
         });
     });

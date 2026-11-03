@@ -93,12 +93,42 @@ const foldChallenge = (stages: RawStage[]): RawStage[] => {
         });
 };
 
+/**
+ * `scope-check` as a step of `planning`, run when a plan is approved. Whatever went to it goes where it
+ * went next, and a project with no `planning` lane keeps it as it is.
+ */
+const foldScopeCheck = (stages: RawStage[]): RawStage[] => {
+    const check = stages.find(stage => stage.name === 'scope-check');
+    if (!check || !stages.some(stage => stage.name === 'planning')) return stages;
+
+    const {
+        name: _name,
+        onPass,
+        onFail: _onFail,
+        adapter: _adapter,
+        provider: _provider,
+        model: _model,
+        maxKickbacks: _maxKickbacks,
+        ...fields
+    } = check;
+    return stages
+        .filter(stage => stage !== check)
+        .map(stage => ({
+            ...stage,
+            onPass: stage.onPass === 'scope-check' ? onPass : stage.onPass,
+            onFail: stage.onFail === 'scope-check' ? 'planning' : stage.onFail,
+            ...(stage.name === 'planning'
+                ? { steps: [...((stage.steps as RawStage[] | undefined) ?? []), { name: 'scope-check', on: 'approve', ...fields }] }
+                : {}),
+        }));
+};
+
 /** Lanes that used to be stages of their own, each with the lane a card sitting in one moves to. */
-export const FOLDED_LANES: Readonly<Record<string, string>> = { challenge: 'review' };
+export const FOLDED_LANES: Readonly<Record<string, string>> = { challenge: 'review', 'scope-check': 'planning' };
 
 /** The rows for an already-read config, with old shapes brought up to date first. */
 export const lanesFromRaw = (raw: unknown, source: string): LaneConfig => {
-    const stages = foldChallenge((raw as { stages: RawStage[] }).stages);
+    const stages = foldScopeCheck(foldChallenge((raw as { stages: RawStage[] }).stages));
     const document = { ...(raw as object), stages };
     const { scopeViolation, alwaysAllowed, deny, sandbox } = validateStages(document, source);
 

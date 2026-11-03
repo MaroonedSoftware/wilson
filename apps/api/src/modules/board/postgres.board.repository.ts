@@ -246,6 +246,8 @@ export class PostgresBoardRepository extends BoardRepository {
                 title: fm.title,
                 stage: fm.stage,
                 doneReason: fm.doneReason ?? null,
+                planCheck: fm.planCheck ?? null,
+                planCheckReason: fm.planCheckReason ?? null,
                 branch: fm.branch ?? null,
                 body: after.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -340,11 +342,12 @@ const versionId = (id: bigint): string => String(id);
  * `done` keeps its reason, and any other stage has none. Here so no writer can leave the two disagreeing.
  */
 const withDoneReason = (card: Card): Card => {
-    const { doneReason: previous, ...frontmatter } = card.frontmatter;
+    const { doneReason: previous, ...unfinished } = card.frontmatter;
+    const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = unfinished;
     const ending = doneReasonFor(frontmatter.stage);
     if (ending) return { ...card, frontmatter: { ...frontmatter, stage: DONE, doneReason: ending } };
     if (frontmatter.stage === DONE) return { ...card, frontmatter: { ...frontmatter, doneReason: previous ?? 'merged' } };
-    return { ...card, frontmatter };
+    return { ...card, frontmatter: unfinished };
 };
 
 const toCard = (
@@ -353,6 +356,8 @@ const toCard = (
         title: string;
         stage: string;
         doneReason: string | null;
+        planCheck: string | null;
+        planCheckReason: string | null;
         branch: string | null;
         body: string;
         retries: unknown;
@@ -371,6 +376,8 @@ const toCard = (
         title: row.title,
         stage: row.stage,
         doneReason: row.doneReason ?? undefined,
+        planCheck: (row.planCheck as CardFrontmatter['planCheck']) ?? undefined,
+        planCheckReason: row.planCheckReason ?? undefined,
         branch: row.branch ?? undefined,
         dependsOn,
         retries: (row.retries as Record<string, number> | null) ?? {},

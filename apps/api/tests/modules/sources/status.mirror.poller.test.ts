@@ -168,6 +168,19 @@ describe('StatusMirrorPoller — which transitions mirror', () => {
         expect(calls).toHaveLength(0);
     });
 
+    it('mirrors backlog -> implementing as started, now the scope check runs before backlog', async () => {
+        const { source, calls } = trackingSource('github');
+        const { board, config, poller } = setup([source]);
+        await board.create(card('0001', { external: { github: 'octocat/hello-world#1' } }), 'create');
+
+        await writeTransition(board, config, '0001', 'backlog', 'backlog', 'implementing');
+
+        await runTick(poller);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.status.moment).toBe('started');
+    });
+
     it('mirrors a second scope-check -> implementing pass after a kickback-and-reapproval cycle', async () => {
         const { source, calls } = trackingSource('github');
         const { board, config, poller } = setup([source]);

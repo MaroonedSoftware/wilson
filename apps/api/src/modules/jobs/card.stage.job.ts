@@ -188,7 +188,8 @@ export class CardStageJob extends Job<CardStagePayload> {
         // stage — decideChain checks it first, before it ever looks at the target's mode.
         if (!outcome.needsHuman) {
             const landedOn = stages.stages.find(s => s.name === outcome.transitionedTo);
-            if (landedOn?.mode === 'manual') {
+            // Not `backlog`: nobody has to do anything there, the poller picks it up.
+            if (landedOn?.mode === 'manual' && landedOn.name !== 'backlog') {
                 await this.notifyManualGate(cardId, outcome.transitionedTo);
             }
         }

@@ -181,7 +181,8 @@ export class PostgresStageConfigStore extends StageConfigStore {
                 if (config.lanes.some(lane => lane.name === from) || !config.lanes.some(lane => lane.name === to)) continue;
                 const moved = await trx
                     .updateTable('wilson.cards')
-                    .set({ stage: to })
+                    // A card that was waiting on the scope check is rechecked: its plan is already pinned.
+                    .set({ stage: to, ...(from === 'scope-check' ? { planCheck: 'checking' } : {}) })
                     .where('project', '=', project)
                     .where('stage', '=', from)
                     .returning('id')

@@ -39,6 +39,13 @@ export const CardSummary = z.strictObject({
         .enum(['merged', 'poisoned', 'dropped', 'split'])
         .optional()
         .describe('How the card ended, once it has. Absent for a card still on the board.'),
+    planCheck: z
+        .enum(['checking', 'refused'])
+        .optional()
+        .describe(
+            "Where an approved plan's scope check has got to. The card stays in planning for both, and moves\nto backlog when the check passes.",
+        ),
+    planCheckReason: z.string().optional(),
     branch: z.string().optional(),
     resolvedBranch: z
         .string()

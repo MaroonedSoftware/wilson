@@ -354,7 +354,11 @@ export class PlanService {
         const gap = planGap(request.body);
         if (gap) throw httpError(400).withDetails({ reason: gap });
 
-        await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => ({ ...current, body: request.body }));
+        await this.boardRepository.write(id, `Plan ${id}: ${before.frontmatter.title}`, current => {
+            // A check under way or a refusal is about the text this replaces.
+            const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = current.frontmatter;
+            return { ...current, body: request.body, frontmatter };
+        });
 
         // A person may have edited the text before approving it. The agent revises this file and
         // clients read it back, so an open session has to find what was just approved here.

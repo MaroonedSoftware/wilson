@@ -50,6 +50,8 @@ export const toCardSummary = (card: Card): CardSummary => ({
     title: card.frontmatter.title,
     stage: card.frontmatter.stage,
     doneReason: card.frontmatter.doneReason as CardSummary['doneReason'],
+    planCheck: card.frontmatter.planCheck,
+    planCheckReason: card.frontmatter.planCheckReason,
     branch: card.frontmatter.branch,
     dependsOn: card.frontmatter.dependsOn,
     needsHuman: card.frontmatter.needsHuman ?? false,

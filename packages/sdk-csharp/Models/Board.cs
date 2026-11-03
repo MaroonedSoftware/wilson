@@ -51,6 +51,18 @@ public sealed record CardSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CardSummaryDoneReason? DoneReason { get; init; }
 
+    /// <summary>
+    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    /// to backlog when the check passes.
+    /// </summary>
+    [JsonPropertyName("planCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryPlanCheck? PlanCheck { get; init; }
+
+    [JsonPropertyName("planCheckReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanCheckReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -667,6 +679,18 @@ public sealed record CardDetail
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CardSummaryDoneReason? DoneReason { get; init; }
 
+    /// <summary>
+    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    /// to backlog when the check passes.
+    /// </summary>
+    [JsonPropertyName("planCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryPlanCheck? PlanCheck { get; init; }
+
+    [JsonPropertyName("planCheckReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanCheckReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -952,6 +976,18 @@ public sealed record ReleaseResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CardSummaryDoneReason? DoneReason { get; init; }
 
+    /// <summary>
+    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    /// to backlog when the check passes.
+    /// </summary>
+    [JsonPropertyName("planCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryPlanCheck? PlanCheck { get; init; }
+
+    [JsonPropertyName("planCheckReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanCheckReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -1053,6 +1089,18 @@ public sealed record MergeResult
     [JsonPropertyName("doneReason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CardSummaryDoneReason? DoneReason { get; init; }
+
+    /// <summary>
+    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    /// to backlog when the check passes.
+    /// </summary>
+    [JsonPropertyName("planCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryPlanCheck? PlanCheck { get; init; }
+
+    [JsonPropertyName("planCheckReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanCheckReason { get; init; }
 
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1225,6 +1273,66 @@ public sealed class CardSummaryDoneReasonConverter : JsonConverter<CardSummaryDo
         CardSummaryDoneReason.Dropped => "dropped",
         CardSummaryDoneReason.Split => "split",
         _ => throw new JsonException($"CardSummaryDoneReason.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>
+/// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+/// to backlog when the check passes.
+/// </summary>
+[JsonConverter(typeof(CardSummaryPlanCheckConverter))]
+public enum CardSummaryPlanCheck
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("checking")]
+    Checking,
+
+    [JsonStringEnumMemberName("refused")]
+    Refused,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardSummaryPlanCheck"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardSummaryPlanCheck.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardSummaryPlanCheckConverter : JsonConverter<CardSummaryPlanCheck>
+{
+    public override CardSummaryPlanCheck Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardSummaryPlanCheck, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardSummaryPlanCheck value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardSummaryPlanCheck ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardSummaryPlanCheck value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardSummaryPlanCheck FromWire(string? text) => text switch
+    {
+        "checking" => CardSummaryPlanCheck.Checking,
+        "refused" => CardSummaryPlanCheck.Refused,
+        _ => CardSummaryPlanCheck.Unknown,
+    };
+
+    private static string ToWire(CardSummaryPlanCheck value) => value switch
+    {
+        CardSummaryPlanCheck.Checking => "checking",
+        CardSummaryPlanCheck.Refused => "refused",
+        _ => throw new JsonException($"CardSummaryPlanCheck.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 
