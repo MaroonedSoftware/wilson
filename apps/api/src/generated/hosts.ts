@@ -48,17 +48,15 @@ export const HostSlotUse = z.strictObject({
 export type HostSlotUse = z.infer<typeof HostSlotUse>;
 
 /**
- * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
- * machine's present state, though only as far as the keepalive can tell: a connection that has gone
- * quiet is noticed within about thirty seconds.
- * generated from [HostConnection](../../data/contracts/hosts.ck)
+ * A volume holding one of a host's project roots.
+ * generated from [HostDisk](../../data/contracts/hosts.ck)
  */
-export const HostConnection = z.strictObject({
-    since: _ZodDatetime,
-    workerVersion: z.string().describe("The worker program's own version, from its `hello`."),
-    platform: z.string().describe("`process.platform` on the worker's machine, from its `hello`."),
+export const HostDisk = z.strictObject({
+    path: z.string().describe('The first project root on this volume.'),
+    totalBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    freeBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
-export type HostConnection = z.infer<typeof HostConnection>;
+export type HostDisk = z.infer<typeof HostDisk>;
 
 /**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
@@ -171,6 +169,38 @@ export const PutHostProjectRequest = z.strictObject({
     runRoot: z.string(),
 });
 export type PutHostProjectRequest = z.infer<typeof PutHostProjectRequest>;
+
+/**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ * generated from [HostMetrics](../../data/contracts/hosts.ck)
+ */
+export const HostMetrics = z.strictObject({
+    sampledAt: _ZodDatetime,
+    cpus: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    loadAverage: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number())
+        .describe('Runnable processes averaged over the last minute.'),
+    memoryTotalBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    memoryFreeBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    uptimeSeconds: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    disks: z.array(HostDisk),
+});
+export type HostMetrics = z.infer<typeof HostMetrics>;
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ * generated from [HostConnection](../../data/contracts/hosts.ck)
+ */
+export const HostConnection = z.strictObject({
+    since: _ZodDatetime,
+    workerVersion: z.string().describe("The worker program's own version, from its `hello`."),
+    platform: z.string().describe("`process.platform` on the worker's machine, from its `hello`."),
+    metrics: HostMetrics.optional().describe('The latest reading, every thirty seconds or so. Absent until the first one and after one fails.'),
+});
+export type HostConnection = z.infer<typeof HostConnection>;
 
 /**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`

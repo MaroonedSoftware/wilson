@@ -324,6 +324,26 @@ describe('HostsService', () => {
             }
         });
 
+        it('carries the latest reading of the machine once there is one', async () => {
+            const name = uniqueProject();
+            await service.create({ name, kind: 'worker' });
+            const server = await startWorkerServer({ token: (await hosts.find(name))! });
+            const watching = new HostsService(hosts, projects, server.connections);
+            try {
+                await FakeWorker.connect(server.url, 'token');
+                await eventually(() => server.connections.get(name) !== undefined);
+                expect((await watching.get(name)).connection).not.toHaveProperty('metrics');
+
+                const sampledAt = DateTime.now();
+                const stats = { cpus: 4, loadAverage: 1.5, memoryTotalBytes: 8, memoryFreeBytes: 2, uptimeSeconds: 60, disks: [] };
+                server.connections.get(name)!.latestStats = { ...stats, sampledAt };
+
+                expect((await watching.get(name)).connection?.metrics).toEqual({ ...stats, sampledAt });
+            } finally {
+                await server.close();
+            }
+        });
+
         it('is absent on an SSH host', async () => {
             const name = uniqueProject();
             const server = await startWorkerServer({});

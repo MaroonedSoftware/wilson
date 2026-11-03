@@ -60,6 +60,27 @@ contract HostSlotUse: {
     since: datetime
 }
 
+# A volume holding one of a host's project roots.
+contract HostDisk: {
+    # The first project root on this volume.
+    path: string
+    totalBytes: int
+    freeBytes: int
+}
+
+# How the machine was doing when its worker last answered. In a container this is the container's
+# view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+contract HostMetrics: {
+    sampledAt: datetime
+    cpus: int
+    # Runnable processes averaged over the last minute.
+    loadAverage: number
+    memoryTotalBytes: int
+    memoryFreeBytes: int
+    uptimeSeconds: int
+    disks: array(HostDisk)
+}
+
 # A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
 # machine's present state, though only as far as the keepalive can tell: a connection that has gone
 # quiet is noticed within about thirty seconds.
@@ -69,6 +90,8 @@ contract HostConnection: {
     workerVersion: string
     # `process.platform` on the worker's machine, from its `hello`.
     platform: string
+    # The latest reading, every thirty seconds or so. Absent until the first one and after one fails.
+    metrics?: HostMetrics
 }
 
 # What is shown of a worker host's token: its last four characters and when it was minted, never the

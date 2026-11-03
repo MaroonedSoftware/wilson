@@ -78,23 +78,18 @@ public sealed record HostSlotUse
     public required DateTimeOffset Since { get; init; }
 }
 
-/// <summary>
-/// A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
-/// machine's present state, though only as far as the keepalive can tell: a connection that has gone
-/// quiet is noticed within about thirty seconds.
-/// </summary>
-public sealed record HostConnection
+/// <summary>A volume holding one of a host's project roots.</summary>
+public sealed record HostDisk
 {
-    [JsonPropertyName("since")]
-    public required DateTimeOffset Since { get; init; }
+    /// <summary>The first project root on this volume.</summary>
+    [JsonPropertyName("path")]
+    public required string Path { get; init; }
 
-    /// <summary>The worker program's own version, from its `hello`.</summary>
-    [JsonPropertyName("workerVersion")]
-    public required string WorkerVersion { get; init; }
+    [JsonPropertyName("totalBytes")]
+    public required long TotalBytes { get; init; }
 
-    /// <summary>`process.platform` on the worker's machine, from its `hello`.</summary>
-    [JsonPropertyName("platform")]
-    public required string Platform { get; init; }
+    [JsonPropertyName("freeBytes")]
+    public required long FreeBytes { get; init; }
 }
 
 /// <summary>
@@ -253,6 +248,59 @@ public sealed record PutHostProjectRequest
 
     [JsonPropertyName("runRoot")]
     public required string RunRoot { get; init; }
+}
+
+/// <summary>
+/// How the machine was doing when its worker last answered. In a container this is the container's
+/// view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+/// </summary>
+public sealed record HostMetrics
+{
+    [JsonPropertyName("sampledAt")]
+    public required DateTimeOffset SampledAt { get; init; }
+
+    [JsonPropertyName("cpus")]
+    public required long Cpus { get; init; }
+
+    /// <summary>Runnable processes averaged over the last minute.</summary>
+    [JsonPropertyName("loadAverage")]
+    public required double LoadAverage { get; init; }
+
+    [JsonPropertyName("memoryTotalBytes")]
+    public required long MemoryTotalBytes { get; init; }
+
+    [JsonPropertyName("memoryFreeBytes")]
+    public required long MemoryFreeBytes { get; init; }
+
+    [JsonPropertyName("uptimeSeconds")]
+    public required long UptimeSeconds { get; init; }
+
+    [JsonPropertyName("disks")]
+    public required List<HostDisk> Disks { get; init; }
+}
+
+/// <summary>
+/// A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+/// machine's present state, though only as far as the keepalive can tell: a connection that has gone
+/// quiet is noticed within about thirty seconds.
+/// </summary>
+public sealed record HostConnection
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    /// <summary>The worker program's own version, from its `hello`.</summary>
+    [JsonPropertyName("workerVersion")]
+    public required string WorkerVersion { get; init; }
+
+    /// <summary>`process.platform` on the worker's machine, from its `hello`.</summary>
+    [JsonPropertyName("platform")]
+    public required string Platform { get; init; }
+
+    /// <summary>The latest reading, every thirty seconds or so. Absent until the first one and after one fails.</summary>
+    [JsonPropertyName("metrics")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HostMetrics? Metrics { get; init; }
 }
 
 /// <summary>

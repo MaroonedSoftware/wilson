@@ -46,18 +46,13 @@ data class HostSlotUse(
     val since: Instant,
 )
 
-/**
- * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
- * machine's present state, though only as far as the keepalive can tell: a connection that has gone
- * quiet is noticed within about thirty seconds.
- */
+/** A volume holding one of a host's project roots. */
 @Serializable
-data class HostConnection(
-    val since: Instant,
-    /** The worker program's own version, from its `hello`. */
-    val workerVersion: String,
-    /** `process.platform` on the worker's machine, from its `hello`. */
-    val platform: String,
+data class HostDisk(
+    /** The first project root on this volume. */
+    val path: String,
+    val totalBytes: Long,
+    val freeBytes: Long,
 )
 
 /**
@@ -157,6 +152,38 @@ data class PutHostProjectRequest(
     val codeRoot: String,
     val worktreeRoot: String,
     val runRoot: String,
+)
+
+/**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ */
+@Serializable
+data class HostMetrics(
+    val sampledAt: Instant,
+    val cpus: Long,
+    /** Runnable processes averaged over the last minute. */
+    val loadAverage: Double,
+    val memoryTotalBytes: Long,
+    val memoryFreeBytes: Long,
+    val uptimeSeconds: Long,
+    val disks: List<HostDisk>,
+)
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ */
+@Serializable
+data class HostConnection(
+    val since: Instant,
+    /** The worker program's own version, from its `hello`. */
+    val workerVersion: String,
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    val platform: String,
+    /** The latest reading, every thirty seconds or so. Absent until the first one and after one fails. */
+    val metrics: HostMetrics? = null,
 )
 
 /**

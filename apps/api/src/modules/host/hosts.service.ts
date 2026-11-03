@@ -195,10 +195,11 @@ const toRun = (run: HostRunRow, host: HostRow): HostRun => {
 };
 
 /** The fields of a worker's open connection the API shows. */
-const toConnection = ({ connectedAt, hello }: WorkerConnection): HostConnection => ({
+const toConnection = ({ connectedAt, hello, latestStats }: WorkerConnection): HostConnection => ({
     since: connectedAt,
     workerVersion: hello.workerVersion,
     platform: hello.platform,
+    ...(latestStats && { metrics: latestStats }),
 });
 
 /** A row as the API returns it, with its worker's connection when `connections` holds an open one. */

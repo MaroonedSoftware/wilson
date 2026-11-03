@@ -67,24 +67,14 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
- * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
- * machine's present state, though only as far as the keepalive can tell: a connection that has gone
- * quiet is noticed within about thirty seconds.
- * generated from [HostConnection](../../../../apps/api/data/contracts/hosts.ck)
+ * A volume holding one of a host's project roots.
+ * generated from [HostDisk](../../../../apps/api/data/contracts/hosts.ck)
  */
-export interface HostConnection {
-    since: DateTime;
-    /** The worker program's own version, from its `hello`. */
-    workerVersion: string;
-    /** `process.platform` on the worker's machine, from its `hello`. */
-    platform: string;
-}
-
-/** Rehydrates every wire-encoded scalar in a HostConnection into its runtime type. Mutates and returns `raw`. */
-export function reviveHostConnection(raw: HostConnection): HostConnection {
-    const __o0 = raw as unknown as Record<string, unknown>;
-    __o0['since'] = __dt(__o0['since'], 'HostConnection.since');
-    return raw;
+export interface HostDisk {
+    /** The first project root on this volume. */
+    path: string;
+    totalBytes: number;
+    freeBytes: number;
 }
 
 /**
@@ -209,6 +199,55 @@ export interface PutHostProjectRequest {
     codeRoot: string;
     worktreeRoot: string;
     runRoot: string;
+}
+
+/**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ * generated from [HostMetrics](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostMetrics {
+    sampledAt: DateTime;
+    cpus: number;
+    /** Runnable processes averaged over the last minute. */
+    loadAverage: number;
+    memoryTotalBytes: number;
+    memoryFreeBytes: number;
+    uptimeSeconds: number;
+    disks: HostDisk[];
+}
+
+/** Rehydrates every wire-encoded scalar in a HostMetrics into its runtime type. Mutates and returns `raw`. */
+export function reviveHostMetrics(raw: HostMetrics): HostMetrics {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['sampledAt'] = __dt(__o0['sampledAt'], 'HostMetrics.sampledAt');
+    return raw;
+}
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ * generated from [HostConnection](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostConnection {
+    since: DateTime;
+    /** The worker program's own version, from its `hello`. */
+    workerVersion: string;
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    platform: string;
+    /** The latest reading, every thirty seconds or so. Absent until the first one and after one fails. */
+    metrics?: HostMetrics;
+}
+
+/** Rehydrates every wire-encoded scalar in a HostConnection into its runtime type. Mutates and returns `raw`. */
+export function reviveHostConnection(raw: HostConnection): HostConnection {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'HostConnection.since');
+    if (__o0['metrics'] != null) {
+        reviveHostMetrics(__o0['metrics'] as never);
+    }
+    return raw;
 }
 
 /**
