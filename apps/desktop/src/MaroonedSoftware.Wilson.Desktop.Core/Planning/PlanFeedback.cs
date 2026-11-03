@@ -8,6 +8,9 @@ public static class PlanFeedback
 {
     public const string UnsavedEdits = "The agent can't see your edits to the draft. Approve or discard them to send feedback.";
 
+    /// <summary>What the server stores a feedback turn sent with an empty box as, shown until the stream replays it.</summary>
+    public const string EmptyTurn = "[address comments]";
+
     public static string Summary(int open) => open == 1 ? "1 comment to send" : $"{open} comments to send";
 
     public static bool CanSend(int open, bool dirty, bool sending) => open > 0 && !dirty && !sending;

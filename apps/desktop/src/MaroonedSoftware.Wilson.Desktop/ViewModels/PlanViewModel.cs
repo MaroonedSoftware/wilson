@@ -478,11 +478,12 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         Sending = true;
         Error = null;
         Composer = null;
-        Sent = text;
+        var shown = text.Length == 0 && mode == PlanTurnRequestMode.Comments ? PlanFeedback.EmptyTurn : text;
+        Sent = shown;
         try
         {
             var reply = await _sdk.Board.SendAPlanTurnAsync(id, new PlanTurnRequest { Text = text, Mode = mode });
-            Show(PlanTranscript.WithReply(_turns, reply, text));
+            Show(PlanTranscript.WithReply(_turns, reply, shown));
             await RefreshDraftAsync();
             await RefreshCommentsAsync();
         }

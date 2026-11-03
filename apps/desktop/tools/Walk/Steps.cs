@@ -79,6 +79,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "plan")
+        {
+            await PlanOnlyAsync(walk);
+            return;
+        }
+
         await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
@@ -1042,6 +1048,33 @@ internal static class Steps
         card.SelectedTab = 0;
     }
 
+    /// <summary>A card of its own, in planning, and nothing else: `plan` as a sixth argument walks only this.</summary>
+    private static async Task PlanOnlyAsync(Walker walk)
+    {
+        walk.Shell.ShowBoardCommand.Execute(null);
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("columns", () => board.Columns.Count > 0);
+
+        var title = $"Walked {DateTime.UtcNow:HHmmss}";
+        board.NewCard();
+        var form = walk.Page<CardFormViewModel>();
+        form.Title = title;
+        form.Body = "## Goal\n\nMade by the desktop walk to plan.";
+        await form.SaveCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the new card on the board", () => walk.Shell.Page == board && board.Columns.Any(column => column.Cards.Any(tile => tile.Card.Title == title)));
+
+        board.OpenCard(board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card).First(card => card.Title == title));
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the stages to move to", () => card.Card is not null && card.Stages.Count > 0);
+        if (!card.CanPlan)
+        {
+            card.MoveTo = "planning";
+            await card.MoveCommand.ExecuteAsync(null);
+        }
+
+        await PlanningAsync(walk, card);
+    }
+
     private static async Task PlanningAsync(Walker walk, CardViewModel card)
     {
         await walk.UntilAsync("the card can be planned", () => card.CanPlan);
@@ -1073,8 +1106,10 @@ internal static class Steps
         walk.Select("then the");
         await walk.UntilAsync("a real selection in the preview", () => plan.Quote == "then the" && plan.Composing);
         walk.Shot("10-plan-composing");
-        plan.CommentText = "Which second thing?";
-        await plan.AddCommentCommand.ExecuteAsync(null);
+        // Into the box itself and off with Enter, which shows the card took the focus.
+        walk.Type("Which second thing?");
+        await walk.UntilAsync("the comment typed into the card", () => plan.CommentText == "Which second thing?");
+        walk.Press(Key.Enter, PhysicalKey.Enter);
         await walk.UntilAsync("the comment added, and anchored", () => plan.Comments.Count == 1 && plan.Marks is { Count: 1 });
         walk.Shot("10-plan-commented");
         await walk.UntilAsync("feedback held back by the unsaved edit", () => plan.FeedbackBlocked is not null && !plan.CanSendFeedback);
@@ -1082,6 +1117,11 @@ internal static class Steps
         await walk.UntilAsync("the comment open beside its passage", () => plan.Viewing && plan.CardAnchor is not null && plan.Comments[0].Active);
         walk.Shot("10d-plan-comment-open");
         plan.CloseCommentCommand.Execute(null);
+        await walk.UntilAsync("the card put away", () => !plan.Viewing);
+        walk.ClickText("then");
+        await walk.UntilAsync("a press on the highlight opening its comment", () => plan.Viewing);
+        walk.ClickText("second");
+        await walk.UntilAsync("a press beside it putting the card away", () => !plan.Viewing);
 
         plan.Draft = "# Plan\n\nDo the only thing.";
         plan.Preview = false;
