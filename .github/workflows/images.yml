@@ -11,6 +11,12 @@ permissions:
     contents: read
     packages: write
 
+# One at a time, so an older commit cannot finish last and leave the moving tags on itself. A run waiting
+# here gives way to a newer one. Not cancelled once started: that could leave one variant published without the other.
+concurrency:
+    group: images
+    cancel-in-progress: false
+
 env:
     IMAGE: ghcr.io/maroonedsoftware/wilson
 
