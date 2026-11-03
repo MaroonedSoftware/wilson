@@ -108,7 +108,10 @@ describe('PlanSessionAgent', () => {
         const outcomes = [
             { message: { type: 'result', subtype: 'success', is_error: false, session_id: 's' }, succeeded: true },
             { message: { type: 'result', subtype: 'success', is_error: true, result: 'boom', session_id: 's' }, succeeded: false },
-            { message: { type: 'result', subtype: 'success', is_error: true, result: "You've hit your usage limit", session_id: 's' }, succeeded: false },
+            {
+                message: { type: 'result', subtype: 'success', is_error: true, result: "You've hit your usage limit", session_id: 's' },
+                succeeded: false,
+            },
             { message: { type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 's' }, succeeded: false },
             { message: undefined, succeeded: false },
         ];
