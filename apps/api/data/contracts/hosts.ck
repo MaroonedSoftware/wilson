@@ -60,6 +60,17 @@ contract HostSlotUse: {
     since: datetime
 }
 
+# A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+# machine's present state, though only as far as the keepalive can tell: a connection that has gone
+# quiet is noticed within about thirty seconds.
+contract HostConnection: {
+    since: datetime
+    # The worker program's own version, from its `hello`.
+    workerVersion: string
+    # `process.platform` on the worker's machine, from its `hello`.
+    platform: string
+}
+
 # What is shown of a worker host's token: its last four characters and when it was minted, never the
 # token itself.
 contract WorkerTokenSummary: {
@@ -101,6 +112,9 @@ contract Host: {
     # The slots in use right now, slot order. `slots` minus this many are free.
     running: array(HostSlotUse)
     probe?: HostProbe
+    # A worker host's open connection, absent while its worker is not connected. Never present on an
+    # `ssh` host, which has no standing connection to report.
+    connection?: HostConnection
     # A worker host's current token, absent until one is minted. Never present on an `ssh` host.
     workerToken?: WorkerTokenSummary
     # The name of the saved engine token its engines sign in with, never the token. Absent, a worker's

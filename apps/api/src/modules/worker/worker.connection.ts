@@ -1,5 +1,6 @@
 import type { EngineAccount } from '#modules/host/execution.host.js';
 import { randomUUID } from 'node:crypto';
+import { DateTime } from 'luxon';
 import type { WebSocket } from 'ws';
 import { parseFrame, FromWorker, type CallOp, type CallResults, type ToWorker, type WorkerError } from '@wilson/worker-protocol';
 import type { ExecFailure } from '#modules/host/execution.host.js';
@@ -60,6 +61,7 @@ export class WorkerConnection {
     private alive = true;
     private readonly keepalive: NodeJS.Timeout;
     private readonly closeListeners = new Set<(reason: string) => void>();
+    readonly connectedAt = DateTime.now();
 
     constructor(
         readonly hostName: string,

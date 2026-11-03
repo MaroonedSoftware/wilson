@@ -5,6 +5,7 @@ import type { DB } from '#modules/data/db.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
+import { eventually, FakeWorker, startWorkerServer } from '#tests/support/fake.worker.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -206,5 +207,43 @@ describe('HostsService', () => {
         const failed = await service.get(name);
         expect(failed.probe).toMatchObject({ ok: false, detail: 'ssh: connect timed out' });
         expect(failed.probe).not.toHaveProperty('expiresAt');
+    });
+
+    describe("a worker host's connection", () => {
+        it('shows who is connected and since when, and stops once the worker has gone', async () => {
+            const name = uniqueProject();
+            await service.create({ name, kind: 'worker' });
+            const server = await startWorkerServer({ token: (await hosts.find(name))! });
+            const watching = new HostsService(hosts, projects, server.connections);
+            try {
+                expect(await watching.get(name)).not.toHaveProperty('connection');
+
+                const before = DateTime.now();
+                const worker = await FakeWorker.connect(server.url, 'token');
+                await eventually(() => server.connections.get(name) !== undefined);
+
+                const { connection } = await watching.get(name);
+                expect(connection).toMatchObject({ workerVersion: '0.0.1-test', platform: 'linux' });
+                expect(connection!.since.toMillis()).toBeGreaterThanOrEqual(before.toMillis());
+                expect((await watching.list()).find(host => host.name === name)?.connection).toEqual(connection);
+
+                worker.socket.close();
+                await eventually(() => server.connections.get(name) === undefined);
+                expect(await watching.get(name)).not.toHaveProperty('connection');
+            } finally {
+                await server.close();
+            }
+        });
+
+        it('is absent on an SSH host', async () => {
+            const name = uniqueProject();
+            const server = await startWorkerServer({});
+            try {
+                const host = await new HostsService(hosts, projects, server.connections).create({ name });
+                expect(host).not.toHaveProperty('connection');
+            } finally {
+                await server.close();
+            }
+        });
     });
 });

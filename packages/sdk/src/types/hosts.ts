@@ -67,6 +67,27 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ * generated from [HostConnection](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostConnection {
+    since: DateTime;
+    /** The worker program's own version, from its `hello`. */
+    workerVersion: string;
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    platform: string;
+}
+
+/** Rehydrates every wire-encoded scalar in a HostConnection into its runtime type. Mutates and returns `raw`. */
+export function reviveHostConnection(raw: HostConnection): HostConnection {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'HostConnection.since');
+    return raw;
+}
+
+/**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
  * token itself.
  * generated from [WorkerTokenSummary](../../../../apps/api/data/contracts/hosts.ck)
@@ -205,6 +226,11 @@ export interface Host {
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];
     probe?: HostProbe;
+    /**
+     * A worker host's open connection, absent while its worker is not connected. Never present on an
+     * `ssh` host, which has no standing connection to report.
+     */
+    connection?: HostConnection;
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     workerToken?: WorkerTokenSummary;
     /**
@@ -225,6 +251,9 @@ export function reviveHost(raw: Host): Host {
     }
     if (__o0['probe'] != null) {
         reviveHostProbe(__o0['probe'] as never);
+    }
+    if (__o0['connection'] != null) {
+        reviveHostConnection(__o0['connection'] as never);
     }
     if (__o0['workerToken'] != null) {
         reviveWorkerTokenSummary(__o0['workerToken'] as never);

@@ -79,6 +79,25 @@ public sealed record HostSlotUse
 }
 
 /// <summary>
+/// A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+/// machine's present state, though only as far as the keepalive can tell: a connection that has gone
+/// quiet is noticed within about thirty seconds.
+/// </summary>
+public sealed record HostConnection
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    /// <summary>The worker program's own version, from its `hello`.</summary>
+    [JsonPropertyName("workerVersion")]
+    public required string WorkerVersion { get; init; }
+
+    /// <summary>`process.platform` on the worker's machine, from its `hello`.</summary>
+    [JsonPropertyName("platform")]
+    public required string Platform { get; init; }
+}
+
+/// <summary>
 /// What is shown of a worker host's token: its last four characters and when it was minted, never the
 /// token itself.
 /// </summary>
@@ -278,6 +297,14 @@ public sealed record Host
     [JsonPropertyName("probe")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public HostProbe? Probe { get; init; }
+
+    /// <summary>
+    /// A worker host's open connection, absent while its worker is not connected. Never present on an
+    /// `ssh` host, which has no standing connection to report.
+    /// </summary>
+    [JsonPropertyName("connection")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HostConnection? Connection { get; init; }
 
     /// <summary>A worker host's current token, absent until one is minted. Never present on an `ssh` host.</summary>
     [JsonPropertyName("workerToken")]

@@ -47,6 +47,20 @@ data class HostSlotUse(
 )
 
 /**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ */
+@Serializable
+data class HostConnection(
+    val since: Instant,
+    /** The worker program's own version, from its `hello`. */
+    val workerVersion: String,
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    val platform: String,
+)
+
+/**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
  * token itself.
  */
@@ -170,6 +184,11 @@ data class Host(
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     val running: List<HostSlotUse>,
     val probe: HostProbe? = null,
+    /**
+     * A worker host's open connection, absent while its worker is not connected. Never present on an
+     * `ssh` host, which has no standing connection to report.
+     */
+    val connection: HostConnection? = null,
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     val workerToken: WorkerTokenSummary? = null,
     /**

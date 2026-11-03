@@ -2,9 +2,12 @@ import { isAbsolute, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import type { WorkerConnection } from '#modules/worker/worker.connection.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import type {
     CreateHostRequest,
     Host,
+    HostConnection,
     PutHostProjectRequest,
     PutHostIsolatedRequest,
     PutHostSshTargetRequest,
@@ -29,14 +32,16 @@ export class HostsService {
     constructor(
         private readonly hosts: HostRepository,
         private readonly projects: ProjectRepository,
+        // Optional so a test can build a service without one; unset, no worker reads as connected.
+        private readonly connections?: WorkerConnections,
     ) {}
 
     async list(): Promise<Host[]> {
-        return (await this.hosts.list()).map(toHost);
+        return (await this.hosts.list()).map(row => toHost(row, this.connections));
     }
 
     async get(name: string): Promise<Host> {
-        return toHost(await this.require(name));
+        return toHost(await this.require(name), this.connections);
     }
 
     /**
@@ -155,24 +160,35 @@ export class HostsService {
     }
 }
 
-/** A row as the API returns it. */
-export const toHost = (row: HostRow): Host => ({
-    name: row.name,
-    kind: row.kind,
-    ...(row.sshTarget !== undefined && { sshTarget: row.sshTarget }),
-    slots: row.slots,
-    enabled: row.enabled,
-    draining: row.draining,
-    isolated: row.isolated,
-    ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
-    commandEnv: row.commandEnv,
-    ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),
-    projects: row.projects,
-    running: row.running,
-    ...(row.probe && { probe: row.probe }),
-    ...(row.workerToken && { workerToken: row.workerToken }),
-    ...(row.engineToken && { engineToken: row.engineToken }),
+/** The fields of a worker's open connection the API shows. */
+const toConnection = ({ connectedAt, hello }: WorkerConnection): HostConnection => ({
+    since: connectedAt,
+    workerVersion: hello.workerVersion,
+    platform: hello.platform,
 });
+
+/** A row as the API returns it, with its worker's connection when `connections` holds an open one. */
+export const toHost = (row: HostRow, connections?: WorkerConnections): Host => {
+    const connection = connections?.get(row.name);
+    return {
+        name: row.name,
+        kind: row.kind,
+        ...(row.sshTarget !== undefined && { sshTarget: row.sshTarget }),
+        slots: row.slots,
+        enabled: row.enabled,
+        draining: row.draining,
+        isolated: row.isolated,
+        ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
+        commandEnv: row.commandEnv,
+        ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),
+        projects: row.projects,
+        running: row.running,
+        ...(row.probe && { probe: row.probe }),
+        ...(connection && { connection: toConnection(connection) }),
+        ...(row.workerToken && { workerToken: row.workerToken }),
+        ...(row.engineToken && { engineToken: row.engineToken }),
+    };
+};
 
 const notFound = (name: string) => httpError(404).withDetails({ reason: `host "${name}" is not registered` });
 
