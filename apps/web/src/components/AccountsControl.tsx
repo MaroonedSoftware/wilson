@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, Loader, Menu, Paper, PasswordInput, Select, Stack, Text, TextInput, Title } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, Loader, Menu, Paper, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
 import { IconArrowDown, IconArrowUp, IconDots, IconPlus } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { EngineLimit, EngineTokenSetting, EngineTokenSummary } from '@wilson/sdk';
@@ -274,7 +274,7 @@ function AddAccountForm({ tokens, onAdded, onClose }: { tokens: EngineTokenSumma
                         'Paste the API key. It is billed per token, so give it a place low in the rotation.'
                     )}
                 </Text>
-                <Group gap="xs" align="flex-start" grow>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
                     <Select
                         size="xs"
                         label="Type"
@@ -302,7 +302,7 @@ function AddAccountForm({ tokens, onAdded, onClose }: { tokens: EngineTokenSumma
                         disabled={add.isPending}
                         autoComplete="off"
                     />
-                </Group>
+                </SimpleGrid>
                 <Checkbox
                     size="xs"
                     label="Add to rotation"
