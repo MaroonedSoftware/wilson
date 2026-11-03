@@ -32,7 +32,7 @@ export interface AgentRunInput {
     baseSha: string;
     /**
      * Set when this run picks up a tree an interrupted attempt left, and `sessionId` when there is a
-     * conversation to continue. Only the `cli` adapter can be interrupted, so only it reads this.
+     * conversation to continue. Only the `cli` and `codex` adapters can be interrupted, so only they read this.
      */
     resume?: { sessionId?: string };
 }
@@ -98,7 +98,7 @@ export interface AgentRunOutput {
 /**
  * How a stage's agent is run.
  *
- * Two implementations, chosen per stage by config. `api` drives the AI SDK's ToolLoopAgent against
+ * Chosen per stage by config. `codex` drives OpenAI's Codex engine (`codex.stage.agent.ts`). `api` drives the AI SDK's ToolLoopAgent against
  * a provider API key. `cli` drives the Claude Code engine through @anthropic-ai/claude-agent-sdk,
  * which authenticates from the operator's own Claude Code credentials — no API key, no per-token
  * billing.
@@ -111,5 +111,5 @@ export abstract class StageAgent {
     abstract run(input: AgentRunInput): Promise<AgentRunOutput>;
 }
 
-/** DI token: adapter name (`api`, `cli`) → implementation. */
+/** DI token: adapter name (`api`, `cli`, `codex`) → implementation. */
 export class StageAgentMap extends Map<string, StageAgent> {}

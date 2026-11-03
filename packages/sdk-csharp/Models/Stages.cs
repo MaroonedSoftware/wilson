@@ -182,6 +182,9 @@ public enum StageRoutingAdapter
 
     [JsonStringEnumMemberName("cli")]
     Cli,
+
+    [JsonStringEnumMemberName("codex")]
+    Codex,
 }
 
 /// <summary>
@@ -213,6 +216,7 @@ public sealed class StageRoutingAdapterConverter : JsonConverter<StageRoutingAda
     {
         "api" => StageRoutingAdapter.Api,
         "cli" => StageRoutingAdapter.Cli,
+        "codex" => StageRoutingAdapter.Codex,
         _ => StageRoutingAdapter.Unknown,
     };
 
@@ -220,6 +224,7 @@ public sealed class StageRoutingAdapterConverter : JsonConverter<StageRoutingAda
     {
         StageRoutingAdapter.Api => "api",
         StageRoutingAdapter.Cli => "cli",
+        StageRoutingAdapter.Codex => "codex",
         _ => throw new JsonException($"StageRoutingAdapter.{value} has no wire spelling, so it cannot be sent."),
     };
 }
@@ -299,6 +304,9 @@ public enum SetStageRoutingRequestAdapter
 
     [JsonStringEnumMemberName("cli")]
     Cli,
+
+    [JsonStringEnumMemberName("codex")]
+    Codex,
 }
 
 /// <summary>
@@ -330,6 +338,7 @@ public sealed class SetStageRoutingRequestAdapterConverter : JsonConverter<SetSt
     {
         "api" => SetStageRoutingRequestAdapter.Api,
         "cli" => SetStageRoutingRequestAdapter.Cli,
+        "codex" => SetStageRoutingRequestAdapter.Codex,
         _ => SetStageRoutingRequestAdapter.Unknown,
     };
 
@@ -337,6 +346,7 @@ public sealed class SetStageRoutingRequestAdapterConverter : JsonConverter<SetSt
     {
         SetStageRoutingRequestAdapter.Api => "api",
         SetStageRoutingRequestAdapter.Cli => "cli",
+        SetStageRoutingRequestAdapter.Codex => "codex",
         _ => throw new JsonException($"SetStageRoutingRequestAdapter.{value} has no wire spelling, so it cannot be sent."),
     };
 }

@@ -1,8 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { z } from 'zod';
+import { CodexStageAgent } from '#modules/agent/codex.stage.agent.js';
+import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import type { ToolContext } from '#modules/agent/tools/index.js';
+import { localHost } from '#modules/host/local.execution.host.js';
+import type { StageConfig } from '#modules/stages/stage.config.js';
 import { CodexAppServer, decline, ranWithoutApproval, runTurn, type TurnRecord } from '#tests/support/codex.app.server.js';
 
 /**
@@ -16,8 +24,9 @@ import { CodexAppServer, decline, ranWithoutApproval, runTurn, type TurnRecord }
  * Reached through `test:engine` like `cli.engine.contract.probe.ts`, by hand, and never by the suite.
  *
  * - `CODEX_PROBE_BIN`: the `codex` binary. Without it, everything here is skipped.
- * - `CODEX_API_KEY`: an OpenAI API key. Without it, only the handshake runs. Each live probe spends a
- *   few model turns.
+ * - `CODEX_API_KEY`: an OpenAI API key, read here and signed in with over `account/login/start`, since
+ *   `app-server` ignores that variable. Without it, only the keyless probes run. Each live probe spends
+ *   a few model turns.
  * - `CODEX_PROBE_REPEATS`: how many times each live probe runs (default 3). Engine behaviour has varied
  *   run to run before, so one run proves little.
  * - `CODEX_PROBE_MODEL`: a model to use in place of Codex's default.
@@ -71,7 +80,8 @@ beforeAll(async () => {
     home = await freshDir('codex-probe-home-');
 });
 afterAll(async () => {
-    for (const dir of scratch) await rm(dir, { recursive: true, force: true });
+    // Retried: an engine just killed can still be writing to its home.
+    for (const dir of scratch) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 /** One line per run, so a report shows what each repeat did. */
@@ -93,22 +103,99 @@ describe.skipIf(!binary)('codex app-server: handshake', () => {
     });
 });
 
+describe.skipIf(!binary)('codex app-server: signing in with a key', () => {
+    it('takes it over the protocol and leaves nothing on disk', async () => {
+        const codexHome = await freshDir('codex-probe-key-');
+        const server = await CodexAppServer.start({ binary: binary!, codexHome, apiKey: 'sk-not-a-real-key' });
+        try {
+            const { account } = await server.request<{ account: { type?: string } | null }>('account/read', {});
+
+            expect(account?.type).toBe('apiKey');
+            expect(readdirSync(codexHome).filter(file => /auth|cred/i.test(file))).toEqual([]);
+        } finally {
+            server.close();
+        }
+    });
+
+    it('still ignores CODEX_API_KEY, which is why it has to', async () => {
+        const server = await CodexAppServer.start({
+            binary: binary!,
+            codexHome: await freshDir('codex-probe-env-'),
+            env: { CODEX_API_KEY: 'sk-not-a-real-key' },
+        });
+        try {
+            expect((await server.request<{ account: unknown }>('account/read', {})).account).toBeNull();
+        } finally {
+            server.close();
+        }
+    });
+});
+
+describe.skipIf(!binary)('CodexStageAgent against the real binary, signed out', () => {
+    it('gets as far as the model and reports why it could not go on', async () => {
+        const worktreeRoot = await freshDir('codex-probe-adapter-');
+        const codexHome = await freshDir('codex-probe-adapter-home-');
+        const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+        const context = {
+            project: 'p',
+            cardId: '0001',
+            stage: 'implementing',
+            worktreeRoot,
+            scope: new ScopeGuard({ worktreeRoot, allow: ['**'], alwaysAllowed: [] }),
+            commands: new CommandAllowlist([]),
+            scopeViolationPolicy: 'widen',
+            events: { append: async () => {} },
+            logger,
+            host: {
+                name: 'probe',
+                realpath: localHost.realpath.bind(localHost),
+                unlink: localHost.unlink.bind(localHost),
+                removeTree: localHost.removeTree.bind(localHost),
+                spawnCodex: ({ args, cwd }: { args: string[]; cwd?: string }) =>
+                    spawn(binary!, args, {
+                        cwd,
+                        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: codexHome, CODEX_HOME: codexHome },
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                    }),
+            },
+        } as unknown as ToolContext;
+
+        const output = await new CodexStageAgent(logger as never).run({
+            stage: {
+                name: 'implementing',
+                worktree: 'rw',
+                isolated: true,
+                model: model ?? 'gpt-5.5',
+                instructions: 'Report that you are done.',
+                maxSteps: 3,
+                maxWallClockMs: 90_000,
+                maxIdleMs: 60_000,
+                maxInputTokens: 1000,
+                maxContextWindowFraction: 0.9,
+            } as unknown as StageConfig,
+            context,
+            planPath: join(worktreeRoot, 'plan.md'),
+            title: 'Probe',
+            resultSchema: z.object({ summary: z.string() }),
+            baseSha: 'abc123',
+        });
+        console.info(`signed out, the adapter ended with: ${JSON.stringify(output)}`);
+
+        // Nothing here can be signed in, so a turn cannot finish. A refusal of the thread's own
+        // settings would name them, and is what this is here to catch.
+        expect(output.result).toBeUndefined();
+        expect(JSON.stringify(output)).not.toMatch(/failed to load configuration|Invalid request|invalid type|unknown field|unknown variant/);
+    }, 120_000);
+});
+
 describe.skipIf(!binary || !apiKey)('codex app-server: live', () => {
     let server: CodexAppServer;
 
     beforeAll(async () => {
-        server = await CodexAppServer.start({ binary: binary!, codexHome: home, env: { CODEX_API_KEY: apiKey! }, onRequest: decline });
+        server = await CodexAppServer.start({ binary: binary!, codexHome: home, apiKey: apiKey!, onRequest: decline });
     });
     afterAll(() => {
         server?.close();
-    });
-
-    it('signs in from CODEX_API_KEY alone, writing no credential to CODEX_HOME', async () => {
-        const { account } = await server.request<{ account: { type?: string } | null }>('account/read', {});
-        console.info(`signed in from the environment as ${JSON.stringify(account)}; auth.json written: ${existsSync(join(home, 'auth.json'))}`);
-
-        expect(account?.type).toBe('apiKey');
-        expect(existsSync(join(home, 'auth.json'))).toBe(false);
     });
 
     it.each([

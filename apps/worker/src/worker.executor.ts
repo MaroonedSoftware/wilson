@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 import {
     commandEnvironment,
+    codexEnvironment,
     engineEnvironment,
     inheritedEnvironment,
     type CallOp,
@@ -44,6 +45,8 @@ export interface WorkerExecutorOptions {
     env?: Env;
     /** The engine binary. A test substitutes a stand-in. */
     claudeCommand?: string;
+    /** The `codex` binary, for a test to replace. */
+    codexCommand?: string;
     /**
      * Refuses a file path before anything touches it, with the reason; undefined lets it through. The
      * worker program passes one that keeps every path inside its host's project roots.
@@ -71,6 +74,7 @@ export class WorkerExecutor {
     private readonly processes = new Map<string, ChildProcessWithoutNullStreams>();
     private readonly env: Env;
     private readonly claudeCommand: string;
+    private readonly codexCommand: string;
 
     constructor(
         private readonly send: (message: FromWorker) => void,
@@ -78,6 +82,7 @@ export class WorkerExecutor {
     ) {
         this.env = options.env ?? process.env;
         this.claudeCommand = options.claudeCommand ?? 'claude';
+        this.codexCommand = options.codexCommand ?? 'codex';
     }
 
     /** Act on one message from Wilson. Never throws: every failure is reported back as one. */
@@ -235,11 +240,12 @@ export class WorkerExecutor {
             return;
         }
 
-        // `claude` is resolved on this machine, whatever Wilson named: the engine is the only thing a
+        // The engine is resolved on this machine, whatever Wilson named: an engine is the only thing a
         // spawn starts, and the name Wilson uses for it means nothing here.
-        const child = spawn(this.claudeCommand, message.args, {
+        const codex = message.engine === 'codex';
+        const child = spawn(codex ? this.codexCommand : this.claudeCommand, message.args, {
             ...(message.cwd && { cwd: message.cwd }),
-            env: engineEnvironment(message.env, this.env, message.engineToken, message.engineTokenVariable),
+            env: codex ? codexEnvironment(this.env) : engineEnvironment(message.env, this.env, message.engineToken, message.engineTokenVariable),
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         this.processes.set(message.id, child);

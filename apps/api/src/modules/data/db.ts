@@ -233,6 +233,7 @@ export interface WilsonHosts {
   commandEnv: Generated<string[]>;
   createdAt: Generated<DateTime>;
   draining: Generated<boolean>;
+  isolated: Generated<boolean>;
   enabled: Generated<boolean>;
   engineToken: string | null;
   engineVersion: string | null;

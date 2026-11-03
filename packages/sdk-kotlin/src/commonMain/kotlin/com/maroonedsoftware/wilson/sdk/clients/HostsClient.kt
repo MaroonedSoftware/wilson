@@ -5,6 +5,7 @@ import com.maroonedsoftware.wilson.sdk.models.CreateHostRequest
 import com.maroonedsoftware.wilson.sdk.models.Host
 import com.maroonedsoftware.wilson.sdk.models.IssuedWorkerToken
 import com.maroonedsoftware.wilson.sdk.models.PutHostEngineTokenRequest
+import com.maroonedsoftware.wilson.sdk.models.PutHostIsolatedRequest
 import com.maroonedsoftware.wilson.sdk.models.PutHostProjectRequest
 import com.maroonedsoftware.wilson.sdk.models.PutHostSshTargetRequest
 import com.maroonedsoftware.wilson.sdk.models.UpdateHostRequest
@@ -70,10 +71,25 @@ class HostsClient(private val http: SdkHttp) {
     }
 
     /**
-     * Set host SSH target
+     * Set host isolated
      * Where the daemon reaches an `ssh` host. An operation of its own, not a field on
      * `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
      * engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+     * Which machines may run a stage marked `isolated` follows this value, and a stage marked that way
+     * relies on it for what its engine's own controls cannot promise, so changing it needs a step-up an
+     * agent cannot give, in both directions.
+     * @throws SdkError on 404
+     */
+    suspend fun setHostIsolated(name: String, body: PutHostIsolatedRequest): Host {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "hosts", segment(name), "isolated")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Set host SSH target
      * @throws SdkError on 400, 404
      */
     suspend fun setHostSshTarget(name: String, body: PutHostSshTargetRequest): Host {

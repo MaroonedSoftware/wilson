@@ -13,7 +13,7 @@ import { ENGINE_CREDENTIAL_VARIABLES } from './worker.env.js';
  * Bump {@link WORKER_PROTOCOL_VERSION} for any change a worker built against the old one would
  * misread. Wilson refuses a worker whose `hello` names another version, rather than guessing.
  */
-export const WORKER_PROTOCOL_VERSION = 4;
+export const WORKER_PROTOCOL_VERSION = 5;
 
 /** The path the worker connects to, on the API's own origin. */
 export const WORKER_CONNECT_PATH = '/api/workers/connect';
@@ -120,10 +120,14 @@ export const ToWorker = z.discriminatedUnion('type', [
      * alone, here and not in `welcome` so that a worker keeps no token between engines and a replaced
      * one needs no reconnect. Absent, the worker's own engine token is used, if it has one.
      * `engineTokenVariable` is what to set it as, a subscription's token when absent.
+     *
+     * `engine` says which program to start, `claude` when absent. `codex` gets no token and none of
+     * `env`: a key reaches it over its own stdio, so that it is in no environment a command inherits.
      */
     z.object({
         type: z.literal('spawn'),
         id: z.string(),
+        engine: z.enum(['claude', 'codex']).optional(),
         command: z.string(),
         args: z.array(z.string()),
         cwd: z.string().optional(),

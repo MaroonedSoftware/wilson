@@ -16,9 +16,12 @@ const TOKEN_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 const MAX_PRIORITY = 1000;
 
+/** The providers an engine signs in to: `claude`'s, and `codex`'s. */
+export type EngineProvider = 'anthropic' | 'openai';
+
 /**
- * Whether an engine can sign in with this. It runs `claude`, so only an Anthropic token can, set as
- * {@link credentialVariable} says.
+ * Whether a host can be assigned this. A host has one assigned token and it is for `claude`, so only
+ * an Anthropic token can be, set as {@link credentialVariable} says. `codex` always draws from the pool.
  */
 const signsInEngines = ({ provider }: { provider: string }): boolean => provider === 'anthropic';
 
@@ -130,13 +133,13 @@ export class EngineTokensService {
      * other, so give it the highest priority number to keep it for when every subscription is limited: lowest priority first, then by
      * name, so the choice is the same every time it is made.
      */
-    async pool(): Promise<EngineAccount[]> {
-        const pooled = (await this.tokens.list()).filter(token => token.pooled && signsInEngines(token));
+    async pool(provider: EngineProvider = 'anthropic'): Promise<EngineAccount[]> {
+        const pooled = (await this.tokens.list()).filter(token => token.pooled && token.provider === provider);
         pooled.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
         const accounts: EngineAccount[] = [];
         for (const { name, kind } of pooled) {
             const token = await this.resolve(name);
-            if (token !== undefined) accounts.push({ name, token, variable: credentialVariable(kind) });
+            if (token !== undefined) accounts.push({ name, token, ...(provider === 'anthropic' && { variable: credentialVariable(kind) }) });
         }
         return accounts;
     }
@@ -160,6 +163,13 @@ export class EngineTokensService {
             throw httpError(400).withDetails({ reason: `an engine token's priority is 0 to ${MAX_PRIORITY}` });
         }
         const saved = await this.find(name);
+        // A ChatGPT sign-in would have Wilson hold and refresh session tokens, so only a key is saved.
+        if (saved?.provider === 'openai' || account.provider === 'openai') {
+            const { provider, kind } = { ...saved, ...account };
+            if (provider === 'openai' && kind !== 'api_key') {
+                throw httpError(400).withDetails({ reason: 'an OpenAI engine token must be an API key: use --kind api_key' });
+            }
+        }
         if (saved && saved.hosts.length > 0 && !signsInEngines({ ...saved, ...account })) {
             throw httpError(400).withDetails({
                 reason: `"${name}" is assigned to ${saved.hosts.join(', ')}, whose engines can only sign in with an Anthropic token`,

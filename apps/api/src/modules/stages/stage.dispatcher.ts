@@ -318,6 +318,11 @@ export class StageDispatcher {
         if (placed instanceof NoHostAvailable) {
             throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} is waiting for a host: ${placed.message}`);
         }
+        // Stage config refuses what would send an isolated stage here. This holds whatever else is true:
+        // no placer, as under `wilson card run`, or an interrupted attempt with no host.
+        if (!placed && stage.isolated) {
+            throw new NotDispatchableError({ kind: 'no-host' }, `${cardId} ${stageName} is isolated, and would have run on this machine`);
+        }
         if (!placed) {
             // A stage with no tree takes no slot: a slot is a worktree, an install and an agent here.
             if (!this.placer || stage.worktree === 'none') {

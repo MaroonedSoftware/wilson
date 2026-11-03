@@ -140,6 +140,13 @@ export interface PutHostSshTargetRequest {
 }
 
 /**
+ * generated from [PutHostIsolatedRequest](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface PutHostIsolatedRequest {
+    isolated: boolean;
+}
+
+/**
  * generated from [PutHostEngineTokenRequest](../../../../apps/api/data/contracts/hosts.ck)
  */
 export interface PutHostEngineTokenRequest {
@@ -174,6 +181,11 @@ export interface Host {
     slots: number;
     enabled: boolean;
     draining: boolean;
+    /**
+     * An operator's word that this host keeps a stage from everything but its own work. Only a host
+     * with this set runs a stage marked `isolated`. Nothing checks it: it is not something a probe can test.
+     */
+    isolated: boolean;
     /**
      * Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe
      * adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.

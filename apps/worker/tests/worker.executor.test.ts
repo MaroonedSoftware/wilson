@@ -187,6 +187,43 @@ describe('WorkerExecutor', () => {
         expect(exit).toMatchObject({ code: 3, signal: null });
     });
 
+    it('starts codex for a spawn that names it, with no token and none of what Wilson sent', async () => {
+        const fakeCodex = join(root, 'codex');
+        await writeFile(fakeCodex, '#!/bin/sh\necho "codex $* token=${CLAUDE_CODE_OAUTH_TOKEN:-none} sent=${CLAUDE_CODE_ENTRYPOINT:-none}"\n');
+        await chmod(fakeCodex, 0o755);
+        const { executor, sent, waitFor } = harness({ codexCommand: fakeCodex });
+
+        executor.handle({
+            type: 'spawn',
+            id: 'c1',
+            engine: 'codex',
+            command: 'rm',
+            args: ['app-server'],
+            cwd: root,
+            env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' },
+            engineToken: 'never-used',
+        });
+        await waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit' && m.id === 'c1');
+
+        const out = sent
+            .filter((m): m is Extract<FromWorker, { type: 'out' }> => m.type === 'out' && m.id === 'c1')
+            .map(m => Buffer.from(m.data, 'base64').toString())
+            .join('');
+        expect(out).toBe('codex app-server token=none sent=none\n');
+    });
+
+    it('refuses a codex spawn outside the projects it serves', async () => {
+        const { executor, waitFor } = harness({
+            codexCommand: 'true',
+            checkPath: path => (path.startsWith(root) ? undefined : 'outside this host’s project roots'),
+        });
+
+        executor.handle({ type: 'spawn', id: 'c2', engine: 'codex', command: 'codex', args: [], cwd: '/etc', env: {} });
+        const exit = await waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit' && m.id === 'c2');
+
+        expect(exit.error).toMatchObject({ code: 'EACCES' });
+    });
+
     it('reports an engine that cannot start as an exit with an error, and kills what it started on request', async () => {
         const missing = harness({ claudeCommand: join(root, 'no-such-claude') });
         missing.executor.handle({ type: 'spawn', id: 'x', command: 'claude', args: [], env: {} });

@@ -180,8 +180,8 @@ export class PostgresStageConfigStore extends StageConfigStore {
     }
 
     async saveRouting(stage: string, routing: StageRouting, message: string): Promise<void> {
-        findStage(await this.load(), stage);
-        assertRoutable(stage, routing);
+        const { isolated } = findStage(await this.load(), stage);
+        assertRoutable(stage, routing, isolated);
 
         await this.db
             .insertInto('wilson.stageRouting')
@@ -287,8 +287,8 @@ export class StaticStageConfigStore extends StageConfigStore {
     }
 
     async saveRouting(stage: string, routing: StageRouting): Promise<void> {
-        findStage(await this.load(), stage);
-        assertRoutable(stage, routing);
+        const { isolated } = findStage(await this.load(), stage);
+        assertRoutable(stage, routing, isolated);
         this.routing.set(stage, routing);
     }
 

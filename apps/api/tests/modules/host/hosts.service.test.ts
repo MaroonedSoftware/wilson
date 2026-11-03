@@ -46,6 +46,7 @@ describe('HostsService', () => {
             slots: 1,
             enabled: true,
             draining: false,
+            isolated: false,
             commandEnv: [],
             projects: [],
             running: [],
@@ -58,7 +59,17 @@ describe('HostsService', () => {
 
         const host = await service.create({ name, kind: 'worker', slots: 2 });
 
-        expect(host).toEqual({ name, kind: 'worker', slots: 2, enabled: true, draining: false, commandEnv: [], projects: [], running: [] });
+        expect(host).toEqual({
+            name,
+            kind: 'worker',
+            slots: 2,
+            enabled: true,
+            draining: false,
+            isolated: false,
+            commandEnv: [],
+            projects: [],
+            running: [],
+        });
         expect(await service.get(name)).toEqual(host);
     });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage } from '#modules/stages/stage.config.js';
+import { assertRoutable, StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage } from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
@@ -15,6 +15,24 @@ const minimalStage = {
     onPass: 'review',
     onFail: 'implementing',
 };
+
+describe('StageConfigSchema isolated', () => {
+    it('is off by default', () => {
+        expect(StageConfigSchema.parse(minimalStage).isolated).toBeUndefined();
+    });
+
+    it('allows a remote stage with a worktree', () => {
+        expect(StageConfigSchema.parse({ ...minimalStage, isolated: true, placement: 'remote' }).isolated).toBe(true);
+    });
+
+    it.each(['local', 'any'])('refuses placement: %s, either of which could run it on this machine', placement => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, isolated: true, placement })).toThrow(/placement: remote/);
+    });
+
+    it('refuses worktree: none, which always runs on this machine', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, isolated: true, placement: 'remote', worktree: 'none' })).toThrow(/needs a worktree/);
+    });
+});
 
 describe('StageConfigSchema budget fields', () => {
     it('defaults maxInputTokens to 15,000,000 when omitted', () => {
@@ -255,5 +273,25 @@ describe('findStage sandbox resolution (AC5)', () => {
             'implementing',
         );
         expect(stage.sandbox).toBe(false);
+    });
+});
+
+describe('assertRoutable codex', () => {
+    const codex = { adapter: 'codex', provider: 'openai', model: 'gpt-test' } as const;
+
+    it('accepts an isolated stage on OpenAI', () => {
+        expect(() => assertRoutable('implementing', codex, true)).not.toThrow();
+    });
+
+    it('refuses a stage not marked isolated', () => {
+        expect(() => assertRoutable('implementing', codex)).toThrow(/must be marked isolated/);
+    });
+
+    it('refuses any provider but OpenAI', () => {
+        expect(() => assertRoutable('implementing', { ...codex, provider: 'anthropic' }, true)).toThrow(/always runs OpenAI/);
+    });
+
+    it('refuses the planning session', () => {
+        expect(() => assertRoutable('planning', codex, true)).toThrow(/planning session always runs Claude/);
     });
 });

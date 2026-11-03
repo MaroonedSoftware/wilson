@@ -182,6 +182,12 @@ public sealed record PutHostSshTargetRequest
     public required string SshTarget { get; init; }
 }
 
+public sealed record PutHostIsolatedRequest
+{
+    [JsonPropertyName("isolated")]
+    public required bool Isolated { get; init; }
+}
+
 public sealed record PutHostEngineTokenRequest
 {
     /// <summary>The name a token was saved under (`/api/engine-tokens/{name}`).</summary>
@@ -231,6 +237,13 @@ public sealed record Host
 
     [JsonPropertyName("draining")]
     public required bool Draining { get; init; }
+
+    /// <summary>
+    /// An operator's word that this host keeps a stage from everything but its own work. Only a host
+    /// with this set runs a stage marked `isolated`. Nothing checks it: it is not something a probe can test.
+    /// </summary>
+    [JsonPropertyName("isolated")]
+    public required bool Isolated { get; init; }
 
     /// <summary>
     /// Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe

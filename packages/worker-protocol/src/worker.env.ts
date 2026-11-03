@@ -21,6 +21,9 @@ export const ENGINE_TOKEN_VARIABLE = 'CLAUDE_CODE_OAUTH_TOKEN';
 export const ENGINE_CREDENTIAL_VARIABLES = [ENGINE_TOKEN_VARIABLE, 'ANTHROPIC_API_KEY'] as const;
 export type EngineCredentialVariable = (typeof ENGINE_CREDENTIAL_VARIABLES)[number];
 
+/** What a `codex` engine takes from the worker beyond the passthrough names: where it keeps its threads. */
+const CODEX_ENV = ['CODEX_HOME'];
+
 /** The variable the worker program connects to Wilson with. */
 export const WORKER_TOKEN_VARIABLE = 'WILSON_WORKER_TOKEN';
 
@@ -89,3 +92,10 @@ export const engineEnvironment = (
         ...(assigned !== undefined && { [variable]: assigned }),
     };
 };
+
+/**
+ * The environment for a `codex` engine: the passthrough names and {@link CODEX_ENV} from the worker,
+ * and nothing else. Never a Claude token, whichever engine that token was meant for: Codex hands its
+ * environment to the commands it runs.
+ */
+export const codexEnvironment = (own: Env): Record<string, string> => pick(own, [...PASSED_THROUGH_ENV, ...CODEX_ENV]);

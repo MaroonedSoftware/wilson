@@ -292,6 +292,21 @@ There are two kinds of host, fixed when one is registered:
   (`wilson host engine-token`), sent with each engine start and kept by the worker for no longer than
   that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`.
 
+A stage marked `isolated` runs only on a host an operator has vouched for (`wilson host isolated`,
+behind step-up), never on this machine, and waits when there is none. It is for an engine that cannot
+be relied on to keep a stage inside its worktree. The flag is an operator's word about the machine,
+such as a container worker with nothing else inside, since no probe can test it.
+
+The `codex` adapter runs OpenAI's Codex engine through `codex app-server`, and only for a stage marked
+`isolated`. `ScopeGuard` and `CommandAllowlist` answer the engine's approval requests, but Codex runs
+commands it considers safe without asking, so reads through it are not limited to the worktree. Its
+sandbox's network is all or nothing, set by the stage's `networkAccess`, and off by default. The worker
+image installs the version the adapter was built against, and a worker passes the engine none of its
+Claude credentials. It signs in with a pooled OpenAI API key (`wilson engine-token set <name> --provider
+openai --kind api_key --pool`), held in the engine's memory only, or else the sign-in that machine was
+set up with. Wilson does not hold ChatGPT session tokens. A `codex login` on a worker does work, but it
+leaves `auth.json` where a stage's commands can read it, so a key is the way to run this.
+
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
 worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the
 same machine as model-written code, which is the board readable from a worktree: exactly what

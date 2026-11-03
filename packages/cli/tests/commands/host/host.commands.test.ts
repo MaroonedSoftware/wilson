@@ -7,6 +7,7 @@ const { default: listCommand } = await import('#src/commands/host/list.command.j
 const { default: addCommand } = await import('#src/commands/host/add.command.js');
 const { default: tokenCommand } = await import('#src/commands/host/token.command.js');
 const { default: hostEngineTokenCommand } = await import('#src/commands/host/engine-token.command.js');
+const { default: hostIsolatedCommand } = await import('#src/commands/host/isolated.command.js');
 const { default: engineTokenSetCommand } = await import('#src/commands/engine-token/set.command.js');
 const { default: engineTokenListCommand } = await import('#src/commands/engine-token/list.command.js');
 const { default: engineTokenUpdateCommand } = await import('#src/commands/engine-token/update.command.js');
@@ -231,6 +232,33 @@ describe('wilson host token', () => {
         await (tokenCommand.run as unknown as Handler<object>)({ revoke: true }, ctx, ['unraid-vm']);
 
         expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('DELETE');
+    });
+});
+
+describe('wilson host isolated', () => {
+    it('vouches for a host, and takes it back with --clear', async () => {
+        fetchMock.mockResolvedValue(jsonResponse({ ...host, isolated: true }));
+        const { ctx } = buildCtx();
+
+        await (hostIsolatedCommand.run as unknown as Handler<object>)({}, ctx, ['agent-3']);
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(String(url)).toContain('/api/hosts/agent-3/isolated');
+        expect(init.method).toBe('PUT');
+        expect(sentBody()).toEqual({ isolated: true });
+
+        fetchMock.mockClear();
+        fetchMock.mockResolvedValue(jsonResponse({ ...host, isolated: false }));
+        await (hostIsolatedCommand.run as unknown as Handler<object>)({ clear: true }, ctx, ['agent-3']);
+        expect(sentBody()).toEqual({ isolated: false });
+    });
+
+    it('shows an isolated host as one in the list', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse([{ ...host, isolated: true, draining: false }]));
+        const { ctx, logger } = buildCtx();
+
+        await (listCommand.run as unknown as Handler<object>)({}, ctx, []);
+
+        expect(String(logger.info.mock.calls[0]?.[0])).toContain('enabled  isolated');
     });
 });
 

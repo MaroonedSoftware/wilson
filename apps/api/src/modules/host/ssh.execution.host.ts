@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import type { ClaudeSpawnOptions, ExecFailure, ExecOptions, ExecResult, ExecutionHost, HostStat } from './execution.host.js';
 
@@ -191,6 +191,18 @@ export class SshHost implements ExecutionHost {
         // swallows the start of the SDK's own messages.
         if (this.engineToken !== undefined) child.stdin.write(`${this.engineToken}\n`);
         return child;
+    }
+
+    /**
+     * Start `codex app-server` on the host, with its stdio carried over SSH. None of this machine's
+     * environment travels, and the host's own `CODEX_HOME` applies if it sets one.
+     */
+    spawnCodex(options: ClaudeSpawnOptions): ChildProcessWithoutNullStreams {
+        const command = [options.command, ...options.args].map(shellQuote).join(' ');
+        const cd = options.cwd ? `cd -- ${shellQuote(options.cwd)} || exit 1; ` : '';
+        return spawn(this.sshCommand, [...SSH_OPTIONS, this.target, '--', `${cd}exec ${envPrefix({}, ['CODEX_HOME'])} ${command}`], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
     }
 
     /**

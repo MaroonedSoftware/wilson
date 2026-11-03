@@ -117,6 +117,14 @@ export const PutHostSshTargetRequest = z.strictObject({
 export type PutHostSshTargetRequest = z.infer<typeof PutHostSshTargetRequest>;
 
 /**
+ * generated from [PutHostIsolatedRequest](../../data/contracts/hosts.ck)
+ */
+export const PutHostIsolatedRequest = z.strictObject({
+    isolated: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type PutHostIsolatedRequest = z.infer<typeof PutHostIsolatedRequest>;
+
+/**
  * generated from [PutHostEngineTokenRequest](../../data/contracts/hosts.ck)
  */
 export const PutHostEngineTokenRequest = z.strictObject({
@@ -151,6 +159,11 @@ export const Host = z.strictObject({
     slots: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
     draining: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    isolated: z
+        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+        .describe(
+            "An operator's word that this host keeps a stage from everything but its own work. Only a host\nwith this set runs a stage marked `isolated`. Nothing checks it: it is not something a probe can test.",
+        ),
     lifetimeMinutes: z
         .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
         .optional()

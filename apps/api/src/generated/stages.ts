@@ -60,7 +60,7 @@ export type StageConfigVersionsQuery = z.infer<typeof StageConfigVersionsQuery>;
 export const StageRouting = z.strictObject({
     stage: z.string(),
     mode: z.enum(['agent', 'command', 'manual']),
-    adapter: z.enum(['api', 'cli']),
+    adapter: z.enum(['api', 'cli', 'codex']),
     provider: z.enum(['anthropic', 'openai', 'xai']),
     model: z.string(),
 });
@@ -70,7 +70,7 @@ export type StageRouting = z.infer<typeof StageRouting>;
  * generated from [SetStageRoutingRequest](../../data/contracts/stages.ck)
  */
 export const SetStageRoutingRequest = z.strictObject({
-    adapter: z.enum(['api', 'cli']),
+    adapter: z.enum(['api', 'cli', 'codex']),
     provider: z.enum(['anthropic', 'openai', 'xai']),
     model: z.string(),
     message: z.string().optional(),

@@ -72,7 +72,7 @@ export interface StageConfigVersionsQuery {
 export interface StageRouting {
     stage: string;
     mode: 'agent' | 'command' | 'manual';
-    adapter: 'api' | 'cli';
+    adapter: 'api' | 'cli' | 'codex';
     provider: 'anthropic' | 'openai' | 'xai';
     model: string;
 }
@@ -81,7 +81,7 @@ export interface StageRouting {
  * generated from [SetStageRoutingRequest](../../../../apps/api/data/contracts/stages.ck)
  */
 export interface SetStageRoutingRequest {
-    adapter: 'api' | 'cli';
+    adapter: 'api' | 'cli' | 'codex';
     provider: 'anthropic' | 'openai' | 'xai';
     model: string;
     message?: string;

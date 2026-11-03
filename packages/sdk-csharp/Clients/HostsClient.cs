@@ -81,11 +81,26 @@ public sealed class HostsClient(SdkHttp http)
     }
 
     /// <summary>
-    /// Set host SSH target
+    /// Set host isolated
     /// Where the daemon reaches an `ssh` host. An operation of its own, not a field on
     /// `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the
     /// engine token with it, follows this value, so changing it needs a step-up an agent cannot give.
+    /// Which machines may run a stage marked `isolated` follows this value, and a stage marked that way
+    /// relies on it for what its engine's own controls cannot promise, so changing it needs a step-up an
+    /// agent cannot give, in both directions.
     /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<Host> SetHostIsolatedAsync(string name, PutHostIsolatedRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "hosts", http.Segment(name), "isolated"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<Host>(response);
+    }
+
+    /// <summary>Set host SSH target</summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
     public async Task<Host> SetHostSshTargetAsync(string name, PutHostSshTargetRequest body, CancellationToken cancellationToken = default)
     {

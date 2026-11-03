@@ -201,6 +201,40 @@ describe('HostPlacer', () => {
         expect(((await placer().place(failing.project, '0001', stage('remote'))) as NoHostAvailable).message).toContain('failed its last probe');
     });
 
+    describe('an isolated stage', () => {
+        const isolated = { ...stage('remote'), isolated: true };
+
+        it('passes over a host nobody has vouched for, and saying so is the reason it waits', async () => {
+            const { project, name } = await setUp();
+
+            const placed = await placer().place(project, '0001', isolated);
+
+            expect((placed as NoHostAvailable).message).toContain(`${name} is not marked isolated`);
+        });
+
+        it('runs on a host once it is vouched for, and not once that is taken back', async () => {
+            const { project, name } = await setUp({ slots: 2 });
+            await service.setIsolated(name, { isolated: true });
+
+            expect(await placer().place(project, '0001', isolated)).toMatchObject({ hostName: name });
+
+            await service.setIsolated(name, { isolated: false });
+            expect(await placer().place(project, '0002', isolated)).toBeInstanceOf(NoHostAvailable);
+        });
+
+        it('leaves any other stage free to use a host that is not isolated', async () => {
+            const { project, name } = await setUp();
+
+            expect(await placer().place(project, '0001', stage('remote'))).toMatchObject({ hostName: name });
+        });
+
+        it('is not moved to an unvouched host by preferring it', async () => {
+            const { project, name } = await setUp();
+
+            expect(await placer().place(project, '0001', isolated, name)).toBeInstanceOf(NoHostAvailable);
+        });
+    });
+
     it('passes over a disabled or draining host', async () => {
         const { project, name } = await setUp();
         await service.update(name, { draining: true });

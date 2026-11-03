@@ -903,12 +903,17 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
                         value={draft.adapter}
                         onChange={value => {
                             const adapter = value as StageRouting['adapter'];
-                            setDraft({ ...draft, adapter, provider: adapter === 'cli' ? 'anthropic' : draft.provider });
+                            setDraft({
+                                ...draft,
+                                adapter,
+                                provider: adapter === 'cli' ? 'anthropic' : adapter === 'codex' ? 'openai' : draft.provider,
+                            });
                         }}
                         disabled={mutation.isPending}
                         data={[
                             { value: 'cli', label: 'Claude Agent SDK' },
                             { value: 'api', label: 'AI SDK' },
+                            { value: 'codex', label: 'Codex' },
                         ]}
                     />
                 )}

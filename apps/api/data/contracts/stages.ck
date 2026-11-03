@@ -58,13 +58,13 @@ contract StageConfigVersionsQuery: {
 contract StageRouting: {
     stage: string
     mode: enum(agent, command, manual)
-    adapter: enum(api, cli)
+    adapter: enum(api, cli, codex)
     provider: enum(anthropic, openai, xai)
     model: string
 }
 
 contract SetStageRoutingRequest: {
-    adapter: enum(api, cli)
+    adapter: enum(api, cli, codex)
     provider: enum(anthropic, openai, xai)
     model: string
     message?: string

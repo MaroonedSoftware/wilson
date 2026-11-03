@@ -3,6 +3,7 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { ApiStageAgent } from './api.stage.agent.js';
 import { CliStageAgent } from './cli.stage.agent.js';
+import { CodexStageAgent } from './codex.stage.agent.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgentMap } from './stage.agent.js';
 import { StageInterrupt } from './stage.interrupt.js';
@@ -14,6 +15,7 @@ export const AgentModule: ServerKitModule = {
         registry.register(ModelRegistry).useClass(ModelRegistry).asTransient();
         registry.register(ApiStageAgent).useClass(ApiStageAgent).asTransient();
         registry.register(CliStageAgent).useClass(CliStageAgent).asTransient();
+        registry.register(CodexStageAgent).useClass(CodexStageAgent).asTransient();
 
         // Keyed by the stage's `adapter`. The two fail independently on purpose: an exhausted API
         // balance stops every `api` stage and leaves `cli` untouched.
@@ -23,6 +25,7 @@ export const AgentModule: ServerKitModule = {
                 const map = new StageAgentMap();
                 map.set('api', container.get(ApiStageAgent));
                 map.set('cli', container.get(CliStageAgent));
+                map.set('codex', container.get(CodexStageAgent));
                 return map;
             })
             .asSingleton();

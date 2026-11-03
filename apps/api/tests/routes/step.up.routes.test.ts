@@ -99,6 +99,7 @@ describe('step-up', () => {
             ['changing an SSH target', 'PUT', '/api/hosts/x/ssh-target', { sshTarget: 'attacker' }],
             ['minting a worker token', 'POST', '/api/hosts/x/worker-token', undefined],
             ['assigning an engine token', 'PUT', '/api/hosts/x/engine-token', { name: 'pool-a' }],
+            ['vouching that a host is isolated', 'PUT', '/api/hosts/x/isolated', { isolated: true }],
         ])('refuses a manage key %s, as step_up_unavailable', async (_name, method, path, body) => {
             const res = await request(server, method, path, { token: manageKey, ...(body ? { body } : {}) });
 
@@ -114,6 +115,19 @@ describe('step-up', () => {
 
             expect(res.status).toBe(403);
             expect(await kindOf(res)).toBe('step_up_required');
+        });
+
+        it('lets a fresh session vouch for a host, and answers 404 for one that is not registered', async () => {
+            const name = unique();
+            await registerWorker(name);
+
+            const marked = await request(server, 'PUT', `/api/hosts/${name}/isolated`, { token: freshSession, body: { isolated: true } });
+            expect(marked.status).toBe(200);
+            expect(((await marked.json()) as { isolated: boolean }).isolated).toBe(true);
+
+            expect((await request(server, 'PUT', `/api/hosts/${unique()}/isolated`, { token: freshSession, body: { isolated: true } })).status).toBe(
+                404,
+            );
         });
 
         it('lets a fresh session change an SSH target and mint a worker token', async () => {

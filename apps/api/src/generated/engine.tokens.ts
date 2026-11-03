@@ -56,7 +56,7 @@ export type EngineTokenSummary = z.infer<typeof EngineTokenSummary>;
  * generated from [PutEngineTokenRequest](../../data/contracts/engine.tokens.ck)
  */
 export const PutEngineTokenRequest = z.strictObject({
-    token: z.string().describe('What `claude setup-token` prints.'),
+    token: z.string().describe('What `claude setup-token` prints, or an API key. An OpenAI token has to be an API key.'),
     provider: EngineTokenProvider.optional().describe(
         'Each of these keeps what is saved under this name when left out, or its default on a new name:\nanthropic, subscription, 0 and not pooled.',
     ),

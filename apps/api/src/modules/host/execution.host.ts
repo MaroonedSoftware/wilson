@@ -1,6 +1,6 @@
 import type { EngineCredentialVariable } from '@wilson/worker-protocol';
 import type { UsageLimit } from '#modules/agent/usage.limit.js';
-import type { ChildProcess } from 'node:child_process';
+import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
 
 /**
  * Where a stage's file and command work actually happens.
@@ -65,6 +65,12 @@ export interface ExecutionHost {
      * a host where the SDK's own local spawn already does the right thing, which is this machine.
      */
     spawnClaude?(options: ClaudeSpawnOptions): ChildProcess;
+
+    /**
+     * Start `codex app-server` on this host, with its stdio piped back here. Absent on a host that
+     * cannot, which refuses a `codex` stage rather than running it somewhere else.
+     */
+    spawnCodex?(options: ClaudeSpawnOptions): ChildProcessWithoutNullStreams;
 
     /** Run `claude` with `args` the way `spawnClaude` starts it, and wait. Present wherever that is. */
     runClaude?(args: string[], timeoutMs: number): Promise<ExecResult>;

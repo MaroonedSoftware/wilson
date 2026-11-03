@@ -38,9 +38,10 @@ export const StageConfigSchema = z
          *
          * `api` drives the AI SDK against a provider key and bills per token. `cli` drives the Claude
          * Code engine from the operator's own credentials — no key, no per-token billing. They fail
-         * independently, which is the point: an exhausted API balance leaves `cli` working.
+         * independently, which is the point: an exhausted API balance leaves `cli` working. `codex`
+         * drives OpenAI's Codex engine, and runs only a stage marked `isolated`.
          */
-        adapter: z.enum(['api', 'cli']).default('api'),
+        adapter: z.enum(['api', 'cli', 'codex']).default('api'),
         provider: z.enum(PROVIDERS).default('anthropic'),
         model: z.string(),
         /** System guidance for the stage. The plan itself is passed as a file path, never inlined. */
@@ -68,6 +69,18 @@ export const StageConfigSchema = z
          * `worktree: none` has no tree to place and always runs here.
          */
         placement: z.enum(['local', 'any', 'remote']).default('local'),
+        /**
+         * Runs only on a host an operator has vouched for as isolated (`wilson host isolated`), for a
+         * stage whose engine cannot be relied on to keep it inside its worktree. Needs `placement:
+         * remote` and a worktree, since this machine is never isolated: everything here is within reach.
+         */
+        isolated: z.boolean().optional(),
+        /**
+         * Whether commands in a `codex` stage's sandbox may use the network, which includes a database
+         * on localhost. That sandbox has no allowlist of hosts, so it is all or nothing, and off unless
+         * set. Ignored by every other adapter.
+         */
+        networkAccess: z.boolean().optional(),
         /**
          * Globs this stage may write on top of the card's own "Files in scope".
          *
@@ -250,6 +263,20 @@ export const StageConfigSchema = z
         maxKickbacks: z.number().int().min(0).default(3),
     })
     .superRefine((stage, ctx) => {
+        if (stage.isolated && stage.placement !== 'remote') {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['isolated'],
+                message: `an isolated stage must have placement: remote, not ${stage.placement}, since this machine is not isolated`,
+            });
+        }
+        if (stage.isolated && stage.worktree === 'none') {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['isolated'],
+                message: 'an isolated stage needs a worktree: with worktree: none it would run on this machine',
+            });
+        }
         // Only an *explicit* value is rejected. An idle window at or above the wall clock can never
         // fire first, which is dead config that reads like a working guard — the same class of
         // mistake `assertRoutesResolve` exists to catch for routes. The resolved default below can
@@ -382,10 +409,19 @@ export const splitRouting = (raw: string): { yaml: string; inline: Map<string, P
  * The `cli` engine and the planning session always run Claude, so any other provider there would
  * save happily and then be ignored. Checked on a routing write and not in the schema: a document
  * that already says this has been harmless so far, and failing to load it would stop the board.
+ * `isolated` is what the stage's document says, since a `codex` stage has to be marked so.
  */
-export const assertRoutable = (stage: string, routing: StageRouting): void => {
+export const assertRoutable = (stage: string, routing: StageRouting, isolated?: boolean): void => {
     if (!routing.model.trim()) {
         throw new StageConfigError('config-invalid', 'a model is required');
+    }
+    if (routing.adapter === 'codex') {
+        if (stage === 'planning')
+            throw new StageConfigError('config-invalid', 'the planning session always runs Claude, so it cannot use the codex adapter');
+        if (routing.provider !== 'openai')
+            throw new StageConfigError('config-invalid', `the codex adapter always runs OpenAI, so ${stage} cannot use provider ${routing.provider}`);
+        if (!isolated)
+            throw new StageConfigError('config-invalid', `${stage} must be marked isolated in its stage config before it can use the codex adapter`);
     }
     if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || stage === 'planning')) {
         const engine = stage === 'planning' ? 'the planning session' : 'the cli adapter';

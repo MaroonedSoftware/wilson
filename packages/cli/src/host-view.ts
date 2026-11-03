@@ -6,7 +6,8 @@ import type { Host } from '@wilson/sdk';
  * last probe found, one indented line per slot in use, and one per project it serves.
  */
 export const describeHost = (host: Host): string[] => {
-    const state = !host.enabled ? 'disabled' : host.draining ? 'draining' : 'enabled';
+    const switches = !host.enabled ? 'disabled' : host.draining ? 'draining' : 'enabled';
+    const state = host.isolated ? `${switches}  isolated` : switches;
     const target = host.kind === 'worker' ? ' (worker)' : host.sshTarget === host.name ? '' : ` (ssh ${host.sshTarget})`;
     const lifetime = host.lifetimeMinutes ? `  lives ${host.lifetimeMinutes}m after boot` : '';
     const commandEnv = host.commandEnv.length > 0 ? `  commands get ${host.commandEnv.join(', ')} from it` : '';

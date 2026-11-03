@@ -22,6 +22,40 @@ describe('EngineAccountsService', () => {
         await expect(service('saved').forHost('vm')).resolves.toEqual({ name: 'worker:vm' });
     });
 
+    describe('for a codex engine', () => {
+        const keys = (active: unknown[] = []) =>
+            new EngineAccountsService(
+                { resolve: async () => 'saved' } as never,
+                {
+                    forHost: async () => ({ name: 'assigned', token: 'claude' }),
+                    pool: async (provider: string) =>
+                        provider === 'openai'
+                            ? [
+                                  { name: 'key-a', token: 'a' },
+                                  { name: 'key-b', token: 'b' },
+                              ]
+                            : [],
+                } as never,
+                { active: async () => active } as never,
+            );
+
+        it('draws from the OpenAI pool, whatever token the host is assigned', async () => {
+            await expect(keys().codex('vm')).resolves.toEqual({ name: 'key-a', token: 'a' });
+        });
+
+        it('moves past a limited key', async () => {
+            const active = [{ account: 'key-a', limitType: 'rateLimitExceeded', resetsAt: DateTime.fromMillis(1000) }];
+
+            await expect(keys(active).codex('vm')).resolves.toEqual({ name: 'key-b', token: 'b' });
+        });
+
+        it('falls back to the host’s own sign-in, named apart from its claude one, never a Claude token', async () => {
+            const active = [{ account: 'worker:vm', limitType: 'five_hour', resetsAt: DateTime.fromMillis(1000) }];
+
+            await expect(service('saved', { name: 'assigned', token: 'claude' }, active).codex('vm')).resolves.toEqual({ name: 'codex:vm' });
+        });
+    });
+
     describe('with a pool', () => {
         const pool = [
             { name: 'first', token: 'first-token' },

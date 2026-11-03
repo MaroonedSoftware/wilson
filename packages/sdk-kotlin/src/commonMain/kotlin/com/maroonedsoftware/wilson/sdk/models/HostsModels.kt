@@ -111,6 +111,11 @@ data class PutHostSshTargetRequest(
 )
 
 @Serializable
+data class PutHostIsolatedRequest(
+    val isolated: Boolean,
+)
+
+@Serializable
 data class PutHostEngineTokenRequest(
     /** The name a token was saved under (`/api/engine-tokens/{name}`). */
     val name: String,
@@ -141,6 +146,11 @@ data class Host(
     val slots: Long,
     val enabled: Boolean,
     val draining: Boolean,
+    /**
+     * An operator's word that this host keeps a stage from everything but its own work. Only a host
+     * with this set runs a stage marked `isolated`. Nothing checks it: it is not something a probe can test.
+     */
+    val isolated: Boolean,
     /**
      * Minutes the host runs after it boots before it stops by itself (720 for an agent VM). The probe
      * adds it to the host's boot time to report `probe.expiresAt`. Absent is a host with no known end.

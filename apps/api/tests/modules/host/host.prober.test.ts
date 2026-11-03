@@ -1,10 +1,11 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- these tests set the environment the stand-in ssh hands its "remote" shell; nothing here is a build input */
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CODEX_BINARY_VERSION } from '#modules/agent/codex.engine.version.js';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
@@ -95,6 +96,52 @@ describe('HostProber', () => {
         } else {
             expect(host.probe?.expiresAt?.toMillis()).toBe(DateTime.fromSeconds(BOOT_SECONDS).plus({ minutes: 720 }).toMillis());
         }
+    });
+
+    describe('codex, on an isolated host', () => {
+        const withCodex = async (script: string | undefined, run: () => Promise<void>) => {
+            const path = join(base, 'bin', 'codex');
+            if (script) {
+                await writeFile(path, script, 'utf8');
+                await chmod(path, 0o755);
+            }
+            try {
+                await run();
+            } finally {
+                await rm(path, { force: true });
+            }
+        };
+
+        it('notes a host without it, without failing the host', async () => {
+            const name = await registerHost({ codeRoot: join(base, 'clone') });
+            await service.setIsolated(name, { isolated: true });
+
+            await withCodex(undefined, async () => {
+                const host = await prober().probe(name);
+                expect(host.probe?.ok).toBe(true);
+                expect(host.probe?.detail).toContain('codex is not runnable there');
+            });
+        });
+
+        it('notes another version, and says nothing of the right one', async () => {
+            const name = await registerHost({ codeRoot: join(base, 'clone') });
+            await service.setIsolated(name, { isolated: true });
+
+            await withCodex('#!/bin/sh\necho "codex-cli 0.1.0"\n', async () => {
+                expect((await prober().probe(name)).probe?.detail).toContain('codex 0.1.0 is not the version');
+            });
+            await withCodex(`#!/bin/sh\necho "codex-cli ${CODEX_BINARY_VERSION}"\n`, async () => {
+                expect((await prober().probe(name)).probe?.detail).not.toContain('codex');
+            });
+        });
+
+        it('does not look on a host that is not isolated', async () => {
+            const name = await registerHost({ codeRoot: join(base, 'clone') });
+
+            await withCodex(undefined, async () => {
+                expect((await prober().probe(name)).probe?.detail).not.toContain('codex');
+            });
+        });
     });
 
     it('reports a host whose claude would not be signed in for an engine Wilson starts', async () => {
