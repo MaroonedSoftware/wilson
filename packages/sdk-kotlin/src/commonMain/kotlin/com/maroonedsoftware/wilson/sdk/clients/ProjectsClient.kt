@@ -34,7 +34,7 @@ class ProjectsClient(private val http: SdkHttp) {
      * unauthenticated read surface on purpose; echoing them back from a write would reverse that
      * quietly, for a caller that already has them. `ProjectsService.create` is where the path
      * validation and the duplicate-name refusal live.
-     * @throws SdkError on 400, 409, 502
+     * @throws SdkError on 400, 409, 503
      */
     suspend fun registerProject(body: CreateProjectRequest): Project {
         val response = http.execute(HttpMethod.Post) {
@@ -81,7 +81,7 @@ class ProjectsClient(private val http: SdkHttp) {
      * List repositories
      * The repositories a project can be registered from, by `owner/name`.
      * Path segment, not a project, as for `/api/projects/directories`.
-     * @throws SdkError on 502
+     * @throws SdkError on 503
      */
     suspend fun listRepositories(): RepositoryListing {
         val response = http.execute(HttpMethod.Get) {

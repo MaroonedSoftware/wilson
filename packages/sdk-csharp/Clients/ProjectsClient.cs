@@ -45,7 +45,7 @@ public sealed class ProjectsClient(SdkHttp http)
     /// quietly, for a caller that already has them. `ProjectsService.create` is where the path
     /// validation and the duplicate-name refusal live.
     /// </summary>
-    /// <exception cref="SdkException">On 400, 409, 502.</exception>
+    /// <exception cref="SdkException">On 400, 409, 503.</exception>
     public async Task<Project> RegisterProjectAsync(CreateProjectRequest body, CancellationToken cancellationToken = default)
     {
         var response = await http.ExecuteAsync(
@@ -98,7 +98,7 @@ public sealed class ProjectsClient(SdkHttp http)
     /// The repositories a project can be registered from, by `owner/name`.
     /// Path segment, not a project, as for `/api/projects/directories`.
     /// </summary>
-    /// <exception cref="SdkException">On 502.</exception>
+    /// <exception cref="SdkException">On 503.</exception>
     public async Task<RepositoryListing> ListRepositoriesAsync(CancellationToken cancellationToken = default)
     {
         var response = await http.ExecuteAsync(

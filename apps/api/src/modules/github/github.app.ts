@@ -150,6 +150,6 @@ export class GitHubApp {
 
     /** A status only, never the body or a token: this surfaces in chat answers and logs. */
     private async ensureOk(response: Response, doing: string): Promise<void> {
-        if (!response.ok) throw httpError(502).withDetails({ reason: `GitHub answered ${response.status} ${doing}` });
+        if (!response.ok) throw httpError(503).withDetails({ reason: `GitHub answered ${response.status} ${doing}` });
     }
 }

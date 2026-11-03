@@ -78,7 +78,7 @@ export class GitHubCloner {
         } catch (err) {
             await rm(partial, { recursive: true, force: true });
             const stderr = (err as { stderr?: string }).stderr?.trim().split('\n').pop();
-            throw httpError(502).withDetails({ reason: `could not clone ${repository}: ${stderr || (err as Error).message}` });
+            throw httpError(503).withDetails({ reason: `could not clone ${repository}: ${stderr || (err as Error).message}` });
         }
     }
 

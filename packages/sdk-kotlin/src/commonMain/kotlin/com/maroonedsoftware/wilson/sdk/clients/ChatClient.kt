@@ -73,8 +73,9 @@ class ChatClient(private val http: SdkHttp) {
     /**
      * Send a chat message
      * Runs one turn and answers once it is stored. A turn that cannot run (no API key for the engine's
-     * provider, say) answers 502 with the reason, and the person's message is kept.
-     * @throws SdkError on 400, 404, 502
+     * provider, say) answers 503 with the reason, and the person's message is kept. Not 502: Cloudflare
+     * replaces an origin's 502 with its own page, and the reason goes with it.
+     * @throws SdkError on 400, 404, 503
      */
     suspend fun sendAChatMessage(id: String, body: SendChatMessageRequest): ChatTurnResult {
         val response = http.execute(HttpMethod.Post) {

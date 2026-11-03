@@ -153,7 +153,7 @@ operation /api/projects: {
             # the client.
             409:
             # GitHub or git failed while cloning `repository`.
-            502:
+            503:
         }
     }
 }
@@ -228,7 +228,7 @@ operation /api/projects/repositories: {
                 application/json: RepositoryListing
             }
             # GitHub could not be reached or refused the app.
-            502:
+            503:
         }
     }
 }

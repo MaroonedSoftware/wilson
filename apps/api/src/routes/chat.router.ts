@@ -107,7 +107,8 @@ ChatRouter.post('/api/chat/threads/:id/archive', requirePolicy({ policy: 'wilson
 
 /**
  * Runs one turn and answers once it is stored. A turn that cannot run (no API key for the engine's
- * provider, say) answers 502 with the reason, and the person's message is kept.
+ * provider, say) answers 503 with the reason, and the person's message is kept. Not 502: Cloudflare
+ * replaces an origin's 502 with its own page, and the reason goes with it.
  * from [chat.ck](../../data/contracts/chat.ck) `POST /api/chat/threads/{id}/messages`
  */
 ChatRouter.post('/api/chat/threads/:id/messages', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
