@@ -626,9 +626,11 @@ plan beside a chat panel and streams the agent's output as it writes.
   around it. When a quote can no longer be located after a revision, the comment
   surfaces as outdated rather than silently reattaching to the wrong line.
 - **Comments are input, not contract.** On the next turn, open comments are handed
-  to the agent as anchored instructions. The agent revises the plan and marks each
-  addressed. Per decision 4, only the resulting plan text binds downstream stages —
-  the thread is not carried into implementation.
+  to the agent as anchored instructions, and a client can submit them as a turn of
+  their own. A turn that finishes resolves the comments it delivered, so each is sent
+  once; resolved means delivered, not addressed, and reopening one sends it again.
+  Per decision 4, only the resulting plan text binds downstream stages — the thread
+  is not carried into implementation.
 - **Approval is explicit and versioned.** Approving writes a card version and pins the
   card to it. That version, not the live document, is what every downstream stage reads.
 

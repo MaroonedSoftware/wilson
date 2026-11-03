@@ -308,7 +308,20 @@ export class PlanService {
             planFeed.status(this.boardConfig.project, id, chunk);
         }
 
-        return this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+        const reply = await this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+
+        // A comment is sent once. Only those this prompt carried, so one added while the agent was
+        // working still reaches the next turn, and only when the engine finished, so a failed turn
+        // sends them again. This means delivered, not addressed: the person judges that from the
+        // revised draft, and `reopenComment` is the way back.
+        if (agent.lastTurnSucceeded) {
+            await this.planComments.resolveAll(
+                id,
+                openComments.map(comment => comment.id),
+            );
+        }
+
+        return reply;
     }
 
     /**

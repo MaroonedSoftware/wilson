@@ -517,7 +517,8 @@ public sealed record PlanDraft
 /// nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
 /// surrounding window — never a resolved position: the draft is rewritten whole on every planning
 /// turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
-/// comment moves through, not a delete — a comment the agent addressed stays on record.
+/// comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+/// agent, and it stays on record either way.
 /// </summary>
 public sealed record PlanComment
 {
