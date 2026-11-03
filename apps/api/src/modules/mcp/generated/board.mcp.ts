@@ -75,6 +75,7 @@ const GetAPlanDraftArgs = z.object({ id: z.string() });
 const AddAPlanCommentArgs = z.object({ id: z.string(), body: CreatePlanCommentRequest });
 const ListPlanCommentsArgs = z.object({ id: z.string() });
 const ResolveAPlanCommentArgs = z.object({ id: z.string(), commentId: z.string() });
+const ReopenAPlanCommentArgs = z.object({ id: z.string(), commentId: z.string() });
 const ListCardEventsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
 const ListProjectActivityArgs = z.object({ query: ActivityQuery.optional() });
 const GetCardUsageArgs = z.object({ id: z.string() });
@@ -624,6 +625,30 @@ export class ResolveAPlanCommentMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `POST /api/cards/{id}/plan/comments/{commentId}/reopen`
+ */
+@Injectable()
+export class ReopenAPlanCommentMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'reopen_a_plan_comment',
+        description:
+            'Puts a resolved comment back to open, so the next turn delivers it again: the way back when a\nrevision missed the point. The same 404 as resolving.',
+        inputSchema: z.toJSONSchema(ReopenAPlanCommentArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(PlanComment, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, commentId } = await parseAndValidate(args, ReopenAPlanCommentArgs);
+        const result = await container.get(PlanService).reopenComment(id, commentId);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/events`
  */
 @Injectable()
@@ -817,6 +842,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('add_a_plan_comment', container.get(AddAPlanCommentMcpTool));
     map.set('list_plan_comments', container.get(ListPlanCommentsMcpTool));
     map.set('resolve_a_plan_comment', container.get(ResolveAPlanCommentMcpTool));
+    map.set('reopen_a_plan_comment', container.get(ReopenAPlanCommentMcpTool));
     map.set('list_card_events', container.get(ListCardEventsMcpTool));
     map.set('list_project_activity', container.get(ListProjectActivityMcpTool));
     map.set('get_card_usage', container.get(GetCardUsageMcpTool));
@@ -851,6 +877,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(AddAPlanCommentMcpTool).useClass(AddAPlanCommentMcpTool).asSingleton();
     registry.register(ListPlanCommentsMcpTool).useClass(ListPlanCommentsMcpTool).asSingleton();
     registry.register(ResolveAPlanCommentMcpTool).useClass(ResolveAPlanCommentMcpTool).asSingleton();
+    registry.register(ReopenAPlanCommentMcpTool).useClass(ReopenAPlanCommentMcpTool).asSingleton();
     registry.register(ListCardEventsMcpTool).useClass(ListCardEventsMcpTool).asSingleton();
     registry.register(ListProjectActivityMcpTool).useClass(ListProjectActivityMcpTool).asSingleton();
     registry.register(GetCardUsageMcpTool).useClass(GetCardUsageMcpTool).asSingleton();

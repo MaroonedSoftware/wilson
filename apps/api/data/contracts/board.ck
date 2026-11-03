@@ -1085,6 +1085,25 @@ operation /api/cards/{id}/plan/comments/{commentId}/resolve: {
     }
 }
 
+# Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+# revision missed the point. The same 404 as resolving.
+operation /api/cards/{id}/plan/comments/{commentId}/reopen: {
+    params: {
+        id: string
+        commentId: string
+    }
+    post: {
+        name: Reopen a plan comment
+        service: PlanService.reopenComment
+        response: {
+            200: {
+                application/json: PlanComment
+            }
+            404:
+        }
+    }
+}
+
 operation /api/cards/{id}/events: {
     params: {
         id: string

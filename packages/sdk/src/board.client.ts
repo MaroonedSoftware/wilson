@@ -406,6 +406,18 @@ export class BoardClient {
         return revivePlanComment(await parseJson<PlanComment>(result));
     }
 
+    /**
+     * @name Reopen a plan comment
+     * @description Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+     * revision missed the point. The same 404 as resolving.
+     */
+    async reopenAPlanComment(id: string, commentId: string): Promise<PlanComment> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/comments/${encodeURIComponent(commentId)}/reopen`, {
+            method: 'POST',
+        });
+        return revivePlanComment(await parseJson<PlanComment>(result));
+    }
+
     /** @name List card events */
     async listCardEvents(id: string, query?: ListQuery): Promise<CardEvent[]> {
         const qs = buildQueryString(query);

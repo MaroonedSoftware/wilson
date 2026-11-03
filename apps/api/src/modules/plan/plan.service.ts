@@ -174,6 +174,17 @@ export class PlanService {
     }
 
     /**
+     * Put a resolved comment back to open, so the next turn delivers it again. The same `404`s as
+     * `resolveComment`.
+     */
+    async reopenComment(id: string, commentId: string): Promise<PlanComment> {
+        await this.readOrThrow(id);
+        const reopened = await this.planComments.reopen(id, commentId);
+        if (!reopened) throw httpError(404);
+        return toGeneratedComment(reopened);
+    }
+
+    /**
      * One turn of the conversation the daemon can now hold for a card in `planning`, instead of
      * that conversation existing only inside an operator's terminal. Appends the user's turn, hands
      * it to the registry's live session (rehydrating it from `wilson.plan_turns`'s last

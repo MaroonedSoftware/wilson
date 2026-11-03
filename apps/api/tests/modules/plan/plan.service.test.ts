@@ -819,6 +819,25 @@ describe('PlanService', () => {
             expect(list.find(c => c.id !== first.id)?.resolved).toBe(false);
         });
 
+        it('reopenComment puts a resolved comment back to open', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0033', { stage: 'planning' }), 'seed');
+            const comment = await service.addComment('0033', { quote: 'a', prefix: '', suffix: '', text: 'one' });
+            await service.resolveComment('0033', comment.id);
+
+            const reopened = await service.reopenComment('0033', comment.id);
+
+            expect(reopened.resolved).toBe(false);
+            expect((await service.comments('0033'))[0]!.resolved).toBe(false);
+        });
+
+        it('reopenComment 404s for a comment id that does not exist', async () => {
+            const { board, service } = await freshEnv();
+            await board.create(card('0034', { stage: 'planning' }), 'seed');
+
+            await expect(service.reopenComment('0034', '999999999')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
         it('resolveComment 404s for a comment id that does not exist', async () => {
             const { board, service } = await freshEnv();
             await board.create(card('0032', { stage: 'planning' }, FULL_BODY), 'seed');

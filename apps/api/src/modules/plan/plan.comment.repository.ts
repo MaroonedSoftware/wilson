@@ -98,6 +98,19 @@ export class PlanCommentRepository {
         return row ? toPlanComment(row) : undefined;
     }
 
+    /** Put a resolved comment back to open. `undefined` as for {@link PlanCommentRepository.resolve}. */
+    async reopen(cardId: string, id: string): Promise<PlanComment | undefined> {
+        const row = await this.db
+            .updateTable('wilson.planComments')
+            .set({ resolved: false })
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .where('id', '=', BigInt(id))
+            .returningAll()
+            .executeTakeFirst();
+        return row ? toPlanComment(row) : undefined;
+    }
+
     /** Mark every one of `ids` resolved at once: the comments a finished turn delivered. */
     async resolveAll(cardId: string, ids: string[]): Promise<void> {
         if (ids.length === 0) return;

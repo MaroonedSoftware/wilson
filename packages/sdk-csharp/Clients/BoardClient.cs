@@ -463,6 +463,21 @@ public sealed class BoardClient(SdkHttp http)
         return http.ReadJson<PlanComment>(response);
     }
 
+    /// <summary>
+    /// Reopen a plan comment
+    /// Puts a resolved comment back to open, so the next turn delivers it again: the way back when a
+    /// revision missed the point. The same 404 as resolving.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<PlanComment> ReopenAPlanCommentAsync(string id, string commentId, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "plan", "comments", http.Segment(commentId), "reopen"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<PlanComment>(response);
+    }
+
     /// <summary>List card events</summary>
     public async Task<List<CardEvent>> ListCardEventsAsync(string id, ListQuery? query = null, CancellationToken cancellationToken = default)
     {
