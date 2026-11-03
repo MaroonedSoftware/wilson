@@ -3,6 +3,7 @@ import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { parseAttachmentId, type AttachmentImageType } from '#modules/context/attachment.bytes.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
     AnswerChatQuestionsRequest,
@@ -15,12 +16,13 @@ import type {
     RenameChatThreadRequest,
     SendChatMessageRequest,
 } from '#src/generated/chat.js';
+import { ChatAttachmentRepository, type StoredChatAttachment, type StoredChatAttachmentWithBytes } from './chat.attachment.repository.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 import { publishChat, toStreamEvent } from './chat.feed.js';
 import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
 import { describeAnswers, validateAnswers, type QuestionAnswer } from './chat.questions.js';
 import { splitSuggestions } from './chat.suggestions.js';
-import type { ChatEngine } from './chat.engine.js';
+import type { ChatEngine, ChatImage, ChatTurnHistory } from './chat.engine.js';
 import type { ChatEngineChoice } from './chat.engine.setting.js';
 import { ChatMessageRepository, type ChatMessage } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
@@ -31,6 +33,33 @@ import { toWireAction, toWireMessage, toWireQuestion, toWireThread } from './cha
 
 /** A thread's title until its first message names it. */
 export const NEW_THREAD_TITLE = 'New chat';
+
+/** A thread's title when its first message is only images. */
+export const IMAGE_THREAD_TITLE = 'Image';
+
+/** The most images one message can carry. */
+export const MAX_IMAGES_PER_MESSAGE = 5;
+
+/**
+ * How many image-bearing messages the 'api' engine resends the images of, newest first. It replays
+ * the thread every turn, so without a limit a long thread's every message would cost all of them.
+ */
+export const REPLAYED_IMAGE_MESSAGES = 3;
+
+const toImage = (attachment: StoredChatAttachmentWithBytes): ChatImage => ({
+    // `ChatAttachmentService.upload` only ever stores what `sniffImageType` returned.
+    contentType: attachment.contentType as AttachmentImageType,
+    bytes: attachment.bytes,
+});
+
+const groupByMessage = <T extends StoredChatAttachment>(attachments: T[]): Map<number, T[]> => {
+    const grouped = new Map<number, T[]>();
+    for (const attachment of attachments) {
+        const seq = attachment.messageSeq!;
+        grouped.set(seq, [...(grouped.get(seq) ?? []), attachment]);
+    }
+    return grouped;
+};
 
 const TITLE_LENGTH = 60;
 
@@ -98,6 +127,7 @@ export class ChatService {
         private readonly logger: Logger,
         private readonly threads: ChatThreadRepository,
         private readonly messages: ChatMessageRepository,
+        private readonly attachments: ChatAttachmentRepository,
         private readonly actions: ChatPendingActionRepository,
         private readonly questions: ChatQuestionRepository,
         private readonly catalog: ChatCatalog,
@@ -118,10 +148,16 @@ export class ChatService {
 
     async getThread(id: string): Promise<ChatThreadDetail> {
         const thread = await this.threadOrThrow(id);
-        const [messages, actions, questions] = await Promise.all([this.messages.since(id), this.actions.forThread(id), this.questions.forThread(id)]);
+        const [messages, attachments, actions, questions] = await Promise.all([
+            this.messages.since(id),
+            this.attachments.listClaimed(id),
+            this.actions.forThread(id),
+            this.questions.forThread(id),
+        ]);
+        const byMessage = groupByMessage(attachments);
         return {
             thread: toWireThread(thread),
-            messages: messages.map(toWireMessage),
+            messages: messages.map(message => toWireMessage(message, byMessage.get(message.seq))),
             actions: actions.map(toWireAction),
             questions: questions.map(toWireQuestion),
         };
@@ -141,9 +177,16 @@ export class ChatService {
         return toWireThread(thread);
     }
 
-    async sendMessage(id: string, { text, project }: SendChatMessageRequest): Promise<ChatTurnResult> {
+    async sendMessage(id: string, { text, project, attachments = [] }: SendChatMessageRequest): Promise<ChatTurnResult> {
         const said = text.trim();
-        if (!said) throw httpError(400).withDetails({ reason: 'a message needs some text' });
+        const attachmentIds = [...new Set(attachments)];
+        if (!said && attachmentIds.length === 0) throw httpError(400).withDetails({ reason: 'a message needs some text or an image' });
+        if (attachmentIds.length > MAX_IMAGES_PER_MESSAGE) {
+            throw httpError(400).withDetails({ reason: `a message can carry at most ${MAX_IMAGES_PER_MESSAGE} images` });
+        }
+        if (attachmentIds.some(attachmentId => !parseAttachmentId(attachmentId))) {
+            throw httpError(400).withDetails({ reason: 'an attachment id on this message is not one' });
+        }
         await this.threadOrThrow(id);
         const session = this.session();
 
@@ -152,15 +195,20 @@ export class ChatService {
             message => this.logger.info(message),
             async () => {
                 const thread = await this.threadOrThrow(id);
+                // Checked here, inside the lock, because a message this one waited for may have used them.
+                const uploads = await this.attachments.readUnclaimed(id, attachmentIds);
+                if (uploads.length !== attachmentIds.length) {
+                    throw httpError(400).withDetails({ reason: 'an image on this message was already sent, or is not in this thread' });
+                }
                 // An ordinary message supersedes whatever the agent was still waiting to hear back on.
                 await this.questions.dismissPending(id);
                 const history = await this.messages.since(id);
-                if (history.length === 0 && thread.title === NEW_THREAD_TITLE) await this.threads.rename(id, titleFrom(said));
-                const message = await this.messages.append(id, { role: 'user', content: said });
+                if (history.length === 0 && thread.title === NEW_THREAD_TITLE) await this.threads.rename(id, titleFrom(said) || IMAGE_THREAD_TITLE);
+                const message = await this.messages.append(id, { role: 'user', content: said, attachmentIds });
 
-                const { reply, proposed, asked } = await this.answer(thread, history, said, session, project);
+                const { reply, proposed, asked } = await this.answer(thread, history, said, session, project, { images: uploads.map(toImage) });
                 return {
-                    message: toWireMessage(message),
+                    message: toWireMessage(message, uploads),
                     reply: toWireMessage(reply!),
                     proposed: proposed.map(toWireAction),
                     asked: asked.map(toWireQuestion),
@@ -284,7 +332,7 @@ export class ChatService {
         text: string,
         session: AuthenticationSession,
         project?: string,
-        { followUp = false }: { followUp?: boolean } = {},
+        { followUp = false, images }: { followUp?: boolean; images?: ChatImage[] } = {},
     ): Promise<{ reply?: ChatMessage; proposed: PendingAction[]; asked: PendingQuestion[] }> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
@@ -311,8 +359,9 @@ export class ChatService {
         try {
             output = await engine.turn({
                 thread,
-                history,
+                history: await this.withImages(thread, history),
                 text,
+                images,
                 system: chatSystemPrompt({ projects, currentProject: project }),
                 tools: chatTools(this.catalog, context),
                 provider,
@@ -347,6 +396,26 @@ export class ChatService {
         });
         publishChat(thread.id, { event: 'done', data: { seq: reply.seq } });
         return { reply, proposed: context.proposed, asked: context.asked };
+    }
+
+    /**
+     * The thread's messages as an engine takes them: each says how many images it carried, and on the
+     * engine that replays, the most recent {@link REPLAYED_IMAGE_MESSAGES} that have any bring their
+     * bytes. The 'cli' engine resumes a session that already holds them.
+     */
+    private async withImages(thread: ChatThread, history: ChatMessage[]): Promise<ChatTurnHistory[]> {
+        const seen = new Set(history.map(message => message.seq));
+        const carried = (await this.attachments.listClaimed(thread.id)).filter(attachment => seen.has(attachment.messageSeq!));
+        if (carried.length === 0) return history;
+
+        const counts = groupByMessage(carried);
+        const replayed = thread.engine === 'api' ? [...counts.keys()].sort((a, b) => a - b).slice(-REPLAYED_IMAGE_MESSAGES) : [];
+        const bytes = groupByMessage(await this.attachments.readForMessages(thread.id, replayed));
+        return history.map(message => ({
+            ...message,
+            imageCount: counts.get(message.seq)?.length ?? 0,
+            images: bytes.get(message.seq)?.map(toImage),
+        }));
     }
 
     private whyUndecidable(action: PendingAction): string {

@@ -48,6 +48,18 @@ contract ChatOperation: {
     ok: boolean
 }
 
+# An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+# `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+# the uploader declared.
+contract ChatAttachment: {
+    id: string
+    filename: string
+    contentType: string
+    byteSize: int
+    contentHash: string
+    createdAt: datetime
+}
+
 contract ChatMessage: {
     seq: int
     role: enum(user, assistant)
@@ -57,6 +69,8 @@ contract ChatMessage: {
     createdAt: datetime
     # What the answer offers to ask next, left out when it offers nothing.
     suggestions?: array(string)
+    # The images a person sent with this message, left out when there are none.
+    attachments?: array(ChatAttachment)
 }
 
 # A change the agent proposed. `pending` until the person decides it; `running` while its operation
@@ -128,27 +142,19 @@ contract RenameChatThreadRequest: {
     title: string
 }
 
-# An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
-# `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
-# the uploader declared.
-contract ChatAttachment: {
-    id: string
-    filename: string
-    contentType: string
-    byteSize: int
-    contentHash: string
-    createdAt: datetime
-}
-
 # Documentation, not validation, as `AttachImageUpload` is.
 contract AttachChatImageUpload: {
     file: binary
 }
 
 contract SendChatMessageRequest: {
+    # May be empty when `attachments` is not.
     text: string
     # The project of the page the person is on, if any: the agent assumes it unless told otherwise.
     project?: string
+    # Ids from `POST .../attachments`, each usable once, at most five. A send that fails after the
+    # message was stored has used them, so a retry uploads again.
+    attachments?: array(string)
 }
 
 # What one turn produced: the person's message as stored, the agent's answer, and any changes the

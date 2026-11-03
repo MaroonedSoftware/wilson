@@ -65,6 +65,7 @@ export const ChatModule: ServerKitModule = {
                     container.get(Logger),
                     container.get(ChatThreadRepository),
                     container.get(ChatMessageRepository),
+                    container.get(ChatAttachmentRepository),
                     container.get(ChatPendingActionRepository),
                     container.get(ChatQuestionRepository),
                     container.get(ChatCatalog),

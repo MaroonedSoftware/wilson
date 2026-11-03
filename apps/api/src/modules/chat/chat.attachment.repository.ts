@@ -83,6 +83,33 @@ export class ChatAttachmentRepository {
         return row ? { ...toStored(row), bytes: row.bytes } : undefined;
     }
 
+    /** Uploads in this thread that no message has claimed, with their bytes, oldest first. An id that is neither is simply absent. */
+    async readUnclaimed(threadId: string, ids: string[]): Promise<StoredChatAttachmentWithBytes[]> {
+        if (ids.length === 0) return [];
+        const rows = await this.db
+            .selectFrom('wilson.chatAttachments')
+            .select([...METADATA_COLUMNS, 'bytes'])
+            .where('threadId', '=', BigInt(threadId))
+            .where('messageSeq', 'is', null)
+            .where('id', 'in', ids.map(BigInt))
+            .orderBy('id')
+            .execute();
+        return rows.map(row => ({ ...toStored(row), bytes: row.bytes }));
+    }
+
+    /** The images these messages carry, with their bytes, oldest first: what an engine that replays is given. */
+    async readForMessages(threadId: string, seqs: number[]): Promise<StoredChatAttachmentWithBytes[]> {
+        if (seqs.length === 0) return [];
+        const rows = await this.db
+            .selectFrom('wilson.chatAttachments')
+            .select([...METADATA_COLUMNS, 'bytes'])
+            .where('threadId', '=', BigInt(threadId))
+            .where('messageSeq', 'in', seqs)
+            .orderBy('id')
+            .execute();
+        return rows.map(row => ({ ...toStored(row), bytes: row.bytes }));
+    }
+
     /** Remove uploads no message claimed within {@link UNCLAIMED_ATTACHMENT_HOURS}, in any thread; how many went. */
     async sweepUnclaimed(now: DateTime = DateTime.now()): Promise<number> {
         const result = await this.db

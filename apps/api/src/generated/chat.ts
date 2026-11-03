@@ -37,6 +37,22 @@ export const ChatOperation = z.strictObject({
 export type ChatOperation = z.infer<typeof ChatOperation>;
 
 /**
+ * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
+ * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
+ * the uploader declared.
+ * generated from [ChatAttachment](../../data/contracts/chat.ck)
+ */
+export const ChatAttachment = z.strictObject({
+    id: z.string(),
+    filename: z.string(),
+    contentType: z.string(),
+    byteSize: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    contentHash: z.string(),
+    createdAt: _ZodDatetime,
+});
+export type ChatAttachment = z.infer<typeof ChatAttachment>;
+
+/**
  * A change the agent proposed. `pending` until the person decides it; `running` while its operation
  * runs; then `done` with its `result` or `failed` with its `error`. `declined` when the person said no.
  * A pending action past `expiresAt` can no longer be confirmed.
@@ -88,22 +104,6 @@ export const RenameChatThreadRequest = z.strictObject({
 export type RenameChatThreadRequest = z.infer<typeof RenameChatThreadRequest>;
 
 /**
- * An image sent in a chat. Metadata only, like `CardAttachment` and for its reason: the bytes come from
- * `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the bytes, never the one
- * the uploader declared.
- * generated from [ChatAttachment](../../data/contracts/chat.ck)
- */
-export const ChatAttachment = z.strictObject({
-    id: z.string(),
-    filename: z.string(),
-    contentType: z.string(),
-    byteSize: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
-    contentHash: z.string(),
-    createdAt: _ZodDatetime,
-});
-export type ChatAttachment = z.infer<typeof ChatAttachment>;
-
-/**
  * Documentation, not validation, as `AttachImageUpload` is.
  * generated from [AttachChatImageUpload](../../data/contracts/chat.ck)
  */
@@ -116,8 +116,14 @@ export type AttachChatImageUpload = z.infer<typeof AttachChatImageUpload>;
  * generated from [SendChatMessageRequest](../../data/contracts/chat.ck)
  */
 export const SendChatMessageRequest = z.strictObject({
-    text: z.string(),
+    text: z.string().describe('May be empty when `attachments` is not.'),
     project: z.string().optional().describe('The project of the page the person is on, if any: the agent assumes it unless told otherwise.'),
+    attachments: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Ids from `POST .../attachments`, each usable once, at most five. A send that fails after the\nmessage was stored has used them, so a retry uploads again.',
+        ),
 });
 export type SendChatMessageRequest = z.infer<typeof SendChatMessageRequest>;
 
@@ -139,6 +145,7 @@ export const ChatMessage = z.strictObject({
     operations: z.array(ChatOperation),
     createdAt: _ZodDatetime,
     suggestions: z.array(z.string()).optional().describe('What the answer offers to ask next, left out when it offers nothing.'),
+    attachments: z.array(ChatAttachment).optional().describe('The images a person sent with this message, left out when there are none.'),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 

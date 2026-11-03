@@ -4,6 +4,8 @@ import type {
     ChatPendingQuestion as WirePendingQuestion,
     ChatThread as WireChatThread,
 } from '#src/generated/chat.js';
+import { toWireAttachment } from './chat.attachment.service.js';
+import type { StoredChatAttachment } from './chat.attachment.repository.js';
 import type { ChatMessage } from './chat.message.repository.js';
 import type { PendingAction } from './chat.pending.action.repository.js';
 import type { PendingQuestion } from './chat.question.repository.js';
@@ -19,7 +21,7 @@ export const toWireThread = (thread: ChatThread): WireChatThread => ({
     ...(thread.archivedAt ? { archivedAt: thread.archivedAt } : {}),
 });
 
-export const toWireMessage = (message: ChatMessage): WireChatMessage => ({
+export const toWireMessage = (message: ChatMessage, attachments: StoredChatAttachment[] = []): WireChatMessage => ({
     seq: message.seq,
     role: message.role,
     content: message.content,
@@ -29,6 +31,7 @@ export const toWireMessage = (message: ChatMessage): WireChatMessage => ({
     })),
     createdAt: message.createdAt,
     ...(message.suggestions.length > 0 ? { suggestions: message.suggestions } : {}),
+    ...(attachments.length > 0 ? { attachments: attachments.map(toWireAttachment) } : {}),
 });
 
 export const toWireAction = (action: PendingAction): WirePendingAction => ({
