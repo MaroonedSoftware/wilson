@@ -617,8 +617,8 @@ export function CardDetailView({
                                 <AnchorLink to="/projects/$project/cards/$cardId" params={{ project, cardId: piece.id }} size="sm">
                                     {piece.id}
                                 </AnchorLink>
-                                <Badge size="xs" variant="light" color={piece.stage === 'merged' ? 'green' : 'gray'}>
-                                    {piece.stage}
+                                <Badge size="xs" variant="light" color={(piece.doneReason ?? piece.stage) === 'merged' ? 'green' : 'gray'}>
+                                    {piece.doneReason ?? piece.stage}
                                 </Badge>
                                 <Text size="sm">{piece.title}</Text>
                             </Group>

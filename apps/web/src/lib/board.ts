@@ -6,6 +6,18 @@ import type { CardActivity } from './feed.js';
 /** The column cards wait in before anyone promotes them. Not a stage — dispatch excludes it. */
 export const PARKING_LOT = 'parking-lot';
 
+/** The lane a card ends in, whatever way it ended. `doneReason` says which. */
+export const DONE = 'done';
+
+/** The ways of ending a `done` column can be narrowed to, in the order it offers them. */
+export const DONE_REASONS = ['merged', 'poisoned', 'dropped', 'split'] as const;
+
+/** A column's cards, narrowed to one way of ending. No reason means all of them. */
+export const withDoneReason = (cards: CardSummary[], reason: string | undefined): CardSummary[] =>
+    reason === undefined ? cards : cards.filter(card => card.doneReason === reason);
+
+const merged = (card: Pick<CardSummary, 'stage' | 'doneReason'>): boolean => (card.doneReason ?? card.stage) === 'merged';
+
 /**
  * The columns to render, left to right: the parking lot, then the configured stages in the order
  * they run, then the terminal states.
@@ -72,7 +84,7 @@ export const unfinishedDeps = (card: CardSummary, cards: CardSummary[]): string[
     const isFinished = (id: string): boolean => {
         const dep = byId.get(id);
         if (dep === undefined) return false;
-        if (dep.stage === 'merged') return true;
+        if (merged(dep)) return true;
         const pieces = cards.filter(c => c.splitFrom === id);
         return pieces.length > 0 && pieces.every(piece => isFinished(piece.id));
     };
@@ -89,7 +101,7 @@ export interface SplitProgress {
 export const splitProgress = (card: CardSummary, cards: CardSummary[]): SplitProgress | undefined => {
     const pieces = cards.filter(c => c.splitFrom === card.id);
     if (pieces.length === 0) return undefined;
-    return { merged: pieces.filter(piece => piece.stage === 'merged').length, total: pieces.length };
+    return { merged: pieces.filter(merged).length, total: pieces.length };
 };
 
 export const stagesById = (cards: CardSummary[]): Map<string, string> => new Map(cards.map(card => [card.id, card.stage]));
@@ -106,8 +118,8 @@ export const stagesById = (cards: CardSummary[]): Map<string, string> => new Map
 export const cardState = (card: CardSummary): CardState | undefined => {
     if (card.needsHuman) return 'needs-human';
     if (card.stage === PARKING_LOT) return 'parked';
-    if (card.stage === 'poisoned') return 'poisoned';
-    if (card.stage === 'merged') return 'passed';
+    if ((card.doneReason ?? card.stage) === 'poisoned') return 'poisoned';
+    if (merged(card)) return 'passed';
     return undefined;
 };
 
