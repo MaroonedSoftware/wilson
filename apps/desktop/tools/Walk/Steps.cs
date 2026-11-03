@@ -1265,6 +1265,46 @@ internal static class Steps
             "the image drawn from the API",
             () => chat.Entries.OfType<UserEntry>().LastOrDefault()?.Images is [{ Picture: not null }]);
         walk.Shot("13d-chat-image-sent");
+
+        var seen = chat.Id;
+        chat.Composer = "What colour was the image I just sent? Answer in one word.";
+        chat.SendCommand.Execute(null);
+        await walk.UntilAsync("a follow-up going", () => chat.Sending);
+        await walk.UntilAsync("a follow-up answered", () => chat.Idle, 120);
+        var remembered = chat.Entries.OfType<AnswerEntry>().Last().Text;
+        Console.WriteLine($"     chat images: follow-up answer '{remembered}', error: {chat.Error}");
+        await walk.UntilAsync("the next turn still knowing the image", () => remembered.Contains("red", StringComparison.OrdinalIgnoreCase));
+
+        home.NewChat();
+        await home.AnsweredAsync();
+        home.Open(home.Threads.First(thread => thread.Id == seen));
+        var reopened = home.Chat!;
+        await walk.UntilAsync(
+            "the image still there on reopening the thread",
+            () => reopened.Id == seen && reopened.Entries.OfType<UserEntry>().FirstOrDefault()?.Images is [{ Picture: not null }]);
+
+        home.NewChat();
+        var alone = home.Chat!;
+        alone.AddImage("alone.png", SolidPng(200, 120, 0x00, 0x00, 0xFF));
+        alone.SendCommand.Execute(null);
+        await walk.UntilAsync("an image alone going", () => alone.Sending);
+        await walk.UntilAsync("an image alone answered", () => alone.Idle, 120);
+        await walk.UntilAsync(
+            "an image alone, drawn with no empty bubble",
+            () => alone.Error is null && alone.Entries.OfType<UserEntry>().FirstOrDefault() is { HasText: false, Images: [{ Picture: not null }] });
+        await walk.UntilAsync("that chat named for it", () => home.Threads.Any(thread => thread.Current && thread.Title == "Image"));
+        walk.Shot("13e-chat-image-alone");
+
+        // The thread going out from under it is a real refusal at the first upload, without needing a broken server.
+        Walker.Query($"delete from wilson.chat_threads where id = {alone.Id}");
+        alone.Composer = "This will not arrive.";
+        alone.AddImage("retry.png", SolidPng(200, 120, 0xFF, 0xFF, 0x00));
+        alone.SendCommand.Execute(null);
+        await walk.UntilAsync("a failed send going", () => alone.Sending);
+        await walk.UntilAsync(
+            "a failed send putting the words and the image back",
+            () => alone.Idle && alone.Composer == "This will not arrive." && alone.Pending.Count == 1 && alone.Error is not null);
+        Console.WriteLine($"     chat images: failed send said '{alone.Error}'");
     }
 
     /// <summary>A PNG of one colour, written the way a picture from the clipboard is.</summary>
