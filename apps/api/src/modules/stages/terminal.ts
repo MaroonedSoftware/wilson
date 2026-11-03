@@ -20,3 +20,6 @@ export const isTerminal = (stage: string): boolean => TERMINAL_STATES.has(stage)
 
 /** Why a card in `stage` is finished, or undefined when it is not. */
 export const doneReasonFor = (stage: string): DoneReason | undefined => (isTerminal(stage) ? (stage as DoneReason) : undefined);
+
+/** Whether a card's work landed: the one way of ending that satisfies a card depending on it. */
+export const hasMerged = (card: { stage: string; doneReason?: string }): boolean => (card.doneReason ?? doneReasonFor(card.stage)) === 'merged';

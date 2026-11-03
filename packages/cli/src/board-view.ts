@@ -25,7 +25,7 @@ export const unsatisfiedDependencies = (card: CardSummary, cards: CardSummary[])
     const isFinished = (id: string): boolean => {
         const dep = byId.get(id);
         if (dep === undefined) return false;
-        if (dep.stage === 'merged') return true;
+        if ((dep.doneReason ?? dep.stage) === 'merged') return true;
         const pieces = cards.filter(c => c.splitFrom === id);
         return pieces.length > 0 && pieces.every(piece => isFinished(piece.id));
     };
@@ -56,7 +56,7 @@ export const deadDependencies = (card: CardSummary, cards: CardSummary[], nonSta
     const byId = new Map(cards.map(c => [c.id, c]));
     const isDead = (id: string): boolean => {
         const dep = byId.get(id);
-        if (dep === undefined || !dead.has(dep.stage)) return false;
+        if (dep === undefined || !dead.has(dep.doneReason ?? dep.stage)) return false;
         const pieces = cards.filter(c => c.splitFrom === id);
         return pieces.length === 0 || pieces.some(piece => isDead(piece.id));
     };
@@ -68,8 +68,10 @@ export const deadDependencies = (card: CardSummary, cards: CardSummary[], nonSta
  * annotated with its stage (`0085 (dropped — will never merge)`) when `deadDependencies` says it
  * cannot. Shared by `list.command.ts` and `next.command.ts` so the two printers read the same way.
  */
-export const describeDependency = (id: string, cards: CardSummary[], dead: string[]): string =>
-    dead.includes(id) ? `${id} (${cards.find(c => c.id === id)?.stage} — will never merge)` : id;
+export const describeDependency = (id: string, cards: CardSummary[], dead: string[]): string => {
+    const dep = cards.find(c => c.id === id);
+    return dead.includes(id) ? `${id} (${dep?.doneReason ?? dep?.stage} — will never merge)` : id;
+};
 
 export interface Blocked {
     card: CardSummary;

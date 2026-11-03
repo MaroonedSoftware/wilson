@@ -106,7 +106,7 @@ const command: CommandModule<ShowOpts> = {
 
         const pieces = card.pieces ?? [];
         if (pieces.length > 0) {
-            const merged = pieces.filter(piece => piece.stage === 'merged').length;
+            const merged = pieces.filter(piece => (piece.doneReason ?? piece.stage) === 'merged').length;
             ctx.logger.info(`\npieces (${merged}/${pieces.length} merged):`);
             for (const piece of pieces) ctx.logger.info(`  ${piece.id}  ${piece.stage}  ${piece.title}`);
         }

@@ -1,5 +1,6 @@
 import { NON_STAGE_STATES } from '#modules/stages/stage.config.js';
 import type { Card } from './card.js';
+import { hasMerged } from '#modules/stages/terminal.js';
 
 export interface Blocked {
     card: Card;
@@ -44,7 +45,7 @@ export const unsatisfiedDependencies = (card: Card, cards: Card[]): string[] => 
     const isFinished = (id: string): boolean => {
         const dep = byId.get(id);
         if (dep === undefined) return false;
-        if (dep.frontmatter.stage === 'merged') return true;
+        if (hasMerged(dep.frontmatter)) return true;
         const pieces = cards.filter(c => c.frontmatter.splitFrom === id);
         return pieces.length > 0 && pieces.every(piece => isFinished(piece.frontmatter.id));
     };
