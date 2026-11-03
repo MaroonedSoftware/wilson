@@ -59,10 +59,48 @@ export interface LaneConfig {
  * stored as though someone had chosen them. Text outside a stage, comments included, has no column:
  * it stays in `wilson.stage_configs`.
  */
-export const lanesFromDocument = (yaml: string, routing: ReadonlyMap<string, StageRouting>, source: string): LaneConfig => {
-    const document = applyRouting(parseYaml(yaml), routing);
+export const lanesFromDocument = (yaml: string, routing: ReadonlyMap<string, StageRouting>, source: string): LaneConfig =>
+    lanesFromRaw(applyRouting(parseYaml(yaml), routing), source);
+
+type RawStage = Record<string, unknown>;
+
+/**
+ * `challenge` as a step of `review` rather than a lane of its own. Its instructions, budgets and
+ * commands move over as they are; its routing does not, because a step runs on its lane's. A project
+ * with no `review` lane keeps it as it is.
+ */
+const foldChallenge = (stages: RawStage[]): RawStage[] => {
+    const challenge = stages.find(stage => stage.name === 'challenge');
+    if (!challenge || !stages.some(stage => stage.name === 'review')) return stages;
+
+    const { name: _name, onPass, onFail, adapter: _adapter, provider: _provider, model: _model, maxKickbacks: _maxKickbacks, ...fields } = challenge;
+    return stages
+        .filter(stage => stage !== challenge)
+        .map(stage => {
+            if (stage.name !== 'review') {
+                return {
+                    ...stage,
+                    onPass: stage.onPass === 'challenge' ? 'review' : stage.onPass,
+                    onFail: stage.onFail === 'challenge' ? 'review' : stage.onFail,
+                };
+            }
+            return {
+                ...stage,
+                onPass: stage.onPass === 'challenge' ? onPass : stage.onPass,
+                onFail: stage.onFail === 'challenge' ? onFail : stage.onFail,
+                steps: [...((stage.steps as RawStage[] | undefined) ?? []), { name: 'challenge', on: 'revise', ...fields }],
+            };
+        });
+};
+
+/** Lanes that used to be stages of their own, each with the lane a card sitting in one moves to. */
+export const FOLDED_LANES: Readonly<Record<string, string>> = { challenge: 'review' };
+
+/** The rows for an already-read config, with old shapes brought up to date first. */
+export const lanesFromRaw = (raw: unknown, source: string): LaneConfig => {
+    const stages = foldChallenge((raw as { stages: RawStage[] }).stages);
+    const document = { ...(raw as object), stages };
     const { scopeViolation, alwaysAllowed, deny, sandbox } = validateStages(document, source);
-    const { stages } = document as { stages: Record<string, unknown>[] };
 
     return {
         lanes: stages.map((stage, position) => {

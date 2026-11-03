@@ -224,6 +224,140 @@ describe('lane tables', () => {
         expect(added[0]).toMatchObject({ lane: 'implementing', message: 'try openai' });
     });
 
+    describe('folding challenge into review', () => {
+        const WITH_CHALLENGE = `
+stages:
+  - name: review
+    mode: agent
+    model: claude-opus-5-5
+    worktree: readonly
+    onPass: ready
+    onFail: challenge
+    instructions: Find what is wrong.
+  - name: challenge
+    mode: agent
+    model: claude-haiku
+    worktree: readonly
+    worktreeFrom: branch
+    placement: any
+    maxSteps: 100
+    allowedCommands:
+      - git diff
+    setupCommand: pnpm install --frozen-lockfile
+    onPass: ready
+    onFail: implementing
+    maxKickbacks: 3
+    instructions: |
+      Refute it.
+
+        Keep this indent, and this trailing space: 
+  - name: ready
+    mode: manual
+    onPass: merged
+    onFail: implementing
+    instructions: Wait.
+  - name: implementing
+    mode: agent
+    model: claude-opus-5-5
+    onPass: review
+    onFail: implementing
+    instructions: Build it.
+`;
+        const seed = () => db.insertInto('wilson.stageConfigs').values({ project, yaml: WITH_CHALLENGE, message: 'test' }).execute();
+
+        it('makes it a step on the lane, instructions byte for byte, and routes around it', async () => {
+            await seed();
+            await store.importLanes();
+
+            const stages = await store.load();
+            expect(stages.stages.map(stage => stage.name)).toEqual(['review', 'ready', 'implementing']);
+            const review = findStage(stages, 'review');
+            expect(review).toMatchObject({ onPass: 'ready', onFail: 'implementing' });
+
+            const { stages: raw } = parseYaml(WITH_CHALLENGE) as { stages: { name: string; instructions: string }[] };
+            const challenge = findStage(stages, 'review', 'challenge');
+            expect(challenge.instructions).toBe(raw.find(stage => stage.name === 'challenge')!.instructions);
+            expect(challenge).toMatchObject({
+                maxSteps: 100,
+                placement: 'any',
+                worktreeFrom: 'branch',
+                allowedCommands: ['git diff'],
+                onFail: 'implementing',
+            });
+            // It runs on the lane's routing, not the one the old lane had.
+            expect(challenge.model).toBe('claude-opus-5-5');
+        });
+
+        it('moves a card sitting in the old lane to the new one, recording it, and does nothing the second time', async () => {
+            await seed();
+            await db.insertInto('wilson.cards').values({ project, id: '0001', title: 't', stage: 'challenge', body: '', retries: '{}' }).execute();
+
+            await store.importLanes();
+            const after = await db.selectFrom('wilson.cards').select('stage').where('project', '=', project).executeTakeFirstOrThrow();
+            expect(after.stage).toBe('review');
+            const transitions = () =>
+                db
+                    .selectFrom('wilson.cardEvents')
+                    .select('payload')
+                    .where('project', '=', project)
+                    .where('type', '=', 'transition.written')
+                    .execute();
+            expect(await transitions()).toHaveLength(1);
+
+            const before = await revisions();
+            await store.importLanes();
+            expect(await revisions()).toEqual(before);
+            expect(await transitions()).toHaveLength(1);
+        });
+
+        it('folds lanes an earlier import already wrote', async () => {
+            await seedLive();
+            await store.importLanes();
+            await db
+                .insertInto('wilson.lanes')
+                .values([
+                    {
+                        project,
+                        name: 'review',
+                        position: 90,
+                        mode: 'agent',
+                        worktree: 'readonly',
+                        onPass: 'done',
+                        onFail: 'challenge',
+                        model: 'x',
+                        instructions: 'r',
+                    },
+                    {
+                        project,
+                        name: 'challenge',
+                        position: 91,
+                        mode: 'agent',
+                        worktree: 'readonly',
+                        onPass: 'done',
+                        onFail: 'implementing',
+                        model: 'x',
+                        instructions: 'c',
+                    },
+                ])
+                .execute();
+
+            await store.importLanes();
+
+            expect(findStage(await store.load(), 'review', 'challenge').instructions).toBe('c');
+            expect((await lanes()).some(lane => lane.name === 'challenge')).toBe(false);
+        });
+
+        it('leaves a challenge lane alone in a project with no review lane', async () => {
+            await seedStageConfig(
+                db,
+                project,
+                'stages:\n  - name: challenge\n    mode: agent\n    model: x\n    instructions: c\n    onPass: merged\n    onFail: challenge\n',
+            );
+
+            expect((await lanes()).map(lane => lane.name)).toEqual(['challenge']);
+        });
+    });
+
     describe('patchLane', () => {
         beforeEach(async () => {
             await seedLive();

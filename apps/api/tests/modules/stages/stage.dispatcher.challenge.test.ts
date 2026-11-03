@@ -47,17 +47,13 @@ stages:
     model: claude-opus
     instructions: review it
     worktreeFrom: branch
-    onPass: merged
-    onFail: challenge
-    maxKickbacks: 3
-  - name: challenge
-    mode: agent
-    model: claude-opus
-    instructions: challenge it
-    worktreeFrom: branch
     onPass: ready
     onFail: implementing
     maxKickbacks: 3
+    steps:
+      - name: challenge
+        on: revise
+        instructions: challenge it
   - name: implementing
     mode: agent
     model: claude-opus
@@ -84,8 +80,8 @@ stages:
  * accounting rule (card 0237's Constraints) work together end to end, not just that each checks out
  * in isolation.
  */
-describe("StageDispatcher runs review -> challenge -> ready when every blocker is refuted (card 0237's AC8)", () => {
-    it('ends with the card in ready, its body carrying only the concern', async () => {
+describe("StageDispatcher runs review, then its challenge step, then ready when every blocker is refuted (card 0237's AC8)", () => {
+    const dispatcherWith = async (challengeResult: unknown) => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-challenge-'));
         const codeRoot = join(base, 'code');
         await mkdir(join(codeRoot, 'src'), { recursive: true });
@@ -123,7 +119,7 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
         const agents = new StageAgentMap();
         agents.set('api', {
             run: async (input): Promise<AgentRunOutput> => {
-                if (input.stage.name === 'review') {
+                if (input.stage.name === 'review' && !input.stage.step) {
                     return {
                         result: {
                             summary: 'found a blocker and a concern',
@@ -151,26 +147,8 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
                         truncated: false,
                     };
                 }
-                if (input.stage.name === 'challenge') {
-                    return {
-                        result: {
-                            summary: 'refuted the blocker, left the concern',
-                            verdict: 'pass',
-                            findings: [
-                                {
-                                    severity: 'concern',
-                                    kind: 'defect',
-                                    file: 'src/changed.ts',
-                                    line: 3,
-                                    problem: CONCERN_PROBLEM,
-                                    suggestion: 'rename it',
-                                },
-                            ],
-                            refuted: [{ problem: BLOCKER_PROBLEM, reason: 'the bound is inclusive on purpose, per the plan' }],
-                        },
-                        usage: { inputTokens: 5 },
-                        truncated: false,
-                    };
+                if (input.stage.step === 'challenge') {
+                    return { result: challengeResult, usage: { inputTokens: 5 }, truncated: false };
                 }
                 throw new Error(`MARKER: unexpected stage dispatched in this test: ${input.stage.name}`);
             },
@@ -198,16 +176,38 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
             silentLogger as never,
         );
 
+        return { dispatcher, board };
+    };
+
+    const concern = {
+        severity: 'concern',
+        kind: 'defect',
+        file: 'src/changed.ts',
+        line: 3,
+        problem: CONCERN_PROBLEM,
+        suggestion: 'rename it',
+    };
+
+    it('ends with the card in ready, its body carrying only the concern', async () => {
+        const { dispatcher, board } = await dispatcherWith({
+            summary: 'refuted the blocker, left the concern',
+            verdict: 'pass',
+            findings: [concern],
+            refuted: [{ problem: BLOCKER_PROBLEM, reason: 'the bound is inclusive on purpose' }],
+        });
+
         const reviewOutcome = await dispatcher.run('0001', 'review');
         expect(reviewOutcome.passed).toBe(true);
-        expect(reviewOutcome.transitionedTo).toBe('challenge');
+        expect(reviewOutcome.transitionedTo).toBe('review');
+        expect(reviewOutcome.nextStep).toBe('challenge');
 
+        // The card stays in the lane, and nothing is written into the plan until the step has spoken.
         const afterReview = await board.read('0001');
-        expect(afterReview.frontmatter.stage).toBe('challenge');
-        expect(afterReview.body).toContain(BLOCKER_PROBLEM);
-        expect(afterReview.body).toContain(CONCERN_PROBLEM);
+        expect(afterReview.frontmatter.stage).toBe('review');
+        expect(afterReview.frontmatter.retries).toEqual({});
+        expect(afterReview.body).not.toContain(BLOCKER_PROBLEM);
 
-        const challengeOutcome = await dispatcher.run('0001', 'challenge');
+        const challengeOutcome = await dispatcher.run('0001', 'review', undefined, 'challenge');
         expect(challengeOutcome.passed).toBe(true);
         expect(challengeOutcome.failures).toEqual([]);
         expect(challengeOutcome.transitionedTo).toBe('ready');
@@ -217,5 +217,32 @@ describe("StageDispatcher runs review -> challenge -> ready when every blocker i
         expect(afterChallenge.body).toContain('## Review findings');
         expect(afterChallenge.body).toContain(CONCERN_PROBLEM);
         expect(afterChallenge.body).not.toContain(BLOCKER_PROBLEM);
+    });
+
+    it("kicks back with the upheld blocker, spending one of review's kickbacks, when the step upholds it", async () => {
+        const blocker = { ...concern, severity: 'blocker', line: 2, problem: BLOCKER_PROBLEM, suggestion: 'fix the bound' };
+        const { dispatcher, board } = await dispatcherWith({ summary: 'it stands', verdict: 'revise', findings: [blocker, concern], refuted: [] });
+
+        await dispatcher.run('0001', 'review');
+        const outcome = await dispatcher.run('0001', 'review', undefined, 'challenge');
+
+        expect(outcome.transitionedTo).toBe('implementing');
+        expect(outcome.nextStep).toBeUndefined();
+        const after = await board.read('0001');
+        expect(after.frontmatter.stage).toBe('implementing');
+        expect(after.frontmatter.retries).toEqual({ review: 1 });
+        expect(after.body).toContain(BLOCKER_PROBLEM);
+    });
+
+    it('runs the step again, not the lane, when its report cannot be stood behind', async () => {
+        const { dispatcher, board } = await dispatcherWith({ summary: 'dropped the blocker', verdict: 'pass', findings: [concern], refuted: [] });
+
+        await dispatcher.run('0001', 'review');
+        const outcome = await dispatcher.run('0001', 'review', undefined, 'challenge');
+
+        expect(outcome.passed).toBe(false);
+        expect(outcome.transitionedTo).toBe('review');
+        expect(outcome.nextStep).toBe('challenge');
+        expect((await board.read('0001')).frontmatter.stage).toBe('review');
     });
 });

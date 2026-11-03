@@ -752,11 +752,13 @@ export class StageDispatcher {
         // the catch would append a `stage.failed` event after a `stage.passed` one for the same
         // run, leaving the card's history contradicting itself about what the stage did.
         let transitionedTo: string | undefined;
+        let nextStep: string | undefined;
         let needsHuman = false;
         let splitInto: string[] | undefined;
         try {
             const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
             transitionedTo = transition.target;
+            nextStep = transition.nextStep;
             needsHuman = transition.needsHuman;
             splitInto = transition.splitInto;
         } catch (err) {
@@ -771,7 +773,7 @@ export class StageDispatcher {
             // silent failure here is how a card sits untouched forever.
             throw err;
         }
-        return { ...outcome, transitionedTo, needsHuman, ...(splitInto && { splitInto }) };
+        return { ...outcome, transitionedTo, ...(nextStep && { nextStep }), needsHuman, ...(splitInto && { splitInto }) };
     }
 
     /**
@@ -790,7 +792,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target?: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -802,9 +804,17 @@ export class StageDispatcher {
         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
         // is frozen at approval — a retry count read from it would forget every attempt made since,
         // and a flag read from it would look unset even after the card was flagged post-approval.
-        let decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
-            ? { target: stage.onPass, retries: head.frontmatter.retries }
-            : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        //
+        // A `revise` the lane has a step for is not a kickback yet: the step tests it first, in a fresh
+        // context, and the card stays put until the step has spoken. Not for a card whose ticket closed
+        // mid-run, which the halt below deals with.
+        const revised = !stage.step && outcome.passed && !shouldAdvance(outcome.passed, outcome.result);
+        const reviseStep = revised && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'revise') : undefined;
+        let decision: KickbackDecision = reviseStep
+            ? { target: stageName, retries: head.frontmatter.retries }
+            : shouldAdvance(outcome.passed, outcome.result)
+              ? { target: stage.onPass, retries: head.frontmatter.retries }
+              : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
         decision = { ...decision, target: endingOf(decision.target) };
 
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
@@ -820,11 +830,15 @@ export class StageDispatcher {
         // a hallucinated file, an out-of-range line, or a verdict contradicting its severities can all
         // still carry findings, and writing those into the body would hand the next retry a rejected
         // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
-        const findings = outcome.passed ? findingsFrom(outcome.result) : undefined;
+        // Nor a `revise` still waiting on its step: the step's report is the one that counts.
+        const findings = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
         // Same "only a passed outcome's data is trustworthy" reasoning as `findings` above: criteria
         // from a result the verifier rejected are not evidence either.
-        const criteria = outcome.passed ? criteriaFrom(outcome.result) : undefined;
+        const criteria = outcome.passed && !reviseStep ? criteriaFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
+        // A step sent round again (a report it could not stand behind, an engine cut off) is that step
+        // again, not the lane's own run.
+        const nextStep = needsHuman ? undefined : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
         // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
@@ -902,6 +916,7 @@ export class StageDispatcher {
                         retries: decision.retries,
                         by: 'runner',
                         ...(needsHuman ? { needsHuman: true } : {}),
+                        ...(nextStep ? { step: nextStep } : {}),
                     },
                 },
                 { repinIf: () => advancesPin },
@@ -962,7 +977,7 @@ export class StageDispatcher {
             });
         }
 
-        return { target: decision.target, needsHuman: needsHuman !== undefined };
+        return { target: decision.target, ...(nextStep && { nextStep }), needsHuman: needsHuman !== undefined };
     }
 
     /**

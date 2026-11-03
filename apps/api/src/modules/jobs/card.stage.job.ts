@@ -116,7 +116,9 @@ export class CardStageJob extends Job<CardStagePayload> {
         }
 
         const stages = await this.stageConfigs.load();
-        const decision = decideChain(outcome.transitionedTo, stages, { needsHuman: outcome.needsHuman });
+        const decision = outcome.nextStep
+            ? { continue: true as const }
+            : decideChain(outcome.transitionedTo, stages, { needsHuman: outcome.needsHuman });
 
         if (decision.continue) {
             // Hand the claim straight to the next job rather than clearing and re-recording: the card
@@ -143,7 +145,12 @@ export class CardStageJob extends Job<CardStagePayload> {
             // the daemon's configured one mid-chain.
             let jobId: string;
             try {
-                jobId = await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo, project: this.board.project });
+                jobId = await this.broker.send('card.stage', {
+                    cardId,
+                    stageName: outcome.transitionedTo,
+                    ...(outcome.nextStep ? { step: outcome.nextStep } : {}),
+                    project: this.board.project,
+                });
             } catch (error) {
                 await this.events.append({
                     project: this.board.project,

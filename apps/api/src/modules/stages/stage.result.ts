@@ -231,6 +231,8 @@ export interface SupportedRefusal {
 }
 
 export interface StageOutcome {
+    /** A step of the lane the card stays in to run next, with `transitionedTo` naming that lane. */
+    nextStep?: string;
     passed: boolean;
     /** Why the exit condition failed, in the order the checks ran. */
     failures: string[];

@@ -260,6 +260,17 @@ describe('CardStageJob', () => {
         );
     });
 
+    it('hands a step on to the next job, whatever the lane is, and runs the step it is given', async () => {
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'review', nextStep: 'challenge' }));
+
+        await job.run({ cardId: '0001', stageName: 'review' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0001', stageName: 'review', step: 'challenge', project: 'test' });
+
+        dispatcher.run.mockResolvedValue(outcome({ transitionedTo: undefined }));
+        await job.run({ cardId: '0001', stageName: 'review', step: 'challenge' });
+        expect(dispatcher.run).toHaveBeenLastCalledWith('0001', 'review', undefined, 'challenge');
+    });
+
     it('runs the requested stage through the dispatcher with the card id and stage name given', async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: undefined }));
 

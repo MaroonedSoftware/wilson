@@ -16,7 +16,9 @@ import {
 } from './stage.config.js';
 import {
     documentFromLanes,
+    FOLDED_LANES,
     lanesFromDocument,
+    lanesFromRaw,
     patchLane,
     type Lane,
     type LaneConfig,
@@ -141,6 +143,11 @@ export class PostgresStageConfigStore extends StageConfigStore {
             .executeTakeFirst();
         if (!document) return;
 
+        await this.importDocument(document);
+        await this.foldLanes();
+    }
+
+    private async importDocument(document: { id: string | number | bigint; yaml: string }): Promise<void> {
         const id = BigInt(document.id);
         const imported = await this.db
             .selectFrom('wilson.projectLaneSettings')
@@ -151,6 +158,50 @@ export class PostgresStageConfigStore extends StageConfigStore {
 
         const config = lanesFromDocument(document.yaml, routingByStage(await this.currentRouting()), `stage config ${id}`);
         await this.db.transaction().execute(trx => this.writeLanes(trx, config, id, `Imported from stage config ${id}`));
+    }
+
+    /**
+     * Bring lanes an earlier import wrote up to date with today's shape, and move any card sitting in a
+     * lane that no longer exists to the one that took its place. Does nothing once that is true.
+     */
+    private async foldLanes(): Promise<void> {
+        const project = this.config.project;
+        await this.db.transaction().execute(async trx => {
+            const lanes = await trx.selectFrom('wilson.lanes').selectAll().where('project', '=', project).forUpdate().execute();
+            const settings = await trx.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirst();
+            if (!settings) return;
+
+            const config = lanesFromRaw(
+                documentFromLanes({ lanes: lanes.map(toLane), project: toProjectSettings(settings) }),
+                `the lanes of project "${project}"`,
+            );
+            await this.writeLanes(trx, config, BigInt(settings.importedConfigId), 'Folded into a step of its lane');
+
+            for (const [from, to] of Object.entries(FOLDED_LANES)) {
+                if (config.lanes.some(lane => lane.name === from) || !config.lanes.some(lane => lane.name === to)) continue;
+                const moved = await trx
+                    .updateTable('wilson.cards')
+                    .set({ stage: to })
+                    .where('project', '=', project)
+                    .where('stage', '=', from)
+                    .returning('id')
+                    .execute();
+                if (moved.length > 0) {
+                    await trx
+                        .insertInto('wilson.cardEvents')
+                        .values(
+                            moved.map(({ id }) => ({
+                                project,
+                                cardId: id,
+                                stage: from,
+                                type: 'transition.written',
+                                payload: JSON.stringify({ from, to, by: 'runner', reason: `${from} is now part of ${to}` }),
+                            })),
+                        )
+                        .execute();
+                }
+            }
+        });
     }
 
     async seedLanes(config: LaneConfig, message: string): Promise<void> {

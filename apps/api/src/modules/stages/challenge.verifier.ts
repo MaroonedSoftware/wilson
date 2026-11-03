@@ -62,12 +62,6 @@ const normalize = (text: string): string => text.trim().replace(/\s+/g, ' ').toL
  * An incoming review with no criteria — `ReviewResultSchema.criteria` defaults to `[]` for a plan
  * without acceptance criteria bullets — leaves the criteria accounting off entirely, the same way
  * `ReviewVerifier`'s own plan-criteria check turns itself off in that case.
- *
- * One known limitation, left for a later card:
- *
- * - Review's own `maxKickbacks`-th `revise` flags the card for a human before `onFail` is consulted
- *   (`kickback.ts`), so that last round never reaches `challenge` — the blockers and unmet criteria on
- *   it are never refuted or resolved, however weak they might be.
  */
 @Injectable()
 export class ChallengeVerifier implements StageVerifier {
@@ -210,15 +204,10 @@ export class ChallengeVerifier implements StageVerifier {
         const rows = await this.events.tail(this.config.project, cardId);
         for (let i = rows.length - 1; i >= 0; i--) {
             const row = rows[i]!;
-            if (row.stage !== 'review') continue;
-            // `StageDispatcher.writeTransition` stamps `transition.written` with `stage: stageName`
-            // — the stage that just ran, i.e. `'review'` — and appends it *after* that run's own
-            // `stage.passed`/`stage.failed` event. On a card that actually just kicked back from
-            // review, that transition record is therefore the most recent `'review'`-tagged row,
-            // ahead of the outcome event this scan is looking for. Skipped rather than treated as
-            // "not stage.passed", so the scan reaches the real outcome underneath it instead of
-            // reporting "nothing to challenge" on every single kickback.
-            if (row.type === 'transition.written') continue;
+            // This step runs in the review lane, so its own tool calls and earlier reports carry that
+            // stage too. Only the lane's own outcome is what is being challenged.
+            if (row.stage !== 'review' || (row.payload as { step?: unknown }).step !== undefined) continue;
+            if (row.type !== 'stage.passed' && row.type !== 'stage.failed') continue;
             if (row.type !== 'stage.passed') return undefined;
             const parsed = ReviewResultSchema.safeParse((row.payload as { result?: unknown }).result);
             if (!parsed.success || parsed.data.verdict !== 'revise') return undefined;
