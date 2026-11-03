@@ -1,5 +1,12 @@
 # @wilson/desktop
 
+## 0.8.1
+
+### Patch Changes
+
+- bab17d5: The chat box now selects with Ctrl+Shift+A, E, B, F, N and P, the selecting forms of the Ctrl shortcuts it already took.
+- 9f8083f: Say the server could not be reached when a proxy answers 502, 503 or 504 with no reason of its own, instead of only naming the status.
+
 ## 0.8.0
 
 ### Minor Changes
