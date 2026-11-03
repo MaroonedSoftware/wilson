@@ -905,7 +905,6 @@ function SettingsRoute() {
 
             <Paper withBorder p="md" radius="sm">
                 <Stack gap="sm">
-                    <Title order={4}>Accounts</Title>
                     <AccountsControl />
                     <Title order={5}>This server's own sign-in</Title>
                     <MachineSignInControl />
