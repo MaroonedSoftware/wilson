@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { assertRoutable, StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage } from '#modules/stages/stage.config.js';
+import { assertRoutable, StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage, parseStages } from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
@@ -293,5 +293,77 @@ describe('assertRoutable codex', () => {
 
     it('refuses the planning session', () => {
         expect(() => assertRoutable('planning', codex, true)).toThrow(/planning session always runs Claude/);
+    });
+});
+
+describe('findStage with a step', () => {
+    const stages = parseStages(`
+stages:
+  - name: review
+    mode: agent
+    model: claude-opus
+    worktree: readonly
+    maxSteps: 150
+    maxIdleMs: 200000
+    allowedCommands: [git diff]
+    instructions: find what is wrong
+    onPass: ready
+    onFail: implementing
+    steps:
+      - name: challenge
+        on: revise
+        maxSteps: 100
+        instructions: try to refute it
+  - name: ready
+    mode: manual
+    instructions: wait
+    onPass: merged
+    onFail: review
+  - name: implementing
+    mode: agent
+    model: claude-opus
+    instructions: build it
+    onPass: review
+    onFail: implementing
+`);
+
+    it("overlays the step, keeping the lane's routes, model and anything it does not name", () => {
+        expect(findStage(stages, 'review', 'challenge')).toMatchObject({
+            name: 'review',
+            step: 'challenge',
+            verifier: 'challenge',
+            instructions: 'try to refute it',
+            maxSteps: 100,
+            model: 'claude-opus',
+            onPass: 'ready',
+            onFail: 'implementing',
+            worktree: 'readonly',
+            allowedCommands: ['git diff'],
+        });
+    });
+
+    it('runs as an agent on a manual lane unless it says otherwise', () => {
+        const manual = parseStages(`
+stages:
+  - name: planning
+    mode: manual
+    model: claude-opus
+    worktree: none
+    instructions: talk it through
+    onPass: merged
+    onFail: planning
+    steps:
+      - name: scope-check
+        on: approve
+        worktree: readonly
+        instructions: judge it
+`);
+        expect(findStage(manual, 'planning', 'scope-check')).toMatchObject({ mode: 'agent', worktree: 'readonly' });
+    });
+
+    it('leaves the lane itself untouched, and says stage-not-found for no such step', () => {
+        expect(findStage(stages, 'review')).toMatchObject({ instructions: 'find what is wrong', maxSteps: 150, verifier: 'review' });
+        expect(findStage(stages, 'review').step).toBeUndefined();
+        expect(() => findStage(stages, 'review', 'nope')).toThrow(/no step named "nope"/);
     });
 });

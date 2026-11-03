@@ -5,6 +5,12 @@ import { editBody } from '../card/editor.js';
 
 interface InstructionsOpts {
     message?: string;
+    step?: string;
+}
+
+interface Step {
+    name: string;
+    instructions: string;
 }
 
 /**
@@ -15,7 +21,10 @@ interface InstructionsOpts {
 const command: CommandModule<InstructionsOpts> = {
     description: "Edit a lane's instructions in $EDITOR",
     args: [{ name: 'lane', description: 'The lane to edit', required: true }],
-    options: [{ flags: '-m, --message <text>', description: 'What this change is, for the history', type: 'string' }],
+    options: [
+        { flags: '-m, --message <text>', description: 'What this change is, for the history', type: 'string' },
+        { flags: '--step <name>', description: "Edit one of the lane's steps instead", type: 'string' },
+    ],
     run: withApi<InstructionsOpts>(async (opts, ctx, args, api) => {
         const name = String(args[0]);
         const lanes = await api.stages.listLanes();
@@ -25,12 +34,20 @@ const command: CommandModule<InstructionsOpts> = {
             return 1;
         }
 
-        const instructions = await editBody(lane.instructions, `wilson-${name}-instructions`);
+        const steps = ((lane.settings as { steps?: Step[] }).steps ?? []) as Step[];
+        const step = steps.find(candidate => candidate.name === opts.step);
+        if (opts.step !== undefined && !step) {
+            ctx.logger.error(`${name} has no step named "${opts.step}" (have: ${steps.map(candidate => candidate.name).join(', ')})`);
+            return 1;
+        }
+        const current = step?.instructions ?? lane.instructions;
+
+        const instructions = await editBody(current, `wilson-${name}-instructions`);
         if (instructions === undefined) {
             ctx.logger.info('empty instructions — nothing written');
             return 1;
         }
-        if (instructions === lane.instructions) {
+        if (instructions === current) {
             ctx.logger.info('unchanged');
             return 0;
         }

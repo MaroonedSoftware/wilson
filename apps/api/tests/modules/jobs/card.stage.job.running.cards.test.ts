@@ -148,7 +148,7 @@ describe('CardStageJob tracks cards in flight via RunningCards', () => {
     it('hands the dispatcher the tree an interrupted attempt left', async () => {
         await buildJob().run({ cardId: '0042', stageName: 'implementing', interrupted: { baseSha: 'abc' } });
 
-        expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing', { baseSha: 'abc' });
+        expect(dispatcher.run).toHaveBeenCalledWith('0042', 'implementing', { baseSha: 'abc' }, undefined);
     });
 
     it('lets the job fail when an interrupted stage cannot be sent again', async () => {

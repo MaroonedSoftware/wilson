@@ -23,6 +23,38 @@ export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
 const DEFAULT_IDLE_MS = 300_000;
 
 /**
+ * A run inside a lane that is not the lane's own: its own prompt, verifier and budgets, on the lane's
+ * provider, model and routes, with the card staying in the lane throughout. `on` says when it runs:
+ * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan.
+ *
+ * Anything it does not name is the lane's. There are no defaults here, on purpose: a default would
+ * silently replace the value the lane chose.
+ */
+export const LaneStepSchema = z.object({
+    name: z.string(),
+    on: z.enum(['approve', 'revise']),
+    instructions: z.string(),
+    /** Defaults to the step's name. */
+    verifier: z.string().optional(),
+    mode: z.enum(['agent', 'command', 'manual']).optional(),
+    worktree: z.enum(['none', 'readonly', 'rw']).optional(),
+    worktreeFrom: z.enum(['base', 'branch']).optional(),
+    placement: z.enum(['local', 'any', 'remote']).optional(),
+    tools: z.array(z.string()).optional(),
+    allowedCommands: z.array(z.string()).optional(),
+    extraScope: z.array(z.string()).optional(),
+    setupCommand: z.string().optional(),
+    buildCommand: z.string().optional(),
+    maxSteps: z.number().int().min(1).optional(),
+    maxOutputTokens: z.number().int().min(1024).optional(),
+    maxInputTokens: z.number().int().min(1000).optional(),
+    maxWallClockMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).optional(),
+    maxBudgetUsd: z.number().positive().optional(),
+});
+
+export type LaneStep = z.infer<typeof LaneStepSchema>;
+
+/**
  * Whether a lane reaches a model. `planning` is manual, since the queue never dispatches it, but its
  * session runs on the lane's model.
  */
@@ -269,6 +301,10 @@ export const StageConfigSchema = z
          */
         onFail: z.string(),
         maxKickbacks: z.number().int().min(0).default(3),
+        /** Runs inside this lane that are not its own (`LaneStepSchema`). */
+        steps: z.array(LaneStepSchema).optional(),
+        /** Which of `steps` this is, set only by `findStage` when it resolves one. */
+        step: z.string().optional(),
     })
     .superRefine((stage, ctx) => {
         if (runsModel(stage) && !stage.model) {
@@ -517,7 +553,7 @@ export const validTargets = (stages: ProjectStages): string[] => {
     return [...targets].sort();
 };
 
-export const findStage = (stages: ProjectStages, name: string): StageConfig => {
+export const findStage = (stages: ProjectStages, name: string, stepName?: string): StageConfig => {
     const stage = stages.stages.find(s => s.name === name);
     if (!stage) {
         throw new StageConfigError(
@@ -525,7 +561,7 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
             `no stage named "${name}" in the stage config (have: ${stages.stages.map(s => s.name).join(', ')})`,
         );
     }
-    return {
+    const lane: StageConfig = {
         ...stage,
         verifier: stage.verifier ?? stage.name,
         // Card 0260: the stage's own `sandbox` wins when set, otherwise the project-wide default
@@ -534,5 +570,21 @@ export const findStage = (stages: ProjectStages, name: string): StageConfig => {
         // `StageConfig` this function returns, never the `stages: ProjectStages` this call took in.
         sandbox: stage.sandbox ?? stages.sandbox.enabled,
         sandboxAllowedDomains: stages.sandbox.allowedDomains,
+    };
+    if (stepName === undefined) return lane;
+
+    const step = stage.steps?.find(candidate => candidate.name === stepName);
+    if (!step) throw new StageConfigError('stage-not-found', `lane "${name}" has no step named "${stepName}"`);
+
+    const { name: _name, on: _on, ...fields } = step;
+    const maxWallClockMs = fields.maxWallClockMs ?? lane.maxWallClockMs;
+    return {
+        ...lane,
+        ...fields,
+        mode: fields.mode ?? 'agent',
+        step: step.name,
+        verifier: step.verifier ?? step.name,
+        maxWallClockMs,
+        maxIdleMs: Math.min(lane.maxIdleMs, maxWallClockMs),
     };
 };

@@ -275,9 +275,9 @@ export class StageDispatcher {
     ) {}
 
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
-    async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt): Promise<StageOutcome> {
+    async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt, stepName?: string): Promise<StageOutcome> {
         const stages = await this.stageConfigs.load();
-        const stage = findStage(stages, stageName);
+        const stage = findStage(stages, stageName, stepName);
 
         // Two reads answer two different questions about this card, and conflating them was card
         // 0109's bug: `head` is the live row — stage, retries, needsHuman, dependsOn — the runner
@@ -357,7 +357,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'stage.placed',
-            payload: { host: placed.hostName, slot: placed.slotKey },
+            payload: { host: placed.hostName, slot: placed.slotKey, ...(stage.step ? { step: stage.step } : {}) },
         });
         try {
             return await this.runCut({ cardId, stageName, stages, stage, head, card, pinnedSha, boardCards, placement: placed, interrupted });
@@ -696,6 +696,7 @@ export class StageDispatcher {
                 stage: stageName,
                 type: outcome.passed ? 'stage.passed' : 'stage.failed',
                 payload: {
+                    ...(stage.step ? { step: stage.step } : {}),
                     failures: outcome.failures,
                     changedPaths: outcome.changedPaths,
                     grants: outcome.scopeGrants,

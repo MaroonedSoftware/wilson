@@ -23,6 +23,8 @@ import { RunningCards } from './running.cards.js';
 export interface CardStagePayload {
     cardId: string;
     stageName: string;
+    /** A step of the lane to run in place of the lane's own run (`LaneStepSchema`). */
+    step?: string;
     /**
      * Card 0149. Which project's `wilson.projects` row this job dispatches against.
      *
@@ -68,7 +70,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         super();
     }
 
-    async run({ cardId, stageName, project, interrupted }: CardStagePayload): Promise<void> {
+    async run({ cardId, stageName, step, project, interrupted }: CardStagePayload): Promise<void> {
         // Card 0149: see `CardStagePayload.project`'s own doc comment for what a missing `project`
         // means. Read here, before `runAsProject` below opens this job's own scope, so `this.board
         // .project` answers with the daemon's configured project (project.context.ts's fallback for
@@ -77,25 +79,25 @@ export class CardStageJob extends Job<CardStagePayload> {
         const resolvedProject = project ?? this.board.project;
         this.running.add(resolvedProject, cardId);
         try {
-            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName, interrupted));
+            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName, interrupted, step));
         } finally {
             this.running.delete(resolvedProject, cardId);
         }
     }
 
-    private async runStage(cardId: string, stageName: string, interrupted?: InterruptedAttempt): Promise<void> {
+    private async runStage(cardId: string, stageName: string, interrupted?: InterruptedAttempt, step?: string): Promise<void> {
         for (const check of PRE_DISPATCH_CHECKS) {
             if (await check(this.deps(), cardId, stageName, interrupted)) return;
         }
 
         let outcome;
         try {
-            outcome = await this.dispatcher.run(cardId, stageName, interrupted);
+            outcome = await this.dispatcher.run(cardId, stageName, interrupted, step);
         } catch (error) {
             if (error instanceof StageHeldError) {
-                return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.heldUntil));
+                return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.heldUntil), step);
             }
-            if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt);
+            if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt, DRAIN_HOLD, step);
 
             const failure = classifyDispatchFailure(error);
             // The only outcome that does not settle: rethrown so the queue retries under its policy.
@@ -198,8 +200,13 @@ export class CardStageJob extends Job<CardStagePayload> {
         stageName: string,
         interrupted: InterruptedAttempt,
         startAfter: DateTime | typeof DRAIN_HOLD = DRAIN_HOLD,
+        step?: string,
     ): Promise<void> {
-        const jobId = await this.broker.send('card.stage', { cardId, stageName, project: this.board.project, interrupted }, { startAfter });
+        const jobId = await this.broker.send(
+            'card.stage',
+            { cardId, stageName, ...(step ? { step } : {}), project: this.board.project, interrupted },
+            { startAfter },
+        );
         await this.cardJobs.record(cardId, jobId);
     }
 

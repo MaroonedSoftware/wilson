@@ -149,7 +149,7 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
 
         await job.run({ cardId: '0002', stageName: 'implementing' });
 
-        expect(dispatcher.run).toHaveBeenCalledWith('0002', 'implementing', undefined);
+        expect(dispatcher.run).toHaveBeenCalledWith('0002', 'implementing', undefined, undefined);
         const rows = await events.tail(project, '0002', 100);
         expect(rows.map(r => r.type)).not.toContain('dispatch.deferred');
     });
@@ -168,7 +168,7 @@ describe('CardStageJob deferring on a real BoardRepository scope conflict (card 
 
         await job.run({ cardId: '0002', stageName: 'implementing' });
 
-        expect(dispatcher.run).toHaveBeenCalledWith('0002', 'implementing', undefined);
+        expect(dispatcher.run).toHaveBeenCalledWith('0002', 'implementing', undefined, undefined);
         const rows = await events.tail(project, '0002', 100);
         expect(rows.map(r => r.type)).not.toContain('dispatch.deferred');
     });

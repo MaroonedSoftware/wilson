@@ -108,7 +108,7 @@ describe('CardStageJob before the daemon has captured its own commit (card 0100)
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(events.append.mock.calls.map(c => c[0]).filter((e: { type: string }) => e.type === 'daemon.stale')).toEqual([]);
-        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined);
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined, undefined);
     });
 });
 
@@ -204,7 +204,7 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
                 payload: { daemonCommit, baseCommit: fourthSha, behindBy: 2 },
             }),
         ]);
-        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined);
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined, undefined);
     });
 
     it("appends nothing when the daemon is current with the card's base", async () => {
@@ -245,6 +245,6 @@ describe('CardStageJob checks whether the daemon is current before dispatching (
         await job.run({ cardId: '0001', stageName: 'implementing' });
 
         expect(daemonStaleEvents()).toEqual([]);
-        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined);
+        expect(dispatcher.run).toHaveBeenCalledWith('0001', 'implementing', undefined, undefined);
     });
 });

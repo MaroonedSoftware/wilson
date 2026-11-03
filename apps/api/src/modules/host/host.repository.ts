@@ -140,6 +140,7 @@ export class HostRepository {
                 'placed.project',
                 'placed.cardId',
                 'placed.stage',
+                sql<string | null>`placed.payload ->> 'step'`.as('step'),
                 'placed.createdAt as startedAt',
                 'next.type as nextType',
                 'next.createdAt as nextAt',
@@ -153,7 +154,7 @@ export class HostRepository {
         return rows.map(row => ({
             project: row.project,
             cardId: row.cardId,
-            stage: row.stage!,
+            stage: row.step ? `${row.stage!} · ${row.step}` : row.stage!,
             startedAt: row.startedAt,
             ...(row.nextType && { nextType: row.nextType }),
             ...(row.nextAt && { nextAt: row.nextAt }),
