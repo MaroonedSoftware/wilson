@@ -392,8 +392,9 @@ function HostsRoute() {
             <Stack gap={4}>
                 <Title order={2}>Hosts</Title>
                 <Text size="sm" c="dimmed">
-                    Machines a stage with <Code>placement: any</Code> or <Code>placement: remote</Code> can run on, reached over SSH or by a worker that connects in. A host takes a
-                    stage when it is enabled, not draining, serves the card&apos;s project, passed its last probe and will not expire first.
+                    Machines a stage with <Code>placement: any</Code> or <Code>placement: remote</Code> can run on, reached over SSH or by a worker
+                    that connects in. A host takes a stage when it is enabled, not draining, serves the card&apos;s project, passed its last probe and
+                    will not expire first.
                 </Text>
             </Stack>
 
