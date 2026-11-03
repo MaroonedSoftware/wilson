@@ -26,6 +26,8 @@
             <Button Content="Plan" Command="{Binding OpenPlanCommand}" IsVisible="{Binding CanPlan}" />
             <Button Content="Start" Command="{Binding StartCommand}" />
             <Button Content="Approve plan" Command="{Binding ApproveCommand}" />
+            <Button Content="Split as proposed" Command="{Binding SplitCommand}" IsVisible="{Binding CanSplit}" />
+            <TextBlock Text="{Binding PlanCheck}" TextWrapping="Wrap" VerticalAlignment="Center" IsVisible="{Binding PlanCheck, Converter={x:Static ObjectConverters.IsNotNull}}" />
             <Button Content="Merge" Command="{Binding AskMergeCommand}" />
             <Button Content="Release" Command="{Binding AskReleaseCommand}" />
             <ComboBox ItemsSource="{Binding Stages}" SelectedItem="{Binding MoveTo}" PlaceholderText="Move to" MinWidth="140" />

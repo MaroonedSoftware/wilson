@@ -40,6 +40,15 @@ public static class BoardRules
 
     private static bool IsMerged(CardSummary card) => card.DoneReason == CardSummaryDoneReason.Merged || card.Stage == Merged;
 
+    /// <summary>Where an approved plan's scope check has got to, in words, or none when there is no check.</summary>
+    public static string? PlanCheck(CardSummaryPlanCheck? check, string? reason) =>
+        check switch
+        {
+            CardSummaryPlanCheck.Checking => "Checking the plan's scope",
+            CardSummaryPlanCheck.Refused => $"Scope check refused: {reason}",
+            _ => null,
+        };
+
     /// <summary>How a card ended, in words, or none for a card still on the board.</summary>
     public static string? Ended(CardSummary card)
     {

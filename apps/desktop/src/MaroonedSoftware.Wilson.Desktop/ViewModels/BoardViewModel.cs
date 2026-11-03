@@ -18,6 +18,8 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 
     public string? Ended { get; } = BoardRules.Ended(card);
 
+    public string? PlanCheck { get; } = BoardRules.PlanCheck(card.PlanCheck, card.PlanCheckReason);
+
     public string? Flag => flag;
 
     public string? Blocked => blocked;

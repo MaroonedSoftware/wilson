@@ -219,4 +219,12 @@ public class BoardRulesTests
 
         Assert.Empty(BoardRules.UnfinishedDeps(card, [card, dep]));
     }
+
+    [Fact]
+    public void APlanCheckSaysWhereItHasGot()
+    {
+        Assert.Null(BoardRules.PlanCheck(null, null));
+        Assert.Equal("Checking the plan's scope", BoardRules.PlanCheck(CardSummaryPlanCheck.Checking, null));
+        Assert.Equal("Scope check refused: too broad", BoardRules.PlanCheck(CardSummaryPlanCheck.Refused, "too broad"));
+    }
 }
