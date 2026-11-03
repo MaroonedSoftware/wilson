@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
@@ -25,6 +26,7 @@ namespace Walk;
 //
 //     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun|dock]
 //     dotnet run --project tools/Walk -- keychain
+//     dotnet run --project tools/Walk -- signin [<claude>] [<seconds>]
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
 {
@@ -40,6 +42,12 @@ internal static class Program
             return;
         }
 
+        if (args is ["signin", ..])
+        {
+            Environment.ExitCode = SignIn(args.Length > 1 ? args[1] : null, args.Length > 2 ? TimeSpan.FromSeconds(int.Parse(args[2], CultureInfo.InvariantCulture)) : null).GetAwaiter().GetResult();
+            return;
+        }
+
         if (args is ["update", var bundle, var zip, var signature, var publicKey, var version])
         {
             Environment.ExitCode = Update(bundle, zip, signature, publicKey, Version.Parse(version)).GetAwaiter().GetResult();
@@ -51,6 +59,19 @@ internal static class Program
             .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .AfterSetup(_ => Run(args))
             .SetupWithoutStarting();
+    }
+
+    /// <summary>Runs the sign-in and says what came back, printing the token's length and never the token. With no path it makes a real token, which is then thrown away.</summary>
+    private static async Task<int> SignIn(string? claude, TimeSpan? timeout)
+    {
+        var result = await new MacClaudeSignIn(claude, timeout).RunAsync(new InlineProgress(link => Console.WriteLine($"link: {link.Split('?')[0]}")));
+        Console.WriteLine(result.Token is { } token ? $"token: {token[..12]}... {token.Length} characters" : $"failed: {result.Failure}: {result.Advice}");
+        return result.Token is null ? 1 : 0;
+    }
+
+    private sealed class InlineProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
     }
 
     /// <summary>Writes, reads, replaces and deletes one throwaway item in the login Keychain.</summary>
